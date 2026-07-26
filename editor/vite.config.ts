@@ -8,6 +8,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // ne pas surveiller les artefacts cargo (verrouillés pendant le build)
+      ignored: ["**/src-tauri/**"],
+    },
   },
   build: {
     target: "es2021",
