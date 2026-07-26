@@ -13,6 +13,12 @@
 
 #include <snes.h>
 
+/* Table de metatiles courante (4 entrées BG u16 par tile 16x16).
+   Passée par appel de fonction : l'accès indexé direct à un symbole de
+   tableau far est miscompilé par tcc-816 (« FISHY length <> PTR_SIZE »),
+   l'indexation d'un pointeur reçu en argument est fiable. */
+void map_set_metatiles(const u16 *table);
+
 /* Remplit toute la fenêtre depuis la position caméra courante et la
    transfère (8 Ko). À appeler écran éteint, après camera_update(). */
 void map_init(void);

@@ -113,7 +113,7 @@ fn main() -> Result<()> {
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
     // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project)?)?;
+    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &scenes)?)?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -145,14 +145,32 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn gen_assets(proj_dir: &Path, project: &project::Project) -> Result<String> {
+fn gen_assets(proj_dir: &Path, project: &project::Project, scenes: &[project::Scene]) -> Result<String> {
     let tileset = gfx::load_indexed_png(&proj_dir.join(&project.assets.tileset))?;
     let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))?;
 
+    let (charset, metatiles) = tileset.to_metatiles()?;
+    let metatile_count = (metatiles.len() / 4) as u8;
+    for sc in scenes {
+        for row in &sc.tilemap {
+            for &t in row {
+                if t >= metatile_count {
+                    anyhow::bail!(
+                        "scene '{}' : tile {} hors tileset ({} tiles)",
+                        sc.name, t, metatile_count
+                    );
+                }
+            }
+        }
+    }
+
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
-    s.push_str(&emit::u8_array("tileset", &tileset.to_bg_tileset()?, 16, false));
+    s.push_str(&emit::u8_array("tileset", &charset, 16, false));
     s.push_str("\nconst u16 tileset_size = sizeof(tileset);\n\n");
+    s.push_str("/* 4 entrées BG par metatile 16x16 : TL, TR, BL, BR */\n");
+    s.push_str(&emit::u16_array("metatile_defs", &metatiles));
+    s.push('\n');
     s.push_str(&emit::u16_array("tileset_pal", &tileset.palette_n(16)));
     s.push('\n');
     s.push_str(&emit::u8_array("sprite_gfx", &sprites.to_obj_sheet()?, 16, false));

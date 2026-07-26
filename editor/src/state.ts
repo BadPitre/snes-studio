@@ -29,7 +29,7 @@ export function paintCollision(sc: Scene, tx: number, ty: number, solid: boolean
 
 export function placeActor(sc: Scene, tx: number, ty: number): Scene {
   if (sc.actors.some((a) => a.x === tx && a.y === ty)) return sc;
-  const actor: Actor = { type: "npc", x: tx, y: ty, sprite: 4, dir: "down" };
+  const actor: Actor = { type: "npc", x: tx, y: ty, sprite: 8, dir: "down" };
   return { ...sc, actors: [...sc.actors, actor] };
 }
 

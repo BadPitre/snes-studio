@@ -29,6 +29,9 @@
 #define VMAIN_INC32 0x81
 #define DMA_VRAM_CTRL 0x1801
 
+/* Table de metatiles courante (voir map_set_metatiles) */
+static const u16 *mt_table;
+
 /* Coin haut-gauche de la fenêtre, en metatiles */
 static u16 win_x, win_y;
 
@@ -36,10 +39,10 @@ static u16 win_x, win_y;
 static u16 bg_map_buffer[4096];
 
 /* Buffers de streaming, indexés par coordonnée char VRAM absolue (0..63).
-   Une colonne/ligne de metatiles = 2 colonnes/lignes de chars identiques
-   (convention v0) : un seul buffer sert les 2 transferts. */
-static u16 col_buf[64];
-static u16 row_buf[64];
+   Une colonne/ligne de metatiles = 2 colonnes/lignes de chars DISTINCTS
+   (table de metatiles) : un buffer par colonne/ligne de chars. */
+static u16 col_buf[2][64];
+static u16 row_buf[2][64];
 static u8 col_pending, row_pending;
 static u16 col_vram_x; /* colonne char VRAM (paire, 0..62) */
 static u16 row_vram_y; /* ligne char VRAM (paire, 0..62) */
@@ -56,6 +59,11 @@ static u16 map_win_target(u16 cam, u8 map_size)
   if (t > (u16)map_size - WIN_W)
     t = (u16)map_size - WIN_W;
   return t;
+}
+
+void map_set_metatiles(const u16 *table)
+{
+  mt_table = table;
 }
 
 void map_init(void)
@@ -75,14 +83,14 @@ void map_init(void)
     for (mx = 0; mx < WIN_W; mx++)
     {
       amx = win_x + mx;
-      entry = *src++;
+      entry = (u16)(*src++) << 2; /* base dans la table de metatiles */
       for (by = (amy << 1) & 63; by <= ((amy << 1) & 63) + 1; by++)
       {
         for (bx = (amx << 1) & 63; bx <= ((amx << 1) & 63) + 1; bx++)
         {
           screen = (bx >> 5) + ((by >> 5) << 1);
           ofs = (screen << 10) + ((by & 31) << 5) + (bx & 31);
-          bg_map_buffer[ofs] = entry;
+          bg_map_buffer[ofs] = mt_table[entry + ((by & 1) << 1) + (bx & 1)];
         }
       }
     }
@@ -99,9 +107,13 @@ static void map_queue_col(u16 mx)
 
   for (my = 0; my < WIN_H; my++)
   {
+    const u16 *mt = mt_table + ((u16)(*src) << 2);
+
     y = ((win_y + my) << 1) & 63; /* paire : y+1 <= 63 */
-    col_buf[y] = *src;
-    col_buf[y + 1] = *src;
+    col_buf[0][y] = mt[0];     /* TL */
+    col_buf[0][y + 1] = mt[2]; /* BL */
+    col_buf[1][y] = mt[1];     /* TR */
+    col_buf[1][y + 1] = mt[3]; /* BR */
     src += scene_ctx.map_w;
   }
   col_vram_x = (mx << 1) & 63;
@@ -116,9 +128,13 @@ static void map_queue_row(u16 my)
 
   for (mx = 0; mx < WIN_W; mx++)
   {
+    const u16 *mt = mt_table + ((u16)(*src) << 2);
+
     x = ((win_x + mx) << 1) & 63;
-    row_buf[x] = *src;
-    row_buf[x + 1] = *src;
+    row_buf[0][x] = mt[0];     /* TL */
+    row_buf[0][x + 1] = mt[1]; /* TR */
+    row_buf[1][x] = mt[2];     /* BL */
+    row_buf[1][x + 1] = mt[3]; /* BR */
     src++;
   }
   row_vram_y = (my << 1) & 63;
@@ -158,23 +174,23 @@ void map_update(void)
 
 /* Une colonne char : 2 segments verticaux (écran haut : rangées 0-31,
    écran bas : rangées 32-63), incrément VRAM +32 mots */
-static void map_col_dma(u16 bx)
+static void map_col_dma(u16 bx, u16 *buf)
 {
   u16 base = VRAM_BG1_MAP + ((bx >> 5) << 10) + (bx & 31);
 
-  dmaCopyVram7((u8 *)&col_buf[0], base, 32 * 2, VMAIN_INC32, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&col_buf[32], base + (2 << 10), 32 * 2, VMAIN_INC32,
+  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC32, DMA_VRAM_CTRL);
+  dmaCopyVram7((u8 *)&buf[32], base + (2 << 10), 32 * 2, VMAIN_INC32,
                DMA_VRAM_CTRL);
 }
 
 /* Une ligne char : 2 segments horizontaux (écran gauche, écran droit),
    incrément VRAM +1 mot */
-static void map_row_dma(u16 by)
+static void map_row_dma(u16 by, u16 *buf)
 {
   u16 base = VRAM_BG1_MAP + (((by >> 5) << 1) << 10) + ((by & 31) << 5);
 
-  dmaCopyVram7((u8 *)&row_buf[0], base, 32 * 2, VMAIN_INC1, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&row_buf[32], base + (1 << 10), 32 * 2, VMAIN_INC1,
+  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC1, DMA_VRAM_CTRL);
+  dmaCopyVram7((u8 *)&buf[32], base + (1 << 10), 32 * 2, VMAIN_INC1,
                DMA_VRAM_CTRL);
 }
 
@@ -182,14 +198,14 @@ void map_vblank(void)
 {
   if (col_pending)
   {
-    map_col_dma(col_vram_x);
-    map_col_dma(col_vram_x + 1);
+    map_col_dma(col_vram_x, col_buf[0]);
+    map_col_dma(col_vram_x + 1, col_buf[1]);
     col_pending = 0;
   }
   if (row_pending)
   {
-    map_row_dma(row_vram_y);
-    map_row_dma(row_vram_y + 1);
+    map_row_dma(row_vram_y, row_buf[0]);
+    map_row_dma(row_vram_y + 1, row_buf[1]);
     row_pending = 0;
   }
 }

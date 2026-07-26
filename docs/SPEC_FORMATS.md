@@ -20,9 +20,12 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
 
 Écarts/conventions restants, assumés en v0 :
 
-1. **Convention metatile v0 :** la valeur `t` du tilemap est directement l'index du
-   character 8x8 dans le tileset ; le moteur l'affiche répété 2x2 pour couvrir le
-   metatile 16x16. (Évolution prévue : table de metatiles → 4 chars.)
+1. **Metatiles (Phase 5) :** la valeur `t` du tilemap indexe la **table de
+   metatiles** (`metatile_defs`, 4 entrées BG u16 par tile : TL, TR, BL, BR),
+   générée par datagen depuis un tileset source de tiles 16x16 (chars 8x8
+   dédupliqués, max 512). Attention : ne pas nommer un symbole « metatiles »
+   — il entre en collision silencieuse avec un symbole interne de PVSnesLib
+   (maps.asm).
 2. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
    la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
    32x32 sont streamées (voir §4).

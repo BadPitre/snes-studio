@@ -40,11 +40,7 @@ export default function MapCanvas(props: Props) {
       for (let y = 0; y < scene.height; y++) {
         for (let x = 0; x < scene.width; x++) {
           const t = scene.tilemap[y][x];
-          // convention v0 : 1 metatile = 1 char 8x8 répété 2x2
-          ctx.drawImage(tileset, t * 8, 0, 8, 8, x * TS, y * TS, TS / 2, TS / 2);
-          ctx.drawImage(tileset, t * 8, 0, 8, 8, x * TS + TS / 2, y * TS, TS / 2, TS / 2);
-          ctx.drawImage(tileset, t * 8, 0, 8, 8, x * TS, y * TS + TS / 2, TS / 2, TS / 2);
-          ctx.drawImage(tileset, t * 8, 0, 8, 8, x * TS + TS / 2, y * TS + TS / 2, TS / 2, TS / 2);
+          ctx.drawImage(tileset, t * 16, 0, 16, 16, x * TS, y * TS, TS, TS);
         }
       }
     }

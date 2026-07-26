@@ -13,7 +13,7 @@ const CELL = 40;
 
 export default function TilePalette({ tileset, tool, onTool }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const count = tileset ? Math.floor(tileset.width / 8) : 0;
+  const count = tileset ? Math.floor(tileset.width / 16) : 0;
 
   useEffect(() => {
     const cv = ref.current;
@@ -23,7 +23,7 @@ export default function TilePalette({ tileset, tool, onTool }: Props) {
     ctx.fillStyle = "#222";
     ctx.fillRect(0, 0, cv.width, cv.height);
     for (let i = 0; i < count; i++) {
-      ctx.drawImage(tileset, i * 8, 0, 8, 8, i * CELL + 4, 4, CELL - 8, CELL - 8);
+      ctx.drawImage(tileset, i * 16, 0, 16, 16, i * CELL + 4, 4, CELL - 8, CELL - 8);
       if (tool.kind === "tile" && tool.index === i) {
         ctx.strokeStyle = "#20c0ff";
         ctx.lineWidth = 3;

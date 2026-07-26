@@ -3,6 +3,7 @@
 //! chaque pixel EST l'index de couleur SNES (round-trip sans perte).
 
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::path::Path;
 
 pub struct IndexedImage {
@@ -101,16 +102,31 @@ impl IndexedImage {
         out
     }
 
-    /// Tileset BG : bande horizontale de chars 8x8 → 4bpp
-    pub fn to_bg_tileset(&self) -> Result<Vec<u8>> {
-        if self.height != 8 || self.width % 8 != 0 {
-            bail!("tileset : attendu une bande de chars 8x8 (hauteur 8)");
+    /// Tileset : bande de tiles 16x16 → charset 4bpp dédupliqué + table de
+    /// metatiles (4 entrées BG u16 par tile : TL, TR, BL, BR — palette 0)
+    pub fn to_metatiles(&self) -> Result<(Vec<u8>, Vec<u16>)> {
+        if self.height != 16 || self.width % 16 != 0 {
+            bail!("tileset : attendu une bande de tiles 16x16 (hauteur 16)");
         }
-        let mut out = Vec::new();
-        for c in 0..self.width / 8 {
-            out.extend_from_slice(&self.char4bpp(c * 8, 0));
+        let count = self.width / 16;
+        let mut charset: Vec<u8> = Vec::new();
+        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
+        let mut table: Vec<u16> = Vec::new();
+        for t in 0..count {
+            for (dy, dx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
+                let ch = self.char4bpp(t * 16 + dx, dy);
+                let next = (charset.len() / 32) as u16;
+                let id = *seen.entry(ch).or_insert_with(|| {
+                    charset.extend_from_slice(&ch);
+                    next
+                });
+                table.push(id);
+            }
         }
-        Ok(out)
+        if charset.len() / 32 > 512 {
+            bail!("tileset : {} chars 8x8 uniques > 512 (VRAM)", charset.len() / 32);
+        }
+        Ok((charset, table))
     }
 
     /// Feuille de sprites : bande de frames 16x16 → table OBJ 32 chars
@@ -121,24 +137,34 @@ impl IndexedImage {
             bail!("sprites : attendu une bande de frames 16x16 (hauteur 16)");
         }
         let frames = self.width / 16;
-        if frames > 8 {
-            bail!("sprites : 8 frames max en v0 (rangée OBJ de 16 chars)");
+        if frames > 64 {
+            bail!("sprites : 64 frames max");
         }
         let blank = [0u8; 32];
-        let mut top = Vec::new();
-        let mut bottom = Vec::new();
-        for f in 0..frames {
-            top.extend_from_slice(&self.char4bpp(f * 16, 0));
-            top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
-            bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
-            bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
+        let mut out = Vec::new();
+        // paires de rangées OBJ de 16 chars : 8 frames par paire
+        let pairs = frames.div_ceil(8);
+        for p in 0..pairs {
+            let mut top = Vec::new();
+            let mut bottom = Vec::new();
+            for i in 0..8 {
+                let f = p * 8 + i;
+                if f < frames {
+                    top.extend_from_slice(&self.char4bpp(f * 16, 0));
+                    top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
+                    bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
+                    bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
+                } else {
+                    top.extend_from_slice(&blank);
+                    top.extend_from_slice(&blank);
+                    bottom.extend_from_slice(&blank);
+                    bottom.extend_from_slice(&blank);
+                }
+            }
+            out.extend(top);
+            out.extend(bottom);
         }
-        for _ in frames * 2..16 {
-            top.extend_from_slice(&blank);
-            bottom.extend_from_slice(&blank);
-        }
-        top.extend(bottom);
-        Ok(top)
+        Ok(out)
     }
 
     /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du

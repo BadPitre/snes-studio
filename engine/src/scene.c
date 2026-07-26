@@ -11,11 +11,13 @@
 #include "scene.h"
 #include "rom_layout.h"
 #include "vram.h"
+#include "map.h"
 
 /* Assets globaux v0 (data_assets.c) — un seul tileset pour toutes les scènes */
 extern const u8 tileset[];
 extern const u16 tileset_size;
 extern const u16 tileset_pal[];
+extern const u16 metatile_defs[];
 
 SceneCtx scene_ctx;
 
@@ -79,6 +81,7 @@ void scene_load(u8 scene_id)
   bgInitTileSet(0, (u8 *)tileset, (u8 *)tileset_pal, 0, tileset_size, 16 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
+  map_set_metatiles(metatile_defs); /* attention : "metatiles" est un symbole INTERNE de PVSnesLib (maps.asm) — collision de link silencieuse si on reprend ce nom */
 }
 
 u8 scene_collision(u8 tx, u8 ty)

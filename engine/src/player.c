@@ -283,12 +283,8 @@ void player_draw(void)
 {
   u16 sx = player.x - camera.x;
   u16 sy = player.y - camera.y;
-  u8 hflip = 0;
+  /* frames joueur : dir*2 + frame de marche (feuille de sprites, 0-7) */
+  u8 f = (u8)((player.dir << 1) | player.anim_frame);
 
-  if (player.anim_frame && (player.dir == DIR_DOWN || player.dir == DIR_UP))
-    hflip = 1;
-
-  /* frame par direction : tiles {2d, 2d+1, 2d+16, 2d+17} → gfxoffset = dir*2 */
-  oamSet(PLAYER_OAM_ID, sx, sy, PLAYER_OBJ_PRIO, hflip, 0,
-         (u16)player.dir << 1, 0);
+  oamSet(PLAYER_OAM_ID, sx, sy, PLAYER_OBJ_PRIO, 0, 0, OBJ_FRAME_TILE(f), 0);
 }
