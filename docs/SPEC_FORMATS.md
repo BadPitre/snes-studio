@@ -195,9 +195,19 @@ Choix du moteur, pas des données — documenté ici pour référence :
 Mode vidéo : Mode 1, BG1 16 couleurs, BG2/BG3 désactivés (BG3 réservé textbox,
 semaine 4). Le layout est déclaré dans `engine/src/vram.h`.
 
-**Gfx joueur (v0)** : asset global dans `data_assets.c` (`player_gfx[]` /
-`player_pal[]`), 4 frames 16x16 4bpp — une par direction (0=bas 1=haut
-2=gauche 3=droite), layout table OBJ (frame d = tiles {2d, 2d+1, 2d+16,
-2d+17}). Le `sprite_id` des acteurs indexera la table de metasprites en
-semaine 3 ; le joueur, lui, n'a pas de sprite_id dans le Scene Header v0 —
-gfx global, comme le tileset.
+**Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
+(`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles
+(0=bas 1=haut 2=gauche 3=droite), layout table OBJ (frame f = tiles
+{2f, 2f+1, 2f+16, 2f+17}). Frames 0-3 : joueur (pas de sprite_id — gfx
+global comme le tileset). Frames 4-7 : PNJ villageois.
+
+**Convention metasprite v0 :** le `sprite_id` d'un acteur est l'index de sa
+frame « bas » dans la feuille ; la frame affichée est `sprite_id + direction`.
+(La « table de metasprites » deviendra une vraie structure quand les outils
+Rust génèreront les assets, Phase 2.)
+
+**Interaction (semaine 3)** : bouton A + acteur sur la tile face au joueur →
+`actor_interact()`. Effet provisoire jalon S3 : bascule de la couleur 2 de la
+palette BG (herbe) vers un rouge debug, écriture CGRAM différée au VBlank.
+Remplacé par `vmStart(script_offset)` en semaine 4. Les acteurs sont solides
+(collision joueur).

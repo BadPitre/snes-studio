@@ -9,6 +9,7 @@
 #include "player.h"
 #include "camera.h"
 #include "map.h"
+#include "actors.h"
 
 int main(void)
 {
@@ -29,15 +30,17 @@ int main(void)
 
   while (1)
   {
-    player_update(); /* inputs + mouvement (collision S3, VM S4) */
+    player_update(); /* inputs + mouvement + collision + interaction (VM S4) */
     camera_update();
     map_update();    /* prépare le streaming de la fenêtre tilemap */
     player_draw();   /* shadow OAM — transféré par le NMI au VBlank */
+    actors_draw();
 
     WaitForVBlank();
 
-    /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement */
+    /* Transferts VRAM/CGRAM + registres de scroll : VBlank uniquement */
     map_vblank();
+    actors_vblank();
     bgSetScroll(0, camera.x, camera.y);
   }
   return 0;

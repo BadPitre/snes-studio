@@ -111,16 +111,24 @@ static const u8 scene0_scripts[] = {
   0x00, /* END */
 };
 
-/* Scene Header scene 0 (spec §1.2) — pas d'acteur avant la semaine 3 */
+/* Acteurs (spec §1.3) — sprite_id 4 = PNJ villageois de la feuille globale */
+static const ActorDef scene0_actors[] = {
+  /* PNJ d'accueil, pres du depart, regard vers la gauche */
+  { ACTOR_TYPE_NPC_STATIC, 8, 4, 4, SCRIPT_NONE, DIR_LEFT, 0 },
+  /* PNJ sous le "donut" central (test multi-acteurs + hide hors ecran) */
+  { ACTOR_TYPE_NPC_STATIC, 23, 14, 4, SCRIPT_NONE, DIR_DOWN, 0 },
+};
+
+/* Scene Header scene 0 (spec §1.2) */
 static const SceneDef scene0 = {
   SCENE_TYPE_TOP_DOWN, /* scene_type */
   0,                   /* flags */
   48, 40,              /* map_w, map_h (en tiles 16x16) */
   scene0_tilemap,
   scene0_collision,
-  0,                   /* actors : aucun */
+  scene0_actors,
   scene0_scripts,
-  0,                   /* actor_count */
+  2,                   /* actor_count */
   3, 3,                /* player_start_x, player_start_y (en tiles) */
   0,                   /* reserved */
 };

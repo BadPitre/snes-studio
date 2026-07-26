@@ -30,4 +30,7 @@ extern SceneCtx scene_ctx;
  */
 void scene_load(u8 scene_id);
 
+/* Couche collision (spec §1.4) : 0 = traversable, sinon solide. */
+u8 scene_collision(u8 tx, u8 ty);
+
 #endif /* SCENE_H */

@@ -61,3 +61,8 @@ void scene_load(u8 scene_id)
                 BG_16COLORS, VRAM_BG1_GFX);
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
 }
+
+u8 scene_collision(u8 tx, u8 ty)
+{
+  return scene_ctx.collision[(u16)ty * scene_ctx.map_w + tx];
+}
