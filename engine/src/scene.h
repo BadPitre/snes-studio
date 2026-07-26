@@ -23,8 +23,8 @@ typedef struct
 
 extern SceneCtx scene_ctx;
 
-/* Scène chargée au boot — vient des données (data_scenes.c), pas du moteur */
-extern const u8 boot_scene_id;
+/* Scène de boot — lue dans la Scene Table binaire (donnée, pas moteur) */
+u8 scene_boot_id(void);
 
 /*
  * Charge la scène scene_id depuis la Scene Table : copie le header en WRAM,

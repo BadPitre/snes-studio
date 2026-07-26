@@ -49,23 +49,29 @@ static u8 blocked(u16 px, u16 py)
 }
 
 /* Glissement anti-coin : si un mouvement horizontal est bloqué par UN seul
-   des deux tiles de la colonne cible tx, on se recale verticalement d'1 px
-   vers la rangée libre au lieu de rester coincé. */
+   des deux tiles de la colonne cible tx, ET que le chevauchement dans la
+   rangée bloquante est <= 8 px (demi-tile), on se recale verticalement
+   d'1 px vers la rangée libre. Au-delà d'un demi-tile, le joueur "vise"
+   cette rangée : on bloque franchement (sinon il glisserait autour des PNJ
+   et ne pourrait jamais leur faire face en approche décalée — trouvé au
+   harnais d'émulation). */
 static void slide_v(u8 tx)
 {
   u8 ty1 = player.y >> 4;
   u8 ty2 = (player.y + 15) >> 4;
+  u8 ov = player.y & 15; /* chevauchement dans la rangée basse */
 
   if (ty1 == ty2)
     return;
   if (tile_blocked(tx, ty1) && !tile_blocked(tx, ty2))
   {
-    if (!blocked(player.x, player.y + 1))
+    /* rangée haute bloque : chevauchement haut = 16 - ov */
+    if (16 - ov <= 8 && !blocked(player.x, player.y + 1))
       player.y++;
   }
   else if (!tile_blocked(tx, ty1) && tile_blocked(tx, ty2))
   {
-    if (!blocked(player.x, player.y - 1))
+    if (ov <= 8 && !blocked(player.x, player.y - 1))
       player.y--;
   }
 }
@@ -75,17 +81,18 @@ static void slide_h(u8 ty)
 {
   u8 tx1 = player.x >> 4;
   u8 tx2 = (player.x + 15) >> 4;
+  u8 ov = player.x & 15;
 
   if (tx1 == tx2)
     return;
   if (tile_blocked(tx1, ty) && !tile_blocked(tx2, ty))
   {
-    if (!blocked(player.x + 1, player.y))
+    if (16 - ov <= 8 && !blocked(player.x + 1, player.y))
       player.x++;
   }
   else if (!tile_blocked(tx1, ty) && tile_blocked(tx2, ty))
   {
-    if (!blocked(player.x - 1, player.y))
+    if (ov <= 8 && !blocked(player.x - 1, player.y))
       player.x--;
   }
 }

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "bonjour",
+    "text": "Bonjour ! Je suis le premier PNJ de ce moteur."
+  },
+  {
+    "name": "encore",
+    "text": "Encore toi ? On s'est deja parle plusieurs fois !"
+  },
+  {
+    "name": "belle_journee",
+    "text": "Belle journee pour se promener, n'est-ce pas ?"
+  },
+  {
+    "name": "scene1",
+    "text": "Ici c'est la scene 1 : meme moteur, autres donnees !"
+  }
+]

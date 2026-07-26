@@ -1,12 +1,6 @@
 /*
- * data_font.c — DONNEES (assets, kit §3 : $84/$85).
- * Fonte 8x8 2bpp pour la textbox BG3 + palette.
- *
- * Tileset BG3 : char 0 = transparent (map vide), chars 1-96 = glyphes
- * ASCII 32-127 (char = 1 + ascii - 32), fond opaque couleur 1, texte
- * couleur 2. Extrait de pvsneslibfont.png (PVSnesLib, MIT) et converti en
- * 2bpp — sera regenere par les outils Rust en Phase 2.
- * Format 2bpp SNES : 16 octets/char, 8 lignes x (plan0, plan1).
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
  */
 #include <snes.h>
 
@@ -112,10 +106,6 @@ const u8 font_gfx[] = {
 
 const u16 font_gfx_size = sizeof(font_gfx);
 
-/* Palette BG 2bpp n°4 (CGRAM 16-19) : 0=transparent, 1=fond, 2=texte */
 const u16 textbox_pal[4] = {
-  0x0000, /* transparent */
-  0x2862, /* fond : bleu nuit */
-  0x739C, /* texte : blanc */
-  0x0000,
+  0x0000, 0x2862, 0x739C, 0x0000,
 };

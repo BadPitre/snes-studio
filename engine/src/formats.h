@@ -38,7 +38,8 @@
 #define VM_OP_SETGVAR 0x07 /* var (u8), val (u8) */
 #define VM_OP_JGEQ    0x08 /* var, val, offset */
 
-/* Entrée acteur — spec §1.3 */
+/* Entrée acteur — spec §1.3. Layout C = layout binaire (8 octets, tcc-816
+   ne pad pas) : le moteur caste directement le bloc acteurs des données. */
 typedef struct
 {
   u8 actor_type;    /* ACTOR_TYPE_* */
@@ -50,21 +51,7 @@ typedef struct
   u8 reserved;
 } ActorDef;
 
-/* Scene Header — spec §1.2 (représentation C v0) */
-typedef struct
-{
-  u8 scene_type; /* SCENE_TYPE_* — champ obligatoire dès la v0 */
-  u8 flags;      /* réservé (0) */
-  u8 map_w;      /* en tiles 16x16 */
-  u8 map_h;
-  const u8 *tilemap;        /* map_w*map_h indices de tiles (1 u8 par tile) */
-  const u8 *collision;      /* map_w*map_h octets : 0=libre, 1=solide */
-  const ActorDef *actors;   /* actor_count entrées */
-  const u8 *scripts;        /* bloc bytecode VM de la scène */
-  u8 actor_count;
-  u8 player_start_x; /* en tiles */
-  u8 player_start_y;
-  u8 reserved;
-} SceneDef;
+/* Le Scene Header (spec §1.2) est lu champ par champ depuis le binaire
+   (pointeurs far 24-bit sans équivalent C) — voir scene.c. */
 
 #endif /* FORMATS_H */

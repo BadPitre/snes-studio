@@ -4,7 +4,7 @@ endif
 
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
 
-.PHONY: all clean
+.PHONY: all clean data
 
 #---------------------------------------------------------------------------------
 # ROMNAME is used in snes_rules file
@@ -15,3 +15,15 @@ export ROMNAME := snesstudio
 all: $(ROMNAME).sfc
 
 clean: cleanBuildRes cleanRom cleanGfx
+
+# Regenere src/data/ depuis le projet source demo/ (outil Rust, Phase 2).
+# Prerequis : toolchain Rust (cargo) — https://rustup.rs
+# Sous MSYS2, si cargo est installe cote Windows mais introuvable ici :
+#   export PATH="$PATH:$HOME/.cargo/bin"   (ou /c/Users/<toi>/.cargo/bin)
+data:
+	@command -v cargo >/dev/null 2>&1 || { \
+	  echo "ERREUR: cargo introuvable dans le PATH."; \
+	  echo "Installe Rust via https://rustup.rs puis, sous MSYS2, ajoute :"; \
+	  echo "  export PATH=\"\$$PATH:/c/Users/$$USER/.cargo/bin\""; \
+	  exit 1; }
+	cargo run --release --manifest-path ../tools/Cargo.toml -p datagen -- ../demo ../engine
