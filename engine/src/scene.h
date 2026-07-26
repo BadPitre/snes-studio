@@ -14,7 +14,8 @@ typedef struct
   u8 scene_type;
   u8 map_w, map_h;
   u8 actor_count;
-  const u8 *tilemap;
+  const u8 *tilemap;       /* couche inférieure (BG2) */
+  const u8 *tilemap_upper; /* couche supérieure (BG1) — spec §1.2 v0.3 */
   const u8 *collision;
   const ActorDef *actors;
   const u8 *scripts;

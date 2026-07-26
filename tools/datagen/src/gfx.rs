@@ -3,7 +3,6 @@
 //! chaque pixel EST l'index de couleur SNES (round-trip sans perte).
 
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
 use std::path::Path;
 
 pub struct IndexedImage {
@@ -73,7 +72,7 @@ impl IndexedImage {
     }
 
     /// Encode un char 8x8 en 4bpp planaire SNES (32 octets)
-    fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
+    pub(crate) fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
         let mut out = [0u8; 32];
         for y in 0..8 {
             for x in 0..8 {
@@ -100,40 +99,6 @@ impl IndexedImage {
             }
         }
         out
-    }
-
-    /// Tileset : grille de tiles 16x16 (indices rangée par rangée, comme la
-    /// palette RPG Maker) → charset 4bpp dédupliqué + table de metatiles
-    /// (4 entrées BG u16 par tile : TL, TR, BL, BR — palette 0)
-    pub fn to_metatiles(&self) -> Result<(Vec<u8>, Vec<u16>)> {
-        if self.width == 0 || self.height == 0 || self.width % 16 != 0 || self.height % 16 != 0 {
-            bail!("tileset : dimensions multiples de 16 requises (tiles 16x16)");
-        }
-        let cols = self.width / 16;
-        let rows = self.height / 16;
-        if cols * rows > 256 {
-            bail!("tileset : {} tiles > 256 (le tilemap indexe en u8)", cols * rows);
-        }
-        let mut charset: Vec<u8> = Vec::new();
-        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
-        let mut table: Vec<u16> = Vec::new();
-        for ty in 0..rows {
-            for tx in 0..cols {
-                for (dy, dx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
-                    let ch = self.char4bpp(tx * 16 + dx, ty * 16 + dy);
-                    let next = (charset.len() / 32) as u16;
-                    let id = *seen.entry(ch).or_insert_with(|| {
-                        charset.extend_from_slice(&ch);
-                        next
-                    });
-                    table.push(id);
-                }
-            }
-        }
-        if charset.len() / 32 > 512 {
-            bail!("tileset : {} chars 8x8 uniques > 512 (VRAM)", charset.len() / 32);
-        }
-        Ok((charset, table))
     }
 
     /// Feuille de sprites : bande de frames 16x16 → table OBJ 32 chars

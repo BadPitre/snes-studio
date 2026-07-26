@@ -23,9 +23,14 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
 1. **Metatiles (Phase 5) :** la valeur `t` du tilemap indexe la **table de
    metatiles** (4 entrées BG u16 par tile : TL, TR, BL, BR), générée par
    datagen depuis un tileset source de tiles 16x16 (chars 8x8 dédupliqués,
-   max 512). Le PNG source est une grille de tiles 16x16 (dimensions
-   multiples de 16), indexée **rangée par rangée** (comme la palette
-   RPG Maker) ; max 256 tiles par tileset (le tilemap indexe en u8).
+   max 512 — le **char 0 est réservé transparent**). Le PNG source est une
+   grille de tiles 16x16 (dimensions multiples de 16), indexée **rangée par
+   rangée** (comme la palette RPG Maker). Ids binaires : `0..N-1` tiles de
+   la grille, puis les **variantes d'autotiles utilisées** (Phase 5c,
+   format RM2003 : PNG 48x64, bordures composées par quarts 8x8, calculées
+   par datagen — le moteur ne voit que des metatiles ordinaires), et en
+   dernier le metatile transparent (couche sup vide). Max 256 ids au total
+   (le tilemap indexe en u8).
    Attention : ne pas nommer un symbole « metatiles » — il entre en
    collision silencieuse avec un symbole interne de PVSnesLib (maps.asm).
 2. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
@@ -34,12 +39,20 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
 3. **Tilesets par scène (Phase 5b)** : l'octet 1 du Scene Header est le
    `tileset_id` de la scène — index dans les tables générées
    `tileset_chars[]` / `tileset_chars_sizes[]` / `tileset_metas[]` /
-   `tileset_pals[]` (`data_assets.c`), dans l'ordre de `project.tilesets`.
-   Les assets gfx (tilesets, sprites, fonte) restent en C arrays générés —
-   la spec ne définit pas (encore) de format binaire pour eux.
-4. **Une seule bank de scènes** ($82) : datagen refuse un blob > 32 Ko ; le
+   `tileset_prios[]` / `tileset_pals[]` (`data_assets.c`), dans l'ordre de
+   `project.tilesets`. Les assets gfx (tilesets, sprites, fonte) restent en
+   C arrays générés — la spec ne définit pas (encore) de format binaire
+   pour eux.
+4. **Passabilité par tile (Phase 5c, modèle RM2003)** : le sidecar
+   `assets/<tileset>.json` déclare `autotiles` (PNG 48x64), `solid` (ids X)
+   et `above` (ids ☆, dessinés au-dessus du héros, passables). La couche
+   collision binaire (§1.4) est **dérivée** par datagen : tile sup présente
+   et non-☆ → sa passabilité l'emporte (ponts au-dessus de l'eau), sinon
+   celle de la tile inférieure. `tileset_prios[]` donne 1 octet par id
+   binaire (1 = ☆ → bit de priorité BG sur la couche sup).
+5. **Une seule bank de scènes** ($82) : datagen refuse un blob > 32 Ko ; le
    débordement vers $83 (réservé, kit §3) sera implémenté au besoin.
-5. **Ordre des pointeurs far 24-bit** dans les structures : `[bank][addr lo]
+6. **Ordre des pointeurs far 24-bit** dans les structures : `[bank][addr lo]
    [addr hi]` — même ordre que les entrées de la Scene Table.
 
 ---
@@ -61,7 +74,7 @@ Offset  Taille  Champ
 *Évolution v0 → v0.2 (Phase 2b) : ajout de `boot_scene_id` dans l'en-tête —
 la scène de boot est une donnée, pas une constante moteur.*
 
-### 1.2 Scene Header (v0.2 — 24 octets)
+### 1.2 Scene Header (v0.3 — 28 octets)
 
 ```
 Offset  Taille  Champ
@@ -71,7 +84,7 @@ Offset  Taille  Champ
                                         réservé/0 avant — 0 = premier tileset)
 2       1       map_width       (u8)  — en tiles 16x16 (max 255)
 3       1       map_height      (u8)
-4       3       ptr_tilemap     (far) — bank + addr des indices de tiles (1 u8/tile)
+4       3       ptr_tilemap     (far) — couche INFÉRIEURE (1 u8/tile, ids §0.1)
 7       3       ptr_collision   (far) — 1 octet par tile 16x16 (voir §1.4)
 10      3       ptr_actors      (far) — table des acteurs
 13      3       ptr_scripts     (far) — bloc bytecode de la scène
@@ -81,6 +94,9 @@ Offset  Taille  Champ
 19      1       music_id        (u8)  — index soundbank, 0xFF = silence (Phase 4b)
 20      3       ptr_warps       (far) — table des warps (v0.2, Phase 4)
 23      1       warp_count      (u8)
+24      3       ptr_tilemap_upper (far) — couche SUPÉRIEURE (v0.3, Phase 5c ;
+                                        cellule vide = id du metatile transparent)
+27      1       reserved        (u8)
 ```
 
 *Évolution v0 → v0.2 (Phase 4) : header étendu de 20 à 24 octets avec la
@@ -92,6 +108,10 @@ est (re)lancée au boot et à chaque warp — même id = pas d'interruption.*
 *Évolution Phase 5b : l'octet 1 (réservé) devient `tileset_id` — le tileset
 (chars + metatiles + palette BG) est chargé par scène au boot et à chaque
 warp, comme la musique.*
+
+*Évolution v0.2 → v0.3 (Phase 5c) : header étendu de 24 à 28 octets avec
+`ptr_tilemap_upper` — deux couches de décor (modèle RPG Maker 2003, voir
+§0.4 et §4). Le blob de scène gagne une grille w×h (couche sup).*
 
 ### 1.3 Entrée acteur (8 octets par acteur)
 
@@ -117,8 +137,11 @@ Offset  Taille  Champ
 | 0x02 | déclencheur de warp (traversable — marcher dessus déclenche, §1.5) |
 
 Les autres types étendus (eau, one-way) viendront au besoin.
-Note pipeline : la valeur 0x02 est POSÉE PAR DATAGEN d'après la table des
-warps de la scène — la couche collision auteur ne contient que 0/1.
+Note pipeline (v0.3, Phase 5c) : cette couche est entièrement DÉRIVÉE par
+datagen — 0/1 depuis la passabilité du tileset (sidecar, règle §0.4 :
+la tile sup non-☆ l'emporte sur la tile inf), puis 0x02 posé d'après la
+table des warps de la scène. Il n'y a plus de couche collision auteur
+(le champ `collision` des vieux JSON de scène est ignoré).
 
 ### 1.5 Entrée warp (8 octets par warp — v0.2, Phase 4)
 
@@ -253,16 +276,21 @@ Choix du moteur, pas des données — documenté ici pour référence :
 
 | Adresse VRAM (words) | Contenu |
 |----------------------|---------|
-| $0000 | Tilemap BG1, SC_64x64 (4 écrans 32x32, 8 Ko) |
+| $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko) |
 | $1000 | Characters BG3 2bpp (fonte textbox : char 0 transparent + 96 glyphes ASCII 32-127) |
 | $1800 | Tilemap BG3, SC_32x32 (textbox) |
-| $2000 | Characters BG1 (tileset 4bpp) |
+| $2000 | Characters BG1+BG2 (tileset 4bpp partagé) |
 | $4000 | Characters OBJ (sprites 4bpp) |
+| $6000 | Tilemap BG2, SC_64x64 — **couche inférieure** (8 Ko) |
 
 Mode vidéo : Mode 1 avec **BG3 priorité haute** (bit 3 de $2105) — la textbox
-passe au-dessus de tout. BG1 = map, BG3 = textbox (toujours actif, map
-transparente quand fermée), BG2 désactivé. Layout déclaré dans
-`engine/src/vram.h`.
+passe au-dessus de tout. **Deux couches de décor (modèle RPG Maker 2003,
+Phase 5c)** : BG2 = couche inférieure (sol), BG1 = couche supérieure. Ordre
+mode 1 : BG1 prio 0 devant BG2 mais derrière les sprites prio 2 (héros/PNJ) ;
+une tile ☆ reçoit le bit de priorité BG (0x2000) sur la couche sup et passe
+DEVANT les sprites. Les deux couches partagent charset, palette, fenêtre de
+streaming et scroll (budget VBlank : 1 Ko max par frame, 2 couches). Layout
+déclaré dans `engine/src/vram.h`.
 
 **Textbox (`engine/src/textbox.c`)** : rangées 20-27 de la map BG3 (bas
 d'écran, 64 px), texte 28 colonnes × 6 lignes max, retour à la ligne par mot.

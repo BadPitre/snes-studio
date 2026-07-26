@@ -19,6 +19,7 @@
 extern const u8 *const tileset_chars[];
 extern const u16 *const tileset_chars_sizes[];
 extern const u16 *const tileset_metas[];
+extern const u8 *const tileset_prios[];
 extern const u16 *const tileset_pals[];
 
 SceneCtx scene_ctx;
@@ -77,6 +78,7 @@ void scene_load(u8 scene_id)
   scene_ctx.music_id = h[19];
   scene_ctx.warps = (const WarpDef *)read_far(h + 20);
   scene_ctx.warp_count = h[23];
+  scene_ctx.tilemap_upper = read_far(h + 24); /* v0.3 : couche sup */
 
   /* Tileset de la scène (chars + palette + table de metatiles) — écran
      éteint, donc transferts DMA sûrs (forced blank). Le remplissage du
@@ -87,8 +89,12 @@ void scene_load(u8 scene_id)
                 (u8 *)tileset_pals[scene_ctx.tileset_id], 0,
                 *tileset_chars_sizes[scene_ctx.tileset_id], 16 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
+  /* Deux couches (modèle RM2003) : BG1 = sup, BG2 = inf, charset partagé */
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
-  map_set_metatiles(tileset_metas[scene_ctx.tileset_id]);
+  bgSetGfxPtr(1, VRAM_BG1_GFX);
+  bgSetMapPtr(1, VRAM_BG2_MAP, SC_64x64);
+  map_set_metatiles(tileset_metas[scene_ctx.tileset_id],
+                    tileset_prios[scene_ctx.tileset_id]);
 }
 
 u8 scene_collision(u8 tx, u8 ty)
