@@ -30,19 +30,19 @@ static void scene_halt(void)
 /* Lit un pointeur far 24-bit du format binaire (spec §1.2) */
 static const u8 *read_far(const u8 *p)
 {
-  return FAR_PTR(p[0], (u16)p[1] | ((u16)p[2] << 8));
+  return make_far(p[0], (u16)p[1] | ((u16)p[2] << 8));
 }
 
 u8 scene_boot_id(void)
 {
-  const u8 *tbl = FAR_PTR(BANK_SCENES, BANK_BASE_ADDR);
+  const u8 *tbl = make_far(BANK_SCENES, BANK_BASE_ADDR);
 
   return tbl[2]; /* Scene Table v0.2 : boot_scene_id à l'offset 2 */
 }
 
 void scene_load(u8 scene_id)
 {
-  const u8 *tbl = FAR_PTR(BANK_SCENES, BANK_BASE_ADDR);
+  const u8 *tbl = make_far(BANK_SCENES, BANK_BASE_ADDR);
   u16 scene_count = (u16)tbl[0] | ((u16)tbl[1] << 8);
   const u8 *entry;
   const u8 *h;
@@ -52,7 +52,7 @@ void scene_load(u8 scene_id)
 
   /* Entrée de table : { bank (u8), addr (u16), reserved } — spec §1.1 */
   entry = tbl + 4 + ((u16)scene_id << 2);
-  h = FAR_PTR(entry[0], (u16)entry[1] | ((u16)entry[2] << 8));
+  h = make_far(entry[0], (u16)entry[1] | ((u16)entry[2] << 8));
 
   /* Le champ scene_type est vérifié dès la v0, même avec un seul type */
   if (h[0] != SCENE_TYPE_TOP_DOWN)

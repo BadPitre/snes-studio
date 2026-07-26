@@ -22,14 +22,14 @@ extern const u16 textbox_pal[];
    Retourne 0 si text_id hors table. */
 static const char *text_ptr(u16 text_id)
 {
-  const u8 *tbl = FAR_PTR(BANK_TEXTS, BANK_BASE_ADDR);
+  const u8 *tbl = make_far(BANK_TEXTS, BANK_BASE_ADDR);
   u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
   u16 ofs;
 
   if (text_id >= count)
     return 0;
   ofs = (u16)tbl[2 + (text_id << 1)] | ((u16)tbl[3 + (text_id << 1)] << 8);
-  return (const char *)FAR_PTR(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  return (const char *)make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
 }
 
 /* Géométrie de la boîte (rangées de la map BG3 32x32) */

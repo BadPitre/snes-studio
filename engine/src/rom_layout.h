@@ -9,7 +9,22 @@
 #define BANK_TEXTS 0x86     /* table d'offsets + chaînes terminées par 0 */
 #define BANK_BASE_ADDR 0x8000 /* LoROM : les banks de données commencent là */
 
-/* Pointeur far tcc-816 depuis bank + adresse 16-bit */
-#define FAR_PTR(bank, addr) ((const u8 *)(((u32)(bank) << 16) | (u16)(addr)))
+/*
+ * Pointeur far tcc-816 construit octet par octet dans sa représentation
+ * mémoire : [addr lo][addr hi][bank][0]. PAS d'arithmétique 32-bit :
+ * tcc-816 compile mal `(u32)bank << 16` quand bank est une variable
+ * (pointeur corrompu, vérifié au harnais d'émulation — Phase 2b).
+ */
+static const u8 *make_far(u8 bank, u16 addr)
+{
+  const u8 *p;
+  u8 *raw = (u8 *)&p;
+
+  raw[0] = (u8)addr;
+  raw[1] = (u8)(addr >> 8);
+  raw[2] = bank;
+  raw[3] = 0;
+  return p;
+}
 
 #endif /* ROM_LAYOUT_H */
