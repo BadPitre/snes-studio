@@ -28,6 +28,11 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   actors_init();
   camera_update();
   map_init();
+  /* Scroll écrit ICI (écran éteint) : la boucle principale ne le remettra
+     à jour qu'après le fondu — sans ça, la nouvelle map s'affiche avec le
+     scroll de l'ancienne scène pendant tout le fondu entrant et le joueur
+     paraît au mauvais endroit avant de « sauter » au bon. */
+  bgSetScroll(0, camera.x, camera.y);
   player_draw();
   actors_draw();
 
