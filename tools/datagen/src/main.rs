@@ -72,6 +72,23 @@ fn main() -> Result<()> {
         bail!("trop de musiques (max 254, 0xFF = silence)");
     }
 
+    // Tilesets : id = index dans project.tilesets (defaut : assets.tileset seul)
+    let tileset_paths: Vec<String> = if project.tilesets.is_empty() {
+        vec![project.assets.tileset.clone()]
+    } else {
+        project.tilesets.clone()
+    };
+    let mut tileset_ids: HashMap<String, u8> = HashMap::new();
+    for (i, t) in tileset_paths.iter().enumerate() {
+        let stem = Path::new(t)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("nom de tileset invalide : '{}'", t))?;
+        if tileset_ids.insert(stem.to_string(), i as u8).is_some() {
+            bail!("tileset en double : '{}'", stem);
+        }
+    }
+
     std::fs::create_dir_all(&out_dir)?;
 
     // Copie des modules vers engine/src/data/music/NN_stem.it : l'ordre
@@ -106,14 +123,16 @@ fn main() -> Result<()> {
     )?;
 
     // Banks binaires (spec §1-2) + asm d'épinglage
-    let scene_bank = binbank::build_scene_bank(&scenes, &text_ids, &music_ids, boot_id as u8)?;
+    let scene_bank = binbank::build_scene_bank(
+        &scenes, &text_ids, &music_ids, &tileset_ids, boot_id as u8,
+    )?;
     let text_bank = binbank::build_text_bank(&texts)?;
     write_bin(&out_dir, "scenes.bin", &scene_bank)?;
     write_bin(&out_dir, "texts.bin", &text_bank)?;
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
     // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &scenes)?)?;
+    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &scenes, &tileset_paths, &tileset_ids)?)?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -145,34 +164,78 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn gen_assets(proj_dir: &Path, project: &project::Project, scenes: &[project::Scene]) -> Result<String> {
-    let tileset = gfx::load_indexed_png(&proj_dir.join(&project.assets.tileset))?;
+fn gen_assets(
+    proj_dir: &Path,
+    project: &project::Project,
+    scenes: &[project::Scene],
+    tileset_paths: &[String],
+    tileset_ids: &HashMap<String, u8>,
+) -> Result<String> {
     let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))?;
 
-    let (charset, metatiles) = tileset.to_metatiles()?;
-    let metatile_count = (metatiles.len() / 4) as u8;
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+
+    // Un jeu de donnees par tileset + tables de pointeurs indexees par
+    // tileset_id (pattern « scene_table » : l'indexation d'un tableau de
+    // pointeurs est fiable chez tcc, contrairement aux tableaux de u16)
+    // (u16 : un tileset peut compter 256 tiles, hors u8)
+    let mut counts: Vec<u16> = Vec::new();
+    for (i, path) in tileset_paths.iter().enumerate() {
+        let ts = gfx::load_indexed_png(&proj_dir.join(path))?;
+        let (charset, metatiles) = ts.to_metatiles()?;
+        counts.push((metatiles.len() / 4) as u16);
+        s.push_str(&emit::u8_array(&format!("ts{}_chars", i), &charset, 16, true));
+        s.push_str(&format!(
+            "static const u16 ts{}_chars_size = sizeof(ts{}_chars);\n\n",
+            i, i
+        ));
+        s.push_str(&emit::u16_array_static(&format!("ts{}_meta", i), &metatiles));
+        s.push('\n');
+        s.push_str(&emit::u16_array_static(&format!("ts{}_pal", i), &ts.palette_n(16)));
+        s.push('\n');
+    }
+
+    // Validation : les indices de tilemap contre le tileset de la scene
     for sc in scenes {
+        let ts_id = match &sc.tileset {
+            None => 0usize,
+            Some(name) => *tileset_ids
+                .get(name.as_str())
+                .with_context(|| format!("scene '{}' : tileset inconnu '{}'", sc.name, name))?
+                as usize,
+        };
+        let count = counts[ts_id];
         for row in &sc.tilemap {
             for &t in row {
-                if t >= metatile_count {
+                if t as u16 >= count {
                     anyhow::bail!(
                         "scene '{}' : tile {} hors tileset ({} tiles)",
-                        sc.name, t, metatile_count
+                        sc.name, t, count
                     );
                 }
             }
         }
     }
 
-    let mut s = String::from(emit::HEADER);
-    s.push_str("#include <snes.h>\n\n");
-    s.push_str(&emit::u8_array("tileset", &charset, 16, false));
-    s.push_str("\nconst u16 tileset_size = sizeof(tileset);\n\n");
-    s.push_str("/* 4 entrées BG par metatile 16x16 : TL, TR, BL, BR */\n");
-    s.push_str(&emit::u16_array("metatile_defs", &metatiles));
-    s.push('\n');
-    s.push_str(&emit::u16_array("tileset_pal", &tileset.palette_n(16)));
-    s.push('\n');
+    s.push_str("const u8 *const tileset_chars[] = {\n");
+    for i in 0..tileset_paths.len() {
+        s.push_str(&format!("  ts{}_chars,\n", i));
+    }
+    s.push_str("};\n\nconst u16 *const tileset_chars_sizes[] = {\n");
+    for i in 0..tileset_paths.len() {
+        s.push_str(&format!("  &ts{}_chars_size,\n", i));
+    }
+    s.push_str("};\n\nconst u16 *const tileset_metas[] = {\n");
+    for i in 0..tileset_paths.len() {
+        s.push_str(&format!("  ts{}_meta,\n", i));
+    }
+    s.push_str("};\n\nconst u16 *const tileset_pals[] = {\n");
+    for i in 0..tileset_paths.len() {
+        s.push_str(&format!("  ts{}_pal,\n", i));
+    }
+    s.push_str("};\n\n");
+
     s.push_str(&emit::u8_array("sprite_gfx", &sprites.to_obj_sheet()?, 16, false));
     s.push_str("\nconst u16 sprite_gfx_size = sizeof(sprite_gfx);\n\n");
     s.push_str(&emit::u16_array("sprite_pal", &sprites.palette_n(16)));

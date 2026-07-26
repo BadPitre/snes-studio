@@ -13,11 +13,13 @@
 #include "vram.h"
 #include "map.h"
 
-/* Assets globaux v0 (data_assets.c) — un seul tileset pour toutes les scènes */
-extern const u8 tileset[];
-extern const u16 tileset_size;
-extern const u16 tileset_pal[];
-extern const u16 metatile_defs[];
+/* Tilesets (data_assets.c) — tables indexées par tileset_id du header.
+   Tableaux de pointeurs : indexation fiable chez tcc (pattern scene_table),
+   contrairement aux tableaux u16 nus (« FISHY length <> PTR_SIZE »). */
+extern const u8 *const tileset_chars[];
+extern const u16 *const tileset_chars_sizes[];
+extern const u16 *const tileset_metas[];
+extern const u16 *const tileset_pals[];
 
 SceneCtx scene_ctx;
 
@@ -71,17 +73,22 @@ void scene_load(u8 scene_id)
   scene_ctx.actor_count = h[16];
   scene_ctx.player_start_x = h[17];
   scene_ctx.player_start_y = h[18];
+  scene_ctx.tileset_id = h[1];
   scene_ctx.music_id = h[19];
   scene_ctx.warps = (const WarpDef *)read_far(h + 20);
   scene_ctx.warp_count = h[23];
 
-  /* Tileset + palette (16 couleurs, entrée 0) — écran éteint, donc
-     transferts DMA sûrs (forced blank). Le remplissage du tilemap est fait
-     par map_init() une fois la caméra positionnée. */
-  bgInitTileSet(0, (u8 *)tileset, (u8 *)tileset_pal, 0, tileset_size, 16 * 2,
+  /* Tileset de la scène (chars + palette + table de metatiles) — écran
+     éteint, donc transferts DMA sûrs (forced blank). Le remplissage du
+     tilemap est fait par map_init() une fois la caméra positionnée.
+     NB : ne jamais nommer un symbole « metatiles » — collision silencieuse
+     avec un symbole interne de PVSnesLib (maps.asm). */
+  bgInitTileSet(0, (u8 *)tileset_chars[scene_ctx.tileset_id],
+                (u8 *)tileset_pals[scene_ctx.tileset_id], 0,
+                *tileset_chars_sizes[scene_ctx.tileset_id], 16 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
-  map_set_metatiles(metatile_defs); /* attention : "metatiles" est un symbole INTERNE de PVSnesLib (maps.asm) — collision de link silencieuse si on reprend ce nom */
+  map_set_metatiles(tileset_metas[scene_ctx.tileset_id]);
 }
 
 u8 scene_collision(u8 tx, u8 ty)

@@ -12,5 +12,9 @@
   },
   "musics": [
     "assets/music/pollen8.it"
+  ],
+  "tilesets": [
+    "assets/tileset.png",
+    "assets/tileset_automne.png"
   ]
 }

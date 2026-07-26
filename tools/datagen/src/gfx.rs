@@ -102,25 +102,32 @@ impl IndexedImage {
         out
     }
 
-    /// Tileset : bande de tiles 16x16 → charset 4bpp dédupliqué + table de
-    /// metatiles (4 entrées BG u16 par tile : TL, TR, BL, BR — palette 0)
+    /// Tileset : grille de tiles 16x16 (indices rangée par rangée, comme la
+    /// palette RPG Maker) → charset 4bpp dédupliqué + table de metatiles
+    /// (4 entrées BG u16 par tile : TL, TR, BL, BR — palette 0)
     pub fn to_metatiles(&self) -> Result<(Vec<u8>, Vec<u16>)> {
-        if self.height != 16 || self.width % 16 != 0 {
-            bail!("tileset : attendu une bande de tiles 16x16 (hauteur 16)");
+        if self.width == 0 || self.height == 0 || self.width % 16 != 0 || self.height % 16 != 0 {
+            bail!("tileset : dimensions multiples de 16 requises (tiles 16x16)");
         }
-        let count = self.width / 16;
+        let cols = self.width / 16;
+        let rows = self.height / 16;
+        if cols * rows > 256 {
+            bail!("tileset : {} tiles > 256 (le tilemap indexe en u8)", cols * rows);
+        }
         let mut charset: Vec<u8> = Vec::new();
         let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
         let mut table: Vec<u16> = Vec::new();
-        for t in 0..count {
-            for (dy, dx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
-                let ch = self.char4bpp(t * 16 + dx, dy);
-                let next = (charset.len() / 32) as u16;
-                let id = *seen.entry(ch).or_insert_with(|| {
-                    charset.extend_from_slice(&ch);
-                    next
-                });
-                table.push(id);
+        for ty in 0..rows {
+            for tx in 0..cols {
+                for (dy, dx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
+                    let ch = self.char4bpp(tx * 16 + dx, ty * 16 + dy);
+                    let next = (charset.len() / 32) as u16;
+                    let id = *seen.entry(ch).or_insert_with(|| {
+                        charset.extend_from_slice(&ch);
+                        next
+                    });
+                    table.push(id);
+                }
             }
         }
         if charset.len() / 32 > 512 {

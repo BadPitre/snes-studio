@@ -25,10 +25,10 @@ make data
 
 ```
 demo/
-  project.json        # nom, boot_scene, scènes, assets, musics (modules .it)
+  project.json        # nom, boot_scene, scènes, assets, musics, tilesets
   texts.json          # [{name, text}] — l'ordre donne les text_id
   scenes/<nom>.json   # une scène par fichier
-  assets/tileset.png  # bande de tiles 16x16, PNG indexé 16 couleurs max
+  assets/*.png        # tilesets : grille de tiles 16x16, PNG indexé 16 couleurs
   assets/sprites.png  # bande de frames 16x16 (max 64), PNG indexé
   assets/font.png     # 96 glyphes 8x8 (ASCII 32-127), bande 768x8, PNG indexé
 ```
@@ -44,6 +44,7 @@ troncature à 5 bits. Index 0 = transparent.
   "name": "plaine",
   "width": 48, "height": 40,            // en tiles 16x16, min 32x32 (spec)
   "player_start": [3, 3],               // en tiles
+  "tileset": "tileset_automne",         // stem d'un tileset (optionnel, Phase 5b)
   "tilemap":   [[...], ...],            // height rangées de width indices
   "collision": [[...], ...],            // 0 = libre, 1 = solide
   "actors": [
@@ -71,11 +72,17 @@ des exemples PVSnesLib — placeholder à remplacer.
 `dir` : `down` / `up` / `left` / `right`. `sprite` : index de la frame « bas »
 dans la feuille de sprites (convention metasprite : frame = sprite + dir).
 
-**Tileset (Phase 5)** : tiles source 16x16 ; datagen découpe en chars 8x8,
-déduplique (max 512) et génère la table de metatiles. **Feuille de sprites** :
-frames 16x16, layout OBJ multi-rangées généré ; convention : joueur =
-frames 0-7 (direction×2 + pas de marche), PNJ à partir de la frame 8
-(4 frames directionnelles — `sprite` = frame de base).
+**Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
+de 16), indices **rangée par rangée** comme la palette RPG Maker, max 256
+tiles par tileset ; datagen découpe en chars 8x8, déduplique (max 512) et
+génère la table de metatiles. **Par scène (Phase 5b)** : `project.json`
+liste les tilesets dans `"tilesets"` (l'ordre donne les tileset_id ; absent =
+`assets.tileset` seul) ; chaque scène peut déclarer `"tileset": "<stem>"`
+(absent = le premier). datagen valide les indices du tilemap contre le
+tileset de la scène. **Feuille de sprites** : frames 16x16, layout OBJ
+multi-rangées généré ; convention : joueur = frames 0-7 (direction×2 + pas
+de marche), PNJ à partir de la frame 8 (4 frames directionnelles —
+`sprite` = frame de base).
 
 ## Assembleur de scripts (VM v0, spec §2)
 

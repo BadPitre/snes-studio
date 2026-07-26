@@ -21,19 +21,22 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
 Écarts/conventions restants, assumés en v0 :
 
 1. **Metatiles (Phase 5) :** la valeur `t` du tilemap indexe la **table de
-   metatiles** (`metatile_defs`, 4 entrées BG u16 par tile : TL, TR, BL, BR),
-   générée par datagen depuis un tileset source de tiles 16x16 (chars 8x8
-   dédupliqués, max 512). Attention : ne pas nommer un symbole « metatiles »
-   — il entre en collision silencieuse avec un symbole interne de PVSnesLib
-   (maps.asm).
+   metatiles** (4 entrées BG u16 par tile : TL, TR, BL, BR), générée par
+   datagen depuis un tileset source de tiles 16x16 (chars 8x8 dédupliqués,
+   max 512). Le PNG source est une grille de tiles 16x16 (dimensions
+   multiples de 16), indexée **rangée par rangée** (comme la palette
+   RPG Maker) ; max 256 tiles par tileset (le tilemap indexe en u8).
+   Attention : ne pas nommer un symbole « metatiles » — il entre en
+   collision silencieuse avec un symbole interne de PVSnesLib (maps.asm).
 2. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
    la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
    32x32 sont streamées (voir §4).
-3. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
-   `data_assets.c`) : le Scene Header n'a pas de pointeur d'assets, tous les
-   écrans partagent le même tileset. Les assets gfx (tileset, sprites, fonte)
-   restent en C arrays générés — la spec ne définit pas (encore) de format
-   binaire pour eux.
+3. **Tilesets par scène (Phase 5b)** : l'octet 1 du Scene Header est le
+   `tileset_id` de la scène — index dans les tables générées
+   `tileset_chars[]` / `tileset_chars_sizes[]` / `tileset_metas[]` /
+   `tileset_pals[]` (`data_assets.c`), dans l'ordre de `project.tilesets`.
+   Les assets gfx (tilesets, sprites, fonte) restent en C arrays générés —
+   la spec ne définit pas (encore) de format binaire pour eux.
 4. **Une seule bank de scènes** ($82) : datagen refuse un blob > 32 Ko ; le
    débordement vers $83 (réservé, kit §3) sera implémenté au besoin.
 5. **Ordre des pointeurs far 24-bit** dans les structures : `[bank][addr lo]
@@ -64,7 +67,8 @@ la scène de boot est une donnée, pas une constante moteur.*
 Offset  Taille  Champ
 0       1       scene_type      (u8)  — 0x01 = TOP_DOWN. Seule valeur en v0,
                                         MAIS LE CHAMP EXISTE DÈS MAINTENANT.
-1       1       flags           (u8)  — réservé (0)
+1       1       tileset_id      (u8)  — index dans project.tilesets (Phase 5b,
+                                        réservé/0 avant — 0 = premier tileset)
 2       1       map_width       (u8)  — en tiles 16x16 (max 255)
 3       1       map_height      (u8)
 4       3       ptr_tilemap     (far) — bank + addr des indices de tiles (1 u8/tile)
@@ -84,6 +88,10 @@ table des warps ; l'octet 19 (réservé) devient `music_id`. Le soundbank
 snesmod (modules .it convertis par smconv) occupe la bank $87 (kit §3) ;
 les music_id suivent l'ordre de `project.musics`. La musique de la scène
 est (re)lancée au boot et à chaque warp — même id = pas d'interruption.*
+
+*Évolution Phase 5b : l'octet 1 (réservé) devient `tileset_id` — le tileset
+(chars + metatiles + palette BG) est chargé par scène au boot et à chaque
+warp, comme la musique.*
 
 ### 1.3 Entrée acteur (8 octets par acteur)
 
@@ -279,9 +287,11 @@ deviendront des paramètres générés quand les outils Rust existeront) :
 
 **Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
 (`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles
-(0=bas 1=haut 2=gauche 3=droite), layout table OBJ (frame f = tiles
-{2f, 2f+1, 2f+16, 2f+17}). Frames 0-3 : joueur (pas de sprite_id — gfx
-global comme le tileset). Frames 4-7 : PNJ villageois.
+(0=bas 1=haut 2=gauche 3=droite), layout table OBJ multi-rangées (frame f =
+tiles {base, base+1, base+16, base+17}, base = (f/8)*32 + (f%8)*2).
+Frames 0-7 : joueur (direction*2 + pas de marche — pas de sprite_id, gfx
+global contrairement aux tilesets, par scène depuis la Phase 5b).
+Frames 8-11 : PNJ villageois.
 
 **Convention metasprite v0 :** le `sprite_id` d'un acteur est l'index de sa
 frame « bas » dans la feuille ; la frame affichée est `sprite_id + direction`.

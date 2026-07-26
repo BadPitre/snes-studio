@@ -13,6 +13,9 @@ pub struct Project {
     /// Modules .it, dans l'ordre des music_id (optionnel)
     #[serde(default)]
     pub musics: Vec<String>,
+    /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
+    #[serde(default)]
+    pub tilesets: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -38,6 +41,9 @@ pub struct Scene {
     /// Nom (stem) d'un module de project.musics — absent = silence
     #[serde(default)]
     pub music: Option<String>,
+    /// Nom (stem) d'un tileset de project.tilesets — absent = le premier
+    #[serde(default)]
+    pub tileset: Option<String>,
 }
 
 #[derive(Deserialize)]

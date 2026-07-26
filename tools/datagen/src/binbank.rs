@@ -24,6 +24,7 @@ pub fn build_scene_bank(
     scenes: &[project::Scene],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
+    tileset_ids: &HashMap<String, u8>,
     boot_id: u8,
 ) -> Result<Vec<u8>> {
     let scene_ids: HashMap<&str, u8> = scenes
@@ -61,7 +62,12 @@ pub fn build_scene_bank(
         // Scene Header (spec §1.2 v0.2)
         let mut header = [0u8; 24];
         header[0] = 0x01; // scene_type TOP_DOWN
-        header[1] = 0; // flags
+        header[1] = match &sc.tileset {
+            None => 0, // premier tileset
+            Some(name) => *tileset_ids.get(name.as_str()).with_context(|| {
+                format!("scene '{}' : tileset inconnu '{}'", sc.name, name)
+            })?,
+        };
         header[2] = sc.width;
         header[3] = sc.height;
         write_far(&mut header[4..7], BANK_SCENES, tilemap_ofs);
