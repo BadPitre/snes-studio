@@ -17,10 +17,14 @@ static const char txt_encore[] = "Encore toi ? On s'est deja parle plusieurs foi
 /* text_id 2 — second PNJ */
 static const char txt_salut[] = "Belle journee pour se promener, n'est-ce pas ?";
 
+/* text_id 3 — PNJ de la scene 1 (preuve multi-scenes) */
+static const char txt_scene1[] = "Ici c'est la scene 1 : meme moteur, autres donnees !";
+
 const char *const text_table[] = {
   txt_bonjour, /* 0 */
   txt_encore,  /* 1 */
   txt_salut,   /* 2 */
+  txt_scene1,  /* 3 */
 };
 
-const u16 text_count = 3;
+const u16 text_count = 4;

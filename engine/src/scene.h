@@ -23,6 +23,9 @@ typedef struct
 
 extern SceneCtx scene_ctx;
 
+/* Scène chargée au boot — vient des données (data_scenes.c), pas du moteur */
+extern const u8 boot_scene_id;
+
 /*
  * Charge la scène scene_id depuis la Scene Table : copie le header en WRAM,
  * charge tileset + palette en VRAM/CGRAM et construit + transfère le tilemap BG1.

@@ -32,6 +32,9 @@ la Phase 2 (outils Rust qui émettront le format binaire byte-exact) :
 5. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
    la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
    32x32 sont streamées (voir §4).
+5bis. **Scène de boot dans les données** : `boot_scene_id` (data_scenes.c).
+   Changer sa valeur et rebuilder démarre sur une autre scène — c'est la
+   preuve multi-scènes v0 (le warp en jeu arrive en Phase 4).
 6. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
    `data_assets.c`) : le Scene Header du kit n'a pas de pointeur d'assets, tous
    les écrans partagent le même tileset pour le POC.
@@ -211,6 +214,21 @@ d'écran, 64 px), texte 28 colonnes × 6 lignes max, retour à la ligne par mot.
 Glyphes à fond opaque (couleur 1 de la palette BG 2bpp n°4, CGRAM 16-19),
 char BG3 = `1 + ascii - 32`. Fonte extraite de pvsneslibfont (PVSnesLib, MIT)
 en C array (`data_font.c`).
+
+---
+
+## 5. Audit "constantes de jeu" — état semaine 5
+
+Aucune donnée de jeu en dur dans le moteur : positions, maps, collision,
+acteurs, scripts, textes et scène de boot viennent des banks de données.
+Restent dans le code moteur, assumées comme **constantes moteur v0** (elles
+deviendront des paramètres générés quand les outils Rust existeront) :
+
+- vitesse joueur 1 px/frame et cadence de pseudo-anim (8 frames) — kit S2 ;
+- géométrie de la textbox (rangées 20-27, 28 colonnes) ;
+- marge de fenêtre de streaming (8 metatiles) ;
+- layout VRAM (`vram.h`) et constantes hardware (écran 256x224, tiles 16 px,
+  wrap BG 64 chars).
 
 **Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
 (`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles

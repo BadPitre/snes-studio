@@ -228,8 +228,15 @@ static const u8 scene1_collision[32 * 32] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
+/* Scripts scene 1 — un PNJ a elle, pour la preuve "meme moteur, autres
+   donnees" (kit semaine 5) */
 static const u8 scene1_scripts[] = {
-  0x00, /* END */
+  /* 0x0000 */ 0x01, 0x03, 0x00, /* MSG 3 */
+  /* 0x0003 */ 0x00,             /* END */
+};
+
+static const ActorDef scene1_actors[] = {
+  { ACTOR_TYPE_NPC_STATIC, 10, 10, 4, 0x0000, DIR_DOWN, 0 },
 };
 
 static const SceneDef scene1 = {
@@ -238,9 +245,9 @@ static const SceneDef scene1 = {
   32, 32,              /* map_w, map_h */
   scene1_tilemap,
   scene1_collision,
-  0,                   /* actors : aucun */
+  scene1_actors,
   scene1_scripts,
-  0,                   /* actor_count */
+  1,                   /* actor_count */
   3, 3,                /* player_start_x, player_start_y */
   0,                   /* reserved */
 };
@@ -255,3 +262,7 @@ const SceneDef *const scene_table[] = {
 };
 
 const u16 scene_count = 2;
+
+/* Scene de boot — DONNEE, pas une constante moteur. Mettre 1 ici et
+   rebuilder charge la scene 1 (preuve multi-scenes, kit semaine 5). */
+const u8 boot_scene_id = 0;

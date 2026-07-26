@@ -17,8 +17,8 @@ int main(void)
 {
   /* consoleInit() est déjà appelé par le crt0 PVSnesLib avant main(). */
 
-  /* Scène de boot : id 0 (multi-scènes en semaine 5, warp en Phase 4). */
-  scene_load(0);
+  /* La scène de boot vient des données (le warp en jeu arrive en Phase 4) */
+  scene_load(boot_scene_id);
   textbox_init();
   vm_init();
   player_init();
