@@ -7,6 +7,7 @@ export type Tool =
   | { kind: "tile"; index: number }
   | { kind: "collision"; solid: boolean }
   | { kind: "actor" }
+  | { kind: "warp" }
   | { kind: "player_start" };
 
 export function paintTile(sc: Scene, tx: number, ty: number, tile: number): Scene {
@@ -45,6 +46,21 @@ export function setPlayerStart(sc: Scene, tx: number, ty: number): Scene {
   return { ...sc, player_start: [tx, ty] };
 }
 
+export function placeWarp(sc: Scene, tx: number, ty: number, defaultTo: string): Scene {
+  if (sc.warps.some((w) => w.x === tx && w.y === ty)) return sc;
+  if (sc.collision[ty][tx] !== 0) return sc; // warp sur tile libre uniquement
+  return { ...sc, warps: [...sc.warps, { x: tx, y: ty, to: defaultTo, tx: 3, ty: 3 }] };
+}
+
+export function updateWarp(sc: Scene, index: number, patch: Partial<import("./types").Warp>): Scene {
+  const warps = sc.warps.map((w, i) => (i === index ? { ...w, ...patch } : w));
+  return { ...sc, warps };
+}
+
+export function removeWarp(sc: Scene, index: number): Scene {
+  return { ...sc, warps: sc.warps.filter((_, i) => i !== index) };
+}
+
 // Nouvelle scène : herbe (tile 0) + bordure de murs (tile 1) solide —
 // même convention que les maps du demo.
 export function newScene(name: string, width: number, height: number): Scene {
@@ -65,6 +81,7 @@ export function newScene(name: string, width: number, height: number): Scene {
     collision,
     actors: [],
     script: [],
+    warps: [],
   };
 }
 

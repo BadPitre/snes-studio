@@ -81,6 +81,9 @@
       "entry": "accueil"
     }
   ],
+  "warps": [
+    {"x": 16, "y": 1, "to": "plaine", "tx": 12, "ty": 2}
+  ],
   "script": [
     "accueil:",
     "  MSG scene1",

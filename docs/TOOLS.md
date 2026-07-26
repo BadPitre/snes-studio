@@ -50,9 +50,16 @@ troncature à 5 bits. Index 0 = transparent.
     {"type": "npc", "x": 8, "y": 4, "sprite": 4,
      "dir": "left", "entry": "compteur"}   // entry : label du script (optionnel)
   ],
+  "warps": [                               // optionnel (Phase 4)
+    {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
+  ],
   "script": [ "...lignes assembleur..." ]
 }
 ```
+
+**Warps** : marcher sur la tile (x,y) téléporte le joueur vers la scène `to`
+en (tx,ty). La tile doit être libre dans la couche collision auteur —
+datagen y pose la valeur 0x02 (spec §1.4) et valide la cible.
 
 `dir` : `down` / `up` / `left` / `right`. `sprite` : index de la frame « bas »
 dans la feuille de sprites (convention metasprite v0 : frame = sprite + dir).

@@ -18,6 +18,8 @@ typedef struct
   const u8 *collision;
   const ActorDef *actors;
   const u8 *scripts;
+  const WarpDef *warps;
+  u8 warp_count;
   u8 player_start_x, player_start_y;
 } SceneCtx;
 

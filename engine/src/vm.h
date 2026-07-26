@@ -28,6 +28,9 @@ extern VmState vm;
 /* Init complète (boot) : vars + gvars à zéro, VM inactive. */
 void vm_init(void);
 
+/* Changement de scène : vars remises à zéro (spec §2), gvars conservées. */
+void vm_scene_reset(void);
+
 /* Lance un script : pc = offset dans le bloc scripts de la scène courante. */
 void vm_start(u16 offset);
 

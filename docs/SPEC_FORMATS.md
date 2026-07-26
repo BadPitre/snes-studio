@@ -55,7 +55,7 @@ Offset  Taille  Champ
 *Évolution v0 → v0.2 (Phase 2b) : ajout de `boot_scene_id` dans l'en-tête —
 la scène de boot est une donnée, pas une constante moteur.*
 
-### 1.2 Scene Header
+### 1.2 Scene Header (v0.2 — 24 octets)
 
 ```
 Offset  Taille  Champ
@@ -65,14 +65,19 @@ Offset  Taille  Champ
 2       1       map_width       (u8)  — en tiles 16x16 (max 255)
 3       1       map_height      (u8)
 4       3       ptr_tilemap     (far) — bank + addr des indices de tiles (1 u8/tile)
-7       3       ptr_collision   (far) — 1 octet par tile 16x16 (v0 : 0=libre, 1=solide)
+7       3       ptr_collision   (far) — 1 octet par tile 16x16 (voir §1.4)
 10      3       ptr_actors      (far) — table des acteurs
 13      3       ptr_scripts     (far) — bloc bytecode de la scène
 16      1       actor_count     (u8)
 17      1       player_start_x  (u8)  — en tiles
 18      1       player_start_y  (u8)
 19      1       reserved        (u8)
+20      3       ptr_warps       (far) — table des warps (v0.2, Phase 4)
+23      1       warp_count      (u8)
 ```
+
+*Évolution v0 → v0.2 (Phase 4) : header étendu de 20 à 24 octets avec la
+table des warps.*
 
 ### 1.3 Entrée acteur (8 octets par acteur)
 
@@ -87,11 +92,38 @@ Offset  Taille  Champ
 7       1       reserved      (u8)
 ```
 
-### 1.4 Collision (v0 volontairement simpliste)
+### 1.4 Collision (v0.2)
 
-1 octet par tile 16x16 : `0x00` = traversable, `0x01` = solide.
-Les types étendus (eau, one-way, déclencheurs de warp) viendront en v1 —
-ne pas sur-designer maintenant.
+1 octet par tile 16x16 :
+
+| Valeur | Sens |
+|---|---|
+| 0x00 | traversable |
+| 0x01 | solide |
+| 0x02 | déclencheur de warp (traversable — marcher dessus déclenche, §1.5) |
+
+Les autres types étendus (eau, one-way) viendront au besoin.
+Note pipeline : la valeur 0x02 est POSÉE PAR DATAGEN d'après la table des
+warps de la scène — la couche collision auteur ne contient que 0/1.
+
+### 1.5 Entrée warp (8 octets par warp — v0.2, Phase 4)
+
+```
+Offset  Taille  Champ
+0       1       x            (u8) — tile déclencheuse (en tiles 16x16)
+1       1       y            (u8)
+2       1       dest_scene   (u8) — index dans la Scene Table
+3       1       dest_x       (u8) — position d'arrivée du joueur (en tiles)
+4       1       dest_y       (u8)
+5       1       flags        (u8) — réservé (0)
+6       2       reserved
+```
+
+Comportement moteur : quand la tile centrale du joueur ENTRE sur une tile
+de collision 0x02, le warp correspondant est cherché dans la table ; la
+transition v0 est fondu sortant → chargement de la scène cible (vars VM
+remises à zéro, gvars conservées) → fondu entrant. Pas de re-déclenchement
+tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
 
 ---
 

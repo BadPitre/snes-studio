@@ -28,6 +28,9 @@ consomme** : aucun format intermédiaire.
   depuis l'éditeur (cargo doit être dans le PATH Windows). Reste ensuite
   `make` dans engine/ (MSYS2) pour produire le .sfc.
 
+- **Warps** (Phase 4) : outil « + Warp » (tile violette W), onglet dédié
+  (scène cible + position d'arrivée)
+
 Pas encore : redimensionnement de scène, édition des gfx, `make` intégré.
 
 ## Lancer

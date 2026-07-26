@@ -13,6 +13,28 @@
 #include "textbox.h"
 #include "vm.h"
 
+/* Transition de warp : fondu, rechargement complet de la scène cible
+   écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
+   à zéro (spec §2), les gvars persistent. */
+static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
+{
+  setFadeEffect(FADE_OUT);
+  setScreenOff();
+
+  scene_load(dest_scene);
+  vm_scene_reset();
+  player_init();
+  player_set_pos(dest_x, dest_y);
+  actors_init();
+  camera_update();
+  map_init();
+  player_draw();
+  actors_draw();
+
+  setScreenOn();
+  setFadeEffect(FADE_IN);
+}
+
 int main(void)
 {
   /* consoleInit() est déjà appelé par le crt0 PVSnesLib avant main(). */
@@ -39,7 +61,13 @@ int main(void)
     if (vm_active())
       vm_update(); /* script en cours : inputs routés vers la textbox */
     else
+    {
+      u8 wd, wx, wy;
+
       player_update(); /* inputs + mouvement + collision + interaction */
+      if (player_take_warp(&wd, &wx, &wy))
+        do_warp(wd, wx, wy);
+    }
 
     camera_update();
     map_update();  /* prépare le streaming de la fenêtre tilemap */

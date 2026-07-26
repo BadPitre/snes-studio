@@ -16,10 +16,18 @@
 #define ACTOR_OAM_ID(i) (((u16)(i) + 1) << 2)
 #define ACTOR_OBJ_PRIO 2
 
+/* Slots OAM réservés aux acteurs (1..ACTOR_SLOTS) — les slots au-delà du
+   nombre d'acteurs de la scène sont cachés (résidus d'une scène plus
+   peuplée après un warp) */
+#define ACTOR_SLOTS 24
+
 void actors_init(void)
 {
   u8 i;
   const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < ACTOR_SLOTS; i++)
+    oamSetVisible(ACTOR_OAM_ID(i), OBJ_HIDE);
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {

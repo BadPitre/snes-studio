@@ -27,12 +27,67 @@ extern const u16 sprite_pal[];
 
 Player player;
 
-/* Tile bloquante : couche collision OU acteur (les PNJ sont solides) */
+/* Tile bloquante : couche collision solide OU acteur (PNJ solides).
+   Les tiles de warp (COL_WARP) sont traversables. */
 static u8 tile_blocked(u8 tx, u8 ty)
 {
-  if (scene_collision(tx, ty))
+  if (scene_collision(tx, ty) == COL_SOLID)
     return 1;
   return actor_at_tile(tx, ty) != ACTOR_NONE;
+}
+
+/* Détection de warp : déclenche quand la tile CENTRALE du joueur change
+   et arrive sur une tile COL_WARP (pas de re-déclenchement sur place). */
+static u8 prev_ctx, prev_cty;
+static u8 warp_pending;
+static u8 warp_dest_scene, warp_dest_x, warp_dest_y;
+
+static void check_warp(void)
+{
+  u8 ctx = (u8)((player.x + 8) >> 4);
+  u8 cty = (u8)((player.y + 8) >> 4);
+  u8 i;
+  const WarpDef *w;
+
+  if (ctx == prev_ctx && cty == prev_cty)
+    return;
+  prev_ctx = ctx;
+  prev_cty = cty;
+
+  if (scene_collision(ctx, cty) != COL_WARP)
+    return;
+  w = scene_ctx.warps;
+  for (i = 0; i < scene_ctx.warp_count; i++, w++)
+  {
+    if (w->x == ctx && w->y == cty)
+    {
+      warp_pending = 1;
+      warp_dest_scene = w->dest_scene;
+      warp_dest_x = w->dest_x;
+      warp_dest_y = w->dest_y;
+      return;
+    }
+  }
+}
+
+void player_set_pos(u8 tx, u8 ty)
+{
+  player.x = (u16)tx << 4;
+  player.y = (u16)ty << 4;
+  prev_ctx = tx;
+  prev_cty = ty;
+  warp_pending = 0;
+}
+
+u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y)
+{
+  if (!warp_pending)
+    return 0;
+  warp_pending = 0;
+  *dest_scene = warp_dest_scene;
+  *dest_x = warp_dest_x;
+  *dest_y = warp_dest_y;
+  return 1;
 }
 
 /* AABB 16x16 : la position cible (px,py) chevauche-t-elle du solide ?
@@ -128,8 +183,7 @@ static void player_try_interact(void)
 
 void player_init(void)
 {
-  player.x = (u16)scene_ctx.player_start_x << 4; /* tiles → pixels */
-  player.y = (u16)scene_ctx.player_start_y << 4;
+  player_set_pos(scene_ctx.player_start_x, scene_ctx.player_start_y);
   player.dir = DIR_DOWN;
   player.moving = 0;
   player.anim_frame = 0;
@@ -200,6 +254,8 @@ void player_update(void)
         slide_h((player.y + 16) >> 4);
     }
   }
+
+  check_warp();
 
   if (padsDown(0) & KEY_A)
     player_try_interact();

@@ -77,6 +77,20 @@ export default function MapCanvas(props: Props) {
       }
     }
 
+    // warps (violet, "W")
+    ctx.font = `${TS - 10}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const w of scene.warps) {
+      ctx.fillStyle = "rgba(160,70,255,0.35)";
+      ctx.fillRect(w.x * TS, w.y * TS, TS, TS);
+      ctx.strokeStyle = "#b060ff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(w.x * TS + 1, w.y * TS + 1, TS - 2, TS - 2);
+      ctx.fillStyle = "#e8d0ff";
+      ctx.fillText("W", w.x * TS + TS / 2, w.y * TS + TS / 2 + 1);
+    }
+
     // départ joueur
     ctx.strokeStyle = "#20c0ff";
     ctx.lineWidth = 2;

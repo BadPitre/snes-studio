@@ -72,6 +72,12 @@ export default function TilePalette({ tileset, tool, onTool }: Props) {
           + PNJ
         </button>
         <button
+          className={tool.kind === "warp" ? "active" : ""}
+          onClick={() => onTool({ kind: "warp" })}
+        >
+          + Warp
+        </button>
+        <button
           className={tool.kind === "player_start" ? "active" : ""}
           onClick={() => onTool({ kind: "player_start" })}
         >

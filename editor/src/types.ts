@@ -24,6 +24,14 @@ export interface Actor {
   entry?: string;
 }
 
+export interface Warp {
+  x: number;
+  y: number;
+  to: string; // scène cible
+  tx: number;
+  ty: number;
+}
+
 export interface Scene {
   name: string;
   width: number;
@@ -33,6 +41,7 @@ export interface Scene {
   collision: number[][];
   actors: Actor[];
   script: string[];
+  warps: Warp[];
 }
 
 export interface TextEntry {

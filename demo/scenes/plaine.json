@@ -105,6 +105,9 @@
       "entry": "salut"
     }
   ],
+  "warps": [
+    {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
+  ],
   "script": [
     "compteur:",
     "  JGEQ v0 2 deja_vu",
