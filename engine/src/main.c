@@ -18,6 +18,7 @@ int main(void)
   /* Scène de boot : id 0 (multi-scènes en semaine 5, warp en Phase 4). */
   scene_load(0);
   player_init();
+  actors_init();
   camera_update();
   map_init(); /* fenêtre tilemap initiale, écran éteint */
 

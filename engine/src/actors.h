@@ -8,6 +8,11 @@
 
 #define ACTOR_NONE 0xFF
 
+/* Init de l'état du module + attributs OAM des acteurs. À appeler après
+   player_init() (la feuille de sprites doit être chargée). Ne jamais
+   compter sur une mise à zéro implicite des statiques avec cette toolchain. */
+void actors_init(void);
+
 /* Écrit les metasprites des acteurs dans le shadow OAM (chaque frame).
    Les acteurs hors écran sont cachés. */
 void actors_draw(void);

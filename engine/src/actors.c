@@ -28,6 +28,30 @@ extern const u16 tileset_pal[];
 static u8 hook_pending;
 static u8 hook_state;
 
+void actors_init(void)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  /* Init explicite : la mise à zéro des statiques par le crt0 n'est pas
+     fiable sur cette toolchain (sections .bss dupliquées par fichier) —
+     c'était la cause de l'herbe rouge dès le boot. */
+  hook_pending = 0;
+  hook_state = 0;
+
+  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  {
+    oamSet(ACTOR_OAM_ID(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
+           ((u16)a->sprite_id + a->direction) << 1, 0);
+    /* oamSetEx UNE SEULE FOIS ici : il réécrit la paire de bits de la table
+       OAM 2 (taille + 9e bit de X). L'appeler après oamSet à chaque frame
+       écraserait le 9e bit de X posé par oamSet, et un sprite partiellement
+       hors écran à gauche (X négatif) réapparaîtrait à droite. */
+    oamSetEx(ACTOR_OAM_ID(i), OBJ_SMALL, OBJ_SHOW);
+    oamSetVisible(ACTOR_OAM_ID(i), OBJ_HIDE);
+  }
+}
+
 void actors_draw(void)
 {
   u8 i;
@@ -43,9 +67,9 @@ void actors_draw(void)
     if (ax + 16 > camera.x && ax < camera.x + 256 &&
         ay + 16 > camera.y && ay < camera.y + 224)
     {
+      /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
       oamSet(ACTOR_OAM_ID(i), ax - camera.x, ay - camera.y, ACTOR_OBJ_PRIO,
              0, 0, ((u16)a->sprite_id + a->direction) << 1, 0);
-      oamSetEx(ACTOR_OAM_ID(i), OBJ_SMALL, OBJ_SHOW);
     }
     else
     {
