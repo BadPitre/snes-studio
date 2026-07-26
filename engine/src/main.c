@@ -8,6 +8,7 @@
 #include "scene.h"
 #include "player.h"
 #include "camera.h"
+#include "map.h"
 
 int main(void)
 {
@@ -17,6 +18,7 @@ int main(void)
   scene_load(0);
   player_init();
   camera_update();
+  map_init(); /* fenêtre tilemap initiale, écran éteint */
 
   /* Mode 1, BG1 16 couleurs seul actif (BG3 réservé à la textbox, semaine 4) */
   setMode(BG_MODE1, 0);
@@ -27,13 +29,15 @@ int main(void)
 
   while (1)
   {
-    player_update();  /* inputs + mouvement (collision S3, VM S4) */
+    player_update(); /* inputs + mouvement (collision S3, VM S4) */
     camera_update();
-    player_draw();    /* shadow OAM — transféré par le NMI au VBlank */
+    map_update();    /* prépare le streaming de la fenêtre tilemap */
+    player_draw();   /* shadow OAM — transféré par le NMI au VBlank */
 
     WaitForVBlank();
 
-    /* Registres de scroll écrits pendant le VBlank (pas de tearing) */
+    /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement */
+    map_vblank();
     bgSetScroll(0, camera.x, camera.y);
   }
   return 0;

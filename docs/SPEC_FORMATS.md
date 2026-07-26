@@ -29,7 +29,10 @@ la Phase 2 (outils Rust qui émettront le format binaire byte-exact) :
 4. **Convention metatile v0 :** la valeur `t` du tilemap est directement l'index du
    character 8x8 dans le tileset ; le moteur l'affiche répété 2x2 pour couvrir le
    metatile 16x16. (Évolution prévue Phase 2 : table de metatiles → 4 chars.)
-5. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
+5. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
+   la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
+   32x32 sont streamées (voir §4).
+6. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
    `data_assets.c`) : le Scene Header du kit n'a pas de pointeur d'assets, tous
    les écrans partagent le même tileset pour le POC.
 
@@ -161,10 +164,21 @@ struct SceneCtx {
 };
 ```
 
-**Budget VBlank :** par frame : max 1 colonne + 1 ligne de tilemap
-(≈ 64 + 64 octets) + shadow OAM (544 octets) — dans le budget DMA (~4,5 Ko).
-Le chargement initial complet du tilemap (8 Ko) se fait écran éteint
-(forced blank), hors budget frame.
+**Budget VBlank :** par frame : max 1 colonne + 1 ligne de metatiles streamées
+(256 + 256 octets, cf. streaming ci-dessous) + shadow OAM (544 octets, DMA
+automatique du NMI PVSnesLib) — dans le budget DMA (~4,5 Ko). Le chargement
+initial complet du tilemap (8 Ko) se fait écran éteint (forced blank), hors
+budget frame.
+
+**Streaming du tilemap (`engine/src/map.c`) :** la VRAM ne contient qu'une
+fenêtre de 32x32 metatiles (= le tilemap SC_64x64 complet, qui est aussi la
+zone de wrap hardware de 512 px — donc char VRAM = coordonnée map mod 64, et
+les registres de scroll reçoivent la position caméra telle quelle). La fenêtre
+suit la caméra avec 8 metatiles d'avance sur le bord visible ; à chaque pas de
+fenêtre (max 1 par axe et par frame, garanti par la caméra à 1 px/frame), la
+colonne/ligne entrante est préparée en WRAM pendant la frame active puis
+transférée au VBlank via `dmaCopyVram7` (colonnes : incrément VRAM +32 mots,
+2 segments par colonne de chars ; lignes : +1 mot, 2 segments par ligne).
 
 ---
 

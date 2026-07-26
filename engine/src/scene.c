@@ -22,48 +22,11 @@ extern const u16 tileset_pal[];
 
 SceneCtx scene_ctx;
 
-/*
- * Shadow WRAM du tilemap BG1, layout SNES SC_64x64 : 4 écrans consécutifs de
- * 32x32 mots (0=haut-gauche, 1=haut-droit, 2=bas-gauche, 3=bas-droit).
- * 4096 mots = 8 Ko, transféré en une fois écran éteint (hors budget frame).
- */
-static u16 bg_map_buffer[4096];
-
 /* Halt debug : on ne doit jamais arriver ici avec des données valides. */
 static void scene_halt(void)
 {
   while (1)
   {
-  }
-}
-
-/*
- * Construit le tilemap BG 64x64 chars depuis les indices metatiles 16x16.
- * Convention v0 (spec §0.4) : valeur du tilemap = index du char 8x8, affiché
- * répété 2x2. Entrée BG : char brut (palette 0, pas de flip, priorité 0).
- */
-static void scene_build_bg_map(void)
-{
-  const u8 *tm = scene_ctx.tilemap;
-  u16 mx, my, bx, by, entry, screen, ofs;
-
-  for (my = 0; my < scene_ctx.map_h; my++)
-  {
-    for (mx = 0; mx < scene_ctx.map_w; mx++)
-    {
-      entry = *tm++;
-      /* 4 entrées BG (2x2 chars) pour couvrir le metatile */
-      for (by = my << 1; by <= (my << 1) + 1; by++)
-      {
-        for (bx = mx << 1; bx <= (mx << 1) + 1; bx++)
-        {
-          /* Adressage SC_64x64 : écran de 0x400 mots + position 32x32 */
-          screen = (bx >> 5) + ((by >> 5) << 1);
-          ofs = (screen << 10) + ((by & 31) << 5) + (bx & 31);
-          bg_map_buffer[ofs] = entry;
-        }
-      }
-    }
   }
 }
 
@@ -91,12 +54,10 @@ void scene_load(u8 scene_id)
   scene_ctx.player_start_x = def->player_start_x;
   scene_ctx.player_start_y = def->player_start_y;
 
-  /* Tileset + palette (16 couleurs, entrée 0) puis tilemap — écran éteint,
-     donc transferts DMA sûrs (forced blank) */
+  /* Tileset + palette (16 couleurs, entrée 0) — écran éteint, donc
+     transferts DMA sûrs (forced blank). Le remplissage du tilemap est fait
+     par map_init() une fois la caméra positionnée. */
   bgInitTileSet(0, (u8 *)tileset, (u8 *)tileset_pal, 0, tileset_size, 16 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
-
-  scene_build_bg_map();
-  dmaCopyVram((u8 *)bg_map_buffer, VRAM_BG1_MAP, 4096 * 2);
 }
