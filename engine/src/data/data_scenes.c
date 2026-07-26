@@ -106,17 +106,36 @@ static const u8 scene0_collision[48 * 40] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
-/* Bloc scripts — un seul opcode END en attendant la VM (semaine 4) */
+/*
+ * Bloc scripts de la scene (bytecode VM v0, spec §2).
+ * Script canonique du PNJ compteur (kit §5) : var 0 = nb de conversations.
+ *
+ *   start:   JGEQ v0, 2, deja_vu
+ *            MSG  txt 0            ; "Bonjour !..."
+ *            ADDVAR v0, 1
+ *            END
+ *   deja_vu: MSG  txt 1            ; "Encore toi ?..."
+ *            END
+ */
 static const u8 scene0_scripts[] = {
-  0x00, /* END */
+  /* 0x0000 */ 0x08, 0, 2, 0x0C, 0x00, /* JGEQ v0,2 -> 0x000C (deja_vu) */
+  /* 0x0005 */ 0x01, 0x00, 0x00,       /* MSG 0 */
+  /* 0x0008 */ 0x03, 0, 1,             /* ADDVAR v0,1 */
+  /* 0x000B */ 0x00,                   /* END */
+  /* 0x000C */ 0x01, 0x01, 0x00,       /* deja_vu: MSG 1 */
+  /* 0x000F */ 0x00,                   /* END */
+
+  /* Script du second PNJ (offset 0x0010) : simple salut */
+  /* 0x0010 */ 0x01, 0x02, 0x00,       /* MSG 2 */
+  /* 0x0013 */ 0x00,                   /* END */
 };
 
 /* Acteurs (spec §1.3) — sprite_id 4 = PNJ villageois de la feuille globale */
 static const ActorDef scene0_actors[] = {
-  /* PNJ d'accueil, pres du depart, regard vers la gauche */
-  { ACTOR_TYPE_NPC_STATIC, 8, 4, 4, SCRIPT_NONE, DIR_LEFT, 0 },
+  /* PNJ compteur, pres du depart, regard vers la gauche */
+  { ACTOR_TYPE_NPC_STATIC, 8, 4, 4, 0x0000, DIR_LEFT, 0 },
   /* PNJ sous le "donut" central (test multi-acteurs + hide hors ecran) */
-  { ACTOR_TYPE_NPC_STATIC, 23, 14, 4, SCRIPT_NONE, DIR_DOWN, 0 },
+  { ACTOR_TYPE_NPC_STATIC, 23, 14, 4, 0x0010, DIR_DOWN, 0 },
 };
 
 /* Scene Header scene 0 (spec §1.2) */

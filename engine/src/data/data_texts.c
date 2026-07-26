@@ -14,9 +14,13 @@ static const char txt_bonjour[] = "Bonjour ! Je suis le premier PNJ de ce moteur
 /* text_id 1 — dialogue après plusieurs interactions */
 static const char txt_encore[] = "Encore toi ? On s'est deja parle plusieurs fois !";
 
+/* text_id 2 — second PNJ */
+static const char txt_salut[] = "Belle journee pour se promener, n'est-ce pas ?";
+
 const char *const text_table[] = {
   txt_bonjour, /* 0 */
   txt_encore,  /* 1 */
+  txt_salut,   /* 2 */
 };
 
-const u16 text_count = 2;
+const u16 text_count = 3;

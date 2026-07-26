@@ -115,6 +115,13 @@ struct VmState {
 };
 ```
 
+**Représentation C v0 (`engine/src/vm.c`) :** pas de champ `bank` — le bloc
+scripts de la scène est déjà résolu en pointeur far (`scene_ctx.scripts`),
+`pc` est l'offset dans ce bloc (même sémantique que le format binaire : les
+offsets des opcodes de saut et les `script_offset` d'acteurs sont absolus
+dans le bloc scripts de la scène). Garde-fou : 32 opcodes immédiats max par
+frame, halt debug au-delà (idem opcode inconnu).
+
 ### Table des opcodes v0
 
 | Op | Nom | Opérandes | Effet |
@@ -189,11 +196,21 @@ Choix du moteur, pas des données — documenté ici pour référence :
 | Adresse VRAM (words) | Contenu |
 |----------------------|---------|
 | $0000 | Tilemap BG1, SC_64x64 (4 écrans 32x32, 8 Ko) |
+| $1000 | Characters BG3 2bpp (fonte textbox : char 0 transparent + 96 glyphes ASCII 32-127) |
+| $1800 | Tilemap BG3, SC_32x32 (textbox) |
 | $2000 | Characters BG1 (tileset 4bpp) |
 | $4000 | Characters OBJ (sprites 4bpp) |
 
-Mode vidéo : Mode 1, BG1 16 couleurs, BG2/BG3 désactivés (BG3 réservé textbox,
-semaine 4). Le layout est déclaré dans `engine/src/vram.h`.
+Mode vidéo : Mode 1 avec **BG3 priorité haute** (bit 3 de $2105) — la textbox
+passe au-dessus de tout. BG1 = map, BG3 = textbox (toujours actif, map
+transparente quand fermée), BG2 désactivé. Layout déclaré dans
+`engine/src/vram.h`.
+
+**Textbox (`engine/src/textbox.c`)** : rangées 20-27 de la map BG3 (bas
+d'écran, 64 px), texte 28 colonnes × 6 lignes max, retour à la ligne par mot.
+Glyphes à fond opaque (couleur 1 de la palette BG 2bpp n°4, CGRAM 16-19),
+char BG3 = `1 + ascii - 32`. Fonte extraite de pvsneslibfont (PVSnesLib, MIT)
+en C array (`data_font.c`).
 
 **Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
 (`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles

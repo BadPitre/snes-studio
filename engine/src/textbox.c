@@ -1,0 +1,128 @@
+/*
+ * textbox.c — fenêtre de dialogue sur BG3.
+ *
+ * BG3 reste toujours actif : sa map est remplie de char 0 (transparent)
+ * quand la boîte est fermée — pas de bascule d'activation de layer.
+ * Les glyphes ont un fond opaque (couleur 1), donc la boîte est le simple
+ * rectangle des chars écrits. Écritures VRAM différées au VBlank.
+ */
+#include <snes.h>
+#include "formats.h"
+#include "scene.h"
+#include "textbox.h"
+#include "vram.h"
+
+/* Fonte + palette (data_font.c), textes (data_texts.c) */
+extern const u8 font_gfx[];
+extern const u16 font_gfx_size;
+extern const u16 textbox_pal[];
+extern const char *const text_table[];
+extern const u16 text_count;
+
+/* Géométrie de la boîte (rangées de la map BG3 32x32) */
+#define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
+#define TB_ROWS 8       /* hauteur totale (64 px) */
+#define TB_TEXT_COL 2   /* marge gauche du texte */
+#define TB_TEXT_COLS 28 /* largeur utile en caractères */
+#define TB_TEXT_ROW 1   /* première ligne de texte (relative à TB_ROW) */
+#define TB_TEXT_ROWS 6  /* nombre de lignes de texte */
+
+/* Entrée BG3 : char 2bpp + palette 4 (CGRAM 16) + priorité (au-dessus de
+   tout avec le bit BG3-prio du mode 1) */
+#define TB_ENTRY(c) ((u16)(c) | 0x3000)
+#define TB_CHAR(ascii) ((u16)(ascii) - 31) /* char 0 = transparent, 1 = espace */
+
+static u16 tb_shadow[32 * TB_ROWS];
+static u8 tb_dirty;
+
+static void tb_fill(u16 entry)
+{
+  u16 i;
+
+  for (i = 0; i < 32 * TB_ROWS; i++)
+    tb_shadow[i] = entry;
+}
+
+void textbox_init(void)
+{
+  /* Fonte 2bpp + palette (4 couleurs, CGRAM 16 = palette BG 2bpp n°4) —
+     écran éteint, transferts sûrs */
+  bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
+  dmaCopyCGram((u8 *)textbox_pal, 16, 4 * 2);
+  bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
+
+  /* Map BG3 entièrement transparente (char 0) : le shadow ne couvre que la
+     zone de la boîte, on l'utilise 4 fois pour effacer les 32 rangées */
+  tb_fill(0);
+  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP, 32 * TB_ROWS * 2);
+  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS, 32 * TB_ROWS * 2);
+  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 2,
+              32 * TB_ROWS * 2);
+  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 3,
+              32 * TB_ROWS * 2);
+  tb_dirty = 0;
+}
+
+void textbox_open(u16 text_id)
+{
+  const char *s;
+  u16 wl;
+  u8 row, col;
+  char c;
+
+  /* Fond de boîte : chars "espace" opaques partout */
+  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+
+  if (text_id < text_count)
+  {
+    s = text_table[text_id];
+    row = TB_TEXT_ROW;
+    col = 0;
+    while (*s && row < TB_TEXT_ROW + TB_TEXT_ROWS)
+    {
+      c = *s;
+      if (c == ' ')
+      {
+        /* wrap par mot : longueur du mot qui suit l'espace */
+        wl = 0;
+        while (s[wl + 1] && s[wl + 1] != ' ')
+          wl++;
+        if ((u16)col + 1 + wl > TB_TEXT_COLS)
+        {
+          row++;
+          col = 0;
+          s++;
+          continue;
+        }
+      }
+      if (col >= TB_TEXT_COLS)
+      {
+        row++;
+        col = 0;
+        if (row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+          break;
+      }
+      tb_shadow[(u16)row * 32 + TB_TEXT_COL + col] = TB_ENTRY(TB_CHAR(c));
+      col++;
+      s++;
+    }
+  }
+
+  tb_dirty = 1;
+}
+
+void textbox_close(void)
+{
+  tb_fill(0);
+  tb_dirty = 1;
+}
+
+void textbox_vblank(void)
+{
+  if (tb_dirty)
+  {
+    tb_dirty = 0;
+    dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + TB_ROW * 32,
+                32 * TB_ROWS * 2);
+  }
+}

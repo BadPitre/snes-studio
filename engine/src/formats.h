@@ -26,6 +26,18 @@
 #define DIR_LEFT  2
 #define DIR_RIGHT 3
 
+/* Opcodes VM v0 — spec §2, table contractuelle : ne rien ajouter sans
+   demande explicite */
+#define VM_OP_END     0x00
+#define VM_OP_MSG     0x01 /* text_id (u16) — bloquant */
+#define VM_OP_SETVAR  0x02 /* var (u8), val (u8) */
+#define VM_OP_ADDVAR  0x03 /* var (u8), val (u8) */
+#define VM_OP_JMP     0x04 /* offset (u16) */
+#define VM_OP_JEQ     0x05 /* var, val, offset */
+#define VM_OP_JNE     0x06 /* var, val, offset */
+#define VM_OP_SETGVAR 0x07 /* var (u8), val (u8) */
+#define VM_OP_JGEQ    0x08 /* var, val, offset */
+
 /* Entrée acteur — spec §1.3 */
 typedef struct
 {

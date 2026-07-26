@@ -10,34 +10,16 @@
 #include "scene.h"
 #include "camera.h"
 #include "actors.h"
-
-/* Palette BG (data_assets.c) — pour restaurer la couleur du jalon S3 */
-extern const u16 tileset_pal[];
+#include "vm.h"
 
 /* OAM : joueur = id 0 ; acteur i = (1+i)*4 (structure OAM PVSnesLib) */
 #define ACTOR_OAM_ID(i) (((u16)(i) + 1) << 2)
 #define ACTOR_OBJ_PRIO 2
 
-/*
- * Jalon semaine 3 : l'interaction bascule la couleur 2 de la palette BG
- * (le vert clair de l'herbe) vers un rouge de debug — preuve visible que le
- * hook acteur → réaction fonctionne. Remplacé par vmStart() en semaine 4.
- * L'écriture CGRAM est différée au VBlank (actors_vblank).
- */
-#define DEBUG_HOOK_COLOR 0x001C /* rouge (BGR555) */
-static u8 hook_pending;
-static u8 hook_state;
-
 void actors_init(void)
 {
   u8 i;
   const ActorDef *a = scene_ctx.actors;
-
-  /* Init explicite : la mise à zéro des statiques par le crt0 n'est pas
-     fiable sur cette toolchain (sections .bss dupliquées par fichier) —
-     c'était la cause de l'herbe rouge dès le boot. */
-  hook_pending = 0;
-  hook_state = 0;
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
@@ -93,24 +75,8 @@ u8 actor_at_tile(u8 tx, u8 ty)
 
 void actor_interact(u8 index)
 {
-  /* Semaine 4 : vmStart(scene_ctx.actors[index].script_offset) */
-  (void)index;
-  hook_state ^= 1;
-  hook_pending = 1;
-}
+  u16 ofs = scene_ctx.actors[index].script_offset;
 
-void actors_vblank(void)
-{
-  if (hook_pending)
-  {
-    hook_pending = 0;
-    if (hook_state)
-    {
-      setPaletteColor(2, DEBUG_HOOK_COLOR);
-    }
-    else
-    {
-      setPaletteColor(2, tileset_pal[2]);
-    }
-  }
+  if (ofs != SCRIPT_NONE)
+    vm_start(ofs);
 }
