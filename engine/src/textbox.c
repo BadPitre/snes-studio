@@ -10,14 +10,27 @@
 #include "formats.h"
 #include "scene.h"
 #include "textbox.h"
+#include "rom_layout.h"
 #include "vram.h"
 
-/* Fonte + palette (data_font.c), textes (data_texts.c) */
+/* Fonte + palette (data_font.c) */
 extern const u8 font_gfx[];
 extern const u16 font_gfx_size;
 extern const u16 textbox_pal[];
-extern const char *const text_table[];
-extern const u16 text_count;
+
+/* Textes : bank $86 (spec §2) — [u16 count][u16 offsets][chaînes \0].
+   Retourne 0 si text_id hors table. */
+static const char *text_ptr(u16 text_id)
+{
+  const u8 *tbl = FAR_PTR(BANK_TEXTS, BANK_BASE_ADDR);
+  u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
+  u16 ofs;
+
+  if (text_id >= count)
+    return 0;
+  ofs = (u16)tbl[2 + (text_id << 1)] | ((u16)tbl[3 + (text_id << 1)] << 8);
+  return (const char *)FAR_PTR(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+}
 
 /* Géométrie de la boîte (rangées de la map BG3 32x32) */
 #define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
@@ -73,9 +86,9 @@ void textbox_open(u16 text_id)
   /* Fond de boîte : chars "espace" opaques partout */
   tb_fill(TB_ENTRY(TB_CHAR(' ')));
 
-  if (text_id < text_count)
+  s = text_ptr(text_id);
+  if (s)
   {
-    s = text_table[text_id];
     row = TB_TEXT_ROW;
     col = 0;
     while (*s && row < TB_TEXT_ROW + TB_TEXT_ROWS)

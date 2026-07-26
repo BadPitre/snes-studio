@@ -1,13 +1,15 @@
 //! datagen — SNES Studio Phase 2 : projet source (JSON + PNG indexés) →
-//! fichiers de données C consommés par le moteur (engine/src/data/).
+//! données moteur.
 //!
-//! Usage : datagen <dossier_projet> <dossier_sortie>
-//!   ex.  : datagen demo engine/src/data
+//! Usage : datagen <dossier_projet> <dossier_engine>
+//!   ex.  : datagen demo engine
 //!
-//! Le format binaire byte-exact (banks épinglées, Scene Table à adresse
-//! fixe — spec §1) viendra en Phase 2b ; cette passe émet la représentation
-//! C v0 de la Phase 1, à l'identique de ce que le moteur consomme déjà.
+//! Sorties :
+//!  - engine/src/data/scenes.bin + texts.bin — format binaire byte-exact
+//!    (spec §1-2), épinglés en banks $82/$86 par engine/databanks.asm
+//!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
 
+mod binbank;
 mod emit;
 mod gfx;
 mod project;
@@ -15,16 +17,16 @@ mod script;
 
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
-        bail!("usage : datagen <dossier_projet> <dossier_sortie>");
+        bail!("usage : datagen <dossier_projet> <dossier_engine>");
     }
     let proj_dir = PathBuf::from(&args[1]);
-    let out_dir = PathBuf::from(&args[2]);
+    let engine_dir = PathBuf::from(&args[2]);
+    let out_dir = engine_dir.join("src/data");
 
     let project: project::Project =
         read_json(&proj_dir.join("project.json")).context("project.json")?;
@@ -56,8 +58,15 @@ fn main() -> Result<()> {
         .with_context(|| format!("boot_scene '{}' absente de scenes[]", project.boot_scene))?;
 
     std::fs::create_dir_all(&out_dir)?;
-    write_out(&out_dir, "data_scenes.c", gen_scenes(&scenes, &text_ids, boot_id as u8)?)?;
-    write_out(&out_dir, "data_texts.c", gen_texts(&texts))?;
+
+    // Banks binaires (spec §1-2) + asm d'épinglage
+    let scene_bank = binbank::build_scene_bank(&scenes, &text_ids, boot_id as u8)?;
+    let text_bank = binbank::build_text_bank(&texts)?;
+    write_bin(&out_dir, "scenes.bin", &scene_bank)?;
+    write_bin(&out_dir, "texts.bin", &text_bank)?;
+    write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
+
+    // Assets gfx (representation C v0 — pas de format binaire en spec)
     write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project)?)?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
@@ -83,90 +92,11 @@ fn write_out(dir: &Path, name: &str, content: String) -> Result<()> {
     Ok(())
 }
 
-fn gen_scenes(
-    scenes: &[project::Scene],
-    text_ids: &HashMap<String, u16>,
-    boot_id: u8,
-) -> Result<String> {
-    let mut s = String::from(emit::HEADER);
-    s.push_str("#include <snes.h>\n#include \"../formats.h\"\n\n");
-
-    for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids)
-            .with_context(|| format!("script de la scene '{}'", sc.name))?;
-
-        let _ = write!(s, "/* ---- Scene {} : {} ({}x{}) ---- */\n\n", i, sc.name, sc.width, sc.height);
-        s.push_str(&emit::u8_grid(&format!("scene{}_tilemap", i), &sc.tilemap, true));
-        s.push('\n');
-        s.push_str(&emit::u8_grid(&format!("scene{}_collision", i), &sc.collision, true));
-        s.push('\n');
-        s.push_str(&emit::u8_array(&format!("scene{}_scripts", i), &asm.bytecode, 16, true));
-        s.push('\n');
-
-        if !sc.actors.is_empty() {
-            let _ = write!(s, "static const ActorDef scene{}_actors[] = {{\n", i);
-            for a in &sc.actors {
-                let ofs = match &a.entry {
-                    None => 0xFFFFu16, // SCRIPT_NONE
-                    Some(label) => *asm.labels.get(label).with_context(|| {
-                        format!("scene '{}' : entry '{}' introuvable dans le script", sc.name, label)
-                    })?,
-                };
-                let _ = write!(
-                    s,
-                    "  {{ ACTOR_TYPE_NPC_STATIC, {}, {}, {}, 0x{:04X}, {}, 0 }},\n",
-                    a.x,
-                    a.y,
-                    a.sprite,
-                    ofs,
-                    project::dir_code(&a.dir)?
-                );
-            }
-            s.push_str("};\n\n");
-        }
-
-        let actors_ref = if sc.actors.is_empty() {
-            "0".to_string()
-        } else {
-            format!("scene{}_actors", i)
-        };
-        let _ = write!(
-            s,
-            "static const SceneDef scene{i} = {{\n  SCENE_TYPE_TOP_DOWN,\n  0,\n  {w}, {h},\n  scene{i}_tilemap,\n  scene{i}_collision,\n  {actors},\n  scene{i}_scripts,\n  {count},\n  {px}, {py},\n  0,\n}};\n\n",
-            i = i,
-            w = sc.width,
-            h = sc.height,
-            actors = actors_ref,
-            count = sc.actors.len(),
-            px = sc.player_start[0],
-            py = sc.player_start[1],
-        );
-    }
-
-    s.push_str("/* ---- Scene Table (spec §1.1, representation C v0) ---- */\n\n");
-    s.push_str("const SceneDef *const scene_table[] = {\n");
-    for i in 0..scenes.len() {
-        let _ = write!(s, "  &scene{},\n", i);
-    }
-    s.push_str("};\n\n");
-    let _ = write!(s, "const u16 scene_count = {};\n\n", scenes.len());
-    let _ = write!(s, "const u8 boot_scene_id = {};\n", boot_id);
-    Ok(s)
-}
-
-fn gen_texts(texts: &[project::TextEntry]) -> String {
-    let mut s = String::from(emit::HEADER);
-    s.push_str("#include <snes.h>\n\n");
-    for t in texts {
-        let _ = write!(s, "static const char txt_{}[] = {};\n", t.name, emit::c_string(&t.text));
-    }
-    s.push_str("\nconst char *const text_table[] = {\n");
-    for (i, t) in texts.iter().enumerate() {
-        let _ = write!(s, "  txt_{}, /* {} */\n", t.name, i);
-    }
-    s.push_str("};\n\n");
-    let _ = write!(s, "const u16 text_count = {};\n", texts.len());
-    s
+fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
+    let path = dir.join(name);
+    std::fs::write(&path, content).with_context(|| format!("ecriture de {}", path.display()))?;
+    println!("  {} ({} octets)", path.display(), content.len());
+    Ok(())
 }
 
 fn gen_assets(proj_dir: &Path, project: &project::Project) -> Result<String> {

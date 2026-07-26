@@ -8,54 +8,52 @@ Toutes les valeurs multi-octets sont **little-endian** (natif 65816).
 
 ---
 
-## 0. Représentation POC (C) vs format binaire cible — ÉCARTS ASSUMÉS v0
+## 0. État du format — v0.2 (Phase 2b, binaire en ROM)
 
-**Depuis la Phase 2a, les fichiers `engine/src/data/*.c` sont GÉNÉRÉS par
-`tools/datagen` depuis le projet source `demo/` (JSON + PNG) — voir
-`docs/TOOLS.md`. La représentation C v0 ci-dessous reste celle émise.**
+**Depuis la Phase 2b, les scènes et les textes sont des BLOBS BINAIRES
+byte-exacts** (`engine/src/data/scenes.bin` / `texts.bin`), générés par
+`tools/datagen` depuis le projet source `demo/` (JSON + PNG — voir
+`docs/TOOLS.md`) et épinglés dans leurs banks par `engine/databanks.asm`.
+Les écarts de la Phase 1 (banks non épinglées, Scene Table symbolique,
+pointeurs C au lieu de far 24-bit) sont **résolus** : le moteur lit le format
+des sections 1-2 ci-dessous, tel quel, en ROM.
 
-Le POC écrivait les données à la main en C (`engine/src/data/data_*.c`). Le pipeline
-PVSnesLib (816-tcc → constify → wlalink) place les `const` C dans des sections
-`.rodata` **SUPERFREE** : le linker choisit la bank. Conséquences, assumées jusqu'à
-la Phase 2 (outils Rust qui émettront le format binaire byte-exact) :
+Écarts/conventions restants, assumés en v0 :
 
-1. **Pas d'épinglage physique des banks $82-$86** (kit §3). Le layout logique
-   (code / scènes / assets / textes dans des fichiers séparés) est respecté, le
-   placement physique est délégué au linker. Les accès restent far (pointeurs
-   32-bit de tcc-816, la bank voyage avec le pointeur).
-2. **Scene Table = tableau C de pointeurs** (`scene_table[]` + `scene_count`),
-   résolus au link, au lieu de l'adresse fixe en début de bank $82. Le moteur ne
-   connaît que les symboles — l'« adresse fixe connue du moteur » du format binaire
-   redeviendra nécessaire quand les données seront des blobs générés.
-3. **Les pointeurs far 24-bit des structures deviennent des pointeurs C** (32 bits
-   chez tcc-816, bank incluse). Le format binaire cible (sections 1-3 ci-dessous)
-   reste le contrat pour la Phase 2.
-4. **Convention metatile v0 :** la valeur `t` du tilemap est directement l'index du
+1. **Convention metatile v0 :** la valeur `t` du tilemap est directement l'index du
    character 8x8 dans le tileset ; le moteur l'affiche répété 2x2 pour couvrir le
-   metatile 16x16. (Évolution prévue Phase 2 : table de metatiles → 4 chars.)
-5. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
+   metatile 16x16. (Évolution prévue : table de metatiles → 4 chars.)
+2. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
    la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
    32x32 sont streamées (voir §4).
-5bis. **Scène de boot dans les données** : `boot_scene_id` (data_scenes.c).
-   Changer sa valeur et rebuilder démarre sur une autre scène — c'est la
-   preuve multi-scènes v0 (le warp en jeu arrive en Phase 4).
-6. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
-   `data_assets.c`) : le Scene Header du kit n'a pas de pointeur d'assets, tous
-   les écrans partagent le même tileset pour le POC.
+3. **Tileset unique global v0** (`tileset[]` / `tileset_pal[]` dans
+   `data_assets.c`) : le Scene Header n'a pas de pointeur d'assets, tous les
+   écrans partagent le même tileset. Les assets gfx (tileset, sprites, fonte)
+   restent en C arrays générés — la spec ne définit pas (encore) de format
+   binaire pour eux.
+4. **Une seule bank de scènes** ($82) : datagen refuse un blob > 32 Ko ; le
+   débordement vers $83 (réservé, kit §3) sera implémenté au besoin.
+5. **Ordre des pointeurs far 24-bit** dans les structures : `[bank][addr lo]
+   [addr hi]` — même ordre que les entrées de la Scene Table.
 
 ---
 
 ## 1. Format binaire de scène (v0)
 
-### 1.1 Scene Table
+### 1.1 Scene Table (v0.2)
 
-À une adresse fixe connue du moteur (début bank $82) :
+À une adresse fixe connue du moteur : **$82:8000** (début bank $82).
 
 ```
 Offset  Taille  Champ
 0       2       scene_count (u16)
-2       4×N     entrées : { bank (u8), addr (u16), reserved (u8) } par scène
+2       1       boot_scene_id (u8)   — scène chargée au démarrage
+3       1       reserved (u8)
+4       4×N     entrées : { bank (u8), addr (u16), reserved (u8) } par scène
 ```
+
+*Évolution v0 → v0.2 (Phase 2b) : ajout de `boot_scene_id` dans l'en-tête —
+la scène de boot est une donnée, pas une constante moteur.*
 
 ### 1.2 Scene Header
 
@@ -145,10 +143,17 @@ frame, halt debug au-delà (idem opcode inconnu).
 
 8 opcodes. C'est tout. Pas d'ajout sans besoin prouvé.
 
-**Textes :** table d'offsets en bank $86 (v0 C : table de pointeurs `text_table[]`
-dans `data_texts.c`). `text_id` indexe la table ; chaque texte est une chaîne
-terminée par `0x00`. Encodage v0 : ASCII simple (accents en v1 avec la fonte
-définitive).
+**Textes :** bank $86, à $86:8000 :
+
+```
+Offset      Taille  Champ
+0           2       text_count (u16)
+2           2×N     offsets (u16) — relatifs au début de bank ($8000)
+(offsets)   ...     chaînes terminées par 0x00
+```
+
+`text_id` indexe la table d'offsets. Encodage v0 : ASCII simple (32-126,
+accents en v1 avec la fonte définitive).
 
 ---
 

@@ -22,30 +22,6 @@ pub fn u8_array(name: &str, data: &[u8], cols: usize, static_: bool) -> String {
     s
 }
 
-/// Tableau u8 mis en page en grille (tilemaps : une rangée de map par ligne)
-pub fn u8_grid(name: &str, rows: &[Vec<u8>], static_: bool) -> String {
-    let mut s = String::new();
-    let prefix = if static_ { "static " } else { "" };
-    let _ = write!(
-        s,
-        "{}const u8 {}[{} * {}] = {{\n",
-        prefix,
-        name,
-        rows[0].len(),
-        rows.len()
-    );
-    for row in rows {
-        s.push_str("  ");
-        for v in row {
-            let _ = write!(s, "{}, ", v);
-        }
-        s.pop();
-        s.push('\n');
-    }
-    s.push_str("};\n");
-    s
-}
-
 pub fn u16_array(name: &str, data: &[u16]) -> String {
     let mut s = String::new();
     let _ = write!(s, "const u16 {}[{}] = {{\n", name, data.len());
@@ -61,17 +37,3 @@ pub fn u16_array(name: &str, data: &[u16]) -> String {
     s
 }
 
-/// Chaîne C échappée (textes ASCII, spec §2 : accents interdits en v0)
-pub fn c_string(text: &str) -> String {
-    let mut s = String::from("\"");
-    for ch in text.chars() {
-        match ch {
-            '"' => s.push_str("\\\""),
-            '\\' => s.push_str("\\\\"),
-            c if (' '..='~').contains(&c) => s.push(c),
-            c => panic!("caractère non-ASCII dans un texte : '{}' (v0 : ASCII 32-126)", c),
-        }
-    }
-    s.push('"');
-    s
-}

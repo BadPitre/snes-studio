@@ -26,4 +26,4 @@ data:
 	  echo "Installe Rust via https://rustup.rs puis, sous MSYS2, ajoute :"; \
 	  echo "  export PATH=\"\$$PATH:/c/Users/$$USER/.cargo/bin\""; \
 	  exit 1; }
-	cargo run --release --manifest-path ../tools/Cargo.toml -p datagen -- ../demo ../engine/src/data
+	cargo run --release --manifest-path ../tools/Cargo.toml -p datagen -- ../demo ../engine

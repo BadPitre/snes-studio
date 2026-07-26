@@ -1,19 +1,21 @@
 # TOOLS — pipeline d'assets (Phase 2)
 
-**Statut :** Phase 2a. `datagen` transforme un projet source (JSON + PNG
-indexés) en fichiers de données C consommés par le moteur
-(`engine/src/data/*.c`). **Ces fichiers sont désormais GÉNÉRÉS — la source de
-vérité est le dossier projet (`demo/`).**
+**Statut :** Phase 2b. `datagen` transforme un projet source (JSON + PNG
+indexés) en données moteur. **La source de vérité est le dossier projet
+(`demo/`) — tout ce qui suit est GÉNÉRÉ :**
 
-La Phase 2b fera émettre le format binaire byte-exact de la spec (banks
-épinglées, Scene Table à adresse fixe, pointeurs far 24-bit) — voir
-`SPEC_FORMATS.md` §0.
+- `engine/src/data/scenes.bin` — bank $82 : Scene Table à $82:8000 + scènes,
+  format binaire byte-exact de la spec §1 (far 24-bit)
+- `engine/src/data/texts.bin` — bank $86 : table d'offsets + chaînes
+- `engine/databanks.asm` — épingle les blobs dans leurs banks
+- `engine/src/data/data_assets.c` + `data_font.c` — assets gfx (C arrays,
+  pas de format binaire en spec pour eux)
 
 ## Usage
 
 ```bash
 # depuis la racine
-cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine/src/data
+cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine
 
 # ou depuis engine/
 make data
