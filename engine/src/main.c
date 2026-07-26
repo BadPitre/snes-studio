@@ -1,13 +1,13 @@
 /*
- * main.c — point d'entrée du moteur SNES Studio (Phase 1, semaine 1).
+ * main.c — point d'entrée du moteur SNES Studio (Phase 1, semaine 2).
  *
  * Boucle cible du POC (kit §2) — les étapes commentées arrivent dans les
- * semaines suivantes :
- *   lireInputs / VM / updateJoueur / testerInteractions / updateCamera /
- *   preparerOAM / WaitForVBlank
+ * semaines suivantes : VM (S4), testerInteractions (S3).
  */
 #include <snes.h>
 #include "scene.h"
+#include "player.h"
+#include "camera.h"
 
 int main(void)
 {
@@ -15,6 +15,8 @@ int main(void)
 
   /* Scène de boot : id 0 (multi-scènes en semaine 5, warp en Phase 4). */
   scene_load(0);
+  player_init();
+  camera_update();
 
   /* Mode 1, BG1 16 couleurs seul actif (BG3 réservé à la textbox, semaine 4) */
   setMode(BG_MODE1, 0);
@@ -25,8 +27,14 @@ int main(void)
 
   while (1)
   {
-    /* Semaine 2 : inputs + joueur + caméra. Semaine 4 : vmStep(). */
+    player_update();  /* inputs + mouvement (collision S3, VM S4) */
+    camera_update();
+    player_draw();    /* shadow OAM — transféré par le NMI au VBlank */
+
     WaitForVBlank();
+
+    /* Registres de scroll écrits pendant le VBlank (pas de tearing) */
+    bgSetScroll(0, camera.x, camera.y);
   }
   return 0;
 }

@@ -176,6 +176,14 @@ Choix du moteur, pas des données — documenté ici pour référence :
 |----------------------|---------|
 | $0000 | Tilemap BG1, SC_64x64 (4 écrans 32x32, 8 Ko) |
 | $2000 | Characters BG1 (tileset 4bpp) |
+| $4000 | Characters OBJ (sprites 4bpp) |
 
 Mode vidéo : Mode 1, BG1 16 couleurs, BG2/BG3 désactivés (BG3 réservé textbox,
-semaine 4).
+semaine 4). Le layout est déclaré dans `engine/src/vram.h`.
+
+**Gfx joueur (v0)** : asset global dans `data_assets.c` (`player_gfx[]` /
+`player_pal[]`), 4 frames 16x16 4bpp — une par direction (0=bas 1=haut
+2=gauche 3=droite), layout table OBJ (frame d = tiles {2d, 2d+1, 2d+16,
+2d+17}). Le `sprite_id` des acteurs indexera la table de metasprites en
+semaine 3 ; le joueur, lui, n'a pas de sprite_id dans le Scene Header v0 —
+gfx global, comme le tileset.

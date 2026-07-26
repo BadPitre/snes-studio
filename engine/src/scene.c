@@ -9,6 +9,7 @@
 #include <snes.h>
 #include "formats.h"
 #include "scene.h"
+#include "vram.h"
 
 /* Scene Table (data_scenes.c) */
 extern const SceneDef *const scene_table[];
@@ -18,10 +19,6 @@ extern const u16 scene_count;
 extern const u8 tileset[];
 extern const u16 tileset_size;
 extern const u16 tileset_pal[];
-
-/* Layout VRAM (adresses en words) — spec §4 */
-#define VRAM_BG1_MAP 0x0000 /* tilemap SC_64x64 : 4 écrans 32x32, 8 Ko */
-#define VRAM_BG1_GFX 0x2000 /* characters 4bpp */
 
 SceneCtx scene_ctx;
 
