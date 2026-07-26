@@ -9,15 +9,15 @@ pas du code.**
 
 ## État du projet
 
-**Phase 2 — pipeline d'assets Rust** (Phase 1 : POC moteur validé et mergé).
-Le jeu (maps, collision, acteurs, scripts, textes, scène de boot) est défini
-par le projet source `demo/` (JSON + PNG) ; l'outil `datagen` génère les
-données C consommées par le moteur.
+**Phase 3 — éditeur no-code** (Phases 1-2 : moteur + pipeline validés et
+mergés). Le jeu est défini par le projet source `demo/` (JSON + PNG),
+éditable visuellement avec l'éditeur ; `datagen` génère les banks binaires
+consommées par le moteur.
 
 ```
 engine/   # Moteur SNES en C (PVSnesLib) — Phase 1 ✓
-tools/    # Pipeline d'assets en Rust — Phase 2 (datagen)
-editor/   # Éditeur Tauri + React + TS — Phase 3 (à venir)
+tools/    # Pipeline d'assets en Rust (datagen) — Phase 2 ✓
+editor/   # Éditeur Tauri + React + TS — Phase 3 (MVP)
 demo/     # Jeu de test permanent / régression — SOURCE des données
 docs/     # Specs et planning — sources de vérité
 ```
