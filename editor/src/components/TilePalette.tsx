@@ -1,20 +1,31 @@
-// Palette de tileset façon RPG Maker 2003 : le tileset de la scène est
-// affiché en grille verticale de 6 colonnes ; clic = tile seule, glisser =
-// sélection rectangulaire utilisée comme tampon multi-tiles sur la map.
-// La sélection reste visible même quand un autre outil est actif.
+// Palette de tileset façon RPG Maker 2003 : grille verticale de 6 colonnes.
+// Ordre RM2003 : gomme (couche sup), autotiles, puis tiles de la grille.
+// Clic = tile seule, glisser = sélection rectangulaire (tampon multi-tiles).
+// Mode « Passabilité » : les cellules affichent O/X/☆ et un clic fait
+// tourner l'état de la tile (écrit dans le sidecar du tileset).
 
 import { useEffect, useRef, useState } from "react";
+import type { Layer, TilesetMeta } from "../types";
+import { AUTOTILE_BASE, EMPTY_TILE } from "../types";
 import type { Tool } from "../state";
+import { isAboveId, isSolidId } from "../state";
+import { drawAutotilePreview } from "../autotile";
 
 interface Props {
   tileset: ImageBitmap | null;
+  autotiles: ImageBitmap[];
+  meta: TilesetMeta;
   tilesetNames: string[]; // stems, ordre = tileset_id
   current: string; // stem du tileset de la scène
   canImport: boolean;
   tool: Tool;
+  layer: Layer;
+  passMode: boolean;
   onTool: (t: Tool) => void;
   onSelectTileset: (stem: string) => void;
   onImport: () => void;
+  onPassMode: (on: boolean) => void;
+  onCyclePassability: (id: number) => void;
 }
 
 const COLS = 6; // colonnes de la palette, comme RPG Maker 2003
@@ -28,25 +39,31 @@ interface Rect {
 }
 
 export default function TilePalette(props: Props) {
-  const { tileset, tool, onTool } = props;
+  const { tileset, autotiles, meta, tool, layer, passMode, onTool } = props;
   const ref = useRef<HTMLCanvasElement>(null);
-  // grille source du PNG (row-major, même convention que datagen)
+
+  // Cellules de la palette, dans l'ordre d'affichage (ids logiques).
   const srcCols = tileset ? Math.max(1, Math.floor(tileset.width / 16)) : 1;
-  const count = tileset
+  const gridCount = tileset
     ? srcCols * Math.max(1, Math.floor(tileset.height / 16))
     : 0;
-  const rows = Math.max(1, Math.ceil(count / COLS));
+  const cells: number[] = [];
+  if (layer === "upper" && !passMode) cells.push(EMPTY_TILE); // gomme
+  for (let k = 0; k < autotiles.length; k++) cells.push(AUTOTILE_BASE + k);
+  for (let t = 0; t < gridCount; t++) cells.push(t);
+  const rows = Math.max(1, Math.ceil(cells.length / COLS));
 
   const [sel, setSel] = useState<Rect>({ x: 0, y: 0, w: 1, h: 1 });
-  const [drag, setDrag] = useState<Rect | null>(null); // rect en cours de glisser
+  const [drag, setDrag] = useState<Rect | null>(null);
   const dragStart = useRef<[number, number] | null>(null);
 
-  // nouveau tileset (changement de scène / d'assignation) : repartir sur la tile 0
+  // nouveau tileset (changement de scène / d'assignation) : repartir sur la
+  // première cellule
   useEffect(() => {
     setSel({ x: 0, y: 0, w: 1, h: 1 });
-    if (count > 0) onTool({ kind: "tile", tiles: [[0]] });
+    if (gridCount > 0) onTool({ kind: "tile", tiles: [[cells[0]]] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tileset]);
+  }, [tileset, layer]);
 
   function cellAt(e: React.PointerEvent): [number, number] {
     const rect = ref.current!.getBoundingClientRect();
@@ -54,10 +71,10 @@ export default function TilePalette(props: Props) {
     let y = Math.floor((e.clientY - rect.top) / CELL);
     x = Math.max(0, Math.min(COLS - 1, x));
     y = Math.max(0, Math.min(rows - 1, y));
-    if (y * COLS + x >= count) {
-      // dernière rangée partielle : se recaler sur la dernière tile valide
-      y = Math.floor((count - 1) / COLS);
-      x = Math.min(x, (count - 1) % COLS);
+    if (y * COLS + x >= cells.length) {
+      // dernière rangée partielle : se recaler sur la dernière cellule
+      y = Math.floor((cells.length - 1) / COLS);
+      x = Math.min(x, (cells.length - 1) % COLS);
     }
     return [x, y];
   }
@@ -74,7 +91,7 @@ export default function TilePalette(props: Props) {
       const row: number[] = [];
       for (let x = r.x; x < r.x + r.w; x++) {
         const i = y * COLS + x;
-        row.push(i < count ? i : 0); // coin de rangée partielle : herbe
+        row.push(i < cells.length ? cells[i] : 0);
       }
       out.push(row);
     }
@@ -89,34 +106,59 @@ export default function TilePalette(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#16181c";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    for (let i = 0; i < count; i++) {
-      const sx = (i % srcCols) * 16;
-      const sy = Math.floor(i / srcCols) * 16;
-      ctx.drawImage(
-        tileset,
-        sx,
-        sy,
-        16,
-        16,
-        (i % COLS) * CELL,
-        Math.floor(i / COLS) * CELL,
-        CELL,
-        CELL
-      );
+    for (let i = 0; i < cells.length; i++) {
+      const id = cells[i];
+      const dx = (i % COLS) * CELL;
+      const dy = Math.floor(i / COLS) * CELL;
+      if (id === EMPTY_TILE) {
+        // gomme : damier
+        ctx.fillStyle = "#2a2d33";
+        ctx.fillRect(dx, dy, CELL, CELL);
+        ctx.fillStyle = "#3a3e46";
+        for (let cy = 0; cy < 4; cy++) {
+          for (let cx = (cy & 1); cx < 4; cx += 2) {
+            ctx.fillRect(dx + cx * 8, dy + cy * 8, 8, 8);
+          }
+        }
+      } else if (id >= AUTOTILE_BASE) {
+        const img = autotiles[id - AUTOTILE_BASE];
+        if (img) drawAutotilePreview(ctx, img, dx, dy, CELL);
+      } else {
+        const sx = (id % srcCols) * 16;
+        const sy = Math.floor(id / srcCols) * 16;
+        ctx.drawImage(tileset, sx, sy, 16, 16, dx, dy, CELL, CELL);
+      }
+      if (passMode && id !== EMPTY_TILE) {
+        // overlay O/X/☆ (modèle RM2003)
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.fillRect(dx, dy, CELL, CELL);
+        ctx.font = "bold 18px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        if (isSolidId(meta, id)) {
+          ctx.fillStyle = "#ff5050";
+          ctx.fillText("X", dx + CELL / 2, dy + CELL / 2 + 1);
+        } else if (isAboveId(meta, id)) {
+          ctx.fillStyle = "#ffd040";
+          ctx.fillText("☆", dx + CELL / 2, dy + CELL / 2 + 1);
+        } else {
+          ctx.fillStyle = "#80d0ff";
+          ctx.fillText("O", dx + CELL / 2, dy + CELL / 2 + 1);
+        }
+      }
     }
     ctx.strokeStyle = "rgba(0,0,0,0.4)";
     ctx.lineWidth = 1;
-    for (let x = 1; x < COLS; x++) {
-      ctx.strokeRect(x * CELL + 0.5, 0, 0, rows * CELL);
+    for (let x = 1; x < COLS; x++) ctx.strokeRect(x * CELL + 0.5, 0, 0, rows * CELL);
+    for (let y = 1; y < rows; y++) ctx.strokeRect(0, y * CELL + 0.5, COLS * CELL, 0);
+    if (!passMode) {
+      const r = drag ?? sel;
+      ctx.strokeStyle = tool.kind === "tile" ? "#20c0ff" : "#7a8290";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(r.x * CELL + 1.5, r.y * CELL + 1.5, r.w * CELL - 3, r.h * CELL - 3);
     }
-    for (let y = 1; y < rows; y++) {
-      ctx.strokeRect(0, y * CELL + 0.5, COLS * CELL, 0);
-    }
-    const r = drag ?? sel;
-    ctx.strokeStyle = tool.kind === "tile" ? "#20c0ff" : "#7a8290";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(r.x * CELL + 1.5, r.y * CELL + 1.5, r.w * CELL - 3, r.h * CELL - 3);
-  }, [tileset, tool, sel, drag, count, srcCols, rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tileset, autotiles, meta, tool, sel, drag, passMode, layer, srcCols, rows]);
 
   return (
     <div className="palette">
@@ -138,6 +180,13 @@ export default function TilePalette(props: Props) {
             Importer…
           </button>
         )}
+        <button
+          className={passMode ? "active" : ""}
+          onClick={() => props.onPassMode(!passMode)}
+          title="Éditer la passabilité des tiles : O passable, X solide, ☆ au-dessus du héros"
+        >
+          Passabilité O/X/☆
+        </button>
       </div>
       <div className="palette-title">Tiles</div>
       <canvas
@@ -145,9 +194,14 @@ export default function TilePalette(props: Props) {
         width={COLS * CELL}
         height={rows * CELL}
         onPointerDown={(e) => {
-          if (!count) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
+          if (!cells.length) return;
           const c = cellAt(e);
+          if (passMode) {
+            const id = cells[c[1] * COLS + c[0]];
+            if (id !== EMPTY_TILE) props.onCyclePassability(id);
+            return;
+          }
+          e.currentTarget.setPointerCapture(e.pointerId);
           dragStart.current = c;
           setDrag(rectFrom(c, c));
         }}
@@ -171,18 +225,6 @@ export default function TilePalette(props: Props) {
           onClick={() => onTool({ kind: "select" })}
         >
           Sélection
-        </button>
-        <button
-          className={tool.kind === "collision" && tool.solid ? "active" : ""}
-          onClick={() => onTool({ kind: "collision", solid: true })}
-        >
-          Collision +
-        </button>
-        <button
-          className={tool.kind === "collision" && !tool.solid ? "active" : ""}
-          onClick={() => onTool({ kind: "collision", solid: false })}
-        >
-          Collision -
         </button>
         <button
           className={tool.kind === "actor" ? "active" : ""}

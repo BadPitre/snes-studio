@@ -1,10 +1,14 @@
-// Canvas de la map : rendu tiles + overlays (collision, grille, acteurs,
-// départ joueur), peinture à la souris (clic gauche = outil courant).
+// Canvas de la map : rendu des deux couches (autotiles recalculés en
+// direct, style RPG Maker 2003), overlays (collision dérivée, grille,
+// acteurs, warps, départ joueur), peinture à la souris. La couche
+// inactive est atténuée pour repérer ce qu'on édite.
 
 import { useEffect, useRef } from "react";
-import type { Scene } from "../types";
-import { TILE_SIZE, actorFrame } from "../types";
+import type { Layer, Scene, TilesetMeta } from "../types";
+import { AUTOTILE_BASE, EMPTY_TILE, TILE_SIZE, actorFrame } from "../types";
 import type { Tool } from "../state";
+import { cellSolid } from "../state";
+import { drawAutotileCell } from "../autotile";
 
 const SCALE = 2;
 const TS = TILE_SIZE * SCALE;
@@ -12,8 +16,11 @@ const TS = TILE_SIZE * SCALE;
 interface Props {
   scene: Scene;
   tileset: ImageBitmap | null;
+  autotiles: ImageBitmap[];
+  meta: TilesetMeta;
   sprites: ImageBitmap | null;
   tool: Tool;
+  layer: Layer;
   showCollision: boolean;
   showGrid: boolean;
   // (ox,oy) : tile d'origine du glisser — ancre du motif pour le tampon
@@ -26,7 +33,7 @@ export default function MapCanvas(props: Props) {
   const painting = useRef(false);
   const origin = useRef<[number, number]>([0, 0]);
 
-  const { scene, tileset, sprites, showCollision, showGrid } = props;
+  const { scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid } = props;
 
   useEffect(() => {
     const cv = canvasRef.current;
@@ -36,26 +43,49 @@ export default function MapCanvas(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, cv.width, cv.height);
+    if (!tileset) return;
 
-    // tiles — tileset en grille row-major (même convention que datagen)
-    if (tileset) {
-      const perRow = Math.max(1, Math.floor(tileset.width / 16));
+    const perRow = Math.max(1, Math.floor(tileset.width / 16));
+    const drawCell = (grid: number[][], x: number, y: number) => {
+      const t = grid[y][x];
+      if (t === EMPTY_TILE) return;
+      if (t >= AUTOTILE_BASE) {
+        const img = autotiles[t - AUTOTILE_BASE];
+        if (!img) return;
+        const same = (ox: number, oy: number) => {
+          const nx = x + ox;
+          const ny = y + oy;
+          if (nx < 0 || ny < 0 || nx >= scene.width || ny >= scene.height) return true;
+          return grid[ny][nx] === t;
+        };
+        drawAutotileCell(ctx, img, x * TS, y * TS, TS, same);
+        return;
+      }
+      const sx = (t % perRow) * 16;
+      const sy = Math.floor(t / perRow) * 16;
+      ctx.drawImage(tileset, sx, sy, 16, 16, x * TS, y * TS, TS, TS);
+    };
+
+    const drawLayer = (grid: number[][], dim: boolean) => {
+      ctx.globalAlpha = dim ? 0.4 : 1;
       for (let y = 0; y < scene.height; y++) {
         for (let x = 0; x < scene.width; x++) {
-          const t = scene.tilemap[y][x];
-          const sx = (t % perRow) * 16;
-          const sy = Math.floor(t / perRow) * 16;
-          ctx.drawImage(tileset, sx, sy, 16, 16, x * TS, y * TS, TS, TS);
+          drawCell(grid, x, y);
         }
       }
-    }
+      ctx.globalAlpha = 1;
+    };
 
-    // collision
+    // couche inf puis sup — la couche non éditée est atténuée (repère RM2003)
+    drawLayer(scene.tilemap, layer === "upper");
+    drawLayer(scene.upper, layer === "lower");
+
+    // collision dérivée de la passabilité du tileset (lecture seule)
     if (showCollision) {
       ctx.fillStyle = "rgba(255,40,40,0.35)";
       for (let y = 0; y < scene.height; y++) {
         for (let x = 0; x < scene.width; x++) {
-          if (scene.collision[y][x]) ctx.fillRect(x * TS, y * TS, TS, TS);
+          if (cellSolid(scene, meta, x, y)) ctx.fillRect(x * TS, y * TS, TS, TS);
         }
       }
     }
@@ -112,7 +142,7 @@ export default function MapCanvas(props: Props) {
       ctx.lineWidth = 2;
       ctx.strokeRect(a.x * TS + 1, a.y * TS + 1, TS - 2, TS - 2);
     }
-  }, [scene, tileset, sprites, showCollision, showGrid]);
+  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid]);
 
   function tileAt(e: React.MouseEvent): [number, number] {
     const rect = canvasRef.current!.getBoundingClientRect();

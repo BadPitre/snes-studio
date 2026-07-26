@@ -1,23 +1,25 @@
-// SNES Studio — éditeur (Phase 3b).
-// Ouvre un dossier projet (les JSON/PNG que tools/datagen consomme),
-// édite maps / collision / acteurs / textes / scripts, undo/redo,
-// gestion des scènes, sauvegarde, génération des données moteur.
+// SNES Studio — éditeur.
+// Ouvre un dossier projet (les JSON/PNG que tools/datagen consomme) et
+// édite maps (2 couches + autotiles + passabilité, modèle RPG Maker 2003),
+// acteurs, warps, textes, scripts ; undo/redo, gestion des scènes,
+// sauvegarde, génération des données moteur.
 
 import { useCallback, useEffect, useState } from "react";
-import type { Actor, ProjectData, Scene, Warp } from "./types";
+import type { Actor, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
 import { assetStem, musicStem, projectTilesets } from "./types";
 import {
   canWriteFiles,
   importTilesetPng,
   loadAssetPng,
+  loadAutotiles,
   loadProject,
   pickProjectDir,
   saveProject,
 } from "./io";
 import type { Tool } from "./state";
 import {
+  cyclePassability,
   newScene,
-  paintCollision,
   paintStamp,
   placeActor,
   placeWarp,
@@ -45,8 +47,11 @@ export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
   const [sceneName, setSceneName] = useState<string>("");
   const [tilesets, setTilesets] = useState<Record<string, ImageBitmap>>({});
+  const [autoImgs, setAutoImgs] = useState<Record<string, ImageBitmap[]>>({});
   const [sprites, setSprites] = useState<ImageBitmap | null>(null);
   const [tool, setTool] = useState<Tool>({ kind: "tile", tiles: [[0]] });
+  const [layer, setLayer] = useState<Layer>("lower");
+  const [passMode, setPassMode] = useState(false);
   const [tab, setTab] = useState<Tab>("actors");
   const [selActor, setSelActor] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(true);
@@ -64,6 +69,9 @@ export default function App() {
   const tilesetNames = tilesetPaths.map(assetStem);
   const tsStem = scene ? scene.tileset ?? tilesetNames[0] : "";
   const tileset = tilesets[tsStem] ?? null;
+  const emptyMeta: TilesetMeta = { autotiles: [], solid: [], above: [] };
+  const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
+  const autotiles = autoImgs[tsStem] ?? [];
 
   async function openProject() {
     const root = await pickProjectDir();
@@ -71,14 +79,20 @@ export default function App() {
     try {
       const d = await loadProject(root);
       const bitmaps: Record<string, ImageBitmap> = {};
+      const autos: Record<string, ImageBitmap[]> = {};
       for (const p of projectTilesets(d.project)) {
-        bitmaps[assetStem(p)] = await loadAssetPng(root, p);
+        const stem = assetStem(p);
+        bitmaps[stem] = await loadAssetPng(root, p);
+        autos[stem] = await loadAutotiles(root, d.tilesetMeta[stem]);
       }
       setData(d);
       setSceneName(d.project.boot_scene);
       setTilesets(bitmaps);
+      setAutoImgs(autos);
       setSprites(await loadAssetPng(root, d.project.assets.sprites));
       setSelActor(null);
+      setLayer("lower");
+      setPassMode(false);
       setDirty(false);
       history.reset();
       setStatus(`Projet « ${d.project.name} » — ${d.project.scenes.length} scènes`);
@@ -176,10 +190,7 @@ export default function App() {
   function handlePaint(tx: number, ty: number, ox: number, oy: number) {
     switch (tool.kind) {
       case "tile":
-        setScene((sc) => paintStamp(sc, tx, ty, ox, oy, tool.tiles));
-        break;
-      case "collision":
-        setScene((sc) => paintCollision(sc, tx, ty, tool.solid));
+        setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles));
         break;
       case "actor":
         setScene((sc) => placeActor(sc, tx, ty));
@@ -191,7 +202,7 @@ export default function App() {
           setStatus("Il faut au moins deux scènes pour poser un warp.");
           break;
         }
-        setScene((sc) => placeWarp(sc, tx, ty, other));
+        setScene((sc) => placeWarp(sc, meta, tx, ty, other));
         setTab("warps");
         break;
       }
@@ -201,6 +212,18 @@ export default function App() {
       case "select":
         break;
     }
+  }
+
+  // cycle O → X → ☆ du sidecar du tileset courant (undo/redo comme le reste)
+  function cyclePass(id: number) {
+    if (!tsStem) return;
+    mutate((d) => ({
+      ...d,
+      tilesetMeta: {
+        ...d.tilesetMeta,
+        [tsStem]: cyclePassability(d.tilesetMeta[tsStem] ?? emptyMeta, id),
+      },
+    }));
   }
 
   function createScene(name: string, width: number, height: number) {
@@ -343,6 +366,22 @@ export default function App() {
           </>
         )}
         {data && scene && (
+          <span className="layer-switch" title="Couche éditée (modèle RPG Maker 2003)">
+            <button
+              className={layer === "lower" ? "active" : ""}
+              onClick={() => setLayer("lower")}
+            >
+              Couche inf.
+            </button>
+            <button
+              className={layer === "upper" ? "active" : ""}
+              onClick={() => setLayer("upper")}
+            >
+              Couche sup.
+            </button>
+          </span>
+        )}
+        {data && scene && (
           <label title="Musique de la scène">
             ♪
             <select
@@ -382,20 +421,29 @@ export default function App() {
         <div className="workspace">
           <TilePalette
             tileset={tileset}
+            autotiles={autotiles}
+            meta={meta}
             tilesetNames={tilesetNames}
             current={tsStem}
             canImport={canWriteFiles()}
             tool={tool}
+            layer={layer}
+            passMode={passMode}
             onTool={setTool}
             onSelectTileset={setSceneTileset}
             onImport={importTileset}
+            onPassMode={setPassMode}
+            onCyclePassability={cyclePass}
           />
           <div className="map-scroll">
             <MapCanvas
               scene={scene}
               tileset={tileset}
+              autotiles={autotiles}
+              meta={meta}
               sprites={sprites}
               tool={tool}
+              layer={layer}
               showCollision={showCollision}
               showGrid={showGrid}
               onPaint={handlePaint}

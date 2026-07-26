@@ -22,6 +22,10 @@ body {
 .palette canvas { background: #16181c; border: 1px solid #000; cursor: crosshair; touch-action: none; }
 .palette-tileset { display: flex; flex-direction: column; gap: 6px; }
 .palette-tileset select { width: 100%; }
+.layer-switch { display: flex; }
+.layer-switch button { border-radius: 0; }
+.layer-switch button:first-child { border-radius: 4px 0 0 4px; }
+.layer-switch button:last-child { border-radius: 0 4px 4px 0; }
 .tools { display: flex; flex-direction: column; gap: 6px; }
 
 .map-scroll { flex: 1; overflow: auto; background: #101114; padding: 12px; }

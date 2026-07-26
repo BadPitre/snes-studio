@@ -1,6 +1,6 @@
 # EDITOR — l'éditeur SNES Studio
 
-**Statut : Phase 5b.** Application Tauri 2 + React + TypeScript dans
+**Statut : Phase 5c.** Application Tauri 2 + React + TypeScript dans
 `editor/`. Elle ouvre un dossier projet (le format JSON/PNG documenté dans
 `TOOLS.md` — ex. `demo/`) et édite **exactement les fichiers que `datagen`
 consomme** : aucun format intermédiaire.
@@ -51,10 +51,23 @@ consomme** : aucun format intermédiaire.
   rognage, bordure de murs reconstruite, acteurs/warps hors limites
   supprimés (avertissement affiché).
 
-Pas encore (côté palette, par rapport à RPG Maker 2003) : autotiles
-(bordures automatiques), couches inférieure/supérieure, édition de la
-« passabilité » dans la palette (la collision reste une couche peinte à
-part). Toujours pas : édition des gfx, `make` intégré.
+## Fonctionnalités (5c) — autotiles, couches, passabilité (RM2003)
+
+- **Deux couches de décor** : boutons « Couche inf. / Couche sup. » dans la
+  barre d'outils. La couche non éditée est atténuée. La couche sup a une
+  **gomme** (première cellule de la palette) ; ses tiles doivent avoir un
+  fond transparent (index 0).
+- **Autotiles** (bordures automatiques eau/chemin) : affichés en tête de
+  palette (aperçu = tile îlot). En peignant, les bordures se recalculent
+  toutes seules selon les voisins — comme RPG Maker 2003. Format source :
+  PNG 48x64 déclaré dans le sidecar du tileset (voir TOOLS.md).
+- **Passabilité dans la palette** : bouton « Passabilité O/X/☆ » — les
+  cellules affichent leur état et un clic fait tourner O (passable) →
+  X (solide) → ☆ (au-dessus du héros, passable). Plus d'outil de collision
+  peinte : l'overlay rouge affiche la collision DÉRIVÉE (tile sup non-☆
+  prioritaire — un pont sur l'eau est passable automatiquement).
+
+Pas encore : animation des autotiles (eau), édition des gfx, `make` intégré.
 
 ## Lancer
 

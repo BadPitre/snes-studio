@@ -4,7 +4,8 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite } from "@tauri-apps/plugin-fs";
-import type { Project, ProjectData, Scene, TextEntry } from "./types";
+import type { Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
+import { EMPTY_TILE, assetStem, projectTilesets } from "./types";
 
 // Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
 // HTTP (lecture seule) — pratique pour développer l'UI et les captures.
@@ -46,16 +47,66 @@ export async function loadProject(root: string): Promise<ProjectData> {
   const scenes: Record<string, Scene> = {};
   for (const name of project.scenes) {
     const sc: Scene = JSON.parse(await readTextFile(`${root}/scenes/${name}.json`));
-    sc.warps ??= []; // champ optionnel dans les anciens fichiers
+    sc.warps ??= []; // champs optionnels dans les anciens fichiers
     sc.script ??= [];
+    sc.upper ??= Array.from({ length: sc.height }, () =>
+      Array.from({ length: sc.width }, () => EMPTY_TILE)
+    );
+    delete (sc as unknown as Record<string, unknown>)["collision"]; // héritage : dérivée du tileset
     scenes[name] = sc;
   }
-  return { root, project, scenes, texts };
+  // sidecars de passabilité (assets/<stem>.json) — absent = tout passable
+  const tilesetMeta: Record<string, TilesetMeta> = {};
+  for (const p of projectTilesets(project)) {
+    const stem = assetStem(p);
+    const sidecar = p.replace(/\.[^.]+$/, ".json");
+    try {
+      const m = JSON.parse(await readTextFile(`${root}/${sidecar}`));
+      tilesetMeta[stem] = {
+        autotiles: m.autotiles ?? [],
+        solid: m.solid ?? [],
+        above: m.above ?? [],
+      };
+    } catch {
+      tilesetMeta[stem] = { autotiles: [], solid: [], above: [] };
+    }
+  }
+  return { root, project, scenes, texts, tilesetMeta };
+}
+
+// Première couleur du chunk PLTE d'un PNG indexé — l'index 0 est
+// TRANSPARENT côté SNES, l'éditeur doit le rendre pareil.
+function pngFirstPaletteColor(bytes: Uint8Array): [number, number, number] | null {
+  let o = 8; // après la signature PNG
+  while (o + 8 <= bytes.length) {
+    const len =
+      (bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3];
+    const type = String.fromCharCode(bytes[o + 4], bytes[o + 5], bytes[o + 6], bytes[o + 7]);
+    if (type === "PLTE" && len >= 3) {
+      return [bytes[o + 8], bytes[o + 9], bytes[o + 10]];
+    }
+    o += 12 + len;
+  }
+  return null;
 }
 
 export async function loadAssetPng(root: string, rel: string): Promise<ImageBitmap> {
   const bytes = await readFile(`${root}/${rel}`);
-  return createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+  const bmp = await createImageBitmap(
+    new Blob([new Uint8Array(bytes)], { type: "image/png" })
+  );
+  const key = pngFirstPaletteColor(bytes);
+  if (!key) return bmp;
+  const cv = new OffscreenCanvas(bmp.width, bmp.height);
+  const ctx = cv.getContext("2d")!;
+  ctx.drawImage(bmp, 0, 0);
+  const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] === key[0] && d[i + 1] === key[1] && d[i + 2] === key[2]) d[i + 3] = 0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return createImageBitmap(cv);
 }
 
 // Sérialisation avec rangées compactes (une ligne par rangée de map)
@@ -96,12 +147,34 @@ function sceneToJson(sc: Scene): string {
   "height": ${sc.height},
   "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}
   "tilemap": ${grid(sc.tilemap)},
-  "collision": ${grid(sc.collision)},
+  "upper": ${grid(sc.upper)},
   "actors": ${actors},
   "warps": ${warps},
   "script": ${script}
 }
 `;
+}
+
+// Sidecar de passabilité, format canonique (diffs lisibles)
+function metaToJson(m: import("./types").TilesetMeta): string {
+  return `{
+  "autotiles": [${m.autotiles.map((a) => JSON.stringify(a)).join(", ")}],
+  "solid": [${m.solid.join(", ")}],
+  "above": [${m.above.join(", ")}]
+}
+`;
+}
+
+// PNG d'autotiles d'un tileset, dans l'ordre du sidecar
+export async function loadAutotiles(
+  root: string,
+  meta: import("./types").TilesetMeta
+): Promise<ImageBitmap[]> {
+  const out: ImageBitmap[] = [];
+  for (const rel of meta.autotiles) {
+    out.push(await loadAssetPng(root, rel));
+  }
+  return out;
 }
 
 // Import d'un PNG de tileset : choisi via dialog, copié dans assets/
@@ -129,5 +202,10 @@ export async function saveProject(data: ProjectData): Promise<void> {
   );
   for (const name of data.project.scenes) {
     await writeTextFile(`${data.root}/scenes/${name}.json`, sceneToJson(data.scenes[name]));
+  }
+  for (const p of projectTilesets(data.project)) {
+    const meta = data.tilesetMeta[assetStem(p)];
+    if (!meta) continue;
+    await writeTextFile(`${data.root}/${p.replace(/\.[^.]+$/, ".json")}`, metaToJson(meta));
   }
 }

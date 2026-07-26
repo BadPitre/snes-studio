@@ -55,14 +55,28 @@ export interface Scene {
   width: number;
   height: number;
   player_start: [number, number];
-  tilemap: number[][];
-  collision: number[][];
+  // ids logiques : 0.. = tile de la grille, AUTOTILE_BASE+k = autotile k
+  tilemap: number[][]; // couche inférieure
+  upper: number[][]; // couche supérieure, EMPTY_TILE = vide
   actors: Actor[];
   script: string[];
   warps: Warp[];
   music?: string; // stem d'un module de project.musics — absent = silence
   tileset?: string; // stem d'un tileset de project.tilesets — absent = le premier
 }
+
+// Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).
+// La collision moteur est DÉRIVÉE de ces listes par datagen.
+export interface TilesetMeta {
+  autotiles: string[]; // chemins PNG 48x64
+  solid: number[]; // ids logiques X
+  above: number[]; // ids logiques ☆ (au-dessus du héros, passables)
+}
+
+export const AUTOTILE_BASE = 1000;
+export const EMPTY_TILE = -1;
+
+export type Layer = "lower" | "upper";
 
 export interface TextEntry {
   name: string;
@@ -74,6 +88,8 @@ export interface ProjectData {
   project: Project;
   scenes: Record<string, Scene>;
   texts: TextEntry[];
+  // sidecars de passabilité, par stem de tileset (undo/redo comme le reste)
+  tilesetMeta: Record<string, TilesetMeta>;
 }
 
 export const TILE_SIZE = 16;
