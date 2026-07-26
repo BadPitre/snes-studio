@@ -23,6 +23,7 @@ pub const BANK_CAPACITY: usize = 0x8000;
 pub fn build_scene_bank(
     scenes: &[project::Scene],
     text_ids: &HashMap<String, u16>,
+    music_ids: &HashMap<String, u8>,
     boot_id: u8,
 ) -> Result<Vec<u8>> {
     let scene_ids: HashMap<&str, u8> = scenes
@@ -70,6 +71,12 @@ pub fn build_scene_bank(
         header[16] = sc.actors.len() as u8;
         header[17] = sc.player_start[0];
         header[18] = sc.player_start[1];
+        header[19] = match &sc.music {
+            None => 0xFF, // silence
+            Some(name) => *music_ids.get(name.as_str()).with_context(|| {
+                format!("scene '{}' : musique inconnue '{}'", sc.name, name)
+            })?,
+        };
         write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
         header[23] = sc.warps.len() as u8;
         blob.extend_from_slice(&header);

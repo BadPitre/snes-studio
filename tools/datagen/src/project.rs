@@ -10,6 +10,9 @@ pub struct Project {
     pub boot_scene: String,
     pub scenes: Vec<String>,
     pub assets: Assets,
+    /// Modules .it, dans l'ordre des music_id (optionnel)
+    #[serde(default)]
+    pub musics: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -32,6 +35,9 @@ pub struct Scene {
     pub script: Vec<String>,
     #[serde(default)]
     pub warps: Vec<Warp>,
+    /// Nom (stem) d'un module de project.musics — absent = silence
+    #[serde(default)]
+    pub music: Option<String>,
 }
 
 #[derive(Deserialize)]

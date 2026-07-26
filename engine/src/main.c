@@ -12,6 +12,7 @@
 #include "actors.h"
 #include "textbox.h"
 #include "vm.h"
+#include "audio.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -36,6 +37,8 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   player_draw();
   actors_draw();
 
+  audio_play_music(scene_ctx.music_id);
+
   setScreenOn();
   setFadeEffect(FADE_IN);
 }
@@ -44,8 +47,11 @@ int main(void)
 {
   /* consoleInit() est déjà appelé par le crt0 PVSnesLib avant main(). */
 
-  /* La scène de boot vient des données (le warp en jeu arrive en Phase 4) */
+  audio_init(); /* boot du SPC700 en premier (prend du temps) */
+
+  /* La scène de boot vient des données */
   scene_load(scene_boot_id());
+  audio_play_music(scene_ctx.music_id);
   textbox_init();
   vm_init();
   player_init();
@@ -78,6 +84,8 @@ int main(void)
     map_update();  /* prépare le streaming de la fenêtre tilemap */
     player_draw(); /* shadow OAM — transféré par le NMI au VBlank */
     actors_draw();
+
+    audio_process(); /* flux musique -> SPC */
 
     WaitForVBlank();
 

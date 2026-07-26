@@ -71,13 +71,16 @@ Offset  Taille  Champ
 16      1       actor_count     (u8)
 17      1       player_start_x  (u8)  — en tiles
 18      1       player_start_y  (u8)
-19      1       reserved        (u8)
+19      1       music_id        (u8)  — index soundbank, 0xFF = silence (Phase 4b)
 20      3       ptr_warps       (far) — table des warps (v0.2, Phase 4)
 23      1       warp_count      (u8)
 ```
 
 *Évolution v0 → v0.2 (Phase 4) : header étendu de 20 à 24 octets avec la
-table des warps.*
+table des warps ; l'octet 19 (réservé) devient `music_id`. Le soundbank
+snesmod (modules .it convertis par smconv) occupe la bank $87 (kit §3) ;
+les music_id suivent l'ordre de `project.musics`. La musique de la scène
+est (re)lancée au boot et à chaque warp — même id = pas d'interruption.*
 
 ### 1.3 Entrée acteur (8 octets par acteur)
 

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Actor, ProjectData, Scene, Warp } from "./types";
+import { musicStem } from "./types";
 import { loadAssetPng, loadProject, pickProjectDir, saveProject } from "./io";
 import type { Tool } from "./state";
 import {
@@ -286,6 +287,27 @@ export default function App() {
               Suppr. scène
             </button>
           </>
+        )}
+        {data && scene && (
+          <label title="Musique de la scène">
+            ♪
+            <select
+              value={scene.music ?? ""}
+              onChange={(e) =>
+                setScene((sc) => ({
+                  ...sc,
+                  music: e.target.value === "" ? undefined : e.target.value,
+                }))
+              }
+            >
+              <option value="">aucune</option>
+              {(data.project.musics ?? []).map((m) => (
+                <option key={m} value={musicStem(m)}>
+                  {musicStem(m)}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         <label>
           <input

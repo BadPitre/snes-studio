@@ -69,6 +69,7 @@ void scene_load(u8 scene_id)
   scene_ctx.actor_count = h[16];
   scene_ctx.player_start_x = h[17];
   scene_ctx.player_start_y = h[18];
+  scene_ctx.music_id = h[19];
   scene_ctx.warps = (const WarpDef *)read_far(h + 20);
   scene_ctx.warp_count = h[23];
 
