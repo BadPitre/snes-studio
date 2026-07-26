@@ -4,18 +4,42 @@ import type { Actor, Scene } from "./types";
 
 export type Tool =
   | { kind: "select" }
-  | { kind: "tile"; index: number }
+  | { kind: "tile"; tiles: number[][] } // tampon : bloc sélectionné dans la palette
   | { kind: "collision"; solid: boolean }
   | { kind: "actor" }
   | { kind: "warp" }
   | { kind: "player_start" };
 
-export function paintTile(sc: Scene, tx: number, ty: number, tile: number): Scene {
-  if (sc.tilemap[ty][tx] === tile) return sc;
-  const tilemap = sc.tilemap.map((row, y) =>
-    y === ty ? row.map((v, x) => (x === tx ? tile : v)) : row
-  );
-  return { ...sc, tilemap };
+// Tampon façon RPG Maker : le bloc de la palette se répète en motif aligné
+// sur la première tile posée (ox,oy = origine du drag sur la map).
+export function paintStamp(
+  sc: Scene,
+  cx: number,
+  cy: number,
+  ox: number,
+  oy: number,
+  tiles: number[][]
+): Scene {
+  const h = tiles.length;
+  const w = tiles[0]?.length ?? 0;
+  if (!w) return sc;
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+  const ax = cx - mod(cx - ox, w);
+  const ay = cy - mod(cy - oy, h);
+  let changed = false;
+  const tilemap = sc.tilemap.map((row) => row.slice());
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const x = ax + dx;
+      const y = ay + dy;
+      if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
+      if (tilemap[y][x] !== tiles[dy][dx]) {
+        tilemap[y][x] = tiles[dy][dx];
+        changed = true;
+      }
+    }
+  }
+  return changed ? { ...sc, tilemap } : sc;
 }
 
 export function paintCollision(sc: Scene, tx: number, ty: number, solid: boolean): Scene {
@@ -82,6 +106,39 @@ export function newScene(name: string, width: number, height: number): Scene {
     actors: [],
     script: [],
     warps: [],
+  };
+}
+
+// Redimensionne : recadre ou étend (herbe libre), reconstruit la bordure de
+// murs sur les nouveaux bords, écarte acteurs/warps hors limites.
+export function resizeScene(sc: Scene, width: number, height: number): Scene {
+  const grid = (rows: number[][], fill: number) =>
+    Array.from({ length: height }, (_, y) =>
+      Array.from({ length: width }, (_, x) => rows[y]?.[x] ?? fill)
+    );
+  const tilemap = grid(sc.tilemap, 0);
+  const collision = grid(sc.collision, 0);
+  for (let x = 0; x < width; x++) {
+    tilemap[0][x] = 1; collision[0][x] = 1;
+    tilemap[height - 1][x] = 1; collision[height - 1][x] = 1;
+  }
+  for (let y = 0; y < height; y++) {
+    tilemap[y][0] = 1; collision[y][0] = 1;
+    tilemap[y][width - 1] = 1; collision[y][width - 1] = 1;
+  }
+  const inside = (x: number, y: number) => x > 0 && y > 0 && x < width - 1 && y < height - 1;
+  return {
+    ...sc,
+    width,
+    height,
+    tilemap,
+    collision,
+    player_start: [
+      Math.min(sc.player_start[0], width - 2),
+      Math.min(sc.player_start[1], height - 2),
+    ],
+    actors: sc.actors.filter((a) => inside(a.x, a.y)),
+    warps: sc.warps.filter((w) => inside(w.x, w.y)),
   };
 }
 

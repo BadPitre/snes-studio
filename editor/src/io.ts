@@ -3,7 +3,7 @@
 // rangée par ligne, même mise en page que les sources historiques.
 
 import { open } from "@tauri-apps/plugin-dialog";
-import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText } from "@tauri-apps/plugin-fs";
+import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite } from "@tauri-apps/plugin-fs";
 import type { Project, ProjectData, Scene, TextEntry } from "./types";
 
 // Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
@@ -27,6 +27,11 @@ async function readFile(path: string): Promise<Uint8Array> {
 async function writeTextFile(path: string, content: string): Promise<void> {
   if (hasTauri) return tauriWriteText(path, content);
   console.warn(`mode navigateur : écriture ignorée (${path})`, content.length);
+}
+
+// le mode navigateur est en lecture seule (pas d'import d'assets)
+export function canWriteFiles(): boolean {
+  return hasTauri;
 }
 
 export async function pickProjectDir(): Promise<string | null> {
@@ -84,11 +89,12 @@ function sceneToJson(sc: Scene): string {
       ? "[]"
       : "[\n" + sc.script.map((l) => "    " + JSON.stringify(l)).join(",\n") + "\n  ]";
   const music = sc.music ? `\n  "music": ${JSON.stringify(sc.music)},` : "";
+  const tileset = sc.tileset ? `\n  "tileset": ${JSON.stringify(sc.tileset)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}
   "tilemap": ${grid(sc.tilemap)},
   "collision": ${grid(sc.collision)},
   "actors": ${actors},
@@ -96,6 +102,20 @@ function sceneToJson(sc: Scene): string {
   "script": ${script}
 }
 `;
+}
+
+// Import d'un PNG de tileset : choisi via dialog, copié dans assets/
+export async function importTilesetPng(root: string): Promise<string | null> {
+  if (!hasTauri) return null;
+  const file = await open({
+    title: "Importer un tileset (PNG indexé, tiles 16x16)",
+    filters: [{ name: "PNG", extensions: ["png"] }],
+  });
+  if (typeof file !== "string") return null;
+  const name = file.split(/[\\/]/).pop()!;
+  const bytes = await tauriRead(file);
+  await tauriWrite(`${root}/assets/${name}`, bytes);
+  return `assets/${name}`;
 }
 
 export async function saveProject(data: ProjectData): Promise<void> {

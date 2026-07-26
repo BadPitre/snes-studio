@@ -17,9 +17,11 @@ body {
 
 .workspace { display: flex; flex: 1; min-height: 0; }
 
-.palette { width: 190px; padding: 10px; background: #22252a; overflow-y: auto; }
+.palette { width: 216px; padding: 10px; background: #22252a; overflow-y: auto; flex-shrink: 0; }
 .palette-title { font-weight: 600; margin: 8px 0 6px; color: #9aa0a8; font-size: 12px; text-transform: uppercase; }
-.palette canvas { background: #222; border: 1px solid #000; max-width: 100%; }
+.palette canvas { background: #16181c; border: 1px solid #000; cursor: crosshair; touch-action: none; }
+.palette-tileset { display: flex; flex-direction: column; gap: 6px; }
+.palette-tileset select { width: 100%; }
 .tools { display: flex; flex-direction: column; gap: 6px; }
 
 .map-scroll { flex: 1; overflow: auto; background: #101114; padding: 12px; }

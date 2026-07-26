@@ -5,17 +5,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Actor, ProjectData, Scene, Warp } from "./types";
-import { musicStem } from "./types";
-import { loadAssetPng, loadProject, pickProjectDir, saveProject } from "./io";
+import { assetStem, musicStem, projectTilesets } from "./types";
+import {
+  canWriteFiles,
+  importTilesetPng,
+  loadAssetPng,
+  loadProject,
+  pickProjectDir,
+  saveProject,
+} from "./io";
 import type { Tool } from "./state";
 import {
   newScene,
   paintCollision,
-  paintTile,
+  paintStamp,
   placeActor,
   placeWarp,
   removeActor,
   removeWarp,
+  resizeScene,
   setPlayerStart,
   updateActor,
   updateWarp,
@@ -24,6 +32,7 @@ import { useHistory } from "./history";
 import { canBuild, runDatagen } from "./build";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
+import ResizeSceneModal from "./components/ResizeSceneModal";
 import ActorPanel from "./components/ActorPanel";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
@@ -35,9 +44,9 @@ type Tab = "actors" | "warps" | "script" | "texts";
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
   const [sceneName, setSceneName] = useState<string>("");
-  const [tileset, setTileset] = useState<ImageBitmap | null>(null);
+  const [tilesets, setTilesets] = useState<Record<string, ImageBitmap>>({});
   const [sprites, setSprites] = useState<ImageBitmap | null>(null);
-  const [tool, setTool] = useState<Tool>({ kind: "tile", index: 0 });
+  const [tool, setTool] = useState<Tool>({ kind: "tile", tiles: [[0]] });
   const [tab, setTab] = useState<Tab>("actors");
   const [selActor, setSelActor] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(true);
@@ -45,19 +54,29 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
+  const [showResize, setShowResize] = useState(false);
   const [building, setBuilding] = useState(false);
 
   const history = useHistory();
   const scene: Scene | null = data && sceneName ? data.scenes[sceneName] ?? null : null;
+  // tileset de la scène : stem déclaré, sinon le premier du projet
+  const tilesetPaths = data ? projectTilesets(data.project) : [];
+  const tilesetNames = tilesetPaths.map(assetStem);
+  const tsStem = scene ? scene.tileset ?? tilesetNames[0] : "";
+  const tileset = tilesets[tsStem] ?? null;
 
   async function openProject() {
     const root = await pickProjectDir();
     if (!root) return;
     try {
       const d = await loadProject(root);
+      const bitmaps: Record<string, ImageBitmap> = {};
+      for (const p of projectTilesets(d.project)) {
+        bitmaps[assetStem(p)] = await loadAssetPng(root, p);
+      }
       setData(d);
       setSceneName(d.project.boot_scene);
-      setTileset(await loadAssetPng(root, d.project.assets.tileset));
+      setTilesets(bitmaps);
       setSprites(await loadAssetPng(root, d.project.assets.sprites));
       setSelActor(null);
       setDirty(false);
@@ -66,6 +85,34 @@ export default function App() {
     } catch (e) {
       setStatus(`Erreur d'ouverture : ${e}`);
     }
+  }
+
+  // import d'un PNG : copié dans assets/, ajouté à project.tilesets
+  async function importTileset() {
+    if (!data) return;
+    try {
+      const rel = await importTilesetPng(data.root);
+      if (!rel) return;
+      const stem = assetStem(rel);
+      const bmp = await loadAssetPng(data.root, rel);
+      setTilesets((t) => ({ ...t, [stem]: bmp }));
+      mutate((d) => {
+        const cur = projectTilesets(d.project);
+        if (cur.includes(rel)) return d; // ré-import : bitmap rafraîchie, liste inchangée
+        return { ...d, project: { ...d.project, tilesets: [...cur, rel] } };
+      });
+      setStatus(`Tileset importé : ${stem}`);
+    } catch (e) {
+      setStatus(`Import tileset : ${e}`);
+    }
+  }
+
+  function setSceneTileset(stem: string) {
+    // le premier tileset du projet est le défaut : on ne sérialise pas le champ
+    setScene((sc) => ({
+      ...sc,
+      tileset: stem === tilesetNames[0] ? undefined : stem,
+    }));
   }
 
   async function save() {
@@ -126,10 +173,10 @@ export default function App() {
     [mutate, sceneName]
   );
 
-  function handlePaint(tx: number, ty: number) {
+  function handlePaint(tx: number, ty: number, ox: number, oy: number) {
     switch (tool.kind) {
       case "tile":
-        setScene((sc) => paintTile(sc, tx, ty, tool.index));
+        setScene((sc) => paintStamp(sc, tx, ty, ox, oy, tool.tiles));
         break;
       case "collision":
         setScene((sc) => paintCollision(sc, tx, ty, tool.solid));
@@ -272,6 +319,13 @@ export default function App() {
             </select>
             <button onClick={() => setShowNewScene(true)}>+ Scène</button>
             <button
+              onClick={() => setShowResize(true)}
+              disabled={!scene}
+              title="Redimensionner cette scène"
+            >
+              Redim.
+            </button>
+            <button
               onClick={setBootScene}
               disabled={!sceneName || sceneName === data.project.boot_scene}
               title="Définir comme scène de boot"
@@ -326,7 +380,16 @@ export default function App() {
 
       {data && scene ? (
         <div className="workspace">
-          <TilePalette tileset={tileset} tool={tool} onTool={setTool} />
+          <TilePalette
+            tileset={tileset}
+            tilesetNames={tilesetNames}
+            current={tsStem}
+            canImport={canWriteFiles()}
+            tool={tool}
+            onTool={setTool}
+            onSelectTileset={setSceneTileset}
+            onImport={importTileset}
+          />
           <div className="map-scroll">
             <MapCanvas
               scene={scene}
@@ -403,6 +466,17 @@ export default function App() {
           existing={data.project.scenes}
           onCreate={createScene}
           onClose={() => setShowNewScene(false)}
+        />
+      )}
+      {showResize && scene && (
+        <ResizeSceneModal
+          width={scene.width}
+          height={scene.height}
+          onResize={(w, h) => {
+            setScene((sc) => resizeScene(sc, w, h));
+            setShowResize(false);
+          }}
+          onClose={() => setShowResize(false)}
         />
       )}
     </div>

@@ -12,12 +12,23 @@ export interface Project {
     font: string;
   };
   musics?: string[]; // chemins .it, l'ordre donne les music_id
+  tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
+}
+
+// stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
+export function assetStem(path: string): string {
+  const base = path.split(/[\\/]/).pop() ?? path;
+  return base.replace(/\.[^.]+$/, "");
 }
 
 // stem d'un chemin de module ("assets/music/pollen8.it" -> "pollen8")
 export function musicStem(path: string): string {
-  const base = path.split(/[\/]/).pop() ?? path;
-  return base.replace(/\.it$/i, "");
+  return assetStem(path);
+}
+
+// tilesets du projet (l'ordre donne les tileset_id) — défaut : assets.tileset
+export function projectTilesets(p: Project): string[] {
+  return p.tilesets && p.tilesets.length > 0 ? p.tilesets : [p.assets.tileset];
 }
 
 export type Direction = "down" | "up" | "left" | "right";
@@ -50,6 +61,7 @@ export interface Scene {
   script: string[];
   warps: Warp[];
   music?: string; // stem d'un module de project.musics — absent = silence
+  tileset?: string; // stem d'un tileset de project.tilesets — absent = le premier
 }
 
 export interface TextEntry {

@@ -16,13 +16,15 @@ interface Props {
   tool: Tool;
   showCollision: boolean;
   showGrid: boolean;
-  onPaint: (tx: number, ty: number) => void;
+  // (ox,oy) : tile d'origine du glisser — ancre du motif pour le tampon
+  onPaint: (tx: number, ty: number, ox: number, oy: number) => void;
   onSelectActor: (index: number) => void;
 }
 
 export default function MapCanvas(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const painting = useRef(false);
+  const origin = useRef<[number, number]>([0, 0]);
 
   const { scene, tileset, sprites, showCollision, showGrid } = props;
 
@@ -35,12 +37,15 @@ export default function MapCanvas(props: Props) {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, cv.width, cv.height);
 
-    // tiles
+    // tiles — tileset en grille row-major (même convention que datagen)
     if (tileset) {
+      const perRow = Math.max(1, Math.floor(tileset.width / 16));
       for (let y = 0; y < scene.height; y++) {
         for (let x = 0; x < scene.width; x++) {
           const t = scene.tilemap[y][x];
-          ctx.drawImage(tileset, t * 16, 0, 16, 16, x * TS, y * TS, TS, TS);
+          const sx = (t % perRow) * 16;
+          const sy = Math.floor(t / perRow) * 16;
+          ctx.drawImage(tileset, sx, sy, 16, 16, x * TS, y * TS, TS, TS);
         }
       }
     }
@@ -127,13 +132,14 @@ export default function MapCanvas(props: Props) {
       return;
     }
     painting.current = true;
-    props.onPaint(tx, ty);
+    origin.current = [tx, ty];
+    props.onPaint(tx, ty, tx, ty);
   }
 
   function handleMove(e: React.MouseEvent) {
     if (!painting.current) return;
     const [tx, ty] = tileAt(e);
-    props.onPaint(tx, ty);
+    props.onPaint(tx, ty, origin.current[0], origin.current[1]);
   }
 
   return (

@@ -1,6 +1,6 @@
-# EDITOR — l'éditeur SNES Studio (Phase 3)
+# EDITOR — l'éditeur SNES Studio
 
-**Statut : Phase 3b.** Application Tauri 2 + React + TypeScript dans
+**Statut : Phase 5b.** Application Tauri 2 + React + TypeScript dans
 `editor/`. Elle ouvre un dossier projet (le format JSON/PNG documenté dans
 `TOOLS.md` — ex. `demo/`) et édite **exactement les fichiers que `datagen`
 consomme** : aucun format intermédiaire.
@@ -34,7 +34,27 @@ consomme** : aucun format intermédiaire.
   (liste = `project.musics` ; ajouter un module = déposer le .it dans le
   projet et l'ajouter à `project.json`)
 
-Pas encore : redimensionnement de scène, édition des gfx, `make` intégré.
+## Fonctionnalités (5b) — palette façon RPG Maker 2003
+
+- **Palette de tileset verticale** (panneau gauche, 6 colonnes) : clic =
+  tile seule, **glisser = sélection rectangulaire** utilisée comme tampon
+  multi-tiles ; en peignant sur la map, le motif se répète aligné sur la
+  première tile posée (comportement RPG Maker). La sélection reste
+  visible quand un autre outil est actif.
+- **Tileset par scène** : sélecteur en haut de la palette (liste =
+  `project.tilesets`) — changer le tileset d'une scène rebascule la
+  palette et le rendu de la map.
+- **Import de tileset** : « Importer… » copie un PNG (indexé, grille de
+  tiles 16x16, max 256 tiles) dans `assets/` et l'ajoute à
+  `project.tilesets`.
+- **Redimensionnement de scène** (« Redim. ») : extension en herbe ou
+  rognage, bordure de murs reconstruite, acteurs/warps hors limites
+  supprimés (avertissement affiché).
+
+Pas encore (côté palette, par rapport à RPG Maker 2003) : autotiles
+(bordures automatiques), couches inférieure/supérieure, édition de la
+« passabilité » dans la palette (la collision reste une couche peinte à
+part). Toujours pas : édition des gfx, `make` intégré.
 
 ## Lancer
 
