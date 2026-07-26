@@ -1,23 +1,11 @@
 /*
- * data_scenes.c — DONNEES (bank logique scenes, kit §3 : $82/$83).
- * Format : Scene Table + Scene Header + tilemap + collision + acteurs + scripts
- * — docs/SPEC_FORMATS.md §1 (representation C v0, §0).
- *
- * Ces arrays sont ecrits/generes a la main pour le POC ; ils seront produits
- * par les outils Rust en Phase 2. Modifier ces donnees change le jeu sans
- * toucher au moteur — c'est le contrat de la Phase 1.
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
  */
 #include <snes.h>
 #include "../formats.h"
 
-/* ------------------------------------------------------------------ */
-/* Scene 0 — map 48x40 metatiles (768x640 px) : plus grande que la     */
-/* fenetre VRAM 32x32 -> exerce le streaming colonnes/lignes.          */
-/* Indices de tiles : 0 = herbe, 1 = mur, 2 = chemin                   */
-/* Reperes : carre NW, L NE, barre SW, pilier SE, donut centre, plots  */
-/* sud — chaque zone est identifiable pour reperer un glitch de        */
-/* streaming.                                                          */
-/* ------------------------------------------------------------------ */
+/* ---- Scene 0 : plaine (48x40) ---- */
 
 static const u8 scene0_tilemap[48 * 40] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -62,7 +50,6 @@ static const u8 scene0_tilemap[48 * 40] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
-/* Collision (spec §1.4) : 0 = traversable, 1 = solide */
 static const u8 scene0_collision[48 * 40] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
   1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
@@ -106,56 +93,30 @@ static const u8 scene0_collision[48 * 40] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
-/*
- * Bloc scripts de la scene (bytecode VM v0, spec §2).
- * Script canonique du PNJ compteur (kit §5) : var 0 = nb de conversations.
- *
- *   start:   JGEQ v0, 2, deja_vu
- *            MSG  txt 0            ; "Bonjour !..."
- *            ADDVAR v0, 1
- *            END
- *   deja_vu: MSG  txt 1            ; "Encore toi ?..."
- *            END
- */
 static const u8 scene0_scripts[] = {
-  /* 0x0000 */ 0x08, 0, 2, 0x0C, 0x00, /* JGEQ v0,2 -> 0x000C (deja_vu) */
-  /* 0x0005 */ 0x01, 0x00, 0x00,       /* MSG 0 */
-  /* 0x0008 */ 0x03, 0, 1,             /* ADDVAR v0,1 */
-  /* 0x000B */ 0x00,                   /* END */
-  /* 0x000C */ 0x01, 0x01, 0x00,       /* deja_vu: MSG 1 */
-  /* 0x000F */ 0x00,                   /* END */
-
-  /* Script du second PNJ (offset 0x0010) : simple salut */
-  /* 0x0010 */ 0x01, 0x02, 0x00,       /* MSG 2 */
-  /* 0x0013 */ 0x00,                   /* END */
+  0x08, 0x00, 0x02, 0x0C, 0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00,
+  0x01, 0x02, 0x00, 0x00,
 };
 
-/* Acteurs (spec §1.3) — sprite_id 4 = PNJ villageois de la feuille globale */
 static const ActorDef scene0_actors[] = {
-  /* PNJ compteur, pres du depart, regard vers la gauche */
-  { ACTOR_TYPE_NPC_STATIC, 8, 4, 4, 0x0000, DIR_LEFT, 0 },
-  /* PNJ sous le "donut" central (test multi-acteurs + hide hors ecran) */
-  { ACTOR_TYPE_NPC_STATIC, 23, 14, 4, 0x0010, DIR_DOWN, 0 },
+  { ACTOR_TYPE_NPC_STATIC, 8, 4, 4, 0x0000, 2, 0 },
+  { ACTOR_TYPE_NPC_STATIC, 23, 14, 4, 0x0010, 0, 0 },
 };
 
-/* Scene Header scene 0 (spec §1.2) */
 static const SceneDef scene0 = {
-  SCENE_TYPE_TOP_DOWN, /* scene_type */
-  0,                   /* flags */
-  48, 40,              /* map_w, map_h (en tiles 16x16) */
+  SCENE_TYPE_TOP_DOWN,
+  0,
+  48, 40,
   scene0_tilemap,
   scene0_collision,
   scene0_actors,
   scene0_scripts,
-  2,                   /* actor_count */
-  3, 3,                /* player_start_x, player_start_y (en tiles) */
-  0,                   /* reserved */
+  2,
+  3, 3,
+  0,
 };
 
-/* ------------------------------------------------------------------ */
-/* Scene 1 — l'ancienne map 32x32 (512x512 px), conservee pour la      */
-/* preuve multi-scenes (kit semaine 5) : changer l'id de boot suffit.  */
-/* ------------------------------------------------------------------ */
+/* ---- Scene 1 : clairiere (32x32) ---- */
 
 static const u8 scene1_tilemap[32 * 32] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -192,7 +153,6 @@ static const u8 scene1_tilemap[32 * 32] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
-/* Collision (spec §1.4) : 0 = traversable, 1 = solide */
 static const u8 scene1_collision[32 * 32] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
   1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
@@ -228,33 +188,28 @@ static const u8 scene1_collision[32 * 32] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 };
 
-/* Scripts scene 1 — un PNJ a elle, pour la preuve "meme moteur, autres
-   donnees" (kit semaine 5) */
 static const u8 scene1_scripts[] = {
-  /* 0x0000 */ 0x01, 0x03, 0x00, /* MSG 3 */
-  /* 0x0003 */ 0x00,             /* END */
+  0x01, 0x03, 0x00, 0x00,
 };
 
 static const ActorDef scene1_actors[] = {
-  { ACTOR_TYPE_NPC_STATIC, 10, 10, 4, 0x0000, DIR_DOWN, 0 },
+  { ACTOR_TYPE_NPC_STATIC, 10, 10, 4, 0x0000, 0, 0 },
 };
 
 static const SceneDef scene1 = {
-  SCENE_TYPE_TOP_DOWN, /* scene_type */
-  0,                   /* flags */
-  32, 32,              /* map_w, map_h */
+  SCENE_TYPE_TOP_DOWN,
+  0,
+  32, 32,
   scene1_tilemap,
   scene1_collision,
   scene1_actors,
   scene1_scripts,
-  1,                   /* actor_count */
-  3, 3,                /* player_start_x, player_start_y */
-  0,                   /* reserved */
+  1,
+  3, 3,
+  0,
 };
 
-/* ------------------------------------------------------------------ */
-/* Scene Table (spec §1.1, representation C v0)                        */
-/* ------------------------------------------------------------------ */
+/* ---- Scene Table (spec §1.1, representation C v0) ---- */
 
 const SceneDef *const scene_table[] = {
   &scene0,
@@ -263,6 +218,4 @@ const SceneDef *const scene_table[] = {
 
 const u16 scene_count = 2;
 
-/* Scene de boot — DONNEE, pas une constante moteur. Mettre 1 ici et
-   rebuilder charge la scene 1 (preuve multi-scenes, kit semaine 5). */
 const u8 boot_scene_id = 0;

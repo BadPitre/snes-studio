@@ -4,7 +4,7 @@ endif
 
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
 
-.PHONY: all clean
+.PHONY: all clean data
 
 #---------------------------------------------------------------------------------
 # ROMNAME is used in snes_rules file
@@ -15,3 +15,8 @@ export ROMNAME := snesstudio
 all: $(ROMNAME).sfc
 
 clean: cleanBuildRes cleanRom cleanGfx
+
+# Regenere src/data/ depuis le projet source demo/ (outil Rust, Phase 2).
+# Prerequis : toolchain Rust (cargo).
+data:
+	cargo run --release --manifest-path ../tools/Cargo.toml -p datagen -- ../demo ../engine/src/data

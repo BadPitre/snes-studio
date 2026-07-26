@@ -10,7 +10,11 @@ Toutes les valeurs multi-octets sont **little-endian** (natif 65816).
 
 ## 0. Représentation POC (C) vs format binaire cible — ÉCARTS ASSUMÉS v0
 
-Le POC écrit les données à la main en C (`engine/src/data/data_*.c`). Le pipeline
+**Depuis la Phase 2a, les fichiers `engine/src/data/*.c` sont GÉNÉRÉS par
+`tools/datagen` depuis le projet source `demo/` (JSON + PNG) — voir
+`docs/TOOLS.md`. La représentation C v0 ci-dessous reste celle émise.**
+
+Le POC écrivait les données à la main en C (`engine/src/data/data_*.c`). Le pipeline
 PVSnesLib (816-tcc → constify → wlalink) place les `const` C dans des sections
 `.rodata` **SUPERFREE** : le linker choisit la bank. Conséquences, assumées jusqu'à
 la Phase 2 (outils Rust qui émettront le format binaire byte-exact) :

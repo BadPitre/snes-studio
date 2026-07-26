@@ -1,0 +1,163 @@
+//! Conversion PNG indexé → formats SNES (chars 4bpp/2bpp planaires,
+//! palettes BGR555). Les PNG doivent être en mode palette : l'index de
+//! chaque pixel EST l'index de couleur SNES (round-trip sans perte).
+
+use anyhow::{bail, Context, Result};
+use std::path::Path;
+
+pub struct IndexedImage {
+    pub width: usize,
+    pub height: usize,
+    /// Index de palette par pixel (row-major)
+    pub pixels: Vec<u8>,
+    /// Palette convertie en BGR555
+    pub palette: Vec<u16>,
+}
+
+pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("ouverture de {}", path.display()))?;
+    let mut decoder = png::Decoder::new(file);
+    // Surtout ne PAS étendre la palette en RGB : on veut les indices bruts
+    decoder.set_transformations(png::Transformations::IDENTITY);
+    let mut reader = decoder.read_info()?;
+
+    let info = reader.info();
+    if info.color_type != png::ColorType::Indexed {
+        bail!("{} : PNG non indexé (mode palette requis)", path.display());
+    }
+    let palette_rgb = info
+        .palette
+        .as_ref()
+        .context("PNG indexé sans palette")?
+        .to_vec();
+    let bit_depth = info.bit_depth as u8;
+    let (width, height) = (info.width as usize, info.height as usize);
+
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let out = reader.next_frame(&mut buf)?;
+    let bytes_per_row = out.line_size;
+
+    // Dépaquetage des indices selon la profondeur (PIL écrit 1/2/4/8 bits)
+    let mut pixels = Vec::with_capacity(width * height);
+    for y in 0..height {
+        let row = &buf[y * bytes_per_row..(y + 1) * bytes_per_row];
+        for x in 0..width {
+            let idx = match bit_depth {
+                8 => row[x],
+                4 => (row[x / 2] >> (4 - 4 * (x % 2))) & 0x0F,
+                2 => (row[x / 4] >> (6 - 2 * (x % 4))) & 0x03,
+                1 => (row[x / 8] >> (7 - (x % 8))) & 0x01,
+                d => bail!("profondeur PNG non geree : {} bits", d),
+            };
+            pixels.push(idx);
+        }
+    }
+
+    let palette = palette_rgb
+        .chunks(3)
+        .map(|c| bgr555(c[0], c[1], c[2]))
+        .collect();
+
+    Ok(IndexedImage { width, height, pixels, palette })
+}
+
+fn bgr555(r: u8, g: u8, b: u8) -> u16 {
+    ((r as u16) >> 3) | (((g as u16) >> 3) << 5) | (((b as u16) >> 3) << 10)
+}
+
+impl IndexedImage {
+    fn pixel(&self, x: usize, y: usize) -> u8 {
+        self.pixels[y * self.width + x]
+    }
+
+    /// Encode un char 8x8 en 4bpp planaire SNES (32 octets)
+    fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for y in 0..8 {
+            for x in 0..8 {
+                let c = self.pixel(ox + x, oy + y);
+                let bit = 0x80u8 >> x;
+                if c & 1 != 0 { out[y * 2] |= bit; }
+                if c & 2 != 0 { out[y * 2 + 1] |= bit; }
+                if c & 4 != 0 { out[16 + y * 2] |= bit; }
+                if c & 8 != 0 { out[16 + y * 2 + 1] |= bit; }
+            }
+        }
+        out
+    }
+
+    /// Encode un char 8x8 en 2bpp planaire SNES (16 octets)
+    fn char2bpp(&self, ox: usize, oy: usize) -> [u8; 16] {
+        let mut out = [0u8; 16];
+        for y in 0..8 {
+            for x in 0..8 {
+                let c = self.pixel(ox + x, oy + y);
+                let bit = 0x80u8 >> x;
+                if c & 1 != 0 { out[y * 2] |= bit; }
+                if c & 2 != 0 { out[y * 2 + 1] |= bit; }
+            }
+        }
+        out
+    }
+
+    /// Tileset BG : bande horizontale de chars 8x8 → 4bpp
+    pub fn to_bg_tileset(&self) -> Result<Vec<u8>> {
+        if self.height != 8 || self.width % 8 != 0 {
+            bail!("tileset : attendu une bande de chars 8x8 (hauteur 8)");
+        }
+        let mut out = Vec::new();
+        for c in 0..self.width / 8 {
+            out.extend_from_slice(&self.char4bpp(c * 8, 0));
+        }
+        Ok(out)
+    }
+
+    /// Feuille de sprites : bande de frames 16x16 → table OBJ 32 chars
+    /// (rangée haute : TL,TR par frame ; rangée basse : BL,BR — la frame f
+    /// utilise les tiles {2f, 2f+1, 2f+16, 2f+17})
+    pub fn to_obj_sheet(&self) -> Result<Vec<u8>> {
+        if self.height != 16 || self.width % 16 != 0 {
+            bail!("sprites : attendu une bande de frames 16x16 (hauteur 16)");
+        }
+        let frames = self.width / 16;
+        if frames > 8 {
+            bail!("sprites : 8 frames max en v0 (rangée OBJ de 16 chars)");
+        }
+        let blank = [0u8; 32];
+        let mut top = Vec::new();
+        let mut bottom = Vec::new();
+        for f in 0..frames {
+            top.extend_from_slice(&self.char4bpp(f * 16, 0));
+            top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
+            bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
+            bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
+        }
+        for _ in frames * 2..16 {
+            top.extend_from_slice(&blank);
+            bottom.extend_from_slice(&blank);
+        }
+        top.extend(bottom);
+        Ok(top)
+    }
+
+    /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du
+    /// char 0 transparent généré (spec §4 : char BG3 = 1 + ascii - 32)
+    pub fn to_font(&self) -> Result<Vec<u8>> {
+        if self.height != 8 || self.width != 96 * 8 {
+            bail!("font : attendu 96 glyphes 8x8 (bande 768x8)");
+        }
+        let mut out = vec![0u8; 16]; // char 0 : transparent
+        for c in 0..96 {
+            out.extend_from_slice(&self.char2bpp(c * 8, 0));
+        }
+        Ok(out)
+    }
+
+    /// Palette complétée/tronquée à n entrées BGR555
+    pub fn palette_n(&self, n: usize) -> Vec<u16> {
+        let mut p = self.palette.clone();
+        p.resize(n, 0);
+        p
+    }
+}

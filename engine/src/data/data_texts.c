@@ -1,30 +1,19 @@
 /*
- * data_texts.c — DONNÉES (bank logique textes, kit §3 : $86).
- * Format : table indexée par text_id, chaînes ASCII terminées par 0x00
- * — docs/SPEC_FORMATS.md §2 (« Textes »).
- *
- * Séparé des scènes pour faciliter la localisation future. Encodage v0 :
- * ASCII simple, pas d'accents (fonte définitive en v1).
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
  */
 #include <snes.h>
 
-/* text_id 0 — premier dialogue du PNJ compteur (script canonique, kit §5) */
 static const char txt_bonjour[] = "Bonjour ! Je suis le premier PNJ de ce moteur.";
-
-/* text_id 1 — dialogue après plusieurs interactions */
 static const char txt_encore[] = "Encore toi ? On s'est deja parle plusieurs fois !";
-
-/* text_id 2 — second PNJ */
-static const char txt_salut[] = "Belle journee pour se promener, n'est-ce pas ?";
-
-/* text_id 3 — PNJ de la scene 1 (preuve multi-scenes) */
+static const char txt_belle_journee[] = "Belle journee pour se promener, n'est-ce pas ?";
 static const char txt_scene1[] = "Ici c'est la scene 1 : meme moteur, autres donnees !";
 
 const char *const text_table[] = {
   txt_bonjour, /* 0 */
-  txt_encore,  /* 1 */
-  txt_salut,   /* 2 */
-  txt_scene1,  /* 3 */
+  txt_encore, /* 1 */
+  txt_belle_journee, /* 2 */
+  txt_scene1, /* 3 */
 };
 
 const u16 text_count = 4;

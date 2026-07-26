@@ -9,16 +9,16 @@ pas du code.**
 
 ## État du projet
 
-**Phase 1 — POC moteur data-driven** (voir `docs/PLANNING_PHASES_DEV.md`).
-Le POC : map scrollante streamée, joueur, collision, PNJ interactifs,
-dialogues pilotés par une VM bytecode 8 opcodes — le tout défini par les
-données de `engine/src/data/`.
+**Phase 2 — pipeline d'assets Rust** (Phase 1 : POC moteur validé et mergé).
+Le jeu (maps, collision, acteurs, scripts, textes, scène de boot) est défini
+par le projet source `demo/` (JSON + PNG) ; l'outil `datagen` génère les
+données C consommées par le moteur.
 
 ```
-engine/   # Moteur SNES en C (PVSnesLib) — Phase 1
-tools/    # Pipeline d'assets en Rust — Phase 2 (à venir)
+engine/   # Moteur SNES en C (PVSnesLib) — Phase 1 ✓
+tools/    # Pipeline d'assets en Rust — Phase 2 (datagen)
 editor/   # Éditeur Tauri + React + TS — Phase 3 (à venir)
-demo/     # Jeu de test permanent / régression
+demo/     # Jeu de test permanent / régression — SOURCE des données
 docs/     # Specs et planning — sources de vérité
 ```
 
@@ -32,7 +32,12 @@ Windows/MSYS2 — ex. `/c/snesdev/pvsneslib`).
 cd engine
 make            # produit snesstudio.sfc
 make clean      # en cas de doute sur les artefacts
+make data       # regénère src/data/ depuis demo/ (nécessite Rust/cargo)
 ```
+
+Les fichiers `engine/src/data/*.c` sont **générés** par `tools/datagen`
+depuis le projet `demo/` — les éditer à la main sera écrasé ; éditer les
+sources JSON/PNG de `demo/` à la place (voir `docs/TOOLS.md`).
 
 Émulateurs de validation : **Mesen2** (debug quotidien) et **bsnes mode
 accuracy** (juge de paix — un rendu correct dans Mesen2 seul ne suffit pas).

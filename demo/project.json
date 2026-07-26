@@ -1,0 +1,13 @@
+{
+  "name": "demo",
+  "boot_scene": "plaine",
+  "scenes": [
+    "plaine",
+    "clairiere"
+  ],
+  "assets": {
+    "tileset": "assets/tileset.png",
+    "sprites": "assets/sprites.png",
+    "font": "assets/font.png"
+  }
+}
