@@ -8,3 +8,5 @@
 *.map
 node_modules/
 target/
+# build
+linkfile
