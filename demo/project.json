@@ -9,5 +9,8 @@
     "tileset": "assets/tileset.png",
     "sprites": "assets/sprites.png",
     "font": "assets/font.png"
-  }
+  },
+  "musics": [
+    "assets/music/pollen8.it"
+  ]
 }

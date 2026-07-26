@@ -10,3 +10,7 @@ node_modules/
 target/
 # build
 linkfile
+soundbank.asm
+soundbank.bnk
+soundbank.h
+*.bnk

@@ -57,10 +57,56 @@ fn main() -> Result<()> {
         .position(|s| s == &project.boot_scene)
         .with_context(|| format!("boot_scene '{}' absente de scenes[]", project.boot_scene))?;
 
+    // Musiques : id = index dans project.musics, nom = stem du fichier
+    let mut music_ids: HashMap<String, u8> = HashMap::new();
+    for (i, m) in project.musics.iter().enumerate() {
+        let stem = Path::new(m)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("nom de module invalide : '{}'", m))?;
+        if music_ids.insert(stem.to_string(), i as u8).is_some() {
+            bail!("musique en double : '{}'", stem);
+        }
+    }
+    if project.musics.len() > 254 {
+        bail!("trop de musiques (max 254, 0xFF = silence)");
+    }
+
     std::fs::create_dir_all(&out_dir)?;
 
+    // Copie des modules vers engine/src/data/music/NN_stem.it : l'ordre
+    // alphabétique (préfixe) = l'ordre des music_id pour le soundbank Make
+    let music_dir = out_dir.join("music");
+    if music_dir.exists() {
+        for e in std::fs::read_dir(&music_dir)? {
+            let e = e?;
+            if e.path().extension().and_then(|x| x.to_str()) == Some("it") {
+                std::fs::remove_file(e.path())?;
+            }
+        }
+    }
+    std::fs::create_dir_all(&music_dir)?;
+    for (i, m) in project.musics.iter().enumerate() {
+        let srcp = proj_dir.join(m);
+        let stem = Path::new(m).file_stem().unwrap().to_str().unwrap();
+        let dst = music_dir.join(format!("{:02}_{}.it", i, stem));
+        std::fs::copy(&srcp, &dst)
+            .with_context(|| format!("copie de {}", srcp.display()))?;
+        println!("  {}", dst.display());
+    }
+    write_out(
+        &out_dir,
+        "audio_cfg.h",
+        format!(
+            "/* GENERE par datagen — ne pas editer. */
+#define AUDIO_ENABLED {}
+",
+            if project.musics.is_empty() { 0 } else { 1 }
+        ),
+    )?;
+
     // Banks binaires (spec §1-2) + asm d'épinglage
-    let scene_bank = binbank::build_scene_bank(&scenes, &text_ids, boot_id as u8)?;
+    let scene_bank = binbank::build_scene_bank(&scenes, &text_ids, &music_ids, boot_id as u8)?;
     let text_bank = binbank::build_text_bank(&texts)?;
     write_bin(&out_dir, "scenes.bin", &scene_bank)?;
     write_bin(&out_dir, "texts.bin", &text_bank)?;

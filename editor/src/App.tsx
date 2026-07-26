@@ -4,7 +4,8 @@
 // gestion des scènes, sauvegarde, génération des données moteur.
 
 import { useCallback, useEffect, useState } from "react";
-import type { Actor, ProjectData, Scene } from "./types";
+import type { Actor, ProjectData, Scene, Warp } from "./types";
+import { musicStem } from "./types";
 import { loadAssetPng, loadProject, pickProjectDir, saveProject } from "./io";
 import type { Tool } from "./state";
 import {
@@ -12,9 +13,12 @@ import {
   paintCollision,
   paintTile,
   placeActor,
+  placeWarp,
   removeActor,
+  removeWarp,
   setPlayerStart,
   updateActor,
+  updateWarp,
 } from "./state";
 import { useHistory } from "./history";
 import { canBuild, runDatagen } from "./build";
@@ -23,9 +27,10 @@ import TilePalette from "./components/TilePalette";
 import ActorPanel from "./components/ActorPanel";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
+import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
 
-type Tab = "actors" | "script" | "texts";
+type Tab = "actors" | "warps" | "script" | "texts";
 
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
@@ -133,6 +138,16 @@ export default function App() {
         setScene((sc) => placeActor(sc, tx, ty));
         setTab("actors");
         break;
+      case "warp": {
+        const other = data?.project.scenes.find((s) => s !== sceneName);
+        if (!other) {
+          setStatus("Il faut au moins deux scènes pour poser un warp.");
+          break;
+        }
+        setScene((sc) => placeWarp(sc, tx, ty, other));
+        setTab("warps");
+        break;
+      }
       case "player_start":
         setScene((sc) => setPlayerStart(sc, tx, ty));
         break;
@@ -273,6 +288,27 @@ export default function App() {
             </button>
           </>
         )}
+        {data && scene && (
+          <label title="Musique de la scène">
+            ♪
+            <select
+              value={scene.music ?? ""}
+              onChange={(e) =>
+                setScene((sc) => ({
+                  ...sc,
+                  music: e.target.value === "" ? undefined : e.target.value,
+                }))
+              }
+            >
+              <option value="">aucune</option>
+              {(data.project.musics ?? []).map((m) => (
+                <option key={m} value={musicStem(m)}>
+                  {musicStem(m)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           <input
             type="checkbox"
@@ -311,6 +347,9 @@ export default function App() {
               <button className={tab === "actors" ? "active" : ""} onClick={() => setTab("actors")}>
                 Acteurs
               </button>
+              <button className={tab === "warps" ? "active" : ""} onClick={() => setTab("warps")}>
+                Warps
+              </button>
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
               </button>
@@ -328,6 +367,14 @@ export default function App() {
                   setScene((sc) => removeActor(sc, i));
                   setSelActor(null);
                 }}
+              />
+            )}
+            {tab === "warps" && (
+              <WarpsPanel
+                scene={scene}
+                sceneNames={data.project.scenes}
+                onUpdate={(i, patch: Partial<Warp>) => setScene((sc) => updateWarp(sc, i, patch))}
+                onRemove={(i) => setScene((sc) => removeWarp(sc, i))}
               />
             )}
             {tab === "script" && (

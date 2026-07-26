@@ -23,8 +23,14 @@ pub const BANK_CAPACITY: usize = 0x8000;
 pub fn build_scene_bank(
     scenes: &[project::Scene],
     text_ids: &HashMap<String, u16>,
+    music_ids: &HashMap<String, u8>,
     boot_id: u8,
 ) -> Result<Vec<u8>> {
+    let scene_ids: HashMap<&str, u8> = scenes
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.name.as_str(), i as u8))
+        .collect();
     let table_size = 4 + scenes.len() * 4;
     let mut blob = vec![0u8; table_size];
     blob[0..2].copy_from_slice(&(scenes.len() as u16).to_le_bytes());
@@ -37,13 +43,14 @@ pub fn build_scene_bank(
         let w = sc.width as usize;
         let h = sc.height as usize;
 
-        // Layout de la scène : header 20 o, puis tilemap, collision,
-        // acteurs (8 o chacun), scripts
+        // Layout de la scène : header 24 o (v0.2), puis tilemap, collision,
+        // acteurs (8 o), warps (8 o), scripts
         let header_ofs = blob.len();
-        let tilemap_ofs = header_ofs + 20;
+        let tilemap_ofs = header_ofs + 24;
         let collision_ofs = tilemap_ofs + w * h;
         let actors_ofs = collision_ofs + w * h;
-        let scripts_ofs = actors_ofs + sc.actors.len() * 8;
+        let warps_ofs = actors_ofs + sc.actors.len() * 8;
+        let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
         // Entrée de la Scene Table
         let entry = 4 + i * 4;
@@ -51,8 +58,8 @@ pub fn build_scene_bank(
         blob[entry + 1..entry + 3]
             .copy_from_slice(&(BANK_BASE + header_ofs as u16).to_le_bytes());
 
-        // Scene Header (spec §1.2)
-        let mut header = [0u8; 20];
+        // Scene Header (spec §1.2 v0.2)
+        let mut header = [0u8; 24];
         header[0] = 0x01; // scene_type TOP_DOWN
         header[1] = 0; // flags
         header[2] = sc.width;
@@ -64,12 +71,26 @@ pub fn build_scene_bank(
         header[16] = sc.actors.len() as u8;
         header[17] = sc.player_start[0];
         header[18] = sc.player_start[1];
+        header[19] = match &sc.music {
+            None => 0xFF, // silence
+            Some(name) => *music_ids.get(name.as_str()).with_context(|| {
+                format!("scene '{}' : musique inconnue '{}'", sc.name, name)
+            })?,
+        };
+        write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
+        header[23] = sc.warps.len() as u8;
         blob.extend_from_slice(&header);
 
         for row in &sc.tilemap {
             blob.extend_from_slice(row);
         }
-        for row in &sc.collision {
+        // Collision : les tiles de warp sont marquées 0x02 par l'outil
+        // (spec §1.4) — la couche auteur ne contient que 0/1
+        let mut collision: Vec<Vec<u8>> = sc.collision.clone();
+        for wp in &sc.warps {
+            collision[wp.y as usize][wp.x as usize] = 0x02;
+        }
+        for row in &collision {
             blob.extend_from_slice(row);
         }
 
@@ -87,6 +108,28 @@ pub fn build_scene_bank(
             blob.push(a.sprite);
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
+            blob.push(0);
+        }
+
+        // Entrées warps (spec §1.5, 8 octets)
+        for wp in &sc.warps {
+            let dest = *scene_ids.get(wp.to.as_str()).with_context(|| {
+                format!("scene '{}' : warp vers scene inconnue '{}'", sc.name, wp.to)
+            })?;
+            let d = &scenes[dest as usize];
+            if wp.tx >= d.width || wp.ty >= d.height {
+                bail!(
+                    "scene '{}' : warp -> '{}' ({},{}) hors map cible",
+                    sc.name, wp.to, wp.tx, wp.ty
+                );
+            }
+            blob.push(wp.x);
+            blob.push(wp.y);
+            blob.push(dest);
+            blob.push(wp.tx);
+            blob.push(wp.ty);
+            blob.push(0);
+            blob.push(0);
             blob.push(0);
         }
 

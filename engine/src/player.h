@@ -29,4 +29,12 @@ void player_update(void);
    Le transfert OAM part automatiquement au VBlank (NMI PVSnesLib). */
 void player_draw(void);
 
+/* Place le joueur sur une tile (utilisé à l'arrivée d'un warp) sans
+   redéclencher le warp de la tile d'arrivée. */
+void player_set_pos(u8 tx, u8 ty);
+
+/* Warp demandé cette frame ? Renvoie 1 et remplit la destination (une
+   seule fois — l'appel consomme la demande). */
+u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y);
+
 #endif /* PLAYER_H */

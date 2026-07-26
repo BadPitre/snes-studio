@@ -11,6 +11,13 @@ export interface Project {
     sprites: string;
     font: string;
   };
+  musics?: string[]; // chemins .it, l'ordre donne les music_id
+}
+
+// stem d'un chemin de module ("assets/music/pollen8.it" -> "pollen8")
+export function musicStem(path: string): string {
+  const base = path.split(/[\/]/).pop() ?? path;
+  return base.replace(/\.it$/i, "");
 }
 
 export type Direction = "down" | "up" | "left" | "right";
@@ -24,6 +31,14 @@ export interface Actor {
   entry?: string;
 }
 
+export interface Warp {
+  x: number;
+  y: number;
+  to: string; // scène cible
+  tx: number;
+  ty: number;
+}
+
 export interface Scene {
   name: string;
   width: number;
@@ -33,6 +48,8 @@ export interface Scene {
   collision: number[][];
   actors: Actor[];
   script: string[];
+  warps: Warp[];
+  music?: string; // stem d'un module de project.musics — absent = silence
 }
 
 export interface TextEntry {

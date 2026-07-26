@@ -2,7 +2,16 @@ ifeq ($(strip $(PVSNESLIB_HOME)),)
 $(error "Please create an environment variable PVSNESLIB_HOME by following this guide: https://github.com/alekmaul/pvsneslib/wiki/Installation")
 endif
 
+# Musiques copiees par datagen (prefixe numerique = ordre des music_id).
+# Le soundbank est genere par smconv et epingle en bank $87 (kit §3).
+AUDIOFILES := $(sort $(wildcard src/data/music/*.it))
+ifneq ($(strip $(AUDIOFILES)),)
+export SOUNDBANK := src/data/soundbank
+endif
+
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
+
+SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 7
 
 .PHONY: all clean data
 
@@ -14,7 +23,7 @@ export ROMNAME := snesstudio
 # écrits à la main (voir src/data/data_assets.c).
 all: $(ROMNAME).sfc
 
-clean: cleanBuildRes cleanRom cleanGfx
+clean: cleanBuildRes cleanRom cleanGfx cleanAudio
 
 # Regenere src/data/ depuis le projet source demo/ (outil Rust, Phase 2).
 # Prerequis : toolchain Rust (cargo) — https://rustup.rs

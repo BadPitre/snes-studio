@@ -20,6 +20,11 @@
 /* script_offset d'un acteur sans script */
 #define SCRIPT_NONE 0xFFFF
 
+/* Couche collision — spec §1.4 v0.2 */
+#define COL_FREE 0x00
+#define COL_SOLID 0x01
+#define COL_WARP 0x02
+
 /* Directions (acteurs et joueur) */
 #define DIR_DOWN  0
 #define DIR_UP    1
@@ -50,6 +55,19 @@ typedef struct
   u8 direction;     /* DIR_* */
   u8 reserved;
 } ActorDef;
+
+/* Entrée warp — spec §1.5. Layout C = layout binaire (8 octets). */
+typedef struct
+{
+  u8 x; /* tile déclencheuse */
+  u8 y;
+  u8 dest_scene; /* index dans la Scene Table */
+  u8 dest_x;     /* arrivée du joueur, en tiles */
+  u8 dest_y;
+  u8 flags;
+  u8 reserved0;
+  u8 reserved1;
+} WarpDef;
 
 /* Le Scene Header (spec §1.2) est lu champ par champ depuis le binaire
    (pointeurs far 24-bit sans équivalent C) — voir scene.c. */

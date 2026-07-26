@@ -40,7 +40,10 @@ export async function loadProject(root: string): Promise<ProjectData> {
   const texts: TextEntry[] = JSON.parse(await readTextFile(`${root}/texts.json`));
   const scenes: Record<string, Scene> = {};
   for (const name of project.scenes) {
-    scenes[name] = JSON.parse(await readTextFile(`${root}/scenes/${name}.json`));
+    const sc: Scene = JSON.parse(await readTextFile(`${root}/scenes/${name}.json`));
+    sc.warps ??= []; // champ optionnel dans les anciens fichiers
+    sc.script ??= [];
+    scenes[name] = sc;
   }
   return { root, project, scenes, texts };
 }
@@ -65,18 +68,31 @@ function sceneToJson(sc: Scene): string {
           })
           .join(",\n") +
         "\n  ]";
+  const warps =
+    sc.warps.length === 0
+      ? "[]"
+      : "[\n" +
+        sc.warps
+          .map(
+            (w) =>
+              `    {"x": ${w.x}, "y": ${w.y}, "to": ${JSON.stringify(w.to)}, "tx": ${w.tx}, "ty": ${w.ty}}`
+          )
+          .join(",\n") +
+        "\n  ]";
   const script =
     sc.script.length === 0
       ? "[]"
       : "[\n" + sc.script.map((l) => "    " + JSON.stringify(l)).join(",\n") + "\n  ]";
+  const music = sc.music ? `\n  "music": ${JSON.stringify(sc.music)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}
   "tilemap": ${grid(sc.tilemap)},
   "collision": ${grid(sc.collision)},
   "actors": ${actors},
+  "warps": ${warps},
   "script": ${script}
 }
 `;

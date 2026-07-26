@@ -10,6 +10,9 @@ pub struct Project {
     pub boot_scene: String,
     pub scenes: Vec<String>,
     pub assets: Assets,
+    /// Modules .it, dans l'ordre des music_id (optionnel)
+    #[serde(default)]
+    pub musics: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +33,21 @@ pub struct Scene {
     pub actors: Vec<Actor>,
     #[serde(default)]
     pub script: Vec<String>,
+    #[serde(default)]
+    pub warps: Vec<Warp>,
+    /// Nom (stem) d'un module de project.musics — absent = silence
+    #[serde(default)]
+    pub music: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Warp {
+    pub x: u8,
+    pub y: u8,
+    /// Nom de la scène cible
+    pub to: String,
+    pub tx: u8,
+    pub ty: u8,
 }
 
 #[derive(Deserialize)]
@@ -81,6 +99,14 @@ impl Scene {
                 bail!("scene '{}' : actor_type '{}' inconnu (v0 : npc)", self.name, a.kind);
             }
             dir_code(&a.dir)?;
+        }
+        for w in &self.warps {
+            if w.x >= self.width || w.y >= self.height {
+                bail!("scene '{}' : warp ({},{}) hors map", self.name, w.x, w.y);
+            }
+            if self.collision[w.y as usize][w.x as usize] != 0 {
+                bail!("scene '{}' : warp ({},{}) sur une tile solide", self.name, w.x, w.y);
+            }
         }
         Ok(())
     }

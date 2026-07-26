@@ -25,7 +25,7 @@ make data
 
 ```
 demo/
-  project.json        # nom, boot_scene, liste ordonnée des scènes, assets
+  project.json        # nom, boot_scene, scènes, assets, musics (modules .it)
   texts.json          # [{name, text}] — l'ordre donne les text_id
   scenes/<nom>.json   # une scène par fichier
   assets/tileset.png  # bande de chars 8x8, PNG indexé 16 couleurs max
@@ -50,9 +50,23 @@ troncature à 5 bits. Index 0 = transparent.
     {"type": "npc", "x": 8, "y": 4, "sprite": 4,
      "dir": "left", "entry": "compteur"}   // entry : label du script (optionnel)
   ],
+  "warps": [                               // optionnel (Phase 4)
+    {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
+  ],
   "script": [ "...lignes assembleur..." ]
 }
 ```
+
+**Warps** : marcher sur la tile (x,y) téléporte le joueur vers la scène `to`
+en (tx,ty). La tile doit être libre dans la couche collision auteur —
+datagen y pose la valeur 0x02 (spec §1.4) et valide la cible.
+
+**Musique (Phase 4b)** : `project.json` liste les modules Impulse Tracker
+dans `"musics"` (l'ordre donne les music_id) ; chaque scène peut déclarer
+`"music": "<stem>"` (absent = silence). datagen copie les .it vers
+`engine/src/data/music/NN_stem.it` ; le Makefile moteur les convertit en
+soundbank (smconv) épinglé en bank $87. La musique du demo (pollen8) vient
+des exemples PVSnesLib — placeholder à remplacer.
 
 `dir` : `down` / `up` / `left` / `right`. `sprite` : index de la frame « bas »
 dans la feuille de sprites (convention metasprite v0 : frame = sprite + dir).

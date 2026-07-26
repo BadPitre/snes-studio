@@ -28,6 +28,12 @@ consomme** : aucun format intermédiaire.
   depuis l'éditeur (cargo doit être dans le PATH Windows). Reste ensuite
   `make` dans engine/ (MSYS2) pour produire le .sfc.
 
+- **Warps** (Phase 4) : outil « + Warp » (tile violette W), onglet dédié
+  (scène cible + position d'arrivée)
+- **Musique par scène** (Phase 4b) : sélecteur ♪ dans la barre d'outils
+  (liste = `project.musics` ; ajouter un module = déposer le .it dans le
+  projet et l'ajouter à `project.json`)
+
 Pas encore : redimensionnement de scène, édition des gfx, `make` intégré.
 
 ## Lancer

@@ -39,6 +39,16 @@ void vm_init(void)
   }
 }
 
+void vm_scene_reset(void)
+{
+  u8 i;
+
+  vm.active = 0;
+  vm.wait_mode = VM_WAIT_NONE;
+  for (i = 0; i < 64; i++)
+    vm.vars[i] = 0;
+}
+
 void vm_start(u16 offset)
 {
   vm.active = 1;
