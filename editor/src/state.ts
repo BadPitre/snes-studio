@@ -45,6 +45,29 @@ export function setPlayerStart(sc: Scene, tx: number, ty: number): Scene {
   return { ...sc, player_start: [tx, ty] };
 }
 
+// Nouvelle scène : herbe (tile 0) + bordure de murs (tile 1) solide —
+// même convention que les maps du demo.
+export function newScene(name: string, width: number, height: number): Scene {
+  const border = (x: number, y: number) =>
+    x === 0 || y === 0 || x === width - 1 || y === height - 1;
+  const tilemap = Array.from({ length: height }, (_, y) =>
+    Array.from({ length: width }, (_, x) => (border(x, y) ? 1 : 0))
+  );
+  const collision = Array.from({ length: height }, (_, y) =>
+    Array.from({ length: width }, (_, x) => (border(x, y) ? 1 : 0))
+  );
+  return {
+    name,
+    width,
+    height,
+    player_start: [3, 3],
+    tilemap,
+    collision,
+    actors: [],
+    script: [],
+  };
+}
+
 // Labels déclarés dans le script d'une scène (cibles valides pour entry)
 export function scriptLabels(script: string[]): string[] {
   const labels: string[] = [];
