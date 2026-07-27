@@ -26,7 +26,11 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
 
     let info = reader.info();
     if info.color_type != png::ColorType::Indexed {
-        bail!("{} : PNG non indexé (mode palette requis)", path.display());
+        // PNG truecolor (chipsets re-sauvegardés, exports d'éditeurs
+        // d'image) : indexation automatique — couleurs arrondies à la
+        // précision SNES (5 bits/canal), alpha < 128 = transparent.
+        drop(reader);
+        return load_truecolor_png(path);
     }
     let palette_rgb = info
         .palette
@@ -66,6 +70,79 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
 
 fn bgr555(r: u8, g: u8, b: u8) -> u16 {
     ((r as u16) >> 3) | (((g as u16) >> 3) << 5) | (((b as u16) >> 3) << 10)
+}
+
+/// PNG non indexé → IndexedImage : les couleurs (arrondies au pas SNES de
+/// 8, soit 5 bits utiles) deviennent la palette, l'index 0 est réservé au
+/// transparent (pixels d'alpha < 128). Refuse au-delà de 255 couleurs
+/// opaques — un chipset pixel-art légitime tient toujours dedans.
+fn load_truecolor_png(path: &Path) -> Result<IndexedImage> {
+    use std::collections::HashMap;
+
+    let file = std::fs::File::open(path)?;
+    let mut decoder = png::Decoder::new(file);
+    decoder.set_transformations(
+        png::Transformations::EXPAND | png::Transformations::STRIP_16,
+    );
+    let mut reader = decoder.read_info()?;
+    let info = reader.info();
+    let (width, height) = (info.width as usize, info.height as usize);
+
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let out = reader.next_frame(&mut buf)?;
+    let stride = out.line_size;
+    let channels = match out.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        other => bail!("{} : type de PNG non gere ({:?})", path.display(), other),
+    };
+
+    let mut palette_rgb: Vec<u8> = vec![255, 0, 255]; // index 0 : transparent
+    let mut index_of: HashMap<[u8; 3], u8> = HashMap::new();
+    let mut pixels = Vec::with_capacity(width * height);
+    for y in 0..height {
+        let row = &buf[y * stride..];
+        for x in 0..width {
+            let p = &row[x * channels..];
+            let (r, g, b, a) = match channels {
+                3 => (p[0], p[1], p[2], 255),
+                4 => (p[0], p[1], p[2], p[3]),
+                1 => (p[0], p[0], p[0], 255),
+                _ => (p[0], p[0], p[0], p[1]),
+            };
+            if a < 128 {
+                pixels.push(0);
+                continue;
+            }
+            // arrondi au pas SNES : supprime le bruit des re-sauvegardes
+            let key = [r & 0xF8, g & 0xF8, b & 0xF8];
+            let idx = match index_of.get(&key) {
+                Some(&i) => i,
+                None => {
+                    let i = palette_rgb.len() / 3;
+                    if i > 255 {
+                        bail!(
+                            "{} : plus de 255 couleurs opaques (meme arrondies \
+                             SNES) — sauvegarder l'image en PNG indexe",
+                            path.display()
+                        );
+                    }
+                    palette_rgb.extend_from_slice(&key);
+                    index_of.insert(key, i as u8);
+                    i as u8
+                }
+            };
+            pixels.push(idx);
+        }
+    }
+
+    let palette = palette_rgb
+        .chunks(3)
+        .map(|c| bgr555(c[0], c[1], c[2]))
+        .collect();
+    Ok(IndexedImage { width, height, pixels, palette, palette_rgb })
 }
 
 impl IndexedImage {

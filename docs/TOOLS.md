@@ -34,9 +34,13 @@ demo/
   assets/font.png       # 96 glyphes 8x8 (ASCII 32-127), bande 768x8, PNG indexé
 ```
 
-**PNG indexés obligatoires** : l'index de palette de chaque pixel EST l'index
-de couleur SNES (round-trip sans perte). Palette convertie en BGR555 par
-troncature à 5 bits. Index 0 = transparent.
+**PNG indexés ou truecolor** : en PNG indexé, l'index de palette de chaque
+pixel EST l'index de couleur SNES (round-trip sans perte, index 0 =
+transparent). Les PNG non indexés (RGB/RGBA — chipsets re-sauvegardés,
+exports d'éditeurs d'image) sont **indexés automatiquement** : couleurs
+arrondies à la précision SNES (5 bits/canal), alpha < 128 = transparent,
+maximum 255 couleurs opaques par image. Palette convertie en BGR555 par
+troncature à 5 bits.
 
 ## Format de scène (`scenes/<nom>.json`)
 
