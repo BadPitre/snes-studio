@@ -22,7 +22,8 @@ typedef struct
   const WarpDef *warps;
   u8 warp_count;
   u8 music_id;   /* index soundbank, MUSIC_NONE = silence */
-  u8 tileset_id; /* index dans les tables de tilesets (data_assets.c) */
+  u8 tileset_id; /* gfx_set_id : index dans les tables gfx_* (data_assets.c,
+                    gfx compilés par scène — v0.4) */
   u8 player_start_x, player_start_y;
 } SceneCtx;
 

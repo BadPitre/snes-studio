@@ -1,27 +1,29 @@
-//! tileset.rs — compilation d'un tileset : grille de tiles + autotiles
-//! (format RPG Maker 2003) + sidecar de passabilité.
+//! tileset.rs — tilesets sources (grille + autotiles RM2003 + sidecar de
+//! passabilité) et compilation des GFX PAR SCÈNE.
 //!
 //! Id logiques (JSON auteur) :
-//!   0..count-1     tile de la grille PNG (rangée par rangée)
+//!   0..count-1     tile de la grille PNG (rangée par rangée, max 999)
 //!   1000 + k       autotile k du sidecar (les bordures sont calculées)
 //!   -1             vide (couche supérieure uniquement)
 //!
-//! Id binaires (u8, tilemap moteur) :
-//!   0..count-1     tiles de la grille (inchangés)
-//!   count..        variantes d'autotiles UTILISÉES (ordre déterministe)
-//!   dernier id     metatile transparent (couche sup vide) — le char 0 de
-//!                  chaque charset est réservé transparent.
+//! Depuis la Phase 5d, la VRAM est budgétée PAR SCÈNE (réalité SNES : une
+//! scène ne peut afficher que 512 chars 8x8 et 8 palettes de 15 couleurs).
+//! datagen compile pour chaque scène un « gfx set » : uniquement les tiles
+//! utilisées, chars dédupliqués (char 0 réservé transparent), palettes
+//! multiples réparties par char (bits 10-12 des entrées BG), table de
+//! priorités ☆. Les scènes au contenu identique partagent le même set.
+//! Les PNG sources peuvent donc avoir jusqu'à 256 couleurs (chipsets
+//! RM2003) : les limites s'appliquent à la scène, pas au tileset.
 //!
 //! Passabilité (sidecar assets/<stem>.json) : `solid` = ids logiques X,
-//! `above` = ids logiques ☆ (dessinés au-dessus du héros sur la couche
-//! sup, jamais bloquants). La couche collision binaire est DÉRIVÉE :
-//! tile sup présente et non-☆ → sa passabilité l'emporte (ponts), sinon
-//! celle de la tile inférieure.
+//! `above` = ids ☆ (au-dessus du héros sur la couche sup, jamais
+//! bloquants). La couche collision binaire est DÉRIVÉE : tile sup présente
+//! et non-☆ → sa passabilité l'emporte (ponts), sinon la tile inférieure.
 
 use crate::gfx::IndexedImage;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 pub const AUTO_BASE: i32 = 1000;
@@ -39,6 +41,10 @@ pub struct TilesetMeta {
     /// Ids logiques ☆ (au-dessus du héros, passables)
     #[serde(default)]
     pub above: Vec<i32>,
+    /// Indication éditeur (palette par couche) — ignorée par datagen
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub upper_start: Option<u32>,
 }
 
 pub struct SourceTileset {
@@ -49,13 +55,16 @@ pub struct SourceTileset {
     pub count: u16,
 }
 
-pub struct CompiledTileset {
+/// GFX compilés d'une scène (ou partagés par plusieurs scènes identiques)
+pub struct GfxSet {
     pub charset: Vec<u8>,
     pub table: Vec<u16>,
-    /// 1 octet par id binaire : 1 = ☆ (priorité BG1 sur la couche sup)
+    /// 1 octet par id local : 1 = ☆ (priorité BG1 sur la couche sup)
     pub prio: Vec<u8>,
+    /// CGRAM BG : 8 palettes x 16 couleurs (entrée 0 transparente)
+    pub pal: Vec<u16>,
     pub blank_id: u8,
-    variant_ids: HashMap<(usize, u16), u8>,
+    local_of: BTreeMap<TileKey, u8>,
 }
 
 /// Grilles binaires d'une scène (row-major, w*h octets chacune)
@@ -65,14 +74,21 @@ pub struct SceneGrids {
     pub collision: Vec<u8>,
 }
 
+/// Tile référencée par une scène, en ids sources
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum TileKey {
+    Grid(u16),
+    Var(usize, u16), // (autotile k, clé de variante)
+}
+
 pub fn load_source(proj_dir: &Path, png_rel: &str) -> Result<SourceTileset> {
     let img = crate::gfx::load_indexed_png(&proj_dir.join(png_rel))?;
     if img.width == 0 || img.height == 0 || img.width % 16 != 0 || img.height % 16 != 0 {
         bail!("tileset {} : dimensions multiples de 16 requises", png_rel);
     }
     let count = (img.width / 16) * (img.height / 16);
-    if count > 256 {
-        bail!("tileset {} : {} tiles > 256", png_rel, count);
+    if count > 999 {
+        bail!("tileset {} : {} tiles > 999 (ids logiques)", png_rel, count);
     }
 
     let sidecar = Path::new(png_rel).with_extension("json");
@@ -148,8 +164,7 @@ fn piece_pos(p: u16, qx: usize, qy: usize) -> (usize, usize) {
     }
 }
 
-/// Clé de variante : pièce de chaque quart (TL,TR,BL,BR), encodée base 5.
-/// n/e/s/w/... : le voisin est-il le même autotile ?
+/// Clé de variante : pièce de chaque quart (TL,TR,BL,BR), encodée base 5
 #[allow(clippy::too_many_arguments)]
 pub fn variant_key(
     n: bool, e: bool, s: bool, w: bool, nw: bool, ne: bool, sw: bool, se: bool,
@@ -178,101 +193,246 @@ fn cell_key(grid: &[Vec<i32>], x: usize, y: usize, w: usize, h: usize) -> u16 {
     )
 }
 
-/// Variantes utilisées par une grille logique, ajoutées à `used` (k, clé)
-pub fn collect_variants(grid: &[Vec<i32>], used: &mut BTreeSet<(usize, u16)>) {
-    let h = grid.len();
-    let w = if h > 0 { grid[0].len() } else { 0 };
-    for y in 0..h {
-        for x in 0..w {
-            let id = grid[y][x];
-            if id >= AUTO_BASE {
-                used.insert(((id - AUTO_BASE) as usize, cell_key(grid, x, y, w, h)));
-            }
-        }
+fn key_of_cell(grid: &[Vec<i32>], x: usize, y: usize, w: usize, h: usize) -> Option<TileKey> {
+    let id = grid[y][x];
+    if id == EMPTY {
+        None
+    } else if id >= AUTO_BASE {
+        Some(TileKey::Var((id - AUTO_BASE) as usize, cell_key(grid, x, y, w, h)))
+    } else {
+        Some(TileKey::Grid(id as u16))
     }
 }
 
-impl SourceTileset {
-    /// Compile charset + metatiles + priorités. `used` : variantes
-    /// d'autotiles réellement utilisées par les scènes de ce tileset.
-    pub fn compile(&self, used: &BTreeSet<(usize, u16)>) -> Result<CompiledTileset> {
-        let mut charset: Vec<u8> = Vec::new();
-        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
-        let mut table: Vec<u16> = Vec::new();
+/* --- Compilation par scène ------------------------------------------------
+ * Quart 8x8 en pixels sources : None = transparent (index 0), Some(bgr555).
+ * L'encodage 4bpp dépend de la palette attribuée au char : extraction
+ * d'abord, répartition en <= 8 palettes de 15 couleurs, encodage ensuite. */
 
-        // char 0 : transparent réservé (couche sup vide, coins hors palette)
-        let blank_char = [0u8; 32];
-        seen.insert(blank_char, 0);
-        charset.extend_from_slice(&blank_char);
+type Quarter = [[Option<u16>; 8]; 8];
 
-        let mut push_char = |ch: [u8; 32], charset: &mut Vec<u8>| -> u16 {
-            let next = (charset.len() / 32) as u16;
-            *seen.entry(ch).or_insert_with(|| {
-                charset.extend_from_slice(&ch);
-                next
-            })
-        };
-
-        // tiles de la grille : ids binaires 0..count-1 (inchangés)
-        let cols = self.img.width / 16;
-        for t in 0..self.count as usize {
-            let (ox, oy) = ((t % cols) * 16, (t / cols) * 16);
-            for (dy, dx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
-                let id = push_char(self.img.char4bpp(ox + dx, oy + dy), &mut charset);
-                table.push(id);
+fn extract_quarter(img: &IndexedImage, ox: usize, oy: usize) -> Quarter {
+    let mut q = [[None; 8]; 8];
+    for (y, row) in q.iter_mut().enumerate() {
+        for (x, px) in row.iter_mut().enumerate() {
+            let idx = img.pixels[(oy + y) * img.width + ox + x] as usize;
+            if idx != 0 {
+                *px = Some(img.palette[idx]);
             }
         }
-        let mut prio: Vec<u8> = (0..self.count as i32)
-            .map(|id| self.is_above(id) as u8)
-            .collect();
+    }
+    q
+}
 
-        // variantes d'autotiles utilisées, dans l'ordre du BTreeSet
-        let mut variant_ids: HashMap<(usize, u16), u8> = HashMap::new();
-        for &(k, key) in used {
-            let auto = self
+/// Les 4 quarts (TL,TR,BL,BR) d'une tile référencée
+fn tile_quarters(src: &SourceTileset, key: TileKey) -> Result<[Quarter; 4]> {
+    Ok(match key {
+        TileKey::Grid(t) => {
+            let cols = src.img.width / 16;
+            let (ox, oy) = ((t as usize % cols) * 16, (t as usize / cols) * 16);
+            [
+                extract_quarter(&src.img, ox, oy),
+                extract_quarter(&src.img, ox + 8, oy),
+                extract_quarter(&src.img, ox, oy + 8),
+                extract_quarter(&src.img, ox + 8, oy + 8),
+            ]
+        }
+        TileKey::Var(k, vkey) => {
+            let auto = src
                 .autos
                 .get(k)
                 .with_context(|| format!("autotile {} inconnu dans le sidecar", k))?;
-            let next_id = table.len() / 4;
-            if next_id > 254 {
-                bail!("tileset : plus de 255 metatiles (grille + variantes d'autotiles)");
-            }
-            let pieces = [key / 125, (key / 25) % 5, (key / 5) % 5, key % 5];
+            let pieces = [vkey / 125, (vkey / 25) % 5, (vkey / 5) % 5, vkey % 5];
+            let mut out = [[[None; 8]; 8]; 4];
             for (q, &p) in pieces.iter().enumerate() {
-                let (qx, qy) = (q & 1, q >> 1); // TL,TR,BL,BR
+                let (qx, qy) = (q & 1, q >> 1);
                 let (col, row) = piece_pos(p, qx, qy);
-                let ch = auto.char4bpp(col * 16 + qx * 8, row * 16 + qy * 8);
-                let id = push_char(ch, &mut charset);
-                table.push(id);
+                out[q] = extract_quarter(auto, col * 16 + qx * 8, row * 16 + qy * 8);
             }
-            variant_ids.insert((k, key), next_id as u8);
-            prio.push(self.is_above(AUTO_BASE + k as i32) as u8);
+            out
+        }
+    })
+}
+
+impl SourceTileset {
+    /// Compile le gfx set d'une scène : tiles utilisées par les deux
+    /// couches logiques uniquement. Limites PAR SCÈNE : 254 ids locaux,
+    /// 512 chars, 8 palettes de 15 couleurs.
+    pub fn compile_scene(
+        &self,
+        name: &str,
+        lower: &[Vec<i32>],
+        upper: &[Vec<i32>],
+    ) -> Result<GfxSet> {
+        let h = lower.len();
+        let w = if h > 0 { lower[0].len() } else { 0 };
+
+        // 1. tiles utilisées, ordre déterministe (BTreeSet)
+        let mut used: BTreeSet<TileKey> = BTreeSet::new();
+        for grid in [lower, upper] {
+            for y in 0..h {
+                for x in 0..w {
+                    if let Some(k) = key_of_cell(grid, x, y, w, h) {
+                        used.insert(k);
+                    }
+                }
+            }
+        }
+        let locals: Vec<TileKey> = used.iter().copied().collect();
+        if locals.len() > 254 {
+            bail!("scene '{}' : {} tiles distinctes > 254", name, locals.len());
         }
 
-        // metatile transparent (dernier id)
-        let blank_id = table.len() / 4;
-        if blank_id > 255 {
-            bail!("tileset : plus de 256 metatiles (grille + variantes d'autotiles)");
+        // 2. quarts + jeux de couleurs
+        let mut quarters: Vec<Quarter> = Vec::with_capacity(locals.len() * 4);
+        for &key in &locals {
+            let qs = tile_quarters(self, key)?;
+            quarters.extend_from_slice(&qs);
         }
+        let colorset = |q: &Quarter| -> BTreeSet<u16> {
+            q.iter().flatten().flatten().copied().collect()
+        };
+
+        // 3. répartition en palettes : jeux uniques triés (taille desc puis
+        //    contenu), placement dans la première palette qui peut absorber
+        let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
+        uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        uniq.dedup();
+        for set in &uniq {
+            if set.len() > 15 {
+                bail!(
+                    "scene '{}' : un char 8x8 utilise {} couleurs > 15",
+                    name,
+                    set.len()
+                );
+            }
+        }
+        // Fusion agglomérative : on fusionne en boucle la paire de clusters
+        // dont l'union tient en 15 couleurs avec le recouvrement maximal
+        // (ordre déterministe : indices croissants à égalité).
+        let mut clusters: Vec<BTreeSet<u16>> = uniq.clone();
+        loop {
+            let mut best: Option<(usize, usize, usize)> = None; // (overlap, i, j)
+            for i in 0..clusters.len() {
+                for j in i + 1..clusters.len() {
+                    let inter = clusters[i].intersection(&clusters[j]).count();
+                    let union = clusters[i].len() + clusters[j].len() - inter;
+                    if union <= 15 && best.map_or(true, |(o, _, _)| inter > o) {
+                        best = Some((inter, i, j));
+                    }
+                }
+            }
+            match best {
+                Some((_, i, j)) => {
+                    let merged: BTreeSet<u16> =
+                        clusters[i].union(&clusters[j]).copied().collect();
+                    clusters.remove(j);
+                    clusters[i] = merged;
+                }
+                None => break,
+            }
+        }
+        if clusters.len() > 8 {
+            let total: BTreeSet<u16> = uniq.iter().flatten().copied().collect();
+            bail!(
+                "scene '{}' : {} palettes de 15 couleurs necessaires > 8 \
+                 ({} couleurs uniques au total)",
+                name,
+                clusters.len(),
+                total.len()
+            );
+        }
+        clusters.sort(); // ordre stable des palettes
+        let palettes: Vec<Vec<u16>> =
+            clusters.iter().map(|c| c.iter().copied().collect()).collect();
+        let mut assign: HashMap<Vec<u16>, u8> = HashMap::new();
+        for set in &uniq {
+            let key: Vec<u16> = set.iter().copied().collect();
+            let p = clusters
+                .iter()
+                .position(|c| set.is_subset(c))
+                .context("cluster de palette introuvable (bug datagen)")?;
+            assign.insert(key, p as u8);
+        }
+
+        // 4. encodage 4bpp + dédup chars + table de metatiles
+        let mut charset: Vec<u8> = vec![0; 32]; // char 0 : transparent réservé
+        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
+        seen.insert([0u8; 32], 0);
+        let mut table: Vec<u16> = Vec::new();
+        let mut local_of: BTreeMap<TileKey, u8> = BTreeMap::new();
+
+        for (i, &key) in locals.iter().enumerate() {
+            local_of.insert(key, i as u8);
+            for q in &quarters[i * 4..i * 4 + 4] {
+                let set: Vec<u16> = colorset(q).iter().copied().collect();
+                let p = *assign.get(&set).unwrap();
+                let pal = &palettes[p as usize];
+                let mut ch = [0u8; 32];
+                for y in 0..8 {
+                    for x in 0..8 {
+                        let c = match q[y][x] {
+                            None => 0u8,
+                            Some(col) => {
+                                1 + pal.iter().position(|&v| v == col).unwrap() as u8
+                            }
+                        };
+                        let bit = 0x80u8 >> x;
+                        if c & 1 != 0 { ch[y * 2] |= bit; }
+                        if c & 2 != 0 { ch[y * 2 + 1] |= bit; }
+                        if c & 4 != 0 { ch[16 + y * 2] |= bit; }
+                        if c & 8 != 0 { ch[16 + y * 2 + 1] |= bit; }
+                    }
+                }
+                let next = (charset.len() / 32) as u16;
+                let id = *seen.entry(ch).or_insert_with(|| {
+                    charset.extend_from_slice(&ch);
+                    next
+                });
+                table.push(id | ((p as u16) << 10));
+            }
+        }
+
+        // metatile transparent (id local = dernier)
+        let blank_id = (table.len() / 4) as u8;
         table.extend_from_slice(&[0, 0, 0, 0]);
-        prio.push(0);
 
         if charset.len() / 32 > 512 {
-            bail!("tileset : {} chars 8x8 uniques > 512 (VRAM)", charset.len() / 32);
+            bail!(
+                "scene '{}' : {} chars 8x8 uniques > 512 (VRAM)",
+                name,
+                charset.len() / 32
+            );
         }
-        Ok(CompiledTileset {
-            charset,
-            table,
-            prio,
-            blank_id: blank_id as u8,
-            variant_ids,
-        })
+
+        // 5. priorités ☆ + CGRAM 8x16
+        let mut prio: Vec<u8> = locals
+            .iter()
+            .map(|&key| {
+                let id = match key {
+                    TileKey::Grid(t) => t as i32,
+                    TileKey::Var(k, _) => AUTO_BASE + k as i32,
+                };
+                self.is_above(id) as u8
+            })
+            .collect();
+        prio.push(0); // blank
+
+        let mut pal = vec![0u16; 128];
+        for (p, cols) in palettes.iter().enumerate() {
+            for (i, &c) in cols.iter().enumerate() {
+                pal[p * 16 + 1 + i] = c;
+            }
+        }
+
+        Ok(GfxSet { charset, table, prio, pal, blank_id, local_of })
     }
 
-    /// Grilles binaires d'une scène : couches expansées + collision dérivée
+    /// Grilles binaires d'une scène : couches en ids locaux + collision
+    /// dérivée de la passabilité (règle : la tile sup non-☆ l'emporte)
     pub fn expand_scene(
         &self,
-        compiled: &CompiledTileset,
+        gfx: &GfxSet,
         name: &str,
         lower: &[Vec<i32>],
         upper: &[Vec<i32>],
@@ -284,20 +444,20 @@ impl SourceTileset {
             let mut out = Vec::with_capacity(w * h);
             for y in 0..h {
                 for x in 0..w {
-                    let id = grid[y][x];
-                    out.push(if id == EMPTY {
-                        if !is_upper {
-                            bail!("scene '{}' : -1 interdit sur la couche inferieure", name);
+                    out.push(match key_of_cell(grid, x, y, w, h) {
+                        None => {
+                            if !is_upper {
+                                bail!(
+                                    "scene '{}' : -1 interdit sur la couche inferieure",
+                                    name
+                                );
+                            }
+                            gfx.blank_id
                         }
-                        compiled.blank_id
-                    } else if id >= AUTO_BASE {
-                        let k = (id - AUTO_BASE) as usize;
-                        *compiled
-                            .variant_ids
-                            .get(&(k, cell_key(grid, x, y, w, h)))
-                            .context("variante d'autotile non collectee (bug datagen)")?
-                    } else {
-                        id as u8
+                        Some(key) => *gfx
+                            .local_of
+                            .get(&key)
+                            .context("tile non compilee (bug datagen)")?,
                     });
                 }
             }
@@ -322,5 +482,20 @@ impl SourceTileset {
             upper: expand(upper, true)?,
             collision,
         })
+    }
+}
+
+impl GfxSet {
+    /// Empreinte pour partager un set entre scènes identiques
+    pub fn fingerprint(&self) -> Vec<u8> {
+        let mut v = self.charset.clone();
+        for &e in &self.table {
+            v.extend_from_slice(&e.to_le_bytes());
+        }
+        v.extend_from_slice(&self.prio);
+        for &c in &self.pal {
+            v.extend_from_slice(&c.to_le_bytes());
+        }
+        v
     }
 }

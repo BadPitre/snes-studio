@@ -10,6 +10,7 @@
 //!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
 
 mod binbank;
+mod chipset;
 mod emit;
 mod gfx;
 mod project;
@@ -17,13 +18,22 @@ mod script;
 mod tileset;
 
 use anyhow::{bail, Context, Result};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1] == "import-chipset" {
+        if args.len() != 5 {
+            bail!("usage : datagen import-chipset <chipset.png> <dossier_projet> <nom>");
+        }
+        return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
+    }
     if args.len() != 3 {
-        bail!("usage : datagen <dossier_projet> <dossier_engine>");
+        bail!(
+            "usage : datagen <dossier_projet> <dossier_engine>\n\
+             \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>"
+        );
     }
     let proj_dir = PathBuf::from(&args[1]);
     let engine_dir = PathBuf::from(&args[2]);
@@ -141,7 +151,7 @@ fn main() -> Result<()> {
         })
     };
 
-    let mut used: Vec<BTreeSet<(usize, u16)>> = vec![BTreeSet::new(); sources.len()];
+    // Validation des ids logiques des deux couches
     for sc in &scenes {
         let ts = scene_ts(sc)?;
         let src = &sources[ts];
@@ -155,31 +165,40 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            tileset::collect_variants(layer, &mut used[ts]);
         }
     }
-    let compiled: Vec<tileset::CompiledTileset> = sources
-        .iter()
-        .zip(&used)
-        .zip(&tileset_paths)
-        .map(|((src, u), p)| src.compile(u).with_context(|| format!("tileset {}", p)))
-        .collect::<Result<_>>()?;
 
-    // Grilles binaires par scène (couches expansées + collision dérivée)
+    // GFX compilés PAR SCÈNE (budget VRAM réel) — partagés entre scènes
+    // au contenu identique (empreinte)
+    let mut fp_ids: HashMap<Vec<u8>, u8> = HashMap::new();
+    let mut gfx_sets: Vec<tileset::GfxSet> = Vec::new();
+    let mut set_ids: Vec<u8> = Vec::new();
     let mut grids = Vec::new();
     for sc in &scenes {
         let ts = scene_ts(sc)?;
-        grids.push(sources[ts].expand_scene(
-            &compiled[ts],
-            &sc.name,
-            &sc.tilemap,
-            &sc.upper_or_empty(),
-        )?);
+        let upper = sc.upper_or_empty();
+        let gfx = sources[ts].compile_scene(&sc.name, &sc.tilemap, &upper)?;
+        grids.push(sources[ts].expand_scene(&gfx, &sc.name, &sc.tilemap, &upper)?);
+        let fp = gfx.fingerprint();
+        let id = match fp_ids.get(&fp) {
+            Some(&i) => i,
+            None => {
+                if gfx_sets.len() == 255 {
+                    bail!("plus de 255 gfx sets");
+                }
+                let i = gfx_sets.len() as u8;
+                fp_ids.insert(fp, i);
+                gfx_sets.push(gfx);
+                i
+            }
+        };
+        set_ids.push(id);
     }
+    println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
     // Banks binaires (spec §1-2) + asm d'épinglage
     let scene_bank = binbank::build_scene_bank(
-        &scenes, &grids, &text_ids, &music_ids, &tileset_ids, boot_id as u8,
+        &scenes, &grids, &set_ids, &text_ids, &music_ids, boot_id as u8,
     )?;
     let text_bank = binbank::build_text_bank(&texts)?;
     write_bin(&out_dir, "scenes.bin", &scene_bank)?;
@@ -187,7 +206,7 @@ fn main() -> Result<()> {
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
     // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &sources, &compiled)?)?;
+    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &gfx_sets)?)?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -222,51 +241,51 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
 fn gen_assets(
     proj_dir: &Path,
     project: &project::Project,
-    sources: &[tileset::SourceTileset],
-    compiled: &[tileset::CompiledTileset],
+    gfx_sets: &[tileset::GfxSet],
 ) -> Result<String> {
     let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))?;
 
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
 
-    // Un jeu de donnees par tileset + tables de pointeurs indexees par
-    // tileset_id (pattern « scene_table » : l'indexation d'un tableau de
-    // pointeurs est fiable chez tcc, contrairement aux tableaux de u16).
-    // ts{i}_prio : 1 octet par metatile, 1 = ☆ (priorite BG1, couche sup).
-    for (i, (src, c)) in sources.iter().zip(compiled).enumerate() {
-        s.push_str(&emit::u8_array(&format!("ts{}_chars", i), &c.charset, 16, true));
+    // Un gfx set par scene (partage par empreinte) + tables de pointeurs
+    // indexees par gfx_set_id (header octet 1) — pattern « scene_table » :
+    // l'indexation d'un tableau de pointeurs est fiable chez tcc.
+    // gs{i}_prio : 1 octet par id local, 1 = ☆ (priorite BG1, couche sup).
+    // gs{i}_pal : CGRAM BG complete, 8 palettes x 16 couleurs.
+    for (i, g) in gfx_sets.iter().enumerate() {
+        s.push_str(&emit::u8_array(&format!("gs{}_chars", i), &g.charset, 16, true));
         s.push_str(&format!(
-            "static const u16 ts{}_chars_size = sizeof(ts{}_chars);\n\n",
+            "static const u16 gs{}_chars_size = sizeof(gs{}_chars);\n\n",
             i, i
         ));
-        s.push_str(&emit::u16_array_static(&format!("ts{}_meta", i), &c.table));
+        s.push_str(&emit::u16_array_static(&format!("gs{}_meta", i), &g.table));
         s.push('\n');
-        s.push_str(&emit::u8_array(&format!("ts{}_prio", i), &c.prio, 16, true));
+        s.push_str(&emit::u8_array(&format!("gs{}_prio", i), &g.prio, 16, true));
         s.push('\n');
-        s.push_str(&emit::u16_array_static(&format!("ts{}_pal", i), &src.img.palette_n(16)));
+        s.push_str(&emit::u16_array_static(&format!("gs{}_pal", i), &g.pal));
         s.push('\n');
     }
 
-    s.push_str("const u8 *const tileset_chars[] = {\n");
-    for i in 0..sources.len() {
-        s.push_str(&format!("  ts{}_chars,\n", i));
+    s.push_str("const u8 *const gfx_chars[] = {\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!("  gs{}_chars,\n", i));
     }
-    s.push_str("};\n\nconst u16 *const tileset_chars_sizes[] = {\n");
-    for i in 0..sources.len() {
-        s.push_str(&format!("  &ts{}_chars_size,\n", i));
+    s.push_str("};\n\nconst u16 *const gfx_chars_sizes[] = {\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!("  &gs{}_chars_size,\n", i));
     }
-    s.push_str("};\n\nconst u16 *const tileset_metas[] = {\n");
-    for i in 0..sources.len() {
-        s.push_str(&format!("  ts{}_meta,\n", i));
+    s.push_str("};\n\nconst u16 *const gfx_metas[] = {\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!("  gs{}_meta,\n", i));
     }
-    s.push_str("};\n\nconst u8 *const tileset_prios[] = {\n");
-    for i in 0..sources.len() {
-        s.push_str(&format!("  ts{}_prio,\n", i));
+    s.push_str("};\n\nconst u8 *const gfx_prios[] = {\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!("  gs{}_prio,\n", i));
     }
-    s.push_str("};\n\nconst u16 *const tileset_pals[] = {\n");
-    for i in 0..sources.len() {
-        s.push_str(&format!("  ts{}_pal,\n", i));
+    s.push_str("};\n\nconst u16 *const gfx_pals[] = {\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!("  gs{}_pal,\n", i));
     }
     s.push_str("};\n\n");
 

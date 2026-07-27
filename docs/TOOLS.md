@@ -80,9 +80,11 @@ des exemples PVSnesLib — placeholder à remplacer.
 dans la feuille de sprites (convention metasprite : frame = sprite + dir).
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
-de 16), indices **rangée par rangée** comme la palette RPG Maker ; datagen
-découpe en chars 8x8, déduplique (max 512, char 0 réservé transparent) et
-génère la table de metatiles (max 256 ids : grille + variantes d'autotiles).
+de 16, max 999 tiles), indices **rangée par rangée** comme la palette
+RPG Maker, jusqu'à 256 couleurs (chipsets). datagen compile les gfx **par
+scène** (v0.4) : seules les tiles utilisées partent en VRAM — limites par
+scène : 254 tiles distinctes, 512 chars 8x8 (char 0 réservé transparent),
+8 palettes de 15 couleurs (réparties automatiquement par char).
 **Par scène (Phase 5b)** : `project.json` liste les tilesets dans
 `"tilesets"` (l'ordre donne les tileset_id ; absent = `assets.tileset`
 seul) ; chaque scène peut déclarer `"tileset": "<stem>"` (absent = le
@@ -115,6 +117,24 @@ base). Les tiles destinées à la couche sup doivent avoir un **fond index 0**
 - Collision dérivée par cellule : tile sup présente et non-☆ → sa
   passabilité l'emporte (un pont passable sur une eau solide), sinon celle
   de la tile inférieure.
+
+## Import de chipsets RPG Maker 2003
+
+```bash
+cargo run --release --manifest-path tools/Cargo.toml -p datagen -- \
+  import-chipset mon_chipset.png demo bourg
+```
+
+Découpe un chipset RM2003 (PNG indexé 480x256, layout LCF) en assets
+projet : `assets/<nom>.png` (grille 6 colonnes : 144 tiles basses puis 144
+hautes — le sidecar note `upper_start: 144` pour que l'éditeur filtre la
+palette par couche), les **12 autotiles de sol** (copie directe, format
+natif), l'**eau A** convertie en autotile statique (approximation : bordures
+recomposées depuis la frame 0 — pas d'animation), et le sidecar. Le tileset
+est ajouté à `project.json`. La couleur de fond de la première tile haute
+devient l'index 0 (transparent). La passabilité arrive vierge (eau solide
+par défaut) : se règle dans l'éditeur, mode « Passabilité O/X/☆ ». Non
+importés : eau B/eau profonde, tiles d'animation (cascades).
 
 ## Assembleur de scripts (VM v0, spec §2)
 

@@ -13,14 +13,16 @@
 #include "vram.h"
 #include "map.h"
 
-/* Tilesets (data_assets.c) — tables indexées par tileset_id du header.
+/* GFX sets (data_assets.c) — compilés PAR SCÈNE par datagen (v0.4 : seules
+   les tiles utilisées par la scène sont en VRAM, palettes multiples bakées
+   dans les entrées BG). Tables indexées par gfx_set_id (header octet 1).
    Tableaux de pointeurs : indexation fiable chez tcc (pattern scene_table),
    contrairement aux tableaux u16 nus (« FISHY length <> PTR_SIZE »). */
-extern const u8 *const tileset_chars[];
-extern const u16 *const tileset_chars_sizes[];
-extern const u16 *const tileset_metas[];
-extern const u8 *const tileset_prios[];
-extern const u16 *const tileset_pals[];
+extern const u8 *const gfx_chars[];
+extern const u16 *const gfx_chars_sizes[];
+extern const u16 *const gfx_metas[];
+extern const u8 *const gfx_prios[];
+extern const u16 *const gfx_pals[];
 
 SceneCtx scene_ctx;
 
@@ -85,16 +87,18 @@ void scene_load(u8 scene_id)
      tilemap est fait par map_init() une fois la caméra positionnée.
      NB : ne jamais nommer un symbole « metatiles » — collision silencieuse
      avec un symbole interne de PVSnesLib (maps.asm). */
-  bgInitTileSet(0, (u8 *)tileset_chars[scene_ctx.tileset_id],
-                (u8 *)tileset_pals[scene_ctx.tileset_id], 0,
-                *tileset_chars_sizes[scene_ctx.tileset_id], 16 * 2,
+  /* CGRAM BG complète : 8 palettes de 16 couleurs (les entrées BG portent
+     les bits de palette 10-12, bakés par datagen) */
+  bgInitTileSet(0, (u8 *)gfx_chars[scene_ctx.tileset_id],
+                (u8 *)gfx_pals[scene_ctx.tileset_id], 0,
+                *gfx_chars_sizes[scene_ctx.tileset_id], 128 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
   /* Deux couches (modèle RM2003) : BG1 = sup, BG2 = inf, charset partagé */
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
   bgSetGfxPtr(1, VRAM_BG1_GFX);
   bgSetMapPtr(1, VRAM_BG2_MAP, SC_64x64);
-  map_set_metatiles(tileset_metas[scene_ctx.tileset_id],
-                    tileset_prios[scene_ctx.tileset_id]);
+  map_set_metatiles(gfx_metas[scene_ctx.tileset_id],
+                    gfx_prios[scene_ctx.tileset_id]);
 }
 
 u8 scene_collision(u8 tx, u8 ty)

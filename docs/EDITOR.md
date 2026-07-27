@@ -67,6 +67,12 @@ consomme** : aucun format intermédiaire.
   peinte : l'overlay rouge affiche la collision DÉRIVÉE (tile sup non-☆
   prioritaire — un pont sur l'eau est passable automatiquement).
 
+- **Import de chipsets RM2003** (« Chipset RM2003… ») : découpe un chipset
+  480x256 (tiles, 12 autotiles de sol, eau statique, couches basse/haute)
+  et l'ajoute au projet — voir TOOLS.md. Avec un chipset, la palette est
+  **filtrée par couche** comme dans RPG Maker (tiles basses sur la couche
+  inf., objets sur la couche sup.).
+
 Pas encore : animation des autotiles (eau), édition des gfx, `make` intégré.
 
 ## Lancer

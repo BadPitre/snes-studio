@@ -12,6 +12,8 @@ pub struct IndexedImage {
     pub pixels: Vec<u8>,
     /// Palette convertie en BGR555
     pub palette: Vec<u16>,
+    /// Palette source brute (triplets RGB 8-bit) — pour les outils d'import
+    pub palette_rgb: Vec<u8>,
 }
 
 pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
@@ -59,7 +61,7 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
         .map(|c| bgr555(c[0], c[1], c[2]))
         .collect();
 
-    Ok(IndexedImage { width, height, pixels, palette })
+    Ok(IndexedImage { width, height, pixels, palette, palette_rgb })
 }
 
 fn bgr555(r: u8, g: u8, b: u8) -> u16 {
