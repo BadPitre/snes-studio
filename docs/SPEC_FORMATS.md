@@ -369,11 +369,23 @@ Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
 
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
-| 0x14 | VAROP | dst u8, op u8, src_type u8, src u16 | vars16[dst] = dst OP source — op : 0 `=`, 1 `+`, 2 `-`, 3 `*`, 4 `/`, 5 `mod`, 6 hasard 0..src ; source : 0 constante, 1 variable[src], 2 X héros (tiles), 3 Y héros, 4 timer (s). Division/mod par 0 → 0. |
+| 0x14 | VAROP | dst u8, op u8, src_type u8, src u16 | vars16[dst] = dst OP source — op : 0 `=`, 1 `+`, 2 `-`, 3 `*`, 4 `/`, 5 `mod`, 6 hasard 0..src ; source : 0 constante, 1 variable[src], 2 X héros (tiles), 3 Y héros, 4 timer (s), 5 index de la scène courante (v0.15). Division/mod par 0 → 0. |
 | 0x15 | TIMER | op u8, val u16 | 0 régler+démarrer (val s), 1 stop, 2 afficher (« M:SS » coin haut-droit BG3), 3 cacher |
 | 0x16 | CAMPAN | tx u8, ty u8, vitesse u8 | pan caméra vers la tile (centrée), NON bloquant |
 | 0x17 | CAMRET | vitesse u8 | pan de retour vers le héros puis reprise du suivi |
 | 0x18 | WAITCAM | — | bloquant : fin du pan |
+
+**v0.15 (positions scriptées — mémoriser/rappeler façon RM2003) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x19 | WARPV | vs u8, vx u8, vy u8 | téléporte le héros à la scène `vars16[vs]`, tile (`vars16[vx]`, `vars16[vy]`) et TERMINE le script (comme WARP — le bloc scripts change de scène) |
+| 0x1A | SETPOS | acteur u8, src u8, x u8, y u8 | place l'event sur la tile (x,y) — acteur 0xFF = l'event du script ; src : 0 constantes, 1 = x/y sont des numéros de variables 16-bit. Coupe le pas de marche en cours. |
+| 0x1B | SWAPPOS | a u8, b u8 | échange les positions de deux events (0xFF = l'event du script) |
+
+Le VAROP gagne la source 5 = **index de la scène courante** : « mémoriser
+la position du héros » = trois VAROP (scène, X, Y), « rappeler » = WARPV
+sur les mêmes variables.
 
 Pièges toolchain documentés au passage : un couple de paramètres
 `(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à

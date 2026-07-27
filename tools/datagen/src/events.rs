@@ -23,6 +23,10 @@
 //!    "then":[...],"else":[...]}
 //!   v0.15 (boucles + commentaires) :
 //!   {"c":"loop","do":[...]}   {"c":"break"}   {"c":"rem","text":"..."}
+//!   v0.15 (positions scriptées) :
+//!   {"c":"hero_loc","vs":n,"vx":n,"vy":n}   {"c":"warp_var","vs","vx","vy"}
+//!   {"c":"setpos","event":-1|n,"from":"const"|"vars","x":..,"y":..}
+//!   {"c":"swappos","a":-1|n,"b":-1|n}
 
 use crate::project::{Actor, Event, TextEntry};
 use anyhow::{bail, Context, Result};
@@ -254,6 +258,7 @@ impl<'a> EventCompiler<'a> {
                         "hero_x" => "hx",
                         "hero_y" => "hy",
                         "timer" => "timer",
+                        "scene" => "scene",
                         o => bail!("var : source inconnue « {} »", o),
                     };
                     let val = cmd["value"]
@@ -386,6 +391,51 @@ impl<'a> EventCompiler<'a> {
                         toks.join(" ")
                     ));
                 }
+                // v0.15 — positions scriptées (mémoriser/rappeler RM2003)
+                "hero_loc" => {
+                    // écrit scène/X/Y du héros dans trois variables 16-bit
+                    let vs = Self::idx_field(cmd, "vs", 256)?;
+                    let vx = Self::idx_field(cmd, "vx", 256)?;
+                    let vy = Self::idx_field(cmd, "vy", 256)?;
+                    out.push(format!("  VAROP {} = scene 0", vs));
+                    out.push(format!("  VAROP {} = hx 0", vx));
+                    out.push(format!("  VAROP {} = hy 0", vy));
+                }
+                "warp_var" => {
+                    let vs = Self::idx_field(cmd, "vs", 256)?;
+                    let vx = Self::idx_field(cmd, "vx", 256)?;
+                    let vy = Self::idx_field(cmd, "vy", 256)?;
+                    out.push(format!("  WARPV {} {} {}", vs, vx, vy));
+                }
+                "setpos" => {
+                    let target = match cmd["event"].as_i64() {
+                        None | Some(-1) => "self".to_string(),
+                        Some(n) if (0..24).contains(&n) => n.to_string(),
+                        Some(n) => bail!("setpos : event {} hors limite (0-23)", n),
+                    };
+                    let src = match cmd["from"].as_str().unwrap_or("const") {
+                        "const" => "c",
+                        "vars" => "v",
+                        o => bail!("setpos : source inconnue « {} » (const, vars)", o),
+                    };
+                    out.push(format!(
+                        "  SETPOS {} {} {} {}",
+                        target,
+                        src,
+                        Self::u8_field(cmd, "x")?,
+                        Self::u8_field(cmd, "y")?
+                    ));
+                }
+                "swappos" => {
+                    let ev = |key: &str| -> Result<String> {
+                        Ok(match cmd[key].as_i64() {
+                            None | Some(-1) => "self".to_string(),
+                            Some(n) if (0..24).contains(&n) => n.to_string(),
+                            Some(n) => bail!("swappos : event {} hors limite (0-23)", n),
+                        })
+                    };
+                    out.push(format!("  SWAPPOS {} {}", ev("a")?, ev("b")?));
+                }
                 "warp" => {
                     let to = cmd["to"].as_str().context("warp sans scene cible")?;
                     out.push(format!(
@@ -493,12 +543,17 @@ impl<'a> EventCompiler<'a> {
                         format!("event « {} » page {} de la scene '{}'",
                                 ev.name, k + 1, scene_name)
                     })?;
-                    // ROUTE self -> index d'entrée de CETTE page (le n° de
-                    // slot acteur, pas le n° d'event : les pages comptent)
-                    let self_idx = actors.len().to_string();
+                    // « self » -> index d'entrée de CETTE page (le n° de
+                    // slot acteur, pas le n° d'event : les pages comptent).
+                    // ROUTE/SETPOS/SWAPPOS peuvent viser « cet event » ;
+                    // aucun autre token de ces lignes ne vaut « self ».
+                    let self_idx = format!(" {}", actors.len());
                     for line in asm.iter_mut().skip(first) {
-                        if line.starts_with("  ROUTE self ") {
-                            *line = line.replacen("self", &self_idx, 1);
+                        if line.starts_with("  ROUTE self ")
+                            || line.starts_with("  SETPOS self ")
+                            || line.starts_with("  SWAPPOS ")
+                        {
+                            *line = line.replace(" self", &self_idx);
                         }
                     }
                     asm.push("  END".to_string());

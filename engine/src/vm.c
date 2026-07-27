@@ -149,6 +149,8 @@ static u16 varop_src(u8 src_type, u16 src)
     return (u16)((player.y + 8) >> 4);
   case VARSRC_TIMER:
     return timer_secs();
+  case VARSRC_SCENE:
+    return scene_ctx.scene_id;
   default:
     return src;
   }
@@ -348,6 +350,42 @@ static void vm_step(void)
 
     case VM_OP_WAITCAM: /* bloquant : fin du pan */
       vm.wait_mode = VM_WAIT_CAM;
+      break;
+
+    case VM_OP_WARPV: /* téléport aux coordonnées de variables (v0.15) —
+                         rappel d'une position mémorisée : le script se
+                         termine ici, comme WARP */
+      var = fetch8();   /* variable scène */
+      val = fetch8();   /* variable x */
+      idx16 = fetch8(); /* variable y */
+      player_request_warp((u8)vm.vars16[var], (u8)vm.vars16[val],
+                          (u8)vm.vars16[idx16 & 255]);
+      vm.active = 0;
+      break;
+
+    case VM_OP_SETPOS: /* place un event sur une tile (v0.15) */
+      var = fetch8();   /* acteur, 0xFF = event du script */
+      val = fetch8();   /* source : 0 constantes, 1 variables */
+      idx16 = fetch8(); /* x (ou n° de variable) */
+      ofs = fetch8();   /* y (ou n° de variable) */
+      if (var == 0xFF)
+        var = vm.script_actor;
+      if (val)
+      {
+        idx16 = vm.vars16[idx16 & 255];
+        ofs = vm.vars16[ofs & 255];
+      }
+      actors_set_pos(var, (u8)idx16, (u8)ofs);
+      break;
+
+    case VM_OP_SWAPPOS: /* échange les positions de deux events (v0.15) */
+      var = fetch8();
+      val = fetch8();
+      if (var == 0xFF)
+        var = vm.script_actor;
+      if (val == 0xFF)
+        val = vm.script_actor;
+      actors_swap_pos(var, val);
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */

@@ -65,7 +65,8 @@ function labelOf(c: Command): string {
       const src = c.from === "var" ? `variable [${c.value}]`
         : c.from === "hero_x" ? "X du héros"
         : c.from === "hero_y" ? "Y du héros"
-        : c.from === "timer" ? "le timer" : String(c.value);
+        : c.from === "timer" ? "le timer"
+        : c.from === "scene" ? "n° de scène" : String(c.value);
       return c.op === "rand"
         ? `Variable [${c.n}] = hasard 0..${src}`
         : `Variable [${c.n}] ${c.op}= ${src}`;
@@ -96,6 +97,16 @@ function labelOf(c: Command): string {
       return "Sortir de la boucle";
     case "rem":
       return `Commentaire : ${c.text}`;
+    case "hero_loc":
+      return `Mémoriser la position du héros → variables [${c.vs}],[${c.vx}],[${c.vy}]`;
+    case "warp_var":
+      return `Téléporter le héros aux variables [${c.vs}],[${c.vx}],[${c.vy}]`;
+    case "setpos":
+      return `Placer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${
+        c.from === "vars" ? `variables [${c.x}],[${c.y}]` : `(${c.x},${c.y})`}`;
+    case "swappos":
+      return `Échanger ${c.a < 0 ? "cet event" : `l'event ${c.a}`} ↔ ${
+        c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
   }
 }
 
@@ -124,6 +135,10 @@ function cmdTitle(c: Command["c"]): string {
     loop: "Boucle",
     break: "Sortir de la boucle",
     rem: "Commentaire",
+    hero_loc: "Mémoriser la position du héros",
+    warp_var: "Téléporter aux variables",
+    setpos: "Placer un event",
+    swappos: "Échanger deux events",
   };
   return titles[c] ?? "Options de la commande";
 }
@@ -388,6 +403,14 @@ export default function EventEditorModal(props: Props) {
         return { c: "break" };
       case "rem":
         return { c: "rem", text: "" };
+      case "hero_loc":
+        return { c: "hero_loc", vs: 0, vx: 1, vy: 2 };
+      case "warp_var":
+        return { c: "warp_var", vs: 0, vx: 1, vy: 2 };
+      case "setpos":
+        return { c: "setpos", event: -1, from: "const", x: 0, y: 0 };
+      case "swappos":
+        return { c: "swappos", a: -1, b: 0 };
     }
   }
 
@@ -1022,6 +1045,7 @@ function CommandForm(props: {
               <option value="hero_x">X du héros (tiles)</option>
               <option value="hero_y">Y du héros (tiles)</option>
               <option value="timer">Timer (secondes)</option>
+              <option value="scene">N° de la scène courante</option>
             </select>
           </label>
           {(cmd.from ?? "const") === "const" || cmd.from === "var" ? (
@@ -1241,6 +1265,121 @@ function CommandForm(props: {
             onChange={(e) => onChange({ ...cmd, text: e.target.value })}
           />
         </label>
+      );
+      break;
+    case "hero_loc":
+    case "warp_var": {
+      const triple: { key: "vs" | "vx" | "vy"; label: string }[] = [
+        { key: "vs", label: "Variable scène" },
+        { key: "vx", label: "Variable X (tiles)" },
+        { key: "vy", label: "Variable Y (tiles)" },
+      ];
+      valid = triple.every((t) => cmd[t.key] >= 0 && cmd[t.key] < 256);
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {triple.map((t) => (
+              <label key={t.key}>
+                {t.label}
+                <span className="row" style={{ gap: 4 }}>
+                  <input
+                    type="number" min={0} max={255} value={cmd[t.key]}
+                    onChange={(e) => onChange({ ...cmd, [t.key]: Number(e.target.value) })}
+                  />
+                  <button className="browse" title="Choisir dans la liste"
+                    onClick={() => props.onPickVar("var", cmd[t.key], (n) => onChange({ ...cmd, [t.key]: n }))}>…</button>
+                </span>
+                <span className="hint">{props.varNames[cmd[t.key]] || ""}</span>
+              </label>
+            ))}
+          </div>
+          <span className="hint">
+            {cmd.c === "hero_loc"
+              ? "Écrit la scène courante et la tile du héros dans ces trois variables (à rappeler avec « Téléporter aux variables »)."
+              : "Téléporte le héros à la scène et la tile lues dans ces trois variables — termine le script, comme un warp."}
+          </span>
+        </>
+      );
+      break;
+    }
+    case "setpos":
+      valid = cmd.x >= 0 && cmd.x <= 254 && cmd.y >= 0 && cmd.y <= 254;
+      body = (
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          <label style={{ flex: 2 }}>
+            Event
+            <select
+              value={cmd.event}
+              onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
+            >
+              <option value={-1}>Cet event</option>
+              {props.entryNames.map((n, i) => (
+                <option key={i} value={i}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Coordonnées
+            <select
+              value={cmd.from}
+              onChange={(e) => onChange({ ...cmd, from: e.target.value as "const" | "vars" })}
+            >
+              <option value="const">Constantes (tiles)</option>
+              <option value="vars">Dans des variables</option>
+            </select>
+          </label>
+          <label>
+            {cmd.from === "vars" ? "Variable X" : "x"}
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+              {cmd.from === "vars" && (
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() => props.onPickVar("var", cmd.x, (n) => onChange({ ...cmd, x: n }))}>…</button>
+              )}
+            </span>
+          </label>
+          <label>
+            {cmd.from === "vars" ? "Variable Y" : "y"}
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+              {cmd.from === "vars" && (
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() => props.onPickVar("var", cmd.y, (n) => onChange({ ...cmd, y: n }))}>…</button>
+              )}
+            </span>
+          </label>
+        </div>
+      );
+      break;
+    case "swappos":
+      valid = cmd.a !== cmd.b;
+      body = (
+        <div className="row">
+          {(["a", "b"] as const).map((k) => (
+            <label key={k} style={{ flex: 1 }}>
+              {k === "a" ? "Event A" : "Event B"}
+              <select
+                value={cmd[k]}
+                onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+              >
+                <option value={-1}>Cet event</option>
+                {props.entryNames.map((n, i) => (
+                  <option key={i} value={i}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
       );
       break;
     case "warp": {

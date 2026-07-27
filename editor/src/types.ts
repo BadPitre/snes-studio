@@ -89,10 +89,17 @@ export type Command =
   // JMP, break = JMP fin de boucle, rem = rien)
   | { c: "loop"; do: Command[] }
   | { c: "break" }
-  | { c: "rem"; text: string };
+  | { c: "rem"; text: string }
+  // v0.15 — positions scriptées : mémoriser la position du héros dans 3
+  // variables (scène/X/Y), la rappeler (téléport), placer/échanger des
+  // events. event/a/b : -1 = cet event, sinon n° d'ENTRÉE de la scène.
+  | { c: "hero_loc"; vs: number; vx: number; vy: number }
+  | { c: "warp_var"; vs: number; vx: number; vy: number }
+  | { c: "setpos"; event: number; from: "const" | "vars"; x: number; y: number }
+  | { c: "swappos"; a: number; b: number };
 
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
-export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer";
+export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";
 
 // Un pas d'itinéraire (v0.13, dialogue Move Route complet).
 // wait : n × 8 frames (1-15) ; swon/swoff : n = switch ; gfx : block projet.

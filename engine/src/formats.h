@@ -138,6 +138,19 @@
                               puis reprise du suivi */
 #define VM_OP_WAITCAM 0x18 /* bloquant : attend la fin du pan */
 
+/* v0.15 : positions scriptées (mémoriser/rappeler façon RM2003) */
+#define VM_OP_WARPV   0x19 /* vs (u8), vx (u8), vy (u8) — téléporte le
+                              héros à la scène vars16[vs], tile
+                              (vars16[vx], vars16[vy]) et TERMINE le
+                              script (comme WARP). Rappel d'une position
+                              mémorisée par VAROP scene/hx/hy. */
+#define VM_OP_SETPOS  0x1A /* acteur (u8, 0xFF = event du script),
+                              src (u8 : 0 constantes, 1 variables),
+                              x (u8), y (u8) — place l'event sur la tile
+                              (x,y), ou (vars16[x], vars16[y]) si src=1 */
+#define VM_OP_SWAPPOS 0x1B /* a (u8), b (u8, 0xFF = event du script) —
+                              échange les positions de deux events */
+
 #define VAROP_SET 0
 #define VAROP_ADD 1
 #define VAROP_SUB 2
@@ -150,6 +163,7 @@
 #define VARSRC_HERO_X 2
 #define VARSRC_HERO_Y 3
 #define VARSRC_TIMER 4
+#define VARSRC_SCENE 5 /* v0.15 : index de la scène courante */
 
 /* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
    Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */

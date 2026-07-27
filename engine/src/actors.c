@@ -327,6 +327,35 @@ void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
   route_wait[index] = 0;
 }
 
+/* Place l'acteur sur une tile (opcode SETPOS, v0.15) — coupe le pas en
+   cours pour ne pas laisser un déplacement à moitié fait. */
+void actors_set_pos(u8 index, u8 tx, u8 ty)
+{
+  if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count)
+    return;
+  actor_px[index] = (u16)tx << 4;
+  actor_py[index] = (u16)ty << 4;
+  actor_step[index] = 0;
+}
+
+/* Échange les positions de deux acteurs (opcode SWAPPOS, v0.15). */
+void actors_swap_pos(u8 a, u8 b)
+{
+  u16 t;
+
+  if (a >= ACTOR_SLOTS || b >= ACTOR_SLOTS || a >= scene_ctx.actor_count ||
+      b >= scene_ctx.actor_count)
+    return;
+  t = actor_px[a];
+  actor_px[a] = actor_px[b];
+  actor_px[b] = t;
+  t = actor_py[a];
+  actor_py[a] = actor_py[b];
+  actor_py[b] = t;
+  actor_step[a] = 0;
+  actor_step[b] = 0;
+}
+
 /* Fréquence 1-8 du slot (posée par l'opcode ROUTE avant set_route) */
 static u8 route_freq_pending;
 

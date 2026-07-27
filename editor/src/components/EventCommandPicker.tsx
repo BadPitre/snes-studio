@@ -43,6 +43,10 @@ const TABS: Tab[] = [
       { c: "wait_route", label: "Attendre la fin des déplacements" },
       { c: "face", label: "Tourner un event" },
       { c: "warp", label: "Téléporter le héros" },
+      { c: "hero_loc", label: "Mémoriser la position du héros" },
+      { c: "warp_var", label: "Téléporter aux variables" },
+      { c: "setpos", label: "Placer un event" },
+      { c: "swappos", label: "Échanger deux events" },
     ],
   },
   {

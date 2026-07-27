@@ -31,6 +31,11 @@ void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len);
 void actors_route_freq(u8 freq);
 void actors_route_bind_freq(u8 index);
 
+/* Positions scriptées (v0.15) : place un acteur sur une tile (SETPOS),
+   échange deux acteurs (SWAPPOS). Coupe le pas de marche en cours. */
+void actors_set_pos(u8 index, u8 tx, u8 ty);
+void actors_swap_pos(u8 a, u8 b);
+
 /* 1 si une route non-repeat court encore (opcode WAITROUTE). */
 u8 actors_routes_busy(void);
 

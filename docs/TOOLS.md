@@ -174,6 +174,16 @@ coin haut-droit) ; `{"c":"campan","x","y","speed":1-8}` (non bloquant),
 <dst> <op> <const|var|hx|hy|timer> <src>`, `TIMER <op> <val>`, `CAMPAN`,
 `CAMRET`, `WAITCAM`.
 
+**v0.15 (positions)** : `{"c":"hero_loc","vs":n,"vx":n,"vy":n}` mémorise
+la position du héros (scène/X/Y) dans trois variables 16-bit — compilé
+en trois `VAROP` (nouvelle source `scene`) ; `{"c":"warp_var","vs","vx",
+"vy"}` la rappelle (téléport, termine le script — assembleur `WARPV`) ;
+`{"c":"setpos","event":-1|n,"from":"const"|"vars","x","y"}` place un
+event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
+<acteur|self> <c|v> <x> <y>` ; `{"c":"swappos","a":-1|n,"b":-1|n}`
+échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
+= cet event (résolu en index d'entrée par datagen, comme route).
+
 **v0.15** : `{"c":"loop","do":[...]}` — boucle RM2003 : le corps se
 répète pour toujours ; `{"c":"break"}` saute à la fin de la boucle la
 plus proche (hors d'une boucle : erreur datagen). Compilation pure

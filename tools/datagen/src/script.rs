@@ -57,6 +57,9 @@ const OP_TIMER: u8 = 0x15;
 const OP_CAMPAN: u8 = 0x16;
 const OP_CAMRET: u8 = 0x17;
 const OP_WAITCAM: u8 = 0x18;
+const OP_WARPV: u8 = 0x19;
+const OP_SETPOS: u8 = 0x1A;
+const OP_SWAPPOS: u8 = 0x1B;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -197,6 +200,9 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "CAMPAN" => 4,
         "CAMRET" => 2,
         "WAITCAM" => 1,
+        "WARPV" => 4,
+        "SETPOS" => 5,
+        "SWAPPOS" => 3,
         // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
         "ROUTE" => {
             if argc < 5 {
@@ -413,6 +419,7 @@ pub fn assemble(
                 };
                 let st = match args[2] {
                     "const" => 0u8, "var" => 1, "hx" => 2, "hy" => 3, "timer" => 4,
+                    "scene" => 5,
                     o => bail!("VAROP : source inconnue '{}'", o),
                 };
                 let src: i32 = args[3].parse()
@@ -453,6 +460,35 @@ pub fn assemble(
             "WAITCAM" => {
                 if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
                 code.push(OP_WAITCAM);
+            }
+            // WARPV <vs> <vx> <vy> : téléport aux variables (v0.15)
+            "WARPV" => {
+                if argc != 3 { bail!("WARPV <var scene> <var x> <var y>"); }
+                code.push(OP_WARPV);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+            }
+            // SETPOS <acteur|self> <c|v> <x> <y> : place un event —
+            // c = constantes, v = numéros de variables 16-bit
+            "SETPOS" => {
+                if argc != 4 { bail!("SETPOS <acteur|self> <c|v> <x> <y>"); }
+                code.push(OP_SETPOS);
+                code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
+                code.push(match args[1] {
+                    "c" => 0,
+                    "v" => 1,
+                    o => bail!("SETPOS : source inconnue '{}' (c|v)", o),
+                });
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+            }
+            // SWAPPOS <a|self> <b|self> : échange deux events
+            "SWAPPOS" => {
+                if argc != 2 { bail!("SWAPPOS <a|self> <b|self>"); }
+                code.push(OP_SWAPPOS);
+                code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
+                code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
             }
             "RTBLOB" => {
                 if argc < 4 { bail!("RTBLOB <r> <s> <freq> <pas...>"); }
