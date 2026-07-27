@@ -135,7 +135,13 @@ vers le slot local (§1.3, §5).*
 
 ```
 Offset  Taille  Champ
-0       1       actor_type    (u8)  — 0x01 = PNJ statique (seul type en v0)
+0       1       actor_type    (u8)  — 0x01 = PNJ statique (parle avec A)
+                                      0x02 = déclencheur de CONTACT (v0.6) :
+                                      invisible, traversable — script lancé
+                                      quand le héros marche sur la tile
+                                      0x03 = déclencheur AUTO (v0.6) :
+                                      invisible — script lancé au chargement
+                                      de la scène (boot ou warp)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
 3       1       sprite_id     (u8)  — SLOT de bloc de personnage dans le
@@ -204,9 +210,13 @@ struct VmState {
   u8  active;          // 0 = inactive
   u8  bank;            // bank du bytecode courant
   u16 pc;              // program counter (offset dans la bank)
-  u8  wait_mode;       // 0=non, 1=attend touche A, 2=attend fermeture textbox
+  u8  wait_mode;       // 0=non, 1=attend touche A, 2=attend fermeture textbox,
+                       // 3=CHOICE en cours (curseur haut/bas, A valide — v0.6)
   u8  vars[64];        // variables de scène (réinitialisées au chargement de scène)
   u8  gvars[64];       // variables globales (persistent entre scènes)
+  u8  choice_var;      // v0.6 : variable destination du CHOICE en cours
+  u8  choice_count;    // v0.6 : nombre d'options (2-4)
+  u8  choice_sel;      // v0.6 : option sous le curseur
 };
 ```
 
@@ -217,21 +227,35 @@ offsets des opcodes de saut et les `script_offset` d'acteurs sont absolus
 dans le bloc scripts de la scène). Garde-fou : 32 opcodes immédiats max par
 frame, halt debug au-delà (idem opcode inconnu).
 
-### Table des opcodes v0
+### Table des opcodes — v0.6
+
+**Octet variable (v0.6)** : bits 0-5 = numéro (0-63), **bit 7 = variable
+GLOBALE** (`gvars`, persiste entre les scènes) — partout où « var »
+apparaît ci-dessous. L'assembleur écrit `v<n>` (scène) ou `g<n>` (globale).
+Le pattern RM2003 « donner/posséder un objet » = une gvar : `SETVAR g<n> 1`
+pour donner, `JEQ g<n> 1 <label>` pour tester.
 
 | Op | Nom | Opérandes | Effet |
 |----|-----|-----------|-------|
 | 0x00 | END | — | Termine le script, VM inactive, rend le contrôle au joueur |
 | 0x01 | MSG | text_id (u16) | **Bloquant.** Ouvre la textbox, affiche le texte `text_id`, attend A pour fermer |
-| 0x02 | SETVAR | var (u8), val (u8) | vars[var] = val |
-| 0x03 | ADDVAR | var (u8), val (u8) | vars[var] += val (wrap 8-bit assumé) |
+| 0x02 | SETVAR | var (u8), val (u8) | var = val |
+| 0x03 | ADDVAR | var (u8), val (u8) | var += val (wrap 8-bit assumé) |
 | 0x04 | JMP | offset (u16) | pc = offset (absolu dans le bloc scripts) |
-| 0x05 | JEQ | var (u8), val (u8), offset (u16) | si vars[var] == val → saut |
-| 0x06 | JNE | var (u8), val (u8), offset (u16) | si vars[var] != val → saut |
-| 0x07 | SETGVAR | var (u8), val (u8) | gvars[var] = val |
-| 0x08 | JGEQ | var (u8), val (u8), offset (u16) | si vars[var] >= val → saut (utile compteurs) |
+| 0x05 | JEQ | var (u8), val (u8), offset (u16) | si var == val → saut |
+| 0x06 | JNE | var (u8), val (u8), offset (u16) | si var != val → saut |
+| 0x07 | SETGVAR | var (u8), val (u8) | gvars[var] = val (alias historique de SETVAR g) |
+| 0x08 | JGEQ | var (u8), val (u8), offset (u16) | si var >= val → saut (utile compteurs) |
+| 0x09 | CHOICE | var (u8), count (u8), count × text_id (u16) | **Bloquant.** Affiche 2-4 options (une par ligne, curseur `>` haut/bas), A valide → var = index choisi (0..count-1) |
+| 0x0A | WARP | scene (u8), x (u8), y (u8) | Téléporte le héros (fondu, rechargement complet) et **termine le script** — le bloc scripts change de scène |
+| 0x0B | FACE | acteur (u8), dir (u8) | Tourne l'acteur (index dans la table d'acteurs) vers dir (0=bas 1=haut 2=gauche 3=droite) |
 
-8 opcodes. C'est tout. Pas d'ajout sans besoin prouvé.
+*Évolution v0 → v0.6 (demande explicite) : CHOICE (Show Choices RM2003),
+WARP (Teleport scripté), FACE (orientation d'événement), et le bit gvar
+sur les opérandes variable — le déplacement pas-à-pas des PNJ par script
+arrive avec le chantier « PNJ mobiles ». En complément, hors bytecode :
+`wait_mode` 3 = VM_WAIT_CHOICE, et le PNJ à qui l'on parle se tourne vers
+le héros (réflexe RM2003, moteur).*
 
 **Textes :** bank $86, à $86:8000 :
 

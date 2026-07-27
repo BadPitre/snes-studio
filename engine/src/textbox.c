@@ -132,6 +132,42 @@ void textbox_open(u16 text_id)
   tb_dirty = 1;
 }
 
+/* CHOICE (spec §2 v0.6) : 2-4 options, une par ligne, curseur '>' devant
+   l'option sélectionnée. Textes sur une seule ligne (pas de wrap). */
+void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
+{
+  const char *s;
+  u8 i, col;
+
+  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+  for (i = 0; i < count; i++)
+  {
+    s = text_ptr(text_ids[i]);
+    col = 0;
+    while (s && *s && col < TB_TEXT_COLS - 2)
+    {
+      tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL + 2 + col] =
+          TB_ENTRY(TB_CHAR(*s));
+      col++;
+      s++;
+    }
+  }
+  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
+  tb_dirty = 1;
+}
+
+/* Déplace le curseur du CHOICE (redessine la colonne des '>') */
+void textbox_choice_cursor(u8 sel)
+{
+  u8 i;
+
+  for (i = 0; i < TB_TEXT_ROWS; i++)
+    tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL] =
+        TB_ENTRY(TB_CHAR(' '));
+  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
+  tb_dirty = 1;
+}
+
 void textbox_close(void)
 {
   tb_fill(0);

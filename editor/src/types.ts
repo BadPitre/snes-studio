@@ -35,8 +35,13 @@ export function projectTilesets(p: Project): string[] {
 
 export type Direction = "down" | "up" | "left" | "right";
 
+// Types d'acteurs (déclencheurs RM2003, v0.6) : npc = PNJ visible (parle
+// avec A), trigger = script au contact (marcher sur la tile), auto =
+// script au chargement de la scène. trigger/auto : invisibles, sans sprite.
+export type ActorKind = "npc" | "trigger" | "auto";
+
 export interface Actor {
-  type: "npc";
+  type: ActorKind;
   x: number;
   y: number;
   sprite: number;
@@ -127,9 +132,10 @@ export function charsetName(p: Project, b: number): string {
   return p.charsets?.[b] || (b === 0 ? "Héros" : `Bloc ${b}`);
 }
 
-// blocs de personnage utilisés par une scène (joueur = bloc 0 inclus)
+// blocs de personnage utilisés par une scène (joueur = bloc 0 inclus) —
+// les déclencheurs (trigger/auto) sont invisibles, sans sprite
 export function sceneSpriteBlocks(sc: Scene): number[] {
   const used = new Set<number>([0]);
-  for (const a of sc.actors) used.add(a.sprite);
+  for (const a of sc.actors) if (a.type === "npc") used.add(a.sprite);
   return [...used].sort((x, y) => x - y);
 }

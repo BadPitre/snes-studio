@@ -12,6 +12,7 @@
 #include "player.h"
 #include "camera.h"
 #include "actors.h"
+#include "vm.h"
 #include "vram.h"
 
 /* Sprite sets (data_assets.c) — compilés PAR SCÈNE par datagen (v0.5) :
@@ -42,7 +43,9 @@ static u8 tile_blocked(u8 tx, u8 ty)
 }
 
 /* Détection de warp : déclenche quand la tile CENTRALE du joueur change
-   et arrive sur une tile COL_WARP (pas de re-déclenchement sur place). */
+   et arrive sur une tile COL_WARP (pas de re-déclenchement sur place).
+   Même logique pour les déclencheurs de CONTACT (acteurs invisibles,
+   spec §1.3 v0.6) : leur script part quand on marche sur leur tile. */
 static u8 prev_ctx, prev_cty;
 static u8 warp_pending;
 static u8 warp_dest_scene, warp_dest_x, warp_dest_y;
@@ -59,20 +62,36 @@ static void check_warp(void)
   prev_ctx = ctx;
   prev_cty = cty;
 
-  if (scene_collision(ctx, cty) != COL_WARP)
-    return;
-  w = scene_ctx.warps;
-  for (i = 0; i < scene_ctx.warp_count; i++, w++)
+  if (scene_collision(ctx, cty) == COL_WARP)
   {
-    if (w->x == ctx && w->y == cty)
+    w = scene_ctx.warps;
+    for (i = 0; i < scene_ctx.warp_count; i++, w++)
     {
-      warp_pending = 1;
-      warp_dest_scene = w->dest_scene;
-      warp_dest_x = w->dest_x;
-      warp_dest_y = w->dest_y;
-      return;
+      if (w->x == ctx && w->y == cty)
+      {
+        warp_pending = 1;
+        warp_dest_scene = w->dest_scene;
+        warp_dest_x = w->dest_x;
+        warp_dest_y = w->dest_y;
+        return;
+      }
     }
   }
+
+  /* Déclencheur de contact ? (le script gèle le joueur dès cette frame) */
+  i = actor_trigger_at(ctx, cty);
+  if (i != ACTOR_NONE)
+    vm_start(scene_ctx.actors[i].script_offset);
+}
+
+/* Warp scripté (opcode WARP, spec §2 v0.6) — même chemin que les tiles de
+   warp : consommé par la boucle principale via player_take_warp(). */
+void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
+{
+  warp_pending = 1;
+  warp_dest_scene = dest_scene;
+  warp_dest_x = dest_x;
+  warp_dest_y = dest_y;
 }
 
 void player_set_pos(u8 tx, u8 ty)

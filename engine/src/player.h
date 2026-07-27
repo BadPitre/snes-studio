@@ -37,4 +37,8 @@ void player_set_pos(u8 tx, u8 ty);
    seule fois — l'appel consomme la demande). */
 u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y);
 
+/* Demande un warp par script (opcode WARP, spec §2 v0.6) — consommé par
+   la boucle principale comme un warp de tile. */
+void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y);
+
 #endif /* PLAYER_H */

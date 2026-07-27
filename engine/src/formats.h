@@ -14,8 +14,10 @@
 /* scene_type — seule valeur v0, mais le champ existe partout (règle projet) */
 #define SCENE_TYPE_TOP_DOWN 0x01
 
-/* actor_type */
-#define ACTOR_TYPE_NPC_STATIC 0x01
+/* actor_type — spec §1.3 v0.6 : déclencheurs façon RM2003 */
+#define ACTOR_TYPE_NPC_STATIC 0x01 /* PNJ visible, parle avec A */
+#define ACTOR_TYPE_TRIGGER 0x02    /* invisible : script au contact (marcher) */
+#define ACTOR_TYPE_AUTO 0x03       /* invisible : script au chargement de scène */
 
 /* script_offset d'un acteur sans script */
 #define SCRIPT_NONE 0xFFFF
@@ -60,6 +62,16 @@
 #define VM_OP_JNE     0x06 /* var, val, offset */
 #define VM_OP_SETGVAR 0x07 /* var (u8), val (u8) */
 #define VM_OP_JGEQ    0x08 /* var, val, offset */
+#define VM_OP_CHOICE  0x09 /* var, count (2-4), count x text_id (u16) —
+                              bloquant : curseur haut/bas + A, index -> var */
+#define VM_OP_WARP    0x0A /* scene (u8), x (u8), y (u8) — téléporte le
+                              héros et TERMINE le script (le bloc scripts
+                              change de scène) */
+#define VM_OP_FACE    0x0B /* acteur (u8), dir (u8) — tourne l'acteur */
+
+/* Octet variable des opcodes : bit 7 = variable GLOBALE (gvar, persiste
+   entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
+#define VM_VAR_GLOBAL 0x80
 
 /* Entrée acteur — spec §1.3. Layout C = layout binaire (8 octets, tcc-816
    ne pad pas) : le moteur caste directement le bloc acteurs des données. */

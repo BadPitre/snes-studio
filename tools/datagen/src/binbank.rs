@@ -42,7 +42,7 @@ pub fn build_scene_bank(
     blob[2] = boot_id;
 
     for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids)
+        let asm = script::assemble(&sc.script, text_ids, &scene_ids)
             .with_context(|| format!("script de la scene '{}'", sc.name))?;
 
         let w = sc.width as usize;
@@ -115,12 +115,22 @@ pub fn build_scene_bank(
                     format!("scene '{}' : entry '{}' introuvable", sc.name, label)
                 })?,
             };
-            blob.push(0x01); // ACTOR_TYPE_NPC_STATIC
+            // actor_type (spec §1.3) : 0x01 npc, 0x02 contact, 0x03 auto
+            blob.push(match a.kind.as_str() {
+                "npc" => 0x01,
+                "trigger" => 0x02,
+                _ => 0x03,
+            });
             blob.push(a.x);
             blob.push(a.y);
             // sprite_id binaire = SLOT LOCAL dans le sprite set de la
-            // scène (v0.5) — le bloc global du JSON est remappé ici
-            blob.push(sprite_remaps[i][&a.sprite]);
+            // scène (v0.5) — le bloc global du JSON est remappé ici.
+            // Déclencheurs : invisibles, pas de sprite (0).
+            blob.push(if a.kind == "npc" {
+                sprite_remaps[i][&a.sprite]
+            } else {
+                0
+            });
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
             blob.push(0);

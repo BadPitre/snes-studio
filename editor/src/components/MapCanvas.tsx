@@ -159,8 +159,20 @@ export default function MapCanvas(props: Props) {
       TS - 2
     );
 
-    // acteurs
+    // acteurs — PNJ = sprite ; déclencheurs invisibles en jeu = marqueurs
+    // éditeur (orange "C" contact, cyan "A" auto, comme les warps "W")
     for (const a of scene.actors) {
+      if (a.type !== "npc") {
+        const auto = a.type === "auto";
+        ctx.fillStyle = auto ? "rgba(60,190,210,0.35)" : "rgba(255,150,40,0.35)";
+        ctx.fillRect(a.x * TS, a.y * TS, TS, TS);
+        ctx.strokeStyle = auto ? "#40c8e0" : "#ff9628";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(a.x * TS + 1, a.y * TS + 1, TS - 2, TS - 2);
+        ctx.fillStyle = auto ? "#d8f4fa" : "#ffe8c8";
+        ctx.fillText(auto ? "A" : "C", a.x * TS + TS / 2, a.y * TS + TS / 2 + 1);
+        continue;
+      }
       if (sprites) {
         // frame 16x24 ancrée en bas de la tile (la tête dépasse de 8 px
         // au-dessus, façon RM2003)

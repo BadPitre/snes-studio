@@ -55,7 +55,9 @@ troncature à 5 bits.
   "upper":   [[...], ...],              // couche SUPÉRIEURE : -1 = vide
   "actors": [
     {"type": "npc", "x": 8, "y": 4, "sprite": 4,
-     "dir": "left", "entry": "compteur"}   // entry : label du script (optionnel)
+     "dir": "left", "entry": "compteur"},  // entry : label du script (optionnel)
+    {"type": "trigger", "x": 12, "y": 10, "entry": "panneau"}, // au contact
+    {"type": "auto", "x": 0, "y": 0, "entry": "intro"}  // au chargement
   ],
   "warps": [                               // optionnel (Phase 4)
     {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
@@ -85,6 +87,13 @@ des exemples PVSnesLib — placeholder à remplacer.
 personnage** dans la feuille de sprites du projet (12 frames par bloc,
 modèle RM2003). En binaire, datagen le remappe vers le slot local du
 sprite set de la scène (5 blocs max par scène, spec §5).
+
+**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ visible qui
+parle avec A (et se tourne vers le héros) ; `trigger` = invisible et
+traversable, son script part quand le héros **marche sur sa tile** (Player
+Touch) ; `auto` = invisible, son script part **au chargement de la scène**
+(Autorun — boot ou arrivée par warp). `trigger`/`auto` exigent `entry`
+(sprite/dir ignorés).
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
 de 16, max 999 tiles), indices **rangée par rangée** comme la palette
@@ -175,18 +184,32 @@ Une instruction par ligne, `;` commentaire, `label:` pour les cibles de saut.
 Les acteurs pointent sur un label via `entry` — plus d'offsets à la main.
 
 ```
-compteur:
-  JGEQ v0 2 deja_vu     ; v0..v63 = variables de scene
-  MSG bonjour           ; nom d'un texte de texts.json
-  ADDVAR v0 1
+salut:
+  JEQ g1 1 deja         ; g0..g63 = variables GLOBALES (persistent entre
+  MSG q_fleur           ;   scenes) - pattern give/has de RM2003
+  CHOICE v1 opt_oui opt_non   ; 2-4 choix, index choisi -> v1
+  JEQ v1 1 refus
+  MSG r_fleur
+  SETVAR g1 1           ; « donner la fleur » : une gvar
   END
-deja_vu:
-  MSG encore
+refus:
+  MSG r_non
   END
+deja:
+  MSG deja_fleur
+  END
+panneau:                ; script d'un acteur "trigger" (au contact)
+  CHOICE v2 opt_oui opt_non
+  JEQ v2 0 va_bourg
+  END
+va_bourg:
+  WARP bourg 16 28      ; teleporte le heros - termine le script
 ```
 
-Opcodes : `END`, `MSG <texte>`, `SETVAR v<n> <val>`, `ADDVAR v<n> <val>`,
-`SETGVAR g<n> <val>`, `JMP <label>`, `JEQ|JNE|JGEQ v<n> <val> <label>`.
+Opcodes (spec §2 v0.6) : `END`, `MSG <texte>`, `SETVAR|ADDVAR v<n>|g<n>
+<val>`, `SETGVAR g<n> <val>` (alias), `JMP <label>`, `JEQ|JNE|JGEQ
+v<n>|g<n> <val> <label>`, `CHOICE v<n>|g<n> <texte>...` (2-4 choix),
+`WARP <scene> <x> <y>`, `FACE <acteur> <down|up|left|right>`.
 La table est contractuelle (spec §2) — l'outil refuse tout le reste.
 
 ## Garanties

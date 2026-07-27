@@ -19,6 +19,13 @@ void textbox_load_pal(void);
    avec retour à la ligne par mot. Affichée au prochain VBlank. */
 void textbox_open(u16 text_id);
 
+/* CHOICE (spec §2 v0.6) : affiche 2-4 options (une par ligne) avec le
+   curseur '>' sur l'option sel. */
+void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel);
+
+/* Déplace le curseur du CHOICE en cours. */
+void textbox_choice_cursor(u8 sel);
+
 /* Efface la boîte (map redevient transparente au prochain VBlank). */
 void textbox_close(void);
 

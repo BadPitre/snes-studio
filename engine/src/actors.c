@@ -12,6 +12,7 @@
 #include "scene.h"
 #include "camera.h"
 #include "actors.h"
+#include "player.h"
 #include "vm.h"
 
 /* OAM : joueur = ids 0 et 4 ; acteur i = ids (2+2i)*4 (haut) et (3+2i)*4
@@ -20,13 +21,21 @@
 #define ACTOR_OAM_BOT(i) ((((u16)(i) << 1) + 3) << 2)
 #define ACTOR_OBJ_PRIO 2
 
-/* frame de repos d'un acteur : bloc*12 + dir*3 (pas d'anim v0) */
-#define ACTOR_FRAME(a) ((u8)((a)->sprite_id * 12 + (a)->direction * 3))
+/* frame de repos d'un acteur : bloc*12 + dir*3 (pas d'anim v0). La
+   direction vit en WRAM (FACE, se tourner vers le héros) — la valeur ROM
+   n'est que l'état initial. */
+#define ACTOR_FRAME(a, d) ((u8)((a)->sprite_id * 12 + (d) * 3))
 
 /* Slots OAM réservés aux acteurs (1..ACTOR_SLOTS) — les slots au-delà du
    nombre d'acteurs de la scène sont cachés (résidus d'une scène plus
    peuplée après un warp) */
 #define ACTOR_SLOTS 24
+
+/* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
+static u8 actor_dirs[ACTOR_SLOTS];
+
+/* Un déclencheur (contact/auto) est invisible et traversable */
+#define ACTOR_VISIBLE(a) ((a)->actor_type == ACTOR_TYPE_NPC_STATIC)
 
 void actors_init(void)
 {
@@ -37,14 +46,19 @@ void actors_init(void)
   {
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+    actor_dirs[i] = DIR_DOWN;
   }
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
+    if (i < ACTOR_SLOTS)
+      actor_dirs[i] = a->direction;
+    if (!ACTOR_VISIBLE(a))
+      continue;
     oamSet(ACTOR_OAM_TOP(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
-           OBJ_TOP_TILE(ACTOR_FRAME(a)), a->sprite_id);
+           OBJ_TOP_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
     oamSet(ACTOR_OAM_BOT(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
-           OBJ_BOTTOM_TILE(ACTOR_FRAME(a)), a->sprite_id);
+           OBJ_BOTTOM_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
     /* oamSetEx UNE SEULE FOIS ici : il réécrit la paire de bits de la table
        OAM 2 (taille + 9e bit de X). L'appeler après oamSet à chaque frame
        écraserait le 9e bit de X posé par oamSet, et un sprite partiellement
@@ -64,6 +78,8 @@ void actors_draw(void)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
+    if (!ACTOR_VISIBLE(a))
+      continue;
     ax = (u16)a->x << 4;
     ay = (u16)a->y << 4;
 
@@ -72,13 +88,15 @@ void actors_draw(void)
     if (ax + 16 > camera.x && ax < camera.x + 256 &&
         ay + 16 > camera.y && ay < camera.y + 224 + SPRITE_Y_OVERLAP)
     {
+      u8 d = (i < ACTOR_SLOTS) ? actor_dirs[i] : a->direction;
+
       /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
       oamSet(ACTOR_OAM_TOP(i), ax - camera.x,
              ay - camera.y - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
-             OBJ_TOP_TILE(ACTOR_FRAME(a)), a->sprite_id);
+             OBJ_TOP_TILE(ACTOR_FRAME(a, d)), a->sprite_id);
       oamSet(ACTOR_OAM_BOT(i), ax - camera.x,
              ay - camera.y + 16 - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
-             OBJ_BOTTOM_TILE(ACTOR_FRAME(a)), a->sprite_id);
+             OBJ_BOTTOM_TILE(ACTOR_FRAME(a, d)), a->sprite_id);
     }
     else
     {
@@ -95,15 +113,52 @@ u8 actor_at_tile(u8 tx, u8 ty)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (a->x == tx && a->y == ty)
+    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && a->x == tx && a->y == ty)
       return i;
   }
   return ACTOR_NONE;
 }
 
+u8 actor_trigger_at(u8 tx, u8 ty)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_TRIGGER && a->x == tx && a->y == ty &&
+        a->script_offset != SCRIPT_NONE)
+      return i;
+  }
+  return ACTOR_NONE;
+}
+
+u16 actors_autorun(void)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_AUTO && a->script_offset != SCRIPT_NONE)
+      return a->script_offset;
+  }
+  return SCRIPT_NONE;
+}
+
+void actor_face(u8 index, u8 dir)
+{
+  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count)
+    actor_dirs[index] = dir & 3;
+}
+
 void actor_interact(u8 index)
 {
   u16 ofs = scene_ctx.actors[index].script_offset;
+
+  /* Réflexe RM2003 : le PNJ se tourne vers le héros (direction opposée —
+     DOWN<->UP et LEFT<->RIGHT s'échangent par xor 1) */
+  actor_face(index, player.dir ^ 1);
 
   if (ofs != SCRIPT_NONE)
     vm_start(ofs);

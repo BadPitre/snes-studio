@@ -131,6 +131,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   protégé). Supprimer un personnage décale les blocs suivants (les
   acteurs sont mis à jour).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
+- **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
+  déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
+  script quand le héros marche sur la tile — marqueur orange « C » sur la
+  map) ou *Auto* (invisible, script au chargement de la scène — marqueur
+  cyan « A »). Scripts : `CHOICE` (choix 2-4 avec curseur), variables
+  globales `g<n>` dans les conditions (give/has), `WARP` (téléport
+  scripté), `FACE` (tourner un PNJ) — voir docs/TOOLS.md.
 - **Barre de menus** (façon RM2003) :
   - *Projet* : Nouveau projet (dossier vide → projet minimal jouable avec
     tileset/personnages/fonte de démarrage), Ouvrir, Fermer, Explorer le

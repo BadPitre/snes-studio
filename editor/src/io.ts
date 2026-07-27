@@ -161,7 +161,7 @@ function sceneToJson(sc: Scene): string {
         sc.actors
           .map((a) => {
             const entry = a.entry !== undefined ? `, "entry": ${JSON.stringify(a.entry)}` : "";
-            return `    {"type": "npc", "x": ${a.x}, "y": ${a.y}, "sprite": ${a.sprite}, "dir": "${a.dir}"${entry}}`;
+            return `    {"type": ${JSON.stringify(a.type)}, "x": ${a.x}, "y": ${a.y}, "sprite": ${a.sprite}, "dir": "${a.dir}"${entry}}`;
           })
           .join(",\n") +
         "\n  ]";

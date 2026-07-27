@@ -74,7 +74,8 @@
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
   ],
   "actors": [
-    {"type": "npc", "x": 10, "y": 10, "sprite": 1, "dir": "down", "entry": "accueil"}
+    {"type": "npc", "x": 10, "y": 10, "sprite": 1, "dir": "down", "entry": "accueil"},
+    {"type": "auto", "x": 0, "y": 0, "sprite": 0, "dir": "down", "entry": "fraicheur"}
   ],
   "warps": [
     {"x": 16, "y": 1, "to": "plaine", "tx": 12, "ty": 2}
@@ -82,6 +83,9 @@
   "script": [
     "accueil:",
     "  MSG scene1",
+    "  END",
+    "fraicheur:",
+    "  MSG bienvenue",
     "  END"
   ]
 }

@@ -7,6 +7,14 @@
 //!     SETVAR v<n> <val>      ADDVAR v<n> <val>      SETGVAR g<n> <val>
 //!     JMP <label>
 //!     JEQ v<n> <val> <label> JNE v<n> <val> <label> JGEQ v<n> <val> <label>
+//!     CHOICE v<n> <texte1> <texte2> [<texte3>] [<texte4>]
+//!     WARP <scene> <x> <y>   ; téléporte le héros — termine le script
+//!     FACE <acteur> <dir>    ; tourne l'acteur n (down/up/left/right)
+//!
+//! Variables (v0.6) : v<n> = variable de scène, g<n> = variable globale
+//! (persistante entre scènes) — acceptées partout où une variable est
+//! attendue (bit 0x80 de l'octet variable = globale). SETGVAR est l'alias
+//! historique de SETVAR g<n>.
 //!
 //! Deux passes : tailles/labels puis émission avec offsets résolus.
 
@@ -28,6 +36,12 @@ const OP_JEQ: u8 = 0x05;
 const OP_JNE: u8 = 0x06;
 const OP_SETGVAR: u8 = 0x07;
 const OP_JGEQ: u8 = 0x08;
+const OP_CHOICE: u8 = 0x09;
+const OP_WARP: u8 = 0x0A;
+const OP_FACE: u8 = 0x0B;
+
+/// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
+const VAR_GLOBAL: u8 = 0x80;
 
 enum Line<'a> {
     Label(&'a str),
@@ -56,11 +70,20 @@ fn parse_lines(source: &[String]) -> Result<Vec<Line<'_>>> {
     Ok(out)
 }
 
-fn op_size(op: &str) -> Result<u16> {
+fn op_size(op: &str, argc: usize) -> Result<u16> {
     Ok(match op {
         "END" => 1,
         "MSG" | "SETVAR" | "ADDVAR" | "SETGVAR" | "JMP" => 3,
         "JEQ" | "JNE" | "JGEQ" => 5,
+        "WARP" => 4,
+        "FACE" => 3,
+        // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
+        "CHOICE" => {
+            if argc < 3 || argc > 5 {
+                bail!("CHOICE v<n> <texte1> <texte2> [<texte3>] [<texte4>] (2 a 4 choix)");
+            }
+            (3 + 2 * (argc as u16 - 1)) as u16
+        }
         other => bail!("opcode inconnu : '{}'", other),
     })
 }
@@ -77,12 +100,25 @@ fn parse_var(tok: &str, prefix: char) -> Result<u8> {
     Ok(n)
 }
 
+/// Opérande variable : v<n> (scène) ou g<n> (globale, bit 0x80)
+fn parse_any_var(tok: &str) -> Result<u8> {
+    if tok.starts_with('g') {
+        Ok(parse_var(tok, 'g')? | VAR_GLOBAL)
+    } else {
+        parse_var(tok, 'v')
+    }
+}
+
 fn parse_u8(tok: &str) -> Result<u8> {
     tok.parse()
         .with_context(|| format!("valeur u8 invalide : '{}'", tok))
 }
 
-pub fn assemble(source: &[String], text_ids: &HashMap<String, u16>) -> Result<Assembled> {
+pub fn assemble(
+    source: &[String],
+    text_ids: &HashMap<String, u16>,
+    scene_ids: &HashMap<&str, u8>,
+) -> Result<Assembled> {
     let lines = parse_lines(source)?;
 
     // Passe 1 : labels
@@ -95,7 +131,7 @@ pub fn assemble(source: &[String], text_ids: &HashMap<String, u16>) -> Result<As
                     bail!("label en double : '{}'", name);
                 }
             }
-            Line::Op(op, _) => pc += op_size(op)?,
+            Line::Op(op, args) => pc += op_size(op, args.len())?,
         }
     }
 
@@ -128,9 +164,9 @@ pub fn assemble(source: &[String], text_ids: &HashMap<String, u16>) -> Result<As
                 code.extend_from_slice(&id.to_le_bytes());
             }
             "SETVAR" | "ADDVAR" => {
-                if argc != 2 { bail!("{} v<n> <val>", op); }
+                if argc != 2 { bail!("{} v<n>|g<n> <val>", op); }
                 code.push(if op == "SETVAR" { OP_SETVAR } else { OP_ADDVAR });
-                code.push(parse_var(args[0], 'v')?);
+                code.push(parse_any_var(args[0])?);
                 code.push(parse_u8(args[1])?);
             }
             "SETGVAR" => {
@@ -145,15 +181,49 @@ pub fn assemble(source: &[String], text_ids: &HashMap<String, u16>) -> Result<As
                 code.extend_from_slice(&label_of(args[0])?.to_le_bytes());
             }
             "JEQ" | "JNE" | "JGEQ" => {
-                if argc != 3 { bail!("{} v<n> <val> <label>", op); }
+                if argc != 3 { bail!("{} v<n>|g<n> <val> <label>", op); }
                 code.push(match op {
                     "JEQ" => OP_JEQ,
                     "JNE" => OP_JNE,
                     _ => OP_JGEQ,
                 });
-                code.push(parse_var(args[0], 'v')?);
+                code.push(parse_any_var(args[0])?);
                 code.push(parse_u8(args[1])?);
                 code.extend_from_slice(&label_of(args[2])?.to_le_bytes());
+            }
+            "WARP" => {
+                if argc != 3 { bail!("WARP <scene> <x> <y>"); }
+                let dest = *scene_ids
+                    .get(args[0])
+                    .with_context(|| format!("scene inconnue : '{}'", args[0]))?;
+                code.push(OP_WARP);
+                code.push(dest);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+            }
+            "FACE" => {
+                if argc != 2 { bail!("FACE <acteur> <down|up|left|right>"); }
+                code.push(OP_FACE);
+                code.push(parse_u8(args[0])?);
+                code.push(match args[1] {
+                    "down" => 0,
+                    "up" => 1,
+                    "left" => 2,
+                    "right" => 3,
+                    d => bail!("direction inconnue : '{}'", d),
+                });
+            }
+            "CHOICE" => {
+                op_size(op, argc)?; // valide 2-4 choix
+                code.push(OP_CHOICE);
+                code.push(parse_any_var(args[0])?);
+                code.push((argc - 1) as u8);
+                for t in &args[1..] {
+                    let id = *text_ids
+                        .get(*t)
+                        .with_context(|| format!("texte inconnu : '{}'", t))?;
+                    code.extend_from_slice(&id.to_le_bytes());
+                }
             }
             other => bail!("opcode inconnu : '{}'", other),
         }

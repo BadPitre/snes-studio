@@ -19,6 +19,8 @@
    à zéro (spec §2), les gvars persistent. */
 static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
 {
+  u16 auto_ofs;
+
   setFadeEffect(FADE_OUT);
   setScreenOff();
 
@@ -28,6 +30,11 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   player_init();
   player_set_pos(dest_x, dest_y);
   actors_init();
+  /* Déclencheur AUTO de la scène (spec §1.3 v0.6) : son script prend la
+     main dès la première frame après le fondu */
+  auto_ofs = actors_autorun();
+  if (auto_ofs != SCRIPT_NONE)
+    vm_start(auto_ofs);
   camera_update();
   map_init();
   /* Scroll écrit ICI (écran éteint) : la boucle principale ne le remettra
@@ -47,6 +54,8 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
 
 int main(void)
 {
+  u16 auto_ofs;
+
   /* consoleInit() est déjà appelé par le crt0 PVSnesLib avant main(). */
 
   audio_init(); /* boot du SPC700 en premier (prend du temps) */
@@ -58,6 +67,9 @@ int main(void)
   vm_init();
   player_init();
   actors_init();
+  auto_ofs = actors_autorun(); /* déclencheur AUTO de la scène de boot */
+  if (auto_ofs != SCRIPT_NONE)
+    vm_start(auto_ofs);
   camera_update();
   map_init(); /* fenêtre tilemap initiale, écran éteint */
 

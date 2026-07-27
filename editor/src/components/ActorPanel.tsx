@@ -60,7 +60,8 @@ export default function ActorPanel({
             className={i === selected ? "active" : ""}
             onClick={() => onSelect(i)}
           >
-            PNJ #{i} — ({actor.x},{actor.y}) {actor.dir}
+            {actor.type === "npc" ? "PNJ" : actor.type === "trigger" ? "Contact" : "Auto"} #{i} —
+            ({actor.x},{actor.y}){actor.type === "npc" ? ` ${actor.dir}` : ""}
             {actor.entry ? ` → ${actor.entry}` : " (sans script)"}
           </li>
         ))}
@@ -68,31 +69,47 @@ export default function ActorPanel({
       {a && selected !== null && (
         <div className="actor-edit">
           <label>
-            Direction
+            Déclencheur (façon RM2003)
             <select
-              value={a.dir}
-              onChange={(e) => onUpdate(selected, { dir: e.target.value as Actor["dir"] })}
+              value={a.type}
+              onChange={(e) => onUpdate(selected, { type: e.target.value as Actor["type"] })}
+              title="Action : PNJ visible, parle avec A. Contact : script quand le héros marche sur la tile. Auto : script au chargement de la scène."
             >
-              {DIRECTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
+              <option value="npc">Action (PNJ, touche A)</option>
+              <option value="trigger">Contact (marcher dessus)</option>
+              <option value="auto">Auto (chargement de la scène)</option>
             </select>
           </label>
-          <label>
-            Charset (personnage)
-            <select
-              value={a.sprite}
-              onChange={(e) => onUpdate(selected, { sprite: Number(e.target.value) })}
-            >
-              {Array.from({ length: blockCount }, (_, b) => (
-                <option key={b} value={b}>
-                  {blockNames[b] ?? `Bloc ${b}`}
-                </option>
-              ))}
-            </select>
-          </label>
+          {a.type === "npc" && (
+            <label>
+              Direction
+              <select
+                value={a.dir}
+                onChange={(e) => onUpdate(selected, { dir: e.target.value as Actor["dir"] })}
+              >
+                {DIRECTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {a.type === "npc" && (
+            <label>
+              Charset (personnage)
+              <select
+                value={a.sprite}
+                onChange={(e) => onUpdate(selected, { sprite: Number(e.target.value) })}
+              >
+                {Array.from({ length: blockCount }, (_, b) => (
+                  <option key={b} value={b}>
+                    {blockNames[b] ?? `Bloc ${b}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Script (label d'entrée)
             <select
@@ -110,7 +127,7 @@ export default function ActorPanel({
             </select>
           </label>
           <button className="danger" onClick={() => onRemove(selected)}>
-            Supprimer ce PNJ
+            Supprimer cet événement
           </button>
         </div>
       )}

@@ -225,6 +225,9 @@ fn main() -> Result<()> {
     for sc in &scenes {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for a in &sc.actors {
+            if a.kind != "npc" {
+                continue; // déclencheurs : invisibles, pas de sprite
+            }
             if (a.sprite as usize) >= sprite_blocks {
                 bail!(
                     "scene '{}' : acteur en ({},{}) — bloc de personnage {} \

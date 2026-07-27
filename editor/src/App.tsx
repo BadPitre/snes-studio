@@ -137,6 +137,7 @@ export default function App() {
   if (data) {
     for (const [n, sc] of Object.entries(data.scenes)) {
       for (const a of sc.actors) {
+        if (a.type !== "npc") continue; // déclencheurs : pas de sprite
         (usedCharsets[a.sprite] ??= []).includes(n) || usedCharsets[a.sprite].push(n);
       }
       const stem = sc.tileset ?? tilesetNames[0];
