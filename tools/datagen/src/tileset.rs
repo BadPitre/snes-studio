@@ -65,6 +65,9 @@ pub struct GfxSet {
     pub pal: Vec<u16>,
     pub blank_id: u8,
     local_of: BTreeMap<TileKey, u8>,
+    /// Quarts effectivement compilés (après quantifications) — référence
+    /// de l'auto-contrôle
+    quarters: Vec<Quarter>,
 }
 
 /// Grilles binaires d'une scène (row-major, w*h octets chacune)
@@ -449,44 +452,53 @@ fn dist555(a: u16, b: u16) -> u32 {
     d(a & 31, b & 31) + d((a >> 5) & 31, (b >> 5) & 31) + d((a >> 10) & 31, (b >> 10) & 31)
 }
 
-/// Un bloc 8x8 SNES a 15 couleurs max : au-delà (chipsets RM2003), on
-/// fusionne les deux couleurs les plus proches (la moins fréquente prend
-/// la valeur de l'autre), déterministe, jusqu'à passer sous la limite.
-/// Appliqué à l'EXTRACTION : compilation et auto-contrôle voient le même
-/// bloc quantifié.
+/// Une étape de fusion : les deux couleurs les plus proches du bloc sont
+/// confondues (la moins fréquente prend la valeur de l'autre), de façon
+/// déterministe. Retourne false si le bloc a moins de 2 couleurs.
+fn quantize_step(q: &mut Quarter) -> bool {
+    let mut counts: BTreeMap<u16, u32> = BTreeMap::new();
+    for c in q.iter().flatten().flatten() {
+        *counts.entry(*c).or_insert(0) += 1;
+    }
+    if counts.len() < 2 {
+        return false;
+    }
+    let cols: Vec<u16> = counts.keys().copied().collect();
+    let mut best: Option<(u32, u16, u16)> = None; // (dist, victime, cible)
+    for i in 0..cols.len() {
+        for j in i + 1..cols.len() {
+            let (a, b) = (cols[i], cols[j]);
+            // victime = la moins fréquente (à égalité : la plus grande)
+            let (from, to) = if (counts[&a], b) < (counts[&b], a) {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            let cand = (dist555(a, b), from, to);
+            if best.map_or(true, |v| cand < v) {
+                best = Some(cand);
+            }
+        }
+    }
+    let (_, from, to) = best.unwrap();
+    for row in q.iter_mut() {
+        for px in row.iter_mut() {
+            if *px == Some(from) {
+                *px = Some(to);
+            }
+        }
+    }
+    true
+}
+
+/// Un bloc 8x8 SNES a 15 couleurs max : au-delà (chipsets RM2003), fusion
+/// des couleurs les plus proches jusqu'à passer sous la limite. Appliqué à
+/// l'EXTRACTION : compilation et auto-contrôle voient le même bloc.
 fn quantize_quarter(q: &mut Quarter) {
     loop {
-        let mut counts: BTreeMap<u16, u32> = BTreeMap::new();
-        for c in q.iter().flatten().flatten() {
-            *counts.entry(*c).or_insert(0) += 1;
-        }
-        if counts.len() <= 15 {
+        let n: BTreeSet<u16> = q.iter().flatten().flatten().copied().collect();
+        if n.len() <= 15 || !quantize_step(q) {
             return;
-        }
-        let cols: Vec<u16> = counts.keys().copied().collect();
-        let mut best: Option<(u32, u16, u16)> = None; // (dist, victime, cible)
-        for i in 0..cols.len() {
-            for j in i + 1..cols.len() {
-                let (a, b) = (cols[i], cols[j]);
-                // victime = la moins fréquente (à égalité : la plus grande)
-                let (from, to) = if (counts[&a], b) < (counts[&b], a) {
-                    (a, b)
-                } else {
-                    (b, a)
-                };
-                let cand = (dist555(a, b), from, to);
-                if best.map_or(true, |v| cand < v) {
-                    best = Some(cand);
-                }
-            }
-        }
-        let (_, from, to) = best.unwrap();
-        for row in q.iter_mut() {
-            for px in row.iter_mut() {
-                if *px == Some(from) {
-                    *px = Some(to);
-                }
-            }
         }
     }
 }
@@ -562,84 +574,75 @@ impl SourceTileset {
 
         // 3. répartition en palettes : jeux uniques triés (taille desc puis
         //    contenu), placement dans la première palette qui peut absorber
-        let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
-        uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
-        uniq.dedup();
-        // Empaquetage en palettes : problème de bin-packing avec contrainte
-        // « chaque jeu entier dans une palette ». Aucune heuristique ne
-        // gagne partout — on en essaie trois (déterministes) et on garde
-        // le plus petit résultat. Seuls les jeux MAXIMAUX contraignent
-        // (les sous-ensembles suivent leur sur-ensemble).
-        let mut max_sets: Vec<BTreeSet<u16>> = Vec::new();
-        'outer: for s in &uniq {
-            for o in &uniq {
-                if o.len() > s.len() && s.is_subset(o) {
-                    continue 'outer;
-                }
-            }
-            max_sets.push(s.clone());
-        }
-        // Les sous-ensembles peuvent servir de « ponts » à la fusion
-        // agglomérative : chaque stratégie est essayée avec ET sans eux,
-        // puis une passe de réduction dissout les clusters excédentaires
-        // en redistribuant leurs jeux — on garde le meilleur résultat.
-        let mut clusters: Option<Vec<BTreeSet<u16>>> = None;
-        for cand in [
-            pack_agglo(uniq.clone(), false),
-            pack_agglo(uniq.clone(), true),
-            pack_agglo(max_sets.clone(), false),
-            pack_agglo(max_sets.clone(), true),
-            pack_bfd(&uniq),
-            pack_bfd(&max_sets),
-        ] {
-            let (mut groups, mut unions) = regroup(&max_sets, &cand);
-            while unions.len() > 8 && reduce_pass(&mut groups, &mut unions, &max_sets) {}
-            if clusters.as_ref().map_or(true, |c| unions.len() < c.len()) {
-                clusters = Some(unions);
-            }
-        }
-        let mut clusters = clusters.unwrap_or_default();
-        if clusters.len() > 8 {
-            // dernier recours : recherche exacte (si une répartition en 8
-            // palettes existe, elle est trouvée)
-            match pack_exact(&max_sets, 8) {
-                Some(c) => clusters = c,
-                None => {
-                    // infaisable (ou budget épuisé) : nommer les tiles les
-                    // plus gourmandes pour guider l'auteur
-                    let mut heavy: Vec<(usize, i32)> = Vec::new();
-                    for (i, &key) in locals.iter().enumerate() {
-                        let m = quarters[i * 4..i * 4 + 4]
-                            .iter()
-                            .map(|q| colorset(q).len())
-                            .max()
-                            .unwrap_or(0);
-                        if m >= 13 {
-                            let id = match key {
-                                TileKey::Grid(t) => t as i32,
-                                TileKey::Var(k, _) => AUTO_BASE + k as i32,
-                            };
-                            heavy.push((m, id));
-                        }
+        // 3. Empaquetage en <= 8 palettes de 15 : bin-packing avec la
+        // contrainte « chaque jeu de couleurs entier dans une palette ».
+        // Stratégie : plusieurs gloutons déterministes + passe de réduction
+        // + solveur exact ; si la scène est VRAIMENT trop riche, on fusionne
+        // les couleurs les plus proches des blocs les plus chargés d'un cran
+        // et on réessaie (dégradation douce, jamais d'échec) — comme les
+        // pipelines SNES d'époque.
+        let mut squeezed = 0u32;
+        let mut clusters: Vec<BTreeSet<u16>>;
+        loop {
+            let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
+            uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+            uniq.dedup();
+            // seuls les jeux MAXIMAUX contraignent (les sous-ensembles
+            // suivent leur sur-ensemble)
+            let mut max_sets: Vec<BTreeSet<u16>> = Vec::new();
+            'outer: for s in &uniq {
+                for o in &uniq {
+                    if o.len() > s.len() && s.is_subset(o) {
+                        continue 'outer;
                     }
-                    heavy.sort_by(|a, b| b.cmp(a));
-                    heavy.truncate(8);
-                    let total: BTreeSet<u16> = uniq.iter().flatten().copied().collect();
-                    bail!(
-                        "scene '{}' : impossible de tenir en 8 palettes de 15 \
-                         couleurs ({} couleurs uniques). Tiles les plus \
-                         gourmandes (couleurs max par bloc 8x8) : {} — en \
-                         retirer ou en simplifier quelques-unes",
-                        name,
-                        total.len(),
-                        heavy
-                            .iter()
-                            .map(|(m, id)| format!("{} ({})", id, m))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
+                }
+                max_sets.push(s.clone());
+            }
+            // les sous-ensembles servent parfois de « ponts » à la fusion
+            // agglomérative : chaque stratégie est essayée avec ET sans eux
+            let mut best: Option<Vec<BTreeSet<u16>>> = None;
+            for cand in [
+                pack_agglo(uniq.clone(), false),
+                pack_agglo(uniq.clone(), true),
+                pack_agglo(max_sets.clone(), false),
+                pack_agglo(max_sets.clone(), true),
+                pack_bfd(&uniq),
+                pack_bfd(&max_sets),
+            ] {
+                let (mut groups, mut unions) = regroup(&max_sets, &cand);
+                while unions.len() > 8 && reduce_pass(&mut groups, &mut unions, &max_sets) {}
+                if best.as_ref().map_or(true, |c| unions.len() < c.len()) {
+                    best = Some(unions);
                 }
             }
+            let mut c = best.unwrap_or_default();
+            if c.len() > 8 {
+                if let Some(e) = pack_exact(&max_sets, 8) {
+                    c = e;
+                }
+            }
+            if c.len() <= 8 {
+                clusters = c;
+                break;
+            }
+            // trop riche : serre d'un cran les blocs les plus chargés
+            let maxlen = quarters.iter().map(|q| colorset(q).len()).max().unwrap_or(0);
+            if maxlen <= 2 {
+                bail!("scene '{}' : empaquetage de palettes impossible (bug datagen)", name);
+            }
+            for q in quarters.iter_mut() {
+                if colorset(q).len() == maxlen && quantize_step(q) {
+                    squeezed += 1;
+                }
+            }
+        }
+        if squeezed > 0 {
+            println!(
+                "  attention : scene '{}' — trop de couleurs pour les 8 palettes \
+                 de la SNES, {} fusion(s) de couleurs tres proches appliquee(s) \
+                 sur les tiles les plus riches",
+                name, squeezed
+            );
         }
         clusters.sort(); // ordre stable
         // Palettes hardware : la CGRAM 16-19 (palette 1, indices 0-3) est
@@ -680,8 +683,12 @@ impl SourceTileset {
         let palettes: Vec<Vec<u16>> =
             clusters.iter().map(|c| c.iter().copied().collect()).collect();
         let mut assign: HashMap<Vec<u16>, u8> = HashMap::new();
-        for set in &uniq {
+        for q in &quarters {
+            let set = colorset(q);
             let key: Vec<u16> = set.iter().copied().collect();
+            if assign.contains_key(&key) {
+                continue;
+            }
             let p = clusters
                 .iter()
                 .position(|c| set.is_subset(c))
@@ -763,7 +770,7 @@ impl SourceTileset {
             }
         }
 
-        Ok(GfxSet { charset, table, prio, pal, blank_id, local_of })
+        Ok(GfxSet { charset, table, prio, pal, blank_id, local_of, quarters })
     }
 
     /// Grilles binaires d'une scène : couches en ids locaux + collision
@@ -823,19 +830,19 @@ impl SourceTileset {
     }
 }
 
-impl SourceTileset {
+impl GfxSet {
     /// Auto-contrôle : décode chaque tile compilée (char 4bpp + bits de
-    /// palette + CGRAM) et la compare pixel par pixel à la source. Toute
-    /// divergence est un bug datagen — on refuse d'émettre des données
-    /// fausses plutôt que de corrompre le rendu.
-    pub fn verify_gfx(&self, name: &str, gfx: &GfxSet) -> Result<()> {
-        for (&key, &local) in &gfx.local_of {
-            let qs = tile_quarters(self, key)?;
-            for (q, quarter) in qs.iter().enumerate() {
-                let entry = gfx.table[local as usize * 4 + q];
+    /// palette + CGRAM) et la compare pixel par pixel aux quarts compilés
+    /// (source après quantifications éventuelles). Toute divergence est un
+    /// bug datagen — on refuse d'émettre des données fausses.
+    pub fn verify(&self, name: &str) -> Result<()> {
+        for local in 0..self.quarters.len() / 4 {
+            for q in 0..4 {
+                let quarter = &self.quarters[local * 4 + q];
+                let entry = self.table[local * 4 + q];
                 let char_id = (entry & 0x3FF) as usize;
                 let pal = ((entry >> 10) & 7) as usize;
-                let ch = &gfx.charset[char_id * 32..char_id * 32 + 32];
+                let ch = &self.charset[char_id * 32..char_id * 32 + 32];
                 for y in 0..8 {
                     for x in 0..8 {
                         let bit = 7 - x;
@@ -846,7 +853,7 @@ impl SourceTileset {
                         let got = if idx == 0 {
                             None
                         } else {
-                            Some(gfx.pal[pal * 16 + idx as usize])
+                            Some(self.pal[pal * 16 + idx as usize])
                         };
                         if got != quarter[y][x] {
                             bail!(
