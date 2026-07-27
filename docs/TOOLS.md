@@ -143,6 +143,15 @@ aborder. `entry` (label du script assembleur de la scène) reste possible pour l
 events sans `commands` — les deux mondes cohabitent. La variable de
 travail des `choice` sans `"var"` est **v63** (réservée par convention).
 
+**Pages (v0.10)** : un event peut remplacer ses champs plats par
+`"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
+ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,
+`dir`, `commands`. datagen compile chaque page en une entrée acteur
+consécutive (12 octets, spec §1.3) ; en jeu, la dernière page dont la
+condition passe est active. Exemple coffre : page 1 sans condition
+(donne l'objet puis `switch 12 ON`), page 2 `{"switch":12,"on":true}`
+(apparence ouverte, « déjà vide »).
+
 **v0.9** : les `switch` (0-511) et `var` 16-bit (0-255) sont globaux,
 persistants et sauvegardés (spec §4bis v2) — c'est le modèle RM2003. Les
 commandes 8-bit `set`/`add`/`if` sur `v<n>`/`g<n>` restent compilées

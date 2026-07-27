@@ -133,7 +133,7 @@ tilesets : seuls les blocs de personnage utilisés par la scène (joueur
 inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
 vers le slot local (§1.3, §5).*
 
-### 1.3 Entrée acteur (8 octets par acteur)
+### 1.3 Entrée acteur (v0.10 — 12 octets par PAGE)
 
 ```
 Offset  Taille  Champ
@@ -159,8 +159,22 @@ Offset  Taille  Champ
                                       héros) et reste traversable
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
-7       1       reserved      (u8)
+7       1       flags         (u8)  — bit 7 = CONTINUATION (v0.10) : cette
+                                      entrée est une PAGE supplémentaire de
+                                      l'event précédent ; bits 0-2 = type de
+                                      condition : 0 aucune, 1 switch ON,
+                                      2 switch OFF, 3 variable >= valeur
+8       2       cond_idx      (u16) — switch (0-511) ou variable (0-255)
+10      2       cond_val      (u16) — valeur comparée (type 3)
 ```
+
+**Pages (v0.10, modèle RM2003)** : un event = 1..N entrées consécutives
+(flag CONTINUATION sur les pages 2+). À tout instant, la **dernière page
+dont la condition passe** est active — les autres sont inertes (pas de
+sprite, pas d'interaction, pas de déclencheur). Le moteur réévalue les
+pages au chargement de scène et à la fin de chaque script
+(`actors_resolve_pages`). C'est le mécanisme coffre ouvert/fermé, PNJ à
+états.
 
 ### 1.4 Collision (v0.2)
 

@@ -79,6 +79,23 @@ export type Command =
 export const SWITCH_COUNT = 512;
 export const VAR16_COUNT = 256;
 
+// Condition d'activation d'une page (v0.10) : switch ON/OFF ou var >= min
+export type PageCondition =
+  | { switch: number; on: boolean }
+  | { var: number; min: number };
+
+// Page supplémentaire d'un event (v0.10). Les champs plats de GameEvent
+// SONT la page 1 — extraPages porte les pages 2+ (la DERNIÈRE page dont
+// la condition passe est active en jeu, modèle RM2003).
+export interface EventPage {
+  condition?: PageCondition;
+  trigger: EventTrigger;
+  sprite: number;
+  dir: Direction;
+  entry?: string;
+  commands: Command[];
+}
+
 export interface GameEvent {
   name: string;
   x: number;
@@ -88,6 +105,8 @@ export interface GameEvent {
   dir: Direction;
   entry?: string; // label d'un script écrit à la main (avancé)
   commands: Command[];
+  condition?: PageCondition; // condition de la page 1 (rare mais permise)
+  extraPages?: EventPage[]; // pages 2+ (v0.10)
 }
 
 // Prefab : un event réutilisable, sans position (project.json "prefabs")
@@ -199,6 +218,9 @@ export function sceneSpriteBlocks(sc: Scene): number[] {
   const used = new Set<number>([0]);
   for (const e of sc.events) {
     if (e.sprite >= 0) used.add(e.sprite);
+    for (const p of e.extraPages ?? []) {
+      if (p.sprite >= 0) used.add(p.sprite);
+    }
   }
   return [...used].sort((x, y) => x - y);
 }

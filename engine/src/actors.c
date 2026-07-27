@@ -34,6 +34,60 @@
 /* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
 static u8 actor_dirs[ACTOR_SLOTS];
 
+/* Pages actives (v0.10) : 1 = cette entrée est la page active de son
+   event. Recalculé au chargement et après chaque script (les switches
+   ont pu changer) — voir actors_resolve_pages(). */
+static u8 actor_active[ACTOR_SLOTS];
+
+/* La condition de cette page passe-t-elle ? (spec §1.3 v0.10) */
+static u8 page_cond_ok(const ActorDef *a)
+{
+  switch (a->flags & ACTOR_COND_MASK)
+  {
+  case ACTOR_COND_SW_ON:
+    return vm_switch_get(a->cond_idx);
+  case ACTOR_COND_SW_OFF:
+    return !vm_switch_get(a->cond_idx);
+  case ACTOR_COND_VAR_GEQ:
+    return vm.vars16[a->cond_idx & 255] >= a->cond_val;
+  default:
+    return 1;
+  }
+}
+
+/* Par GROUPE de pages (entrées consécutives liées par CONTINUATION), la
+   DERNIÈRE page dont la condition passe est active — modèle RM2003 (la
+   page de plus haut numéro l'emporte). Les OBJ des pages désactivées
+   sont cachés ici (actors_draw ne touche plus qu'aux pages actives). */
+void actors_resolve_pages(void)
+{
+  u8 i, j, start, win;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i = j)
+  {
+    start = i;
+    win = 255;
+    for (j = start;
+         j < scene_ctx.actor_count && j < ACTOR_SLOTS &&
+         (j == start || (a[j].flags & ACTOR_FLAG_CONT));
+         j++)
+    {
+      if (page_cond_ok(&a[j]))
+        win = j;
+    }
+    for (i = start; i < j; i++)
+    {
+      if (actor_active[i] && i != win)
+      {
+        oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+        oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+      }
+      actor_active[i] = (i == win);
+    }
+  }
+}
+
 /* Apparence : sprite_id 0xFF = invisible (spec §1.3 v0.8). Un event de
    contact/auto PEUT avoir une apparence (coffre visible…) — il reste
    traversable, « sous le héros » comme dans RM2003. */
@@ -49,7 +103,9 @@ void actors_init(void)
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
     actor_dirs[i] = DIR_DOWN;
+    actor_active[i] = 0;
   }
+  actors_resolve_pages();
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
@@ -82,6 +138,8 @@ void actors_draw(void)
   {
     if (!ACTOR_VISIBLE(a))
       continue;
+    if (i < ACTOR_SLOTS && !actor_active[i])
+      continue; /* page inactive : OBJ déjà cachés par resolve_pages */
     ax = (u16)a->x << 4;
     ay = (u16)a->y << 4;
 
@@ -115,7 +173,8 @@ u8 actor_at_tile(u8 tx, u8 ty)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && a->x == tx && a->y == ty)
+    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && a->x == tx && a->y == ty &&
+        (i >= ACTOR_SLOTS || actor_active[i]))
       return i;
   }
   return ACTOR_NONE;
@@ -129,7 +188,8 @@ u8 actor_trigger_at(u8 tx, u8 ty)
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
     if (a->actor_type == ACTOR_TYPE_TRIGGER && a->x == tx && a->y == ty &&
-        a->script_offset != SCRIPT_NONE)
+        a->script_offset != SCRIPT_NONE &&
+        (i >= ACTOR_SLOTS || actor_active[i]))
       return i;
   }
   return ACTOR_NONE;
@@ -142,7 +202,8 @@ u16 actors_autorun(void)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (a->actor_type == ACTOR_TYPE_AUTO && a->script_offset != SCRIPT_NONE)
+    if (a->actor_type == ACTOR_TYPE_AUTO && a->script_offset != SCRIPT_NONE &&
+        (i >= ACTOR_SLOTS || actor_active[i]))
       return a->script_offset;
   }
   return SCRIPT_NONE;

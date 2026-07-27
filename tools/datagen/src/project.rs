@@ -90,6 +90,17 @@ pub struct Actor {
     /// Label d'entrée dans le script de la scène (absent = pas de script)
     #[serde(default)]
     pub entry: Option<String>,
+    /// v0.10 — pages d'events : page 2+ du même event (entrées consécutives)
+    #[serde(default)]
+    pub cont: bool,
+    /// v0.10 — condition d'activation : 0 aucune, 1 switch ON, 2 switch OFF,
+    /// 3 variable >= valeur (spec §1.3)
+    #[serde(default)]
+    pub cond_type: u8,
+    #[serde(default)]
+    pub cond_idx: u16,
+    #[serde(default)]
+    pub cond_val: u16,
 }
 
 fn dir_down() -> String {
@@ -122,6 +133,29 @@ pub struct Event {
     #[serde(default)]
     pub entry: Option<String>,
     /// Commandes structurées (Event Editor)
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+    /// v0.10 — pages conditionnelles (absent = 1 page implicite formée des
+    /// champs ci-dessus). Chaque page a sa condition, son apparence, son
+    /// déclencheur et ses commandes ; la DERNIÈRE page dont la condition
+    /// passe est active (modèle RM2003).
+    #[serde(default)]
+    pub pages: Vec<EventPage>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct EventPage {
+    /// {"switch": n, "on": bool} ou {"var": n, "min": v} — absent = toujours
+    #[serde(default)]
+    pub condition: Option<serde_json::Value>,
+    #[serde(default = "trigger_action")]
+    pub trigger: String,
+    #[serde(default = "minus_one")]
+    pub sprite: i16,
+    #[serde(default = "dir_down")]
+    pub dir: String,
+    #[serde(default)]
+    pub entry: Option<String>,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
 }

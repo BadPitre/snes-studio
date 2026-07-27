@@ -256,7 +256,11 @@ impl<'a> EventCompiler<'a> {
     }
 
     /// Compile les events d'une scène : lignes d'asm à AJOUTER au script et
-    /// acteurs à AJOUTER à la table (le binaire reste le format v0.7).
+    /// acteurs à AJOUTER à la table (le binaire reste le format v0.10).
+    /// v0.10 : un event = 1..N PAGES — chaque page devient une entrée acteur
+    /// consécutive (flag CONT sur les pages 2+) avec sa condition, son
+    /// apparence, son déclencheur et son bytecode. Un event sans "pages"
+    /// = une page implicite formée de ses champs directs.
     pub fn compile_scene(
         &mut self,
         scene_name: &str,
@@ -265,42 +269,93 @@ impl<'a> EventCompiler<'a> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
         for (i, ev) in events.iter().enumerate() {
-            let kind = match ev.trigger.as_str() {
-                "action" => "npc",
-                "touch" => "trigger",
-                "auto" => "auto",
-                other => bail!(
-                    "scene '{}', event « {} » : declencheur inconnu « {} » (action, touch, auto)",
-                    scene_name, ev.name, other
-                ),
-            };
-            if kind == "npc" && ev.sprite < 0 {
-                bail!(
-                    "scene '{}', event « {} » : un event « touche action » doit avoir une \
-                     apparence (choisir un personnage, ou passer en declencheur contact)",
-                    scene_name, ev.name
-                );
+            // Vue « pages » uniforme : (condition, trigger, sprite, dir,
+            // entry, commands) par page
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value])> =
+                if ev.pages.is_empty() {
+                    vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
+                          &ev.entry, ev.commands.as_slice())]
+                } else {
+                    ev.pages
+                        .iter()
+                        .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
+                                  p.dir.as_str(), &p.entry, p.commands.as_slice()))
+                        .collect()
+                };
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands)) in
+                pages.iter().enumerate()
+            {
+                let kind = match *trigger {
+                    "action" => "npc",
+                    "touch" => "trigger",
+                    "auto" => "auto",
+                    other => bail!(
+                        "scene '{}', event « {} » page {} : declencheur inconnu « {} » \
+                         (action, touch, auto)",
+                        scene_name, ev.name, k + 1, other
+                    ),
+                };
+                if kind == "npc" && *sprite < 0 {
+                    bail!(
+                        "scene '{}', event « {} » page {} : un event « touche action » doit \
+                         avoir une apparence (choisir un personnage, ou passer en \
+                         declencheur contact)",
+                        scene_name, ev.name, k + 1
+                    );
+                }
+                // Condition de page (spec §1.3 v0.10)
+                let (cond_type, cond_idx, cond_val) = match cond {
+                    None | Some(Value::Null) => (0u8, 0u16, 0u16),
+                    Some(c) => {
+                        if let Some(n) = c["switch"].as_u64() {
+                            if n >= 512 {
+                                bail!("event « {} » page {} : switch {} hors limite (0-511)",
+                                      ev.name, k + 1, n);
+                            }
+                            let on = c["on"].as_bool().unwrap_or(true);
+                            (if on { 1 } else { 2 }, n as u16, 0)
+                        } else if let Some(n) = c["var"].as_u64() {
+                            if n >= 256 {
+                                bail!("event « {} » page {} : variable {} hors limite (0-255)",
+                                      ev.name, k + 1, n);
+                            }
+                            let min = c["min"].as_u64().filter(|&v| v <= 65535).with_context(
+                                || format!("event « {} » page {} : champ min invalide",
+                                           ev.name, k + 1))?;
+                            (3, n as u16, min as u16)
+                        } else {
+                            bail!("event « {} » page {} : condition invalide ({})",
+                                  ev.name, k + 1, c);
+                        }
+                    }
+                };
+                let entry = if !commands.is_empty() {
+                    let label = format!("__ev{}p{}_{}", i, k, scene_name);
+                    asm.push(format!("{}:", label));
+                    self.compile_list(commands, 0, &mut asm).with_context(|| {
+                        format!("event « {} » page {} de la scene '{}'",
+                                ev.name, k + 1, scene_name)
+                    })?;
+                    asm.push("  END".to_string());
+                    Some(label)
+                } else {
+                    (*entry_lbl).clone()
+                };
+                actors.push(Actor {
+                    kind: kind.to_string(),
+                    x: ev.x,
+                    y: ev.y,
+                    // 255 = invisible (spec §1.3 v0.8) — une apparence est
+                    // permise sur TOUT declencheur (coffre visible au contact)
+                    sprite: if *sprite < 0 { 255 } else { *sprite as u8 },
+                    dir: dir.to_string(),
+                    entry,
+                    cont: k > 0,
+                    cond_type,
+                    cond_idx,
+                    cond_val,
+                });
             }
-            let entry = if !ev.commands.is_empty() {
-                let label = format!("__ev{}_{}", i, scene_name);
-                asm.push(format!("{}:", label));
-                self.compile_list(&ev.commands, 0, &mut asm)
-                    .with_context(|| format!("event « {} » de la scene '{}'", ev.name, scene_name))?;
-                asm.push("  END".to_string());
-                Some(label)
-            } else {
-                ev.entry.clone()
-            };
-            actors.push(Actor {
-                kind: kind.to_string(),
-                x: ev.x,
-                y: ev.y,
-                // 255 = invisible (spec §1.3 v0.8) — une apparence est
-                // permise sur TOUT declencheur (coffre visible au contact)
-                sprite: if ev.sprite < 0 { 255 } else { ev.sprite as u8 },
-                dir: ev.dir.clone(),
-                entry,
-            });
         }
         Ok((asm, actors))
     }

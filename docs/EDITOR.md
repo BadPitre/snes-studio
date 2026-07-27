@@ -183,6 +183,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   *Condition : switch*, *Condition : variable* (=, ≠, ≥) avec branches
   Si vrai/Sinon. C'est la mécanique give/has de RM2003 : un coffre =
   condition sur un switch + le switch passé à ON.
+- **Pages d'events (v0.10)** : boutons 1..N / ＋ page / 🗑 page en haut de
+  l'Event Editor — chaque page a sa **condition d'activation** (switch
+  ON/OFF ou variable ≥, avec le bouton « … » vers la liste), son
+  apparence, son déclencheur et ses commandes. En jeu, la dernière page
+  dont la condition passe est active (coffre ouvert/fermé, PNJ à états).
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

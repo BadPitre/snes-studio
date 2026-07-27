@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, GameEvent, Scene } from "../types";
+import type { Command, Direction, EventPage, GameEvent, Scene } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -114,6 +114,29 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
 
 export default function EventEditorModal(props: Props) {
   const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
+  // page éditée : 0 = champs plats de l'event (page 1), k>0 = extraPages[k-1]
+  const [page, setPage] = useState(0);
+  const pageCount = 1 + (draft.extraPages?.length ?? 0);
+  const cur: EventPage =
+    page === 0
+      ? {
+          condition: draft.condition,
+          trigger: draft.trigger,
+          sprite: draft.sprite,
+          dir: draft.dir,
+          entry: draft.entry,
+          commands: draft.commands,
+        }
+      : draft.extraPages![page - 1];
+  function patchCur(p: Partial<EventPage>) {
+    if (page === 0) setDraft({ ...draft, ...p });
+    else {
+      const extra = [...(draft.extraPages ?? [])];
+      extra[page - 1] = { ...extra[page - 1], ...p };
+      setDraft({ ...draft, extraPages: extra });
+    }
+  }
+  const cmds = cur.commands;
   const [sel, setSel] = useState<string>(String(props.event.commands.length));
   const [form, setForm] = useState<Command | null>(null); // en cours d'édition
   const [formIsNew, setFormIsNew] = useState(false);
@@ -125,13 +148,13 @@ export default function EventEditorModal(props: Props) {
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   const lines: Line[] = [];
-  flatten(draft.commands, "", 0, lines);
+  flatten(cmds, "", 0, lines);
 
   // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
   function cmdAt(path: string): Command | null {
     const line = lines.find((l) => l.path === path);
     if (!line || line.branch) return null;
-    const { list, index } = resolve(draft.commands, path);
+    const { list, index } = resolve(cmds, path);
     return list[index] ?? null;
   }
   const selCmd = cmdAt(sel);
@@ -160,15 +183,15 @@ export default function EventEditorModal(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#16181c";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    if (props.sprites && draft.sprite >= 0) {
-      const f = eventFrame(draft);
+    if (props.sprites && cur.sprite >= 0) {
+      const f = eventFrame({ sprite: cur.sprite, dir: cur.dir } as GameEvent);
       ctx.drawImage(props.sprites, f * 16, 0, 16, 24, 8, 6, 48, 72);
     } else {
       ctx.fillStyle = "#9aa0a8";
       ctx.font = "11px system-ui";
       ctx.fillText("(invisible)", 6, 44);
     }
-  }, [draft, props.sprites]);
+  }, [draft, page, props.sprites]);
 
   const commit = (mut: () => void) => {
     mut();
@@ -177,7 +200,7 @@ export default function EventEditorModal(props: Props) {
 
   function insertCmd(c: Command) {
     commit(() => {
-      const { list, index } = resolve(draft.commands, sel);
+      const { list, index } = resolve(cmds, sel);
       list.splice(Math.min(index, list.length), 0, c);
     });
     setForm(null);
@@ -186,7 +209,7 @@ export default function EventEditorModal(props: Props) {
 
   function replaceCmd(c: Command) {
     commit(() => {
-      const { list, index } = resolve(draft.commands, sel);
+      const { list, index } = resolve(cmds, sel);
       if (index < list.length) list[index] = c;
     });
     setForm(null);
@@ -195,7 +218,7 @@ export default function EventEditorModal(props: Props) {
   function deleteCmd(path = sel) {
     if (!cmdAt(path)) return;
     commit(() => {
-      const { list, index } = resolve(draft.commands, path);
+      const { list, index } = resolve(cmds, path);
       list.splice(index, 1);
     });
     setForm(null);
@@ -203,7 +226,7 @@ export default function EventEditorModal(props: Props) {
 
   function moveCmd(delta: number) {
     if (!selCmd) return;
-    const { list, index } = resolve(draft.commands, sel);
+    const { list, index } = resolve(cmds, sel);
     const j = index + delta;
     if (j < 0 || j >= list.length) return;
     commit(() => {
@@ -252,18 +275,97 @@ export default function EventEditorModal(props: Props) {
             Nom
             <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           </label>
-          <span className="row" style={{ flex: 0, gap: 6 }} title="Pages d'events : à venir (P4)">
-            <button disabled>Nouvelle page</button>
-            <button disabled>Copier la page</button>
-            <button disabled>Supprimer la page</button>
+          <span className="row" style={{ flex: 0, gap: 6 }}>
+            {Array.from({ length: pageCount }, (_, k) => (
+              <button
+                key={k}
+                className={k === page ? "active-page" : ""}
+                style={k === page ? { background: "#31547a" } : undefined}
+                onClick={() => { setPage(k); setForm(null); setPicking(false); setSel("0"); }}
+              >
+                {k + 1}
+              </button>
+            ))}
+            <button
+              title="Nouvelle page (copie de la page courante) — la DERNIÈRE page dont la condition passe est active en jeu"
+              onClick={() => {
+                const extra = [...(draft.extraPages ?? []), structuredClone(cur)];
+                setDraft({ ...draft, extraPages: extra });
+                setPage(extra.length);
+              }}
+            >
+              ＋ page
+            </button>
+            <button
+              disabled={pageCount <= 1}
+              title="Supprimer la page courante"
+              onClick={() => {
+                if (page === 0) {
+                  const [next, ...rest] = draft.extraPages!;
+                  setDraft({ ...draft, ...next, extraPages: rest.length ? rest : undefined });
+                } else {
+                  const extra = (draft.extraPages ?? []).filter((_, i) => i !== page - 1);
+                  setDraft({ ...draft, extraPages: extra.length ? extra : undefined });
+                  setPage(Math.max(0, page - 1));
+                }
+                setForm(null);
+              }}
+            >
+              🗑 page
+            </button>
           </span>
         </div>
         <div className="evedit-body">
           <div className="evedit-left">
-            <fieldset className="evedit-box" disabled title="Pages et conditions d'activation : à venir (P4)">
-              <legend>Conditions</legend>
-              <label className="hint">☐ Switch — à venir (P4)</label>
-              <label className="hint">☐ Variable — à venir (P4)</label>
+            <fieldset className="evedit-box">
+              <legend>Condition de la page {page + 1}</legend>
+              <select
+                value={!cur.condition ? "none" : "switch" in cur.condition ? (cur.condition.on ? "sw_on" : "sw_off") : "var"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  patchCur({
+                    condition:
+                      v === "none" ? undefined :
+                      v === "sw_on" ? { switch: 0, on: true } :
+                      v === "sw_off" ? { switch: 0, on: false } :
+                      { var: 0, min: 1 },
+                  });
+                }}
+              >
+                <option value="none">Toujours active</option>
+                <option value="sw_on">Si switch ON</option>
+                <option value="sw_off">Si switch OFF</option>
+                <option value="var">Si variable ≥ valeur</option>
+              </select>
+              {cur.condition && "switch" in cur.condition && (
+                <span className="row" style={{ gap: 4 }}>
+                  <input
+                    type="number" min={0} max={511} value={cur.condition.switch}
+                    onChange={(e) => patchCur({ condition: { ...(cur.condition as { switch: number; on: boolean }), switch: Number(e.target.value) } })}
+                  />
+                  <button className="browse" title="Choisir dans la liste"
+                    onClick={() => setVarPick({ kind: "switch", current: (cur.condition as { switch: number }).switch, cb: (n) => patchCur({ condition: { ...(cur.condition as { switch: number; on: boolean }), switch: n } }) })}>…</button>
+                  <span className="hint">{props.switchNames[(cur.condition as { switch: number }).switch] || ""}</span>
+                </span>
+              )}
+              {cur.condition && "var" in cur.condition && (
+                <span className="row" style={{ gap: 4 }}>
+                  <input
+                    type="number" min={0} max={255} value={cur.condition.var}
+                    onChange={(e) => patchCur({ condition: { ...(cur.condition as { var: number; min: number }), var: Number(e.target.value) } })}
+                  />
+                  <button className="browse" title="Choisir dans la liste"
+                    onClick={() => setVarPick({ kind: "var", current: (cur.condition as { var: number }).var, cb: (n) => patchCur({ condition: { ...(cur.condition as { var: number; min: number }), var: n } }) })}>…</button>
+                  <label style={{ margin: 0 }}>≥
+                    <input
+                      type="number" min={0} max={65535} value={cur.condition.min}
+                      onChange={(e) => patchCur({ condition: { ...(cur.condition as { var: number; min: number }), min: Number(e.target.value) } })}
+                    />
+                  </label>
+                  <span className="hint">{props.varNames[(cur.condition as { var: number }).var] || ""}</span>
+                </span>
+              )}
+              <span className="hint">La dernière page dont la condition passe est active.</span>
             </fieldset>
             <fieldset className="evedit-box">
               <legend>Apparence</legend>
@@ -271,8 +373,8 @@ export default function EventEditorModal(props: Props) {
                 <canvas ref={previewRef} width={64} height={84} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
                   <select
-                    value={draft.sprite}
-                    onChange={(e) => setDraft({ ...draft, sprite: Number(e.target.value) })}
+                    value={cur.sprite}
+                    onChange={(e) => patchCur({ sprite: Number(e.target.value) })}
                   >
                     <option value={-1}>(invisible)</option>
                     {Array.from({ length: props.blockCount }, (_, b) => (
@@ -282,8 +384,8 @@ export default function EventEditorModal(props: Props) {
                       </option>
                     ))}
                   </select>
-                  {draft.sprite >= 0 &&
-                    !props.usedBlocks.includes(draft.sprite) &&
+                  {cur.sprite >= 0 &&
+                    !props.usedBlocks.includes(cur.sprite) &&
                     props.usedBlocks.length >= 5 && (
                       <span className="hint" style={{ color: "#ff7070" }}>
                         {props.usedBlocks.length + 1}e charset de la scène —
@@ -292,8 +394,8 @@ export default function EventEditorModal(props: Props) {
                       </span>
                     )}
                   <select
-                    value={draft.dir}
-                    onChange={(e) => setDraft({ ...draft, dir: e.target.value as Direction })}
+                    value={cur.dir}
+                    onChange={(e) => patchCur({ dir: e.target.value as Direction })}
                   >
                     {DIRECTIONS.map((d) => (
                       <option key={d} value={d}>
@@ -313,8 +415,8 @@ export default function EventEditorModal(props: Props) {
             <fieldset className="evedit-box">
               <legend>Déclencheur</legend>
               <select
-                value={draft.trigger}
-                onChange={(e) => setDraft({ ...draft, trigger: e.target.value as GameEvent["trigger"] })}
+                value={cur.trigger}
+                onChange={(e) => patchCur({ trigger: e.target.value as GameEvent["trigger"] })}
               >
                 <option value="action">Touche action (A)</option>
                 <option value="touch">Contact du héros</option>
@@ -331,11 +433,11 @@ export default function EventEditorModal(props: Props) {
               <fieldset className="evedit-box">
                 <legend>Script avancé</legend>
                 <select
-                  value={draft.commands.length ? "" : draft.entry ?? ""}
-                  disabled={draft.commands.length > 0}
-                  title="Label du script assembleur de la scène (ignoré si l'event a des commandes)"
+                  value={cmds.length ? "" : cur.entry ?? ""}
+                  disabled={cmds.length > 0}
+                  title="Label du script assembleur de la scène (ignoré si la page a des commandes)"
                   onChange={(e) =>
-                    setDraft({ ...draft, entry: e.target.value === "" ? undefined : e.target.value })
+                    patchCur({ entry: e.target.value === "" ? undefined : e.target.value })
                   }
                 >
                   <option value="">— aucun —</option>

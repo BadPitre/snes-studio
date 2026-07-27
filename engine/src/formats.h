@@ -99,8 +99,21 @@ typedef struct
   u8 sprite_id;     /* slot de bloc de personnage ; 0xFF = invisible */
   u16 script_offset; /* offset dans le bloc scripts, SCRIPT_NONE = aucun */
   u8 direction;     /* DIR_* */
-  u8 reserved;
+  u8 flags;         /* v0.10 : bit 7 = CONTINUATION (page du même event que
+                       l'entrée précédente), bits 0-2 = type de condition */
+  u16 cond_idx;     /* switch (0-511) ou variable 16-bit (0-255) */
+  u16 cond_val;     /* valeur comparée (var >= val) */
 } ActorDef;
+
+/* Pages d'events conditionnelles (v0.10, modèle RM2003) : un event =
+   entrées acteur consécutives (flag CONTINUATION sur les pages 2+), la
+   DERNIÈRE page dont la condition passe est active, les autres inertes. */
+#define ACTOR_FLAG_CONT 0x80
+#define ACTOR_COND_MASK 0x07
+#define ACTOR_COND_NONE 0x00
+#define ACTOR_COND_SW_ON 0x01  /* switch cond_idx == ON */
+#define ACTOR_COND_SW_OFF 0x02 /* switch cond_idx == OFF */
+#define ACTOR_COND_VAR_GEQ 0x03 /* vars16[cond_idx] >= cond_val */
 
 /* Entrée warp — spec §1.5. Layout C = layout binaire (8 octets). */
 typedef struct

@@ -4,7 +4,7 @@
 
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove } from "@tauri-apps/plugin-fs";
-import type { Actor, Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
+import type { Actor, EventPage, GameEvent, Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
 import { EMPTY_TILE, actorToEvent, assetStem, projectTilesets } from "./types";
 
 // Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
@@ -96,11 +96,38 @@ export async function loadProject(root: string): Promise<ProjectData> {
     }
     delete raw["actors"];
     for (const e of sc.events) {
+      // v0.10 : forme "pages" du JSON -> page 1 dans les champs plats,
+      // pages 2+ dans extraPages (modèle interne de l'éditeur)
+      const rawPages = (e as unknown as { pages?: EventPage[] }).pages;
+      if (rawPages && rawPages.length > 0) {
+        const p1 = rawPages[0];
+        e.condition = p1.condition;
+        e.trigger = p1.trigger;
+        e.sprite = p1.sprite;
+        e.dir = p1.dir;
+        e.entry = p1.entry;
+        e.commands = p1.commands ?? [];
+        e.extraPages = rawPages.slice(1).map((p) => ({
+          condition: p.condition,
+          trigger: p.trigger ?? "action",
+          sprite: p.sprite ?? -1,
+          dir: p.dir ?? "down",
+          entry: p.entry,
+          commands: p.commands ?? [],
+        }));
+        delete (e as unknown as Record<string, unknown>)["pages"];
+      }
       e.commands ??= [];
       e.sprite ??= -1;
       e.dir ??= "down";
       e.trigger ??= "action";
       e.name ??= "EV";
+      for (const p of e.extraPages ?? []) {
+        p.commands ??= [];
+        p.sprite ??= -1;
+        p.dir ??= "down";
+        p.trigger ??= "action";
+      }
     }
     scenes[name] = sc;
   }
@@ -170,10 +197,31 @@ function sceneToJson(sc: Scene): string {
   const grid = (rows: number[][]) =>
     "[\n" + rows.map((r) => "    [" + r.join(", ") + "]").join(",\n") + "\n  ]";
   // événements : un par ligne (les commandes imbriquées restent compactes)
+  const eventJson = (e: GameEvent): string => {
+    if (!e.extraPages || e.extraPages.length === 0) {
+      const flat = { ...e };
+      delete flat.extraPages;
+      return JSON.stringify(flat);
+    }
+    const page1: EventPage = {
+      condition: e.condition,
+      trigger: e.trigger,
+      sprite: e.sprite,
+      dir: e.dir,
+      entry: e.entry,
+      commands: e.commands,
+    };
+    return JSON.stringify({
+      name: e.name,
+      x: e.x,
+      y: e.y,
+      pages: [page1, ...e.extraPages],
+    });
+  };
   const events =
     sc.events.length === 0
       ? "[]"
-      : "[\n" + sc.events.map((e) => "    " + JSON.stringify(e)).join(",\n") + "\n  ]";
+      : "[\n" + sc.events.map((e) => "    " + eventJson(e)).join(",\n") + "\n  ]";
   const warps =
     sc.warps.length === 0
       ? "[]"
