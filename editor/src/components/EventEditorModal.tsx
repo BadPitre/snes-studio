@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Command, Direction, GameEvent, Scene } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
+import VarListModal, { type VarKind } from "./VarListModal";
 
 interface Props {
   event: GameEvent;
@@ -19,6 +20,9 @@ interface Props {
   usedBlocks: number[];
   sprites: ImageBitmap | null;
   labels: string[]; // labels du script manuel (champ avancé)
+  switchNames: string[]; // noms des switches (project.json)
+  varNames: string[]; // noms des variables 16-bit
+  onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
 }
@@ -116,6 +120,8 @@ export default function EventEditorModal(props: Props) {
   const [picking, setPicking] = useState(false);
   // clic droit sur une ligne : menu contextuel Insérer / Éditer / Supprimer
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  // fenêtre Switches/Variables ouverte depuis un formulaire (bouton …)
+  const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   const lines: Line[] = [];
@@ -401,6 +407,9 @@ export default function EventEditorModal(props: Props) {
                 cmd={form}
                 sceneNames={props.sceneNames}
                 scenes={props.scenes}
+                switchNames={props.switchNames}
+                varNames={props.varNames}
+                onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
                 onChange={setForm}
                 onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
                 onCancel={() => setForm(null)}
@@ -430,6 +439,21 @@ export default function EventEditorModal(props: Props) {
         />
       )}
 
+      {varPick && (
+        <VarListModal
+          kind={varPick.kind}
+          pick
+          initial={varPick.current}
+          switches={props.switchNames}
+          variables={props.varNames}
+          onClose={() => setVarPick(null)}
+          onOk={(r) => {
+            props.onRenameVars(r.switches, r.variables);
+            if (r.picked !== undefined) varPick.cb(r.picked);
+            setVarPick(null);
+          }}
+        />
+      )}
       {menu && (
         <div
           className="ctx-backdrop"
@@ -485,6 +509,9 @@ function CommandForm(props: {
   cmd: Command;
   sceneNames: string[];
   scenes: Record<string, Scene>;
+  switchNames: string[];
+  varNames: string[];
+  onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
   onCancel: () => void;
@@ -613,10 +640,15 @@ function CommandForm(props: {
         <div className="row">
           <label>
             Switch (0-511)
-            <input
-              type="number" min={0} max={511} value={cmd.n} autoFocus
-              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-            />
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={511} value={cmd.n} autoFocus
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              />
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() => props.onPickVar("switch", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
+            </span>
+            <span className="hint">{props.switchNames[cmd.n] || ""}</span>
           </label>
           <label>
             État
@@ -637,10 +669,15 @@ function CommandForm(props: {
         <div className="row">
           <label>
             Variable (0-255)
-            <input
-              type="number" min={0} max={255} value={cmd.n} autoFocus
-              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-            />
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={255} value={cmd.n} autoFocus
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              />
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() => props.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
+            </span>
+            <span className="hint">{props.varNames[cmd.n] || ""}</span>
           </label>
           <label>
             Opération
@@ -668,10 +705,15 @@ function CommandForm(props: {
         <div className="row">
           <label>
             Switch (0-511)
-            <input
-              type="number" min={0} max={511} value={cmd.n} autoFocus
-              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-            />
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={511} value={cmd.n} autoFocus
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              />
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() => props.onPickVar("switch", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
+            </span>
+            <span className="hint">{props.switchNames[cmd.n] || ""}</span>
           </label>
           <label>
             Est
@@ -692,10 +734,15 @@ function CommandForm(props: {
         <div className="row">
           <label>
             Variable (0-255)
-            <input
-              type="number" min={0} max={255} value={cmd.n} autoFocus
-              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-            />
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={255} value={cmd.n} autoFocus
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              />
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() => props.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
+            </span>
+            <span className="hint">{props.varNames[cmd.n] || ""}</span>
           </label>
           <label>
             Opérateur

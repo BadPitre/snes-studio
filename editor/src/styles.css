@@ -190,6 +190,15 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cmdpick-grid button { text-align: left; }
+/* Fenêtre Switches / Variables (façon RM2003) */
+.modal.varlist { width: 520px; }
+.varlist-body { display: flex; gap: 8px; height: 380px; }
+.varlist-groups { width: 170px; overflow-y: auto; border: 1px solid #000; border-radius: 4px; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+.varlist-groups button { text-align: left; font-family: monospace; padding: 2px 6px; }
+.varlist-groups button.active { background: #31547a; }
+.varlist-items { flex: 1; overflow-y: auto; border: 1px solid #000; border-radius: 4px; padding: 4px; font-family: monospace; font-size: 13px; }
+.varlist-name { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa0a8; }
+.varlist-name input { flex: 1; }
 .evedit-form { border: 1px solid #000; border-radius: 5px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: #22252a; }
 .evedit-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
 

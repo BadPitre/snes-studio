@@ -183,6 +183,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   *Condition : switch*, *Condition : variable* (=, ≠, ≥) avec branches
   Si vrai/Sinon. C'est la mécanique give/has de RM2003 : un coffre =
   condition sur un switch + le switch passé à ON.
+- **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
+  calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
+  gauche, liste numérotée à droite, champ Nom sous la liste — les noms
+  sont stockés dans project.json. Chaque formulaire de commande (switch,
+  variable, conditions) a un bouton « … » qui ouvre cette liste en mode
+  sélection (double-clic = choisir) et affiche le nom sous le numéro.
 - **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
   une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
   accueilleront les commandes P4) et une grille de boutons, un par

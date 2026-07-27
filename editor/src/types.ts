@@ -16,6 +16,8 @@ export interface Project {
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
   prefabs?: EventPrefab[]; // prefabs d'events (éditeur seulement)
+  switches?: string[]; // noms des switches (éditeur seulement, index = n)
+  variables?: string[]; // noms des variables 16-bit (éditeur seulement)
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")

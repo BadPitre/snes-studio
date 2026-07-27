@@ -58,6 +58,7 @@ import ScenePanel from "./components/ScenePanel";
 import SceneTree from "./components/SceneTree";
 import EventsPanel from "./components/EventsPanel";
 import EventEditorModal from "./components/EventEditorModal";
+import VarListModal from "./components/VarListModal";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -115,6 +116,7 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   // fenêtre de diagnostic (Tools → Vérifier le projet)
   const [diags, setDiags] = useState<Diag[] | null>(null);
+  const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -1004,6 +1006,11 @@ export default function App() {
       label: "Tools",
       items: [
         {
+          label: "Switches et variables…",
+          action: () => setVarMgr(true),
+          disabled: !data,
+        },
+        {
           label: "Vérifier le projet…",
           action: () => void openDiagnostics(),
           disabled: !data,
@@ -1476,6 +1483,21 @@ export default function App() {
           </div>
         </div>
       )}
+      {varMgr && data && (
+        <VarListModal
+          kind="var"
+          switches={data.project.switches ?? []}
+          variables={data.project.variables ?? []}
+          onClose={() => setVarMgr(false)}
+          onOk={(r) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, switches: r.switches, variables: r.variables },
+            }));
+            setVarMgr(false);
+          }}
+        />
+      )}
       {evEdit && scene && data && (
         <EventEditorModal
           event={evEdit.ev}
@@ -1484,6 +1506,11 @@ export default function App() {
           blockCount={spriteBlocks}
           blockNames={blockNames}
           usedBlocks={[...new Set([0, ...scene.events.filter((_, i) => i !== evEdit.index).map((e) => e.sprite).filter((b) => b >= 0)])]}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
           sprites={sprites}
           labels={scriptLabels(scene.script)}
           onSave={(ev) => {
