@@ -87,6 +87,8 @@ export type PageCondition =
 // Page supplémentaire d'un event (v0.10). Les champs plats de GameEvent
 // SONT la page 1 — extraPages porte les pages 2+ (la DERNIÈRE page dont
 // la condition passe est active en jeu, modèle RM2003).
+export type MoveType = "static" | "random" | "vertical" | "horizontal";
+
 export interface EventPage {
   condition?: PageCondition;
   trigger: EventTrigger;
@@ -94,6 +96,7 @@ export interface EventPage {
   dir: Direction;
   entry?: string;
   commands: Command[];
+  move?: MoveType; // v0.11 — PNJ mobiles (défaut : static)
 }
 
 export interface GameEvent {
@@ -107,6 +110,7 @@ export interface GameEvent {
   commands: Command[];
   condition?: PageCondition; // condition de la page 1 (rare mais permise)
   extraPages?: EventPage[]; // pages 2+ (v0.10)
+  move?: MoveType; // v0.11 — type de mouvement de la page 1
 }
 
 // Prefab : un event réutilisable, sans position (project.json "prefabs")

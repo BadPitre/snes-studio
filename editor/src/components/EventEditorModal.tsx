@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, GameEvent, Scene } from "../types";
+import type { Command, Direction, EventPage, GameEvent, MoveType, Scene } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -121,6 +121,7 @@ export default function EventEditorModal(props: Props) {
     page === 0
       ? {
           condition: draft.condition,
+          move: draft.move,
           trigger: draft.trigger,
           sprite: draft.sprite,
           dir: draft.dir,
@@ -406,10 +407,20 @@ export default function EventEditorModal(props: Props) {
                 </div>
               </div>
             </fieldset>
-            <fieldset className="evedit-box" disabled title="Déplacements des events : à venir (PNJ mobiles)">
+            <fieldset className="evedit-box">
               <legend>Type de mouvement</legend>
-              <select>
-                <option>Statique</option>
+              <select
+                value={cur.move ?? "static"}
+                disabled={cur.trigger !== "action"}
+                title={cur.trigger !== "action" ? "Seuls les events « touche action » se déplacent" : undefined}
+                onChange={(e) =>
+                  patchCur({ move: e.target.value === "static" ? undefined : (e.target.value as MoveType) })
+                }
+              >
+                <option value="static">Statique</option>
+                <option value="random">Aléatoire</option>
+                <option value="vertical">Vertical (haut-bas)</option>
+                <option value="horizontal">Horizontal (gauche-droite)</option>
               </select>
             </fieldset>
             <fieldset className="evedit-box">

@@ -102,6 +102,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
       if (rawPages && rawPages.length > 0) {
         const p1 = rawPages[0];
         e.condition = p1.condition;
+        e.move = p1.move;
         e.trigger = p1.trigger;
         e.sprite = p1.sprite;
         e.dir = p1.dir;
@@ -205,6 +206,7 @@ function sceneToJson(sc: Scene): string {
     }
     const page1: EventPage = {
       condition: e.condition,
+      move: e.move,
       trigger: e.trigger,
       sprite: e.sprite,
       dir: e.dir,

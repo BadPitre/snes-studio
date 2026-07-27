@@ -143,6 +143,12 @@ aborder. `entry` (label du script assembleur de la scène) reste possible pour l
 events sans `commands` — les deux mondes cohabitent. La variable de
 travail des `choice` sans `"var"` est **v63** (réservée par convention).
 
+**PNJ mobiles (v0.11)** : `"move"` sur un event ou une page —
+`"static"` (défaut), `"random"`, `"vertical"`, `"horizontal"`. Réservé aux
+déclencheurs « touche action » ; le PNJ se déplace d'une tile à la fois à
+la moitié de la vitesse du héros, sans jamais marcher sur lui ni sur un
+autre event, et gèle pendant les dialogues.
+
 **Pages (v0.10)** : un event peut remplacer ses champs plats par
 `"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
 ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,

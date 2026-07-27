@@ -163,7 +163,11 @@ Offset  Taille  Champ
                                       entrée est une PAGE supplémentaire de
                                       l'event précédent ; bits 0-2 = type de
                                       condition : 0 aucune, 1 switch ON,
-                                      2 switch OFF, 3 variable >= valeur
+                                      2 switch OFF, 3 variable >= valeur ;
+                                      bits 3-4 = MOUVEMENT (v0.11) :
+                                      0 statique, 1 aléatoire, 2 vertical,
+                                      3 horizontal (PNJ « touche action »
+                                      uniquement)
 8       2       cond_idx      (u16) — switch (0-511) ou variable (0-255)
 10      2       cond_val      (u16) — valeur comparée (type 3)
 ```
@@ -175,6 +179,16 @@ sprite, pas d'interaction, pas de déclencheur). Le moteur réévalue les
 pages au chargement de scène et à la fin de chaque script
 (`actors_resolve_pages`). C'est le mécanisme coffre ouvert/fermé, PNJ à
 états.
+
+**PNJ mobiles (v0.11)** : la position ROM n'est que le point de départ —
+la position vraie vit en WRAM (pixels). Mouvement : 1 px une frame sur
+deux (moitié du héros) ; *aléatoire* = un pas dans une direction tirée au
+sort toutes les 32-95 frames ; *vertical*/*horizontal* = va-et-vient avec
+demi-tour quand bloqué. Un pas est refusé vers : tile solide, tile du
+héros, tile (runtime) d'un autre acteur actif, hors map. Interaction et
+collision joueur utilisent la tile RUNTIME. Le monde est GELÉ pendant les
+scripts et le menu Système (modèle RM2003). Les déclencheurs contact/auto
+restent fixes.
 
 ### 1.4 Collision (v0.2)
 

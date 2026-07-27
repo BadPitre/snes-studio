@@ -113,6 +113,7 @@ int main(void)
       u8 wd, wx, wy;
 
       player_update(); /* inputs + mouvement + collision + interaction */
+      actors_update(); /* PNJ mobiles (gelés pendant scripts/menu) */
       if (player_take_warp(&wd, &wx, &wy))
         do_warp(wd, wx, wy);
       else if (padsDown(0) & KEY_START)

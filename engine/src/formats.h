@@ -110,6 +110,13 @@ typedef struct
    DERNIÈRE page dont la condition passe est active, les autres inertes. */
 #define ACTOR_FLAG_CONT 0x80
 #define ACTOR_COND_MASK 0x07
+/* v0.11 : bits 3-4 des flags = type de mouvement du PNJ (RM2003) */
+#define ACTOR_MOVE_SHIFT 3
+#define ACTOR_MOVE_MASK 0x18
+#define ACTOR_MOVE_STATIC 0
+#define ACTOR_MOVE_RANDOM 1
+#define ACTOR_MOVE_VERT 2   /* va-et-vient haut-bas */
+#define ACTOR_MOVE_HORIZ 3  /* va-et-vient gauche-droite */
 #define ACTOR_COND_NONE 0x00
 #define ACTOR_COND_SW_ON 0x01  /* switch cond_idx == ON */
 #define ACTOR_COND_SW_OFF 0x02 /* switch cond_idx == OFF */

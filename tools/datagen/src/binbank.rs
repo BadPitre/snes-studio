@@ -153,7 +153,7 @@ pub fn build_scene_bank(
             blob.push(project::dir_code(&a.dir)?);
             // v0.10 : flags (bit 7 = page de continuation, bits 0-2 =
             // type de condition) + condition (spec §1.3)
-            blob.push(if a.cont { 0x80 } else { 0 } | a.cond_type);
+            blob.push(if a.cont { 0x80 } else { 0 } | a.cond_type | (a.move_type << 3));
             blob.extend_from_slice(&a.cond_idx.to_le_bytes());
             blob.extend_from_slice(&a.cond_val.to_le_bytes());
         }

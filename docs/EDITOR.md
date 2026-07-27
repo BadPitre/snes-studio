@@ -188,6 +188,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   ON/OFF ou variable ≥, avec le bouton « … » vers la liste), son
   apparence, son déclencheur et ses commandes. En jeu, la dernière page
   dont la condition passe est active (coffre ouvert/fermé, PNJ à états).
+- **PNJ mobiles (v0.11)** : le fieldset « Type de mouvement » de l'Event
+  Editor est actif (par page) — Statique / Aléatoire / Vertical /
+  Horizontal. En jeu : vitesse moitié du héros, demi-tour quand bloqué,
+  jamais sur la tile du héros ni d'un autre event, gel pendant les
+  dialogues et le menu.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

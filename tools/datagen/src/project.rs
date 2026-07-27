@@ -101,6 +101,9 @@ pub struct Actor {
     pub cond_idx: u16,
     #[serde(default)]
     pub cond_val: u16,
+    /// v0.11 — 0 statique, 1 aléatoire, 2 vertical, 3 horizontal
+    #[serde(default)]
+    pub move_type: u8,
 }
 
 fn dir_down() -> String {
@@ -135,6 +138,10 @@ pub struct Event {
     /// Commandes structurées (Event Editor)
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
+    /// v0.11 — type de mouvement : "static" (défaut), "random",
+    /// "vertical", "horizontal"
+    #[serde(default)]
+    pub r#move: Option<String>,
     /// v0.10 — pages conditionnelles (absent = 1 page implicite formée des
     /// champs ci-dessus). Chaque page a sa condition, son apparence, son
     /// déclencheur et ses commandes ; la DERNIÈRE page dont la condition
@@ -158,6 +165,8 @@ pub struct EventPage {
     pub entry: Option<String>,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub r#move: Option<String>,
 }
 
 fn trigger_action() -> String {

@@ -271,18 +271,18 @@ impl<'a> EventCompiler<'a> {
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
-            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value])> =
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>)> =
                 if ev.pages.is_empty() {
                     vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
-                          &ev.entry, ev.commands.as_slice())]
+                          &ev.entry, ev.commands.as_slice(), &ev.r#move)]
                 } else {
                     ev.pages
                         .iter()
                         .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
-                                  p.dir.as_str(), &p.entry, p.commands.as_slice()))
+                                  p.dir.as_str(), &p.entry, p.commands.as_slice(), &p.r#move))
                         .collect()
                 };
-            for (k, (cond, trigger, sprite, dir, entry_lbl, commands)) in
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv)) in
                 pages.iter().enumerate()
             {
                 let kind = match *trigger {
@@ -341,6 +341,24 @@ impl<'a> EventCompiler<'a> {
                 } else {
                     (*entry_lbl).clone()
                 };
+                let move_type = match mv.as_deref() {
+                    None | Some("static") => 0u8,
+                    Some("random") => 1,
+                    Some("vertical") => 2,
+                    Some("horizontal") => 3,
+                    Some(other) => bail!(
+                        "event « {} » page {} : mouvement inconnu « {} » \
+                         (static, random, vertical, horizontal)",
+                        ev.name, k + 1, other
+                    ),
+                };
+                if move_type != 0 && kind != "npc" {
+                    bail!(
+                        "event « {} » page {} : le mouvement demande le declencheur \
+                         « touche action » (les contacts/autos restent fixes)",
+                        ev.name, k + 1
+                    );
+                }
                 actors.push(Actor {
                     kind: kind.to_string(),
                     x: ev.x,
@@ -354,6 +372,7 @@ impl<'a> EventCompiler<'a> {
                     cond_type,
                     cond_idx,
                     cond_val,
+                    move_type,
                 });
             }
         }
