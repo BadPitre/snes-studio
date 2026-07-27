@@ -101,9 +101,23 @@ pub struct Actor {
     pub cond_idx: u16,
     #[serde(default)]
     pub cond_val: u16,
-    /// v0.11 — 0 statique, 1 aléatoire, 2 vertical, 3 horizontal
+    /// v0.11 — 0 statique, 1 aléatoire, 2 vertical, 3 horizontal,
+    /// 4 route custom (v0.14)
     #[serde(default)]
     pub move_type: u8,
+    /// v0.14 — 0 sous le héros, 1 comme le héros, 2 au-dessus
+    #[serde(default = "prio_same")]
+    pub priority: u8,
+    /// v0.14 — vitesse 1-4 (0 = défaut 1)
+    #[serde(default)]
+    pub speed: u8,
+    /// v0.14 — label du blob de route custom dans le bloc scripts
+    #[serde(default)]
+    pub route_label: Option<String>,
+}
+
+fn prio_same() -> u8 {
+    1
 }
 
 fn dir_down() -> String {
@@ -139,9 +153,18 @@ pub struct Event {
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
     /// v0.11 — type de mouvement : "static" (défaut), "random",
-    /// "vertical", "horizontal"
+    /// "vertical", "horizontal", "custom" (v0.14 : move_route requis)
     #[serde(default)]
     pub r#move: Option<String>,
+    /// v0.14 — route custom : {"freq","repeat","skip","steps":[...]}
+    #[serde(default)]
+    pub move_route: Option<serde_json::Value>,
+    /// v0.14 — "below" | "same" (défaut) | "above"
+    #[serde(default)]
+    pub priority: Option<String>,
+    /// v0.14 — vitesse 1-4 (absent = 1)
+    #[serde(default)]
+    pub speed: Option<u8>,
     /// v0.10 — pages conditionnelles (absent = 1 page implicite formée des
     /// champs ci-dessus). Chaque page a sa condition, son apparence, son
     /// déclencheur et ses commandes ; la DERNIÈRE page dont la condition
@@ -167,6 +190,12 @@ pub struct EventPage {
     pub commands: Vec<serde_json::Value>,
     #[serde(default)]
     pub r#move: Option<String>,
+    #[serde(default)]
+    pub move_route: Option<serde_json::Value>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub speed: Option<u8>,
 }
 
 fn trigger_action() -> String {

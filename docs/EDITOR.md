@@ -209,6 +209,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   afficher « M:SS » au coin haut-droit), **Déplacer la caméra** (pan
   scripté non bloquant), **Caméra : retour au héros** et **Attendre la
   caméra**.
+- **v0.14** : par page — **Type de mouvement « Route custom »** (bouton
+  « Éditer la route… » vers la fenêtre Itinéraire, options
+  Répéter/Ignorer/Fréquence incluses), **Priorité** (Sous le héros :
+  traversable, s'active en se tenant dessus / Comme le héros / Au-dessus :
+  traversable, dessiné par-dessus tout) et **Vitesse 1-4**. La fenêtre
+  Commande d'événement est classée **par catégories** (Messages, Logique,
+  Déplacements, Temps, Caméra). Raccourcis dans la liste Contenu et
+  l'Itinéraire : **Ctrl+C / Ctrl+V / Suppr**.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

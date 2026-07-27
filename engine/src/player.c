@@ -204,6 +204,13 @@ static void player_try_interact(void)
     ty++;
 
   i = actor_at_tile(tx, ty);
+  if (i == ACTOR_NONE)
+  {
+    /* rien en face : un event « sous le héros » sous nos pieds ?
+       (coffre au sol, priorité below — v0.14) */
+    i = actor_standing_at((u8)((player.x + 8) >> 4),
+                          (u8)((player.y + 8) >> 4));
+  }
   if (i != ACTOR_NONE)
     actor_interact(i);
 }

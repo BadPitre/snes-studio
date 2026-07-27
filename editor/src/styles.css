@@ -190,6 +190,11 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cmdpick-grid button { text-align: left; }
+.modal.cmdpick { width: 640px; }
+.cmdpick-cats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: start; }
+.cmdpick-cat { display: flex; flex-direction: column; gap: 4px; }
+.cmdpick-cat-title { font-size: 11px; color: #9aa0a8; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 2px; margin-bottom: 2px; }
+.cmdpick-cat button { text-align: left; font-size: 12px; }
 /* Fenêtre Itinéraire (Move Route RM2003) */
 .modal.moveroute { width: 860px; }
 .moveroute-body { display: flex; gap: 8px; height: 340px; }

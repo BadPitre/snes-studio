@@ -66,6 +66,7 @@ static u8 actor_dirfix[ACTOR_SLOTS];
 static u8 actor_mvdir[ACTOR_SLOTS]; /* direction du pas en cours (dirfix) */
 static u8 actor_thru[ACTOR_SLOTS];
 static u8 actor_gfx[ACTOR_SLOTS];
+static u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
 
 static u16 mv_rand(void)
 {
@@ -95,6 +96,26 @@ static u8 page_cond_ok(const ActorDef *a)
   }
 }
 
+/* Route custom d'une page (v0.14) : blob [flags][freq][len][pas...] à
+   route_ofs dans le bloc scripts — appliquée quand la page devient
+   active (type de mouvement « Route custom »). */
+static void actors_apply_page_route(u8 i)
+{
+  const ActorDef *a = &scene_ctx.actors[i];
+  u16 ofs;
+
+  if (((a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT) != ACTOR_MOVE_CUSTOM)
+    return;
+  ofs = a->route_ofs;
+  if (ofs == 0xFFFF)
+    return;
+  actor_freq[i] = scene_ctx.scripts[ofs + 1];
+  if (actor_freq[i] < 1 || actor_freq[i] > 8)
+    actor_freq[i] = 3;
+  actors_set_route(i, (u16)(ofs + 3), scene_ctx.scripts[ofs],
+                   scene_ctx.scripts[ofs + 2]);
+}
+
 /* Par GROUPE de pages (entrées consécutives liées par CONTINUATION), la
    DERNIÈRE page dont la condition passe est active — modèle RM2003 (la
    page de plus haut numéro l'emporte). Les OBJ des pages désactivées
@@ -122,8 +143,15 @@ void actors_resolve_pages(void)
       {
         oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
         oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+        route_ofs[i] = 0xFFFF; /* la page part, sa route aussi */
       }
-      actor_active[i] = (i == win);
+      if (i == win && !actor_active[i])
+      {
+        actor_active[i] = 1;
+        actors_apply_page_route(i); /* route custom de la page (v0.14) */
+      }
+      else
+        actor_active[i] = (i == win);
     }
   }
 }
@@ -160,6 +188,7 @@ void actors_init(void)
     actor_thru[i] = 0;
     actor_gfx[i] = 0xFF;
     actor_mvdir[i] = DIR_DOWN;
+    actor_prio[i] = ACTOR_PRIO_SAME;
   }
   mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
   mv_phase = 0;
@@ -172,6 +201,9 @@ void actors_init(void)
       actor_dirs[i] = a->direction;
       actor_px[i] = (u16)a->x << 4;
       actor_py[i] = (u16)a->y << 4;
+      actor_prio[i] = a->prio_speed & 3;
+      if ((a->prio_speed >> 4) >= 1 && (a->prio_speed >> 4) <= 4)
+        actor_speed[i] = a->prio_speed >> 4;
     }
     if (!ACTOR_VISIBLE(a))
       continue;
@@ -232,12 +264,16 @@ void actors_draw(void)
       if (i < ACTOR_SLOTS && actor_step[i])
         f += (actor_anim[i] & 1) ? (u8)(1 + (actor_anim[i] >> 1)) : 0;
 
+      u8 op = (i < ACTOR_SLOTS && actor_prio[i] == ACTOR_PRIO_ABOVE)
+                  ? 3
+                  : ACTOR_OBJ_PRIO; /* au-dessus : devant la couche sup */
+
       /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
       oamSet(ACTOR_OAM_TOP(i), ax - camera.x,
-             ay - camera.y - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             ay - camera.y - SPRITE_Y_OVERLAP, op, 0, 0,
              OBJ_TOP_TILE(f), a->sprite_id);
       oamSet(ACTOR_OAM_BOT(i), ax - camera.x,
-             ay - camera.y + 16 - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             ay - camera.y + 16 - SPRITE_Y_OVERLAP, op, 0, 0,
              OBJ_BOTTOM_TILE(f), a->sprite_id);
     }
     else
@@ -259,13 +295,15 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
     return 0; /* passe-muraille (Through ON) : seul le bord de map bloque */
   if (scene_collision(tx, ty) == COL_SOLID)
     return 1;
-  /* la tile du héros (boîte 16x16 : sa tile centrale suffit ici) */
-  if (tx == (u8)((player.x + 8) >> 4) && ty == (u8)((player.y + 8) >> 4))
+  /* la tile du héros — un event sous/au-dessus du héros passe (v0.14) */
+  if (actor_prio[i] == ACTOR_PRIO_SAME &&
+      tx == (u8)((player.x + 8) >> 4) && ty == (u8)((player.y + 8) >> 4))
     return 1;
-  /* les autres acteurs actifs (tile runtime, cible de pas comprise) */
+  /* les autres acteurs actifs « comme le héros » */
   for (j = 0; j < scene_ctx.actor_count && j < ACTOR_SLOTS; j++)
   {
-    if (j != i && actor_active[j] && ACTOR_TX(j) == tx && ACTOR_TY(j) == ty)
+    if (j != i && actor_active[j] && actor_prio[j] == ACTOR_PRIO_SAME &&
+        ACTOR_TX(j) == tx && ACTOR_TY(j) == ty)
       return 1;
   }
   return 0;
@@ -576,11 +614,30 @@ u8 actor_at_tile(u8 tx, u8 ty)
       continue;
     if (i < ACTOR_SLOTS)
     {
-      /* position RUNTIME (PNJ mobiles, v0.11) */
-      if (actor_active[i] && ACTOR_TX(i) == tx && ACTOR_TY(i) == ty)
+      /* position RUNTIME — seuls les « comme le héros » bloquent et se
+         parlent de face (priorité v0.14) */
+      if (actor_active[i] && actor_prio[i] == ACTOR_PRIO_SAME &&
+          ACTOR_TX(i) == tx && ACTOR_TY(i) == ty)
         return i;
     }
     else if (a->x == tx && a->y == ty)
+      return i;
+  }
+  return ACTOR_NONE;
+}
+
+/* Event « sous le héros » (priorité below) sur cette tile — interaction
+   en se tenant dessus, façon RM2003 (coffre au sol). */
+u8 actor_standing_at(u8 tx, u8 ty)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && actor_active[i] &&
+        actor_prio[i] == ACTOR_PRIO_BELOW && ACTOR_TX(i) == tx &&
+        ACTOR_TY(i) == ty)
       return i;
   }
   return ACTOR_NONE;

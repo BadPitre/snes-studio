@@ -171,9 +171,17 @@ typedef struct
   u16 script_offset; /* offset dans le bloc scripts, SCRIPT_NONE = aucun */
   u8 direction;     /* DIR_* */
   u8 flags;         /* v0.10 : bit 7 = CONTINUATION (page du même event que
-                       l'entrée précédente), bits 0-2 = type de condition */
+                       l'entrée précédente), bits 0-2 = type de condition,
+                       bits 3-5 = type de mouvement (v0.14 : 3 bits) */
   u16 cond_idx;     /* switch (0-511) ou variable 16-bit (0-255) */
   u16 cond_val;     /* valeur comparée (var >= val) */
+  u8 prio_speed;    /* v0.14 : bits 0-1 = priorité (0 sous le héros,
+                       1 comme le héros, 2 au-dessus), bits 4-7 =
+                       vitesse 1-4 (0 = défaut 1) */
+  u8 reserved;
+  u16 route_ofs;    /* v0.14 : route custom — offset du blob
+                       [flags][freq][len][pas...] dans le bloc scripts,
+                       0xFFFF = aucune */
 } ActorDef;
 
 /* Pages d'events conditionnelles (v0.10, modèle RM2003) : un event =
@@ -183,11 +191,18 @@ typedef struct
 #define ACTOR_COND_MASK 0x07
 /* v0.11 : bits 3-4 des flags = type de mouvement du PNJ (RM2003) */
 #define ACTOR_MOVE_SHIFT 3
-#define ACTOR_MOVE_MASK 0x18
+#define ACTOR_MOVE_MASK 0x38 /* v0.14 : 3 bits (route custom) */
 #define ACTOR_MOVE_STATIC 0
 #define ACTOR_MOVE_RANDOM 1
 #define ACTOR_MOVE_VERT 2   /* va-et-vient haut-bas */
 #define ACTOR_MOVE_HORIZ 3  /* va-et-vient gauche-droite */
+#define ACTOR_MOVE_CUSTOM 4 /* route custom (blob route_ofs, v0.14) */
+
+/* Priorité d'un event (v0.14, byte prio_speed bits 0-1) — modèle RM2003 */
+#define ACTOR_PRIO_BELOW 0 /* sous le héros : traversable, interaction en
+                              se tenant dessus (coffre au sol) */
+#define ACTOR_PRIO_SAME 1  /* comme le héros : bloque et parle de face */
+#define ACTOR_PRIO_ABOVE 2 /* au-dessus : traversable, dessiné par-dessus */
 #define ACTOR_COND_NONE 0x00
 #define ACTOR_COND_SW_ON 0x01  /* switch cond_idx == ON */
 #define ACTOR_COND_SW_OFF 0x02 /* switch cond_idx == OFF */

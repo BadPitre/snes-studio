@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
+import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -150,6 +150,9 @@ export default function EventEditorModal(props: Props) {
       ? {
           condition: draft.condition,
           move: draft.move,
+          move_route: draft.move_route,
+          priority: draft.priority,
+          speed: draft.speed,
           trigger: draft.trigger,
           sprite: draft.sprite,
           dir: draft.dir,
@@ -174,7 +177,12 @@ export default function EventEditorModal(props: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   // fenêtre Switches/Variables ouverte depuis un formulaire (bouton …)
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
+  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
+  const [pageRouteOpen, setPageRouteOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
+
+  // presse-papiers de commandes (Ctrl+C / Ctrl+V dans la liste Contenu)
+  const [clipCmd, setClipCmd] = useState<Command | null>(null);
 
   const lines: Line[] = [];
   flatten(cmds, "", 0, lines);
@@ -204,6 +212,34 @@ export default function EventEditorModal(props: Props) {
     setForm(structuredClone(c));
     setFormIsNew(false);
   }
+
+  // Ctrl+C copie la commande sélectionnée, Ctrl+V l'insère à la ligne
+  // courante, Suppr la supprime — inactifs quand un champ a le focus ou
+  // qu'une sous-fenêtre est ouverte (demande utilisateur).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (form || picking || menu || varPick || pageRouteOpen) return;
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const c = cmdAt(sel);
+        if (c) {
+          setClipCmd(structuredClone(c));
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (clipCmd) {
+          insertCmd(structuredClone(clipCmd));
+          e.preventDefault();
+        }
+      } else if (e.key === "Delete") {
+        deleteCmd();
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   useEffect(() => {
     const cv = previewRef.current;
@@ -455,15 +491,35 @@ export default function EventEditorModal(props: Props) {
                 value={cur.move ?? "static"}
                 disabled={cur.trigger !== "action"}
                 title={cur.trigger !== "action" ? "Seuls les events « touche action » se déplacent" : undefined}
-                onChange={(e) =>
-                  patchCur({ move: e.target.value === "static" ? undefined : (e.target.value as MoveType) })
-                }
+                onChange={(e) => {
+                  const move = e.target.value === "static" ? undefined : (e.target.value as MoveType);
+                  patchCur({
+                    move,
+                    move_route:
+                      move === "custom"
+                        ? cur.move_route ?? { freq: 3, repeat: true, skip: false, steps: [] }
+                        : undefined,
+                  });
+                }}
               >
                 <option value="static">Statique</option>
                 <option value="random">Aléatoire</option>
                 <option value="vertical">Vertical (haut-bas)</option>
                 <option value="horizontal">Horizontal (gauche-droite)</option>
+                <option value="custom">Route custom</option>
               </select>
+              {cur.move === "custom" && (
+                <>
+                  <button onClick={() => setPageRouteOpen(true)}>
+                    Éditer la route… ({cur.move_route?.steps.length ?? 0} pas)
+                  </button>
+                  {(cur.move_route?.steps.length ?? 0) === 0 && (
+                    <span className="hint" style={{ color: "#ff7070" }}>
+                      Route vide — datagen la refusera.
+                    </span>
+                  )}
+                </>
+              )}
             </fieldset>
             <fieldset className="evedit-box">
               <legend>Déclencheur</legend>
@@ -476,10 +532,31 @@ export default function EventEditorModal(props: Props) {
                 <option value="auto">Auto-start (chargement)</option>
               </select>
             </fieldset>
-            <fieldset className="evedit-box" disabled title="À venir (P4)">
+            <fieldset className="evedit-box">
               <legend>Priorité / Vitesse</legend>
-              <select>
-                <option>Sous le héros</option>
+              <select
+                value={cur.priority ?? "same"}
+                onChange={(e) =>
+                  patchCur({ priority: e.target.value === "same" ? undefined : (e.target.value as EventPriority) })
+                }
+                title="Sous le héros : traversable, s'active en se tenant dessus. Au-dessus : traversable, dessiné par-dessus tout."
+              >
+                <option value="below">Sous le héros</option>
+                <option value="same">Comme le héros</option>
+                <option value="above">Au-dessus du héros</option>
+              </select>
+              <select
+                value={cur.speed ?? 1}
+                disabled={cur.trigger !== "action"}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  patchCur({ speed: v === 1 ? undefined : v });
+                }}
+              >
+                <option value={1}>Vitesse 1 (lente)</option>
+                <option value={2}>Vitesse 2 (normale)</option>
+                <option value={3}>Vitesse 3 (rapide)</option>
+                <option value={4}>Vitesse 4 (très rapide)</option>
               </select>
             </fieldset>
             {props.labels.length > 0 && (
@@ -596,6 +673,29 @@ export default function EventEditorModal(props: Props) {
         />
       )}
 
+      {pageRouteOpen && (
+        <MoveRouteModal
+          cmd={{
+            c: "route",
+            event: -1,
+            repeat: cur.move_route?.repeat ?? true,
+            skip: cur.move_route?.skip ?? false,
+            freq: cur.move_route?.freq ?? 3,
+            steps: cur.move_route?.steps ?? [],
+          }}
+          hideTarget
+          eventNames={props.entryNames}
+          switchNames={props.switchNames}
+          charsetNames={props.charsetNames}
+          onClose={() => setPageRouteOpen(false)}
+          onOk={(c) => {
+            patchCur({
+              move_route: { freq: c.freq ?? 3, repeat: c.repeat, skip: c.skip, steps: c.steps },
+            });
+            setPageRouteOpen(false);
+          }}
+        />
+      )}
       {varPick && (
         <VarListModal
           kind={varPick.kind}

@@ -182,6 +182,14 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
         "JCMP16" => 7,
+        // RTBLOB <r> <s> <freq> <pas...> : blob de route custom (v0.14)
+        // — [flags][freq][len] + pas, DONNÉES (jamais exécuté)
+        "RTBLOB" => {
+            if argc < 4 {
+                bail!("RTBLOB <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
+            }
+            3 + args[3..].iter().map(|t| route_step_size(t)).sum::<u16>()
+        }
         "WAITROUTE" => 1,
         "WAIT" => 2,
         "VAROP" => 6,
@@ -445,6 +453,28 @@ pub fn assemble(
             "WAITCAM" => {
                 if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
                 code.push(OP_WAITCAM);
+            }
+            "RTBLOB" => {
+                if argc < 4 { bail!("RTBLOB <r> <s> <freq> <pas...>"); }
+                let mut flags = 0u8;
+                if args[0] == "1" { flags |= 1; }
+                if args[1] == "1" { flags |= 2; }
+                let freq: u8 = args[2]
+                    .parse()
+                    .ok()
+                    .filter(|&f| (1..=8).contains(&f))
+                    .with_context(|| format!("frequence invalide : '{}' (1-8)", args[2]))?;
+                let mut steps: Vec<u8> = Vec::new();
+                for t in &args[3..] {
+                    steps.extend(route_step(t, sprite_remap)?);
+                }
+                if steps.is_empty() || steps.len() > 255 {
+                    bail!("RTBLOB : 1 a 255 octets de pas");
+                }
+                code.push(flags);
+                code.push(freq);
+                code.push(steps.len() as u8);
+                code.extend_from_slice(&steps);
             }
             "WAITROUTE" => {
                 if argc != 0 { bail!("WAITROUTE ne prend pas d'argument"); }

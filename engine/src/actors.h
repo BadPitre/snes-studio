@@ -47,6 +47,10 @@ u8 actor_at_tile(u8 tx, u8 ty);
    ou ACTOR_NONE — le script part quand le héros marche dessus. */
 u8 actor_trigger_at(u8 tx, u8 ty);
 
+/* Event « sous le héros » sur cette tile (priorité below, v0.14) —
+   interaction en se tenant dessus. */
+u8 actor_standing_at(u8 tx, u8 ty);
+
 /* Offset du script du déclencheur AUTO de la scène (type 0x03), ou
    SCRIPT_NONE — lancé une fois au chargement de la scène. */
 u16 actors_autorun(void);

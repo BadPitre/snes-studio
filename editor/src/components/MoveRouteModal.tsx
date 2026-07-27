@@ -4,7 +4,7 @@
 // part en tâche de fond en jeu (cinématiques) — le séquencer avec
 // « Attendre la fin des déplacements ».
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Command, RouteStep } from "../types";
 import { ROUTE_STEP_LABELS } from "../types";
 
@@ -12,6 +12,7 @@ type RouteCmd = Extract<Command, { c: "route" }>;
 
 interface Props {
   cmd: RouteCmd;
+  hideTarget?: boolean; // route custom de page : pas de sélecteur d'event
   eventNames: string[]; // noms des events de la scène (index = n° d'entrée)
   switchNames: string[]; // noms des switches (libellés swon/swoff)
   charsetNames: string[]; // noms des blocs de personnage (pas gfx)
@@ -37,6 +38,28 @@ export default function MoveRouteModal(props: Props) {
   const [draft, setDraft] = useState<RouteCmd>(() => ({ freq: 3, ...structuredClone(props.cmd) }));
   const [sel, setSel] = useState(draft.steps.length); // insertion en queue
 
+  const [clipStep, setClipStep] = useState<RouteStep | null>(null);
+
+  // Suppr efface le pas sélectionné ; Ctrl+C / Ctrl+V copient-collent
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if (e.key === "Delete" && sel < draft.steps.length) {
+        setDraft({ ...draft, steps: draft.steps.filter((_, i) => i !== sel) });
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && sel < draft.steps.length) {
+        setClipStep(structuredClone(draft.steps[sel]));
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && clipStep) {
+        insert(structuredClone(clipStep));
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const insert = (st: RouteStep) => {
     const steps = [...draft.steps];
     steps.splice(Math.min(sel, steps.length), 0, st);
@@ -49,6 +72,7 @@ export default function MoveRouteModal(props: Props) {
       <div className="modal moveroute" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Itinéraire</div>
         <div className="row">
+          {!props.hideTarget && (
           <label style={{ flex: 2 }}>
             Event
             <select
@@ -63,6 +87,7 @@ export default function MoveRouteModal(props: Props) {
               ))}
             </select>
           </label>
+          )}
           <fieldset className="moveroute-freq">
             <legend>Fréquence</legend>
             {Array.from({ length: 8 }, (_, i) => (

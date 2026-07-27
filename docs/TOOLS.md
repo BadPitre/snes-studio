@@ -174,6 +174,13 @@ coin haut-droit) ; `{"c":"campan","x","y","speed":1-8}` (non bloquant),
 <dst> <op> <const|var|hx|hy|timer> <src>`, `TIMER <op> <val>`, `CAMPAN`,
 `CAMRET`, `WAITCAM`.
 
+**v0.14** : par event ou par page — `"move": "custom"` +
+`"move_route": {"freq":1-8,"repeat":bool,"skip":bool,"steps":[...]}`
+(mêmes pas que la commande route) ; `"priority": "below"|"same"|"above"`
+(défaut same) ; `"speed": 1-4` (défaut 1). En binaire : entrée acteur
+16 octets, blob de route en queue du bloc scripts (directive interne
+`RTBLOB`).
+
 **Pages (v0.10)** : un event peut remplacer ses champs plats par
 `"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
 ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,

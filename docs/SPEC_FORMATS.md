@@ -133,7 +133,7 @@ tilesets : seuls les blocs de personnage utilisés par la scène (joueur
 inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
 vers le slot local (§1.3, §5).*
 
-### 1.3 Entrée acteur (v0.10 — 12 octets par PAGE)
+### 1.3 Entrée acteur (v0.14 — 16 octets par PAGE)
 
 ```
 Offset  Taille  Champ
@@ -170,7 +170,21 @@ Offset  Taille  Champ
                                       uniquement)
 8       2       cond_idx      (u16) — switch (0-511) ou variable (0-255)
 10      2       cond_val      (u16) — valeur comparée (type 3)
+12      1       prio_speed    (u8)  — bits 0-1 : priorité (0 sous le héros,
+                                      1 comme le héros, 2 au-dessus) ;
+                                      bits 4-7 : vitesse 1-4 (0 = défaut 1)
+13      1       reserved      (u8)
+14      2       route_ofs     (u16) — route custom (mouvement type 4) :
+                                      offset du blob [flags][freq][len][pas]
+                                      dans le bloc scripts, 0xFFFF = aucune
 ```
+
+**v0.14** : les flags passent le mouvement sur les bits 3-5 (masque 0x38) —
+type 4 = ROUTE CUSTOM, appliquée quand la page devient active (répétée ou
+non selon le flag du blob). Priorités : *sous le héros* = traversable,
+interaction en se tenant dessus ; *comme le héros* = bloque et parle de
+face ; *au-dessus* = traversable, OBJ priorité 3 (devant la couche sup).
+Seuls les « comme le héros » se bloquent entre eux et bloquent le héros.
 
 **Pages (v0.10, modèle RM2003)** : un event = 1..N entrées consécutives
 (flag CONTINUATION sur les pages 2+). À tout instant, la **dernière page

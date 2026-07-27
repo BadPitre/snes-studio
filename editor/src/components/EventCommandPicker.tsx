@@ -1,41 +1,61 @@
-// Fenêtre « Commande d'événement » — calquée sur la boîte Event Command de
-// RPG Maker 2003 : des onglets de pages (1 à 4) et une grille de boutons,
-// un par commande. Seule la page 1 est peuplée pour l'instant ; les pages
-// 2 à 4 accueilleront les commandes P4 (switches, mouvements, son…).
+// Fenêtre « Commande d'événement » — boîte Event Command de RM2003, les
+// commandes classées PAR CATÉGORIE (demande utilisateur) : Messages,
+// Logique, Déplacements, Temps, Caméra. Les commandes annoncées mais pas
+// encore compilables restent grisées (jamais de bouton qui ment).
 //
-// Elle s'ouvre depuis l'Event Editor : bouton « Ajouter… », double-clic sur
-// une ligne vide, ou clic droit → Insérer…
+// Elle s'ouvre depuis l'Event Editor : bouton « Ajouter… », double-clic
+// sur une ligne vide, ou clic droit → Insérer…
 
 import type { Command } from "../types";
 
-// Les commandes réellement compilées vers la VM (docs/TOOLS.md).
-// v0.9 : switches (512) et variables 16-bit (256) façon RM2003 — les
-// anciennes commandes v/g 8-bit restent lisibles mais ne sont plus
-// proposées ici.
-const PAGE1: { c: Command["c"]; label: string }[] = [
-  { c: "msg", label: "Afficher un message" },
-  { c: "choice", label: "Afficher un choix" },
-  { c: "switch", label: "Modifier un switch" },
-  { c: "var", label: "Modifier une variable" },
-  { c: "if_sw", label: "Condition : switch" },
-  { c: "if_var", label: "Condition : variable" },
-  { c: "warp", label: "Téléporter le héros" },
-  { c: "face", label: "Tourner un event" },
-  { c: "route", label: "Déplacer un event…" },
-  { c: "wait_route", label: "Attendre la fin des déplacements" },
-  { c: "wait", label: "Attendre" },
-  { c: "timer", label: "Timer (régler / afficher)" },
-  { c: "campan", label: "Déplacer la caméra" },
-  { c: "cam_return", label: "Caméra : retour au héros" },
-  { c: "wait_cam", label: "Attendre la caméra" },
-];
+interface Cat {
+  title: string;
+  items: { c: Command["c"]; label: string }[];
+  soon?: string[];
+}
 
-// Cases annoncées mais pas encore compilables — affichées grisées pour que
-// la fenêtre dise la vérité sur ce qui existe (jamais de bouton qui ment).
-const PAGE1_SOON = [
-  "Jouer un son",
-  "Changer l'apparence",
-  "Appeler un event",
+const CATEGORIES: Cat[] = [
+  {
+    title: "Messages",
+    items: [
+      { c: "msg", label: "Afficher un message" },
+      { c: "choice", label: "Afficher un choix" },
+    ],
+  },
+  {
+    title: "Logique",
+    items: [
+      { c: "switch", label: "Modifier un switch" },
+      { c: "var", label: "Modifier une variable" },
+      { c: "if_sw", label: "Condition : switch" },
+      { c: "if_var", label: "Condition : variable" },
+    ],
+  },
+  {
+    title: "Déplacements",
+    items: [
+      { c: "route", label: "Déplacer un event…" },
+      { c: "wait_route", label: "Attendre la fin des déplacements" },
+      { c: "face", label: "Tourner un event" },
+      { c: "warp", label: "Téléporter le héros" },
+    ],
+  },
+  {
+    title: "Temps",
+    items: [
+      { c: "wait", label: "Attendre" },
+      { c: "timer", label: "Timer (régler / afficher)" },
+    ],
+  },
+  {
+    title: "Caméra",
+    items: [
+      { c: "campan", label: "Déplacer la caméra" },
+      { c: "cam_return", label: "Caméra : retour au héros" },
+      { c: "wait_cam", label: "Attendre la caméra" },
+    ],
+    soon: ["Jouer un son", "Appeler un event"],
+  },
 ];
 
 interface Props {
@@ -48,24 +68,21 @@ export default function EventCommandPicker(props: Props) {
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal cmdpick" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Commande d'événement</div>
-        <div className="cmdpick-tabs">
-          <button className="active">1</button>
-          {[2, 3, 4].map((n) => (
-            <button key={n} disabled title="Commandes supplémentaires : à venir (P4)">
-              {n}
-            </button>
-          ))}
-        </div>
-        <div className="cmdpick-grid">
-          {PAGE1.map((t) => (
-            <button key={t.c} onClick={() => props.onPick(t.c)}>
-              {t.label}
-            </button>
-          ))}
-          {PAGE1_SOON.map((l) => (
-            <button key={l} disabled title="À venir (P4)">
-              {l}
-            </button>
+        <div className="cmdpick-cats">
+          {CATEGORIES.map((cat) => (
+            <div key={cat.title} className="cmdpick-cat">
+              <div className="cmdpick-cat-title">{cat.title}</div>
+              {cat.items.map((t) => (
+                <button key={t.c} onClick={() => props.onPick(t.c)}>
+                  {t.label}
+                </button>
+              ))}
+              {(cat.soon ?? []).map((l) => (
+                <button key={l} disabled title="À venir">
+                  {l}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         <div className="row">

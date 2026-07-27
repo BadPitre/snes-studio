@@ -99,6 +99,44 @@ impl<'a> EventCompiler<'a> {
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
     }
 
+    /// Pas d'itinéraire JSON → tokens assembleur (partagé entre la
+    /// commande route et les routes custom de page, v0.14). Les blocs des
+    /// pas gfx sont accumulés pour le budget charsets de la scène.
+    fn steps_tokens(steps: &[Value], gfx_blocks: &mut Vec<u8>) -> Result<Vec<String>> {
+        if steps.is_empty() || steps.len() > 200 {
+            bail!("route : 1 a 200 pas (recu {})", steps.len());
+        }
+        let mut toks = Vec::new();
+        for st in steps {
+            let sname = st["s"].as_str().context("pas sans champ s")?;
+            toks.push(match sname {
+                "down" | "up" | "left" | "right" | "mrand" | "mhero"
+                | "mflee" | "fwd" | "tdown" | "tup" | "tleft" | "tright"
+                | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face"
+                | "tflee" | "spd+" | "spd-" | "frq+" | "frq-" | "fixon"
+                | "fixoff" | "thruon" | "thruoff" => sname.to_string(),
+                "wait" => {
+                    let n = st["n"].as_u64().filter(|&n| (1..=15).contains(&n))
+                        .context("pas wait : n entre 1 et 15 (x8 frames)")?;
+                    format!("w{}", n)
+                }
+                "swon" | "swoff" => {
+                    let n = st["n"].as_u64().filter(|&n| n < 512)
+                        .context("pas switch : n entre 0 et 511")?;
+                    format!("{}:{}", sname, n)
+                }
+                "gfx" => {
+                    let b = st["block"].as_u64().filter(|&b| b < 64)
+                        .context("pas gfx : block entre 0 et 63")?;
+                    gfx_blocks.push(b as u8);
+                    format!("gfx:{}", b)
+                }
+                other => bail!("pas d'itineraire inconnu : « {} »", other),
+            });
+        }
+        Ok(toks)
+    }
+
     /// Compile une liste de commandes en lignes d'assembleur (spec §2)
     fn compile_list(&mut self, cmds: &[Value], depth: usize, out: &mut Vec<String>) -> Result<()> {
         if depth > MAX_DEPTH {
@@ -295,38 +333,11 @@ impl<'a> EventCompiler<'a> {
                         Some(n) => bail!("route : event {} hors limite (0-23)", n),
                     };
                     let steps = cmd["steps"].as_array().context("route sans steps")?;
+                    let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
                     if steps.is_empty() || steps.len() > 200 {
                         bail!("route : 1 a 200 pas (recu {})", steps.len());
                     }
                     let freq = cmd["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
-                    let mut toks = Vec::new();
-                    for st in steps {
-                        let sname = st["s"].as_str().context("pas sans champ s")?;
-                        toks.push(match sname {
-                            "down" | "up" | "left" | "right" | "mrand" | "mhero"
-                            | "mflee" | "fwd" | "tdown" | "tup" | "tleft" | "tright"
-                            | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face"
-                            | "tflee" | "spd+" | "spd-" | "frq+" | "frq-" | "fixon"
-                            | "fixoff" | "thruon" | "thruoff" => sname.to_string(),
-                            "wait" => {
-                                let n = st["n"].as_u64().filter(|&n| (1..=15).contains(&n))
-                                    .context("pas wait : n entre 1 et 15 (x8 frames)")?;
-                                format!("w{}", n)
-                            }
-                            "swon" | "swoff" => {
-                                let n = st["n"].as_u64().filter(|&n| n < 512)
-                                    .context("pas switch : n entre 0 et 511")?;
-                                format!("{}:{}", sname, n)
-                            }
-                            "gfx" => {
-                                let b = st["block"].as_u64().filter(|&b| b < 64)
-                                    .context("pas gfx : block entre 0 et 63")?;
-                                self.gfx_blocks.push(b as u8);
-                                format!("gfx:{}", b)
-                            }
-                            other => bail!("pas d'itineraire inconnu : « {} »", other),
-                        });
-                    }
                     out.push(format!(
                         "  ROUTE {} {} {} {} {}",
                         target,
@@ -368,22 +379,27 @@ impl<'a> EventCompiler<'a> {
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
+        let mut tail = Vec::new(); /* blobs de routes custom (v0.14) */
         self.gfx_blocks.clear();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
-            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>)> =
+            #[allow(clippy::type_complexity)]
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8)> =
                 if ev.pages.is_empty() {
                     vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
-                          &ev.entry, ev.commands.as_slice(), &ev.r#move)]
+                          &ev.entry, ev.commands.as_slice(), &ev.r#move,
+                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0))]
                 } else {
                     ev.pages
                         .iter()
                         .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
-                                  p.dir.as_str(), &p.entry, p.commands.as_slice(), &p.r#move))
+                                  p.dir.as_str(), &p.entry, p.commands.as_slice(),
+                                  &p.r#move, &p.move_route, &p.priority,
+                                  p.speed.unwrap_or(0)))
                         .collect()
                 };
-            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv)) in
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed)) in
                 pages.iter().enumerate()
             {
                 let kind = match *trigger {
@@ -456,12 +472,53 @@ impl<'a> EventCompiler<'a> {
                     Some("random") => 1,
                     Some("vertical") => 2,
                     Some("horizontal") => 3,
+                    Some("custom") => 4,
                     Some(other) => bail!(
                         "event « {} » page {} : mouvement inconnu « {} » \
-                         (static, random, vertical, horizontal)",
+                         (static, random, vertical, horizontal, custom)",
                         ev.name, k + 1, other
                     ),
                 };
+                // Route custom (v0.14) : blob [flags][freq][len][pas...]
+                // émis en QUEUE d'asm (jamais exécuté comme du code)
+                let route_label = if move_type == 4 {
+                    let mr = mroute.as_ref().filter(|v| !v.is_null()).with_context(|| {
+                        format!(
+                            "event « {} » page {} : mouvement « custom » sans move_route",
+                            ev.name, k + 1
+                        )
+                    })?;
+                    let steps = mr["steps"].as_array().with_context(|| {
+                        format!("event « {} » page {} : move_route sans steps", ev.name, k + 1)
+                    })?;
+                    let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
+                    let freq = mr["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
+                    let label = format!("__rt{}p{}_{}", i, k, scene_name);
+                    tail.push(format!("{}:", label));
+                    tail.push(format!(
+                        "  RTBLOB {} {} {} {}",
+                        if mr["repeat"].as_bool().unwrap_or(true) { 1 } else { 0 },
+                        if mr["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        freq,
+                        toks.join(" ")
+                    ));
+                    Some(label)
+                } else {
+                    None
+                };
+                let priority = match prio.as_deref() {
+                    None | Some("same") => 1u8,
+                    Some("below") => 0,
+                    Some("above") => 2,
+                    Some(other) => bail!(
+                        "event « {} » page {} : priorite inconnue « {} » \
+                         (below, same, above)",
+                        ev.name, k + 1, other
+                    ),
+                };
+                if *speed > 4 {
+                    bail!("event « {} » page {} : vitesse {} (1-4)", ev.name, k + 1, speed);
+                }
                 if move_type != 0 && kind != "npc" {
                     bail!(
                         "event « {} » page {} : le mouvement demande le declencheur \
@@ -483,9 +540,13 @@ impl<'a> EventCompiler<'a> {
                     cond_idx,
                     cond_val,
                     move_type,
+                    priority,
+                    speed: *speed,
+                    route_label,
                 });
             }
         }
+        asm.extend(tail);
         Ok((asm, actors, std::mem::take(&mut self.gfx_blocks)))
     }
 }
