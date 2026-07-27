@@ -18,5 +18,9 @@
     "assets/tileset.png",
     "assets/tileset_automne.png",
     "assets/bourg.png"
+  ],
+  "charsets": [
+    "Héros",
+    "Villageois"
   ]
 }

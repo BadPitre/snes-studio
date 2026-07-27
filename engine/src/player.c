@@ -14,12 +14,14 @@
 #include "actors.h"
 #include "vram.h"
 
-/* Feuille de sprites globale (data_assets.c) : frames 16x24, blocs de
-   personnage de 12 frames (modèle RM2003) — joueur = bloc 0, palette OBJ
-   complète (8 palettes, une par bloc) */
-extern const u8 sprite_gfx[];
-extern const u16 sprite_gfx_size;
-extern const u16 sprite_pal[];
+/* Sprite sets (data_assets.c) — compilés PAR SCÈNE par datagen (v0.5) :
+   frames 16x24 en blocs de personnage de 12 (modèle RM2003), seuls les
+   blocs utilisés par la scène sont chargés (slot local s → palette OBJ s,
+   joueur = slot 0). Tables indexées par sprite_set_id (header octet 27) —
+   tableaux de pointeurs : indexation fiable chez tcc (pattern scene_table). */
+extern const u8 *const sprite_chars[];
+extern const u16 *const sprite_chars_sizes[];
+extern const u16 *const sprite_pals[];
 
 /* ids OAM du joueur : 2 OBJs 16x16 empilés (id * 4, structure PVSnesLib) */
 #define PLAYER_OAM_TOP 0
@@ -192,9 +194,12 @@ void player_init(void)
   player.anim_frame = 0;
   player.anim_timer = 0;
 
-  /* Feuille de sprites + CGRAM OBJ complète (8 palettes, une par bloc de
-     personnage), sprites 16x16 par défaut (2 OBJs empilés par frame) */
-  oamInitGfxSet((u8 *)sprite_gfx, sprite_gfx_size, (u8 *)sprite_pal, 128 * 2,
+  /* Sprite set de la scène + CGRAM OBJ complète (une palette par slot de
+     bloc), sprites 16x16 par défaut (2 OBJs empilés par frame). Appelé
+     écran éteint (boot et warps) : transferts sûrs. */
+  oamInitGfxSet((u8 *)sprite_chars[scene_ctx.sprite_set_id],
+                *sprite_chars_sizes[scene_ctx.sprite_set_id],
+                (u8 *)sprite_pals[scene_ctx.sprite_set_id], 128 * 2,
                 0, VRAM_OBJ_GFX, OBJ_SIZE16_L32);
 
   oamSet(PLAYER_OAM_TOP, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);

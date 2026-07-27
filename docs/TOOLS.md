@@ -31,7 +31,7 @@ demo/
   assets/*.png          # tilesets : grille de tiles 16x16, PNG indexé 16 couleurs
   assets/<tileset>.json # sidecar : autotiles + passabilité (solid/above)
   assets/sprites.png    # bande de frames 16x24 en blocs de personnage de 12
-                        # (max 64 frames = 5 blocs), PNG indexé ou RGBA
+                        # (64 blocs max au projet, 5 par scène), PNG indexé ou RGBA
   assets/font.png       # 96 glyphes 8x8 (ASCII 32-127), bande 768x8, PNG indexé
 ```
 
@@ -82,8 +82,9 @@ soundbank (smconv) épinglé en bank $87. La musique du demo (pollen8) vient
 des exemples PVSnesLib — placeholder à remplacer.
 
 `dir` : `down` / `up` / `left` / `right`. `sprite` : index du **bloc de
-personnage** dans la feuille de sprites (12 frames par bloc, modèle RM2003 —
-frame de repos affichée = bloc*12 + dir*3, palette OBJ = bloc).
+personnage** dans la feuille de sprites du projet (12 frames par bloc,
+modèle RM2003). En binaire, datagen le remappe vers le slot local du
+sprite set de la scène (5 blocs max par scène, spec §5).
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
 de 16, max 999 tiles), indices **rangée par rangée** comme la palette
@@ -97,12 +98,17 @@ seul) ; chaque scène peut déclarer `"tileset": "<stem>"` (absent = le
 premier). datagen valide les ids des deux couches contre le tileset de la
 scène. **Feuille de sprites (Phase 6)** : bande de frames **16x24**, en
 **blocs de personnage de 12 frames** (4 directions bas/haut/gauche/droite ×
-3 pas repos/pas A/pas B — modèle charset RM2003), max 64 frames (5 blocs).
-Joueur = bloc 0, `sprite` d'un acteur = index de bloc. Chaque bloc reçoit
-sa palette OBJ (15 couleurs + transparent ; au-delà, fusion automatique des
-plus proches avec avertissement). Chaque frame est rendue par 2 OBJs 16x16
-empilés, ancrés avec 8 px de débord au-dessus de la tile (la tête chevauche
-la tile du dessus). Les tiles destinées à la couche sup doivent avoir un
+3 pas repos/pas A/pas B — modèle charset RM2003). Joueur = bloc 0,
+`sprite` d'un acteur = index de bloc. Le projet peut avoir de nombreux
+blocs (64 max) : datagen compile un **sprite set par scène** (comme les
+tilesets) avec seulement le joueur + les blocs des acteurs de la scène —
+**5 blocs max par scène** (limite VRAM SNES), erreur explicite au-delà.
+Chaque bloc reçoit sa palette OBJ (15 couleurs + transparent ; au-delà,
+fusion automatique des plus proches avec avertissement). Chaque frame est
+rendue par 2 OBJs 16x16 empilés, ancrés avec 8 px de débord au-dessus de
+la tile (la tête chevauche la tile du dessus). `project.json` peut porter
+`"charsets": ["Héros", ...]` — noms des blocs affichés par l'éditeur
+(ignoré par datagen). Les tiles destinées à la couche sup doivent avoir un
 **fond index 0** (transparent) pour laisser voir le sol.
 
 ## Sidecar de tileset (Phase 5c — modèle RPG Maker 2003)
@@ -156,7 +162,7 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- \
 Importe un personnage d'un charset RM2003 (PNG **288x256** = 8 personnages
 de 72x128, ou **72x128** = un seul) vers un **bloc** de la feuille de
 sprites du projet (`assets.sprites`). Arguments : personnage (0-7, en
-lisant par rangées) puis bloc de destination (0-4 ; 0 = joueur). Chaque
+lisant par rangées) puis bloc de destination (0-63 ; 0 = joueur). Chaque
 frame RM2003 24x32 est recadrée en 16x24 (centre-bas) ; l'ordre RM des
 rangées (haut, droite, bas, gauche) et des colonnes (pas gauche, repos,
 pas droit) est recomposé vers le nôtre. La feuille est réécrite en PNG

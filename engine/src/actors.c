@@ -2,9 +2,10 @@
  * actors.c — acteurs de scène (PNJ statiques v0).
  *
  * Tout vient de la table d'acteurs de la scène (spec §1.3) : position en
- * tiles, sprite_id (index de BLOC de personnage dans la feuille OBJ,
- * modèle RM2003), direction. Frame affichée = bloc*12 + dir*3 (repos),
- * palette OBJ = index de bloc. Metasprite 16x24 = 2 OBJs 16x16 empilés.
+ * tiles, sprite_id (SLOT de bloc de personnage dans le sprite set de la
+ * scène — datagen remappe les blocs projet vers les slots locaux, v0.5),
+ * direction. Frame affichée = slot*12 + dir*3 (repos), palette OBJ =
+ * slot. Metasprite 16x24 = 2 OBJs 16x16 empilés.
  */
 #include <snes.h>
 #include "formats.h"

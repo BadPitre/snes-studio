@@ -24,7 +24,8 @@ const RM_COL: [usize; 3] = [1, 0, 2];
 
 const FRAME_W: usize = 16;
 const FRAME_H: usize = 24;
-const MAX_BLOCKS: usize = 5; // 5 blocs x 12 frames = 60 <= 64 frames OBJ
+// Limite PROJET (les sets par scène restent limités à 5 blocs — v0.5)
+const MAX_BLOCKS: usize = 64;
 
 fn write_rgba_png(path: &Path, w: usize, h: usize, rgba: &[u8]) -> Result<()> {
     let file = std::fs::File::create(path)
@@ -54,7 +55,7 @@ fn to_rgba(img: &gfx::IndexedImage) -> Vec<u8> {
 
 pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Result<()> {
     if bloc >= MAX_BLOCKS {
-        bail!("bloc {} : 0-{} (feuille de sprites limitee a 64 frames)", bloc, MAX_BLOCKS - 1);
+        bail!("bloc {} : 0-{} (limite projet)", bloc, MAX_BLOCKS - 1);
     }
     let img = gfx::load_indexed_png(charset)?;
     // Feuille complète (8 personnages) ou personnage seul

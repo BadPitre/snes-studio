@@ -28,8 +28,10 @@
 #define OBJ_BOTTOM_TILE(f) (OBJ_TOP_TILE(f) + 32)
 
 /* Bloc de personnage RM2003 : 12 frames = 4 directions x 3 pas (repos,
-   pas A, pas B). sprite_id d'un acteur = index de bloc ; le bloc b utilise
-   la palette OBJ b. Frame de repos d'une direction : bloc*12 + dir*3. */
+   pas A, pas B). sprite_id d'un acteur = SLOT de bloc dans le sprite set
+   de la scène (v0.5, remappé par datagen) ; le slot s utilise la palette
+   OBJ s, le joueur est toujours le slot 0. Frame de repos : slot*12 +
+   dir*3. */
 #define CHAR_BLOCK_FRAMES 12
 
 /* Le metasprite 16x24 est ancré sur sa tile : l'OBJ haut dépasse de 8 px

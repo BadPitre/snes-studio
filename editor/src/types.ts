@@ -13,6 +13,8 @@ export interface Project {
   };
   musics?: string[]; // chemins .it, l'ordre donne les music_id
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
+  charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
+  // ignoré par datagen) — index = bloc de la feuille de sprites
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -105,9 +107,29 @@ export const DIRECTIONS: Direction[] = ["down", "up", "left", "right"];
 
 // Feuille de sprites 16x24 (Phase 6) : blocs de personnage RM2003 de
 // 12 frames (4 directions × repos/pas A/pas B). sprite d'un acteur = bloc.
-export const SPRITE_BLOCKS_MAX = 5; // 5 blocs × 12 frames = 60 ≤ 64 frames OBJ
+// Les sets sont compilés PAR SCÈNE par datagen (v0.5) : le projet peut
+// avoir beaucoup de blocs, chaque scène en utilise 5 max (joueur inclus).
+export const SCENE_SPRITE_BLOCKS_MAX = 5;
+export const PROJECT_SPRITE_BLOCKS_MAX = 64;
 
 // frame de repos affichée pour un acteur : bloc*12 + direction*3
 export function actorFrame(a: Actor): number {
   return a.sprite * 12 + DIRECTIONS.indexOf(a.dir) * 3;
+}
+
+// nombre de blocs de la feuille de sprites chargée
+export function spriteBlockCount(bmp: ImageBitmap | null): number {
+  return bmp ? Math.max(1, Math.ceil(bmp.width / 16 / 12)) : 1;
+}
+
+// nom d'un bloc de personnage (project.charsets, éditeur seulement)
+export function charsetName(p: Project, b: number): string {
+  return p.charsets?.[b] || (b === 0 ? "Héros" : `Bloc ${b}`);
+}
+
+// blocs de personnage utilisés par une scène (joueur = bloc 0 inclus)
+export function sceneSpriteBlocks(sc: Scene): number[] {
+  const used = new Set<number>([0]);
+  for (const a of sc.actors) used.add(a.sprite);
+  return [...used].sort((x, y) => x - y);
 }

@@ -25,6 +25,8 @@ pub fn build_scene_bank(
     scenes: &[project::Scene],
     grids: &[tileset::SceneGrids],
     set_ids: &[u8],
+    sprite_set_ids: &[u8],
+    sprite_remaps: &[HashMap<u8, u8>],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
@@ -85,6 +87,7 @@ pub fn build_scene_bank(
         write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
         header[23] = sc.warps.len() as u8;
         write_far(&mut header[24..27], BANK_SCENES, upper_ofs);
+        header[27] = sprite_set_ids[i]; // sprite_set_id (v0.5)
         blob.extend_from_slice(&header);
 
         blob.extend_from_slice(&g.lower);
@@ -115,7 +118,9 @@ pub fn build_scene_bank(
             blob.push(0x01); // ACTOR_TYPE_NPC_STATIC
             blob.push(a.x);
             blob.push(a.y);
-            blob.push(a.sprite);
+            // sprite_id binaire = SLOT LOCAL dans le sprite set de la
+            // scène (v0.5) — le bloc global du JSON est remappé ici
+            blob.push(sprite_remaps[i][&a.sprite]);
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
             blob.push(0);

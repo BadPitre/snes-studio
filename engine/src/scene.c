@@ -81,6 +81,7 @@ void scene_load(u8 scene_id)
   scene_ctx.warps = (const WarpDef *)read_far(h + 20);
   scene_ctx.warp_count = h[23];
   scene_ctx.tilemap_upper = read_far(h + 24); /* v0.3 : couche sup */
+  scene_ctx.sprite_set_id = h[27]; /* v0.5 : sprites compilés par scène */
 
   /* Tileset de la scène (chars + palette + table de metatiles) — écran
      éteint, donc transferts DMA sûrs (forced blank). Le remplissage du

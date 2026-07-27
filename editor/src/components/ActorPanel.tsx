@@ -2,13 +2,15 @@
 // charsets RM2003 (feuilles de personnages) vers les blocs de sprites.
 
 import type { Actor, Scene } from "../types";
-import { DIRECTIONS, SPRITE_BLOCKS_MAX } from "../types";
+import { DIRECTIONS, SCENE_SPRITE_BLOCKS_MAX, sceneSpriteBlocks } from "../types";
 import { scriptLabels } from "../state";
 
 interface Props {
   scene: Scene;
   selected: number | null;
   canImport: boolean;
+  blockCount: number; // blocs de la feuille de sprites du projet
+  blockNames: string[];
   onSelect: (i: number | null) => void;
   onUpdate: (i: number, patch: Partial<Actor>) => void;
   onRemove: (i: number) => void;
@@ -19,6 +21,8 @@ export default function ActorPanel({
   scene,
   selected,
   canImport,
+  blockCount,
+  blockNames,
   onSelect,
   onUpdate,
   onRemove,
@@ -26,6 +30,9 @@ export default function ActorPanel({
 }: Props) {
   const labels = scriptLabels(scene.script);
   const a = selected !== null ? scene.actors[selected] : null;
+  // budget SNES : 5 blocs de personnage par scène (joueur inclus)
+  const used = sceneSpriteBlocks(scene).length;
+  const over = used > SCENE_SPRITE_BLOCKS_MAX;
 
   return (
     <div className="panel">
@@ -34,10 +41,18 @@ export default function ActorPanel({
         onClick={onImportCharset}
         disabled={!canImport}
         title="Importer un charset RPG Maker 2003 (PNG 288x256 ou 72x128) dans un bloc de la feuille de sprites"
-        style={{ marginBottom: 10 }}
+        style={{ marginBottom: 6 }}
       >
         Charset RM2003…
       </button>
+      <div
+        className="hint"
+        style={{ marginBottom: 10, color: over ? "#ff7070" : undefined }}
+        title="Chaque scène peut afficher 5 charsets différents max (limite VRAM SNES), héros inclus — le projet n'est pas limité"
+      >
+        Charsets de la scène : {used}/{SCENE_SPRITE_BLOCKS_MAX}
+        {over ? " — trop pour la SNES !" : ""}
+      </div>
       <ul className="actor-list">
         {scene.actors.map((actor, i) => (
           <li
@@ -66,15 +81,14 @@ export default function ActorPanel({
             </select>
           </label>
           <label>
-            Charset (bloc de personnage)
+            Charset (personnage)
             <select
               value={a.sprite}
               onChange={(e) => onUpdate(selected, { sprite: Number(e.target.value) })}
             >
-              {Array.from({ length: SPRITE_BLOCKS_MAX }, (_, b) => (
+              {Array.from({ length: blockCount }, (_, b) => (
                 <option key={b} value={b}>
-                  Bloc {b}
-                  {b === 0 ? " — joueur" : ""}
+                  {blockNames[b] ?? `Bloc ${b}`}
                 </option>
               ))}
             </select>

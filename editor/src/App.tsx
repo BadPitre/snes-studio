@@ -6,7 +6,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Actor, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
-import { assetStem, musicStem, projectTilesets } from "./types";
+import {
+  assetStem,
+  charsetName,
+  musicStem,
+  projectTilesets,
+  spriteBlockCount,
+} from "./types";
 import {
   canWriteFiles,
   importTilesetPng,
@@ -16,7 +22,12 @@ import {
   loadProject,
   pickPngFile,
   pickProjectDir,
+  pickSavePath,
+  readBinaryFile,
+  removePath,
+  renamePath,
   saveProject,
+  writeBinaryFile,
 } from "./io";
 import { runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
@@ -48,6 +59,7 @@ import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
+import ResourceManagerModal from "./components/ResourceManagerModal";
 
 type Tab = "scene" | "actors" | "warps" | "script" | "texts";
 
@@ -82,6 +94,8 @@ export default function App() {
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
+  // gestionnaire de ressources (façon RM2003)
+  const [showResources, setShowResources] = useState(false);
   // hauteur de la palette (séparateur palette / arborescence, persisté)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
@@ -103,6 +117,25 @@ export default function App() {
   const emptyMeta: TilesetMeta = { autotiles: [], solid: [], above: [] };
   const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
   const autotiles = autoImgs[tsStem] ?? [];
+
+  // Blocs de personnage de la feuille de sprites (v0.5 : le projet n'est
+  // plus limité — datagen compile un set par scène, 5 blocs max chacune)
+  const spriteBlocks = spriteBlockCount(sprites);
+  const blockNames = data
+    ? Array.from({ length: spriteBlocks }, (_, b) => charsetName(data.project, b))
+    : [];
+  // ressource → scènes qui l'utilisent (suppression bloquée si utilisé)
+  const usedCharsets: Record<number, string[]> = {};
+  const usedChipsets: Record<string, string[]> = {};
+  if (data) {
+    for (const [n, sc] of Object.entries(data.scenes)) {
+      for (const a of sc.actors) {
+        (usedCharsets[a.sprite] ??= []).includes(n) || usedCharsets[a.sprite].push(n);
+      }
+      const stem = sc.tileset ?? tilesetNames[0];
+      (usedChipsets[stem] ??= []).push(n);
+    }
+  }
 
   // (re)chargement complet du projet depuis le disque
   async function reloadProject(root: string, keepScene?: string) {
@@ -189,13 +222,21 @@ export default function App() {
     }
   }
 
-  async function doImportCharset(perso: number, bloc: number) {
+  async function doImportCharset(perso: number, bloc: number, name: string) {
     if (!data || !charsetImport) return;
     const root = data.root;
     const scene = sceneName;
     setCharsetImport(null);
     try {
-      await saveProject(data); // l'import réécrit assets/sprites.png sur disque
+      // le nom du personnage part dans project.json (charsets[bloc]) avant
+      // la sauvegarde — l'import CLI ne réécrit que assets/sprites.png
+      const charsets = Array.from(
+        { length: Math.max(spriteBlocks, bloc + 1) },
+        (_, i) => data.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
+      );
+      if (name) charsets[bloc] = name;
+      const d2 = { ...data, project: { ...data.project, charsets } };
+      await saveProject(d2);
       setStatus("Import du charset…");
       const res = await runImportCharset(root, charsetImport.path, perso, bloc);
       if (!res.ok) {
@@ -203,9 +244,216 @@ export default function App() {
         return;
       }
       await reloadProject(root, scene);
-      setStatus(`Charset importé : personnage ${perso} → bloc ${bloc}`);
+      setStatus(`Charset importé : « ${name || charsets[bloc]} » (bloc ${bloc})`);
     } catch (e) {
       setStatus(`Import charset : ${e}`);
+    }
+  }
+
+  // ---- Gestionnaire de ressources (façon RM2003) --------------------------
+
+  async function exportCharset(b: number) {
+    if (!data || !sprites) return;
+    const path = await pickSavePath(
+      "Exporter le charset (format RM2003, 72x128)",
+      `${blockNames[b] ?? "charset"}.png`
+    );
+    if (!path) return;
+    try {
+      // recomposition d'une feuille RM2003 d'un personnage : nos frames
+      // 16x24 recollées au centre-bas des cases 24x32, ordre RM des
+      // rangées (haut, droite, bas, gauche) et colonnes (gauche, repos, droit)
+      const RM_ROW = [2, 0, 3, 1];
+      const RM_COL = [1, 0, 2];
+      const cv = new OffscreenCanvas(72, 128);
+      const ctx = cv.getContext("2d")!;
+      for (let d = 0; d < 4; d++) {
+        for (let s = 0; s < 3; s++) {
+          const f = b * 12 + d * 3 + s;
+          if ((f + 1) * 16 > sprites.width) continue;
+          ctx.drawImage(
+            sprites, f * 16, 0, 16, 24,
+            RM_COL[s] * 24 + 4, RM_ROW[d] * 32 + 8, 16, 24
+          );
+        }
+      }
+      const blob = await cv.convertToBlob({ type: "image/png" });
+      await writeBinaryFile(path, new Uint8Array(await blob.arrayBuffer()));
+      setStatus(`Charset exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export charset : ${e}`);
+    }
+  }
+
+  async function exportChipset(stem: string) {
+    if (!data) return;
+    const rel = tilesetPaths[tilesetNames.indexOf(stem)];
+    if (!rel) return;
+    const path = await pickSavePath("Exporter le tileset (grille PNG)", `${stem}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Tileset exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export tileset : ${e}`);
+    }
+  }
+
+  function renameCharset(b: number, name: string) {
+    mutate((d) => {
+      const charsets = Array.from(
+        { length: Math.max(spriteBlocks, b + 1) },
+        (_, i) => d.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
+      );
+      charsets[b] = name;
+      return { ...d, project: { ...d.project, charsets } };
+    });
+  }
+
+  async function renameChipset(oldStem: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === oldStem) return;
+    if (tilesetNames.includes(newStem)) {
+      setStatus(`Renommage : le tileset « ${newStem} » existe déjà`);
+      return;
+    }
+    const root = data.root;
+    const keep = sceneName;
+    const oldRel = tilesetPaths[tilesetNames.indexOf(oldStem)];
+    const newRel = oldRel.replace(/[^\\/]+$/, `${newStem}.png`);
+    try {
+      // fichiers : la grille est renommée, l'ancien sidecar retiré (le
+      // nouveau est réécrit par la sauvegarde), les refs mises à jour
+      const scenes = Object.fromEntries(
+        Object.entries(data.scenes).map(([n, sc]) => [
+          n,
+          sc.tileset === oldStem ? { ...sc, tileset: newStem } : sc,
+        ])
+      );
+      const tilesets = projectTilesets(data.project).map((p) => (p === oldRel ? newRel : p));
+      const tsMeta = { ...data.tilesetMeta };
+      if (tsMeta[oldStem]) {
+        tsMeta[newStem] = tsMeta[oldStem];
+        delete tsMeta[oldStem];
+      }
+      const assets =
+        data.project.assets.tileset === oldRel
+          ? { ...data.project.assets, tileset: newRel }
+          : data.project.assets;
+      const d2: ProjectData = {
+        ...data,
+        scenes,
+        tilesetMeta: tsMeta,
+        project: { ...data.project, tilesets, assets },
+      };
+      await renamePath(`${root}/${oldRel}`, `${root}/${newRel}`);
+      try {
+        await removePath(`${root}/${oldRel.replace(/\.[^.]+$/, ".json")}`);
+      } catch {
+        /* pas de sidecar */
+      }
+      await saveProject(d2);
+      await reloadProject(root, keep);
+      setStatus(`Tileset renommé : ${oldStem} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteCharset(b: number) {
+    if (!data || !sprites || b === 0 || (usedCharsets[b] ?? []).length > 0) return;
+    if (
+      !confirm(
+        `Supprimer le personnage « ${blockNames[b]} » ?\nLes personnages suivants seront décalés d'un bloc.`
+      )
+    )
+      return;
+    const root = data.root;
+    const keep = sceneName;
+    try {
+      // bande réécrite sans les 12 frames du bloc
+      const cut0 = b * 12 * 16;
+      const cut1 = Math.min((b + 1) * 12 * 16, sprites.width);
+      const w2 = sprites.width - (cut1 - cut0);
+      const cv = new OffscreenCanvas(w2, 24);
+      const ctx = cv.getContext("2d")!;
+      ctx.drawImage(sprites, 0, 0, cut0, 24, 0, 0, cut0, 24);
+      if (cut1 < sprites.width) {
+        const w = sprites.width - cut1;
+        ctx.drawImage(sprites, cut1, 0, w, 24, cut0, 0, w, 24);
+      }
+      const blob = await cv.convertToBlob({ type: "image/png" });
+      const scenes = Object.fromEntries(
+        Object.entries(data.scenes).map(([n, sc]) => [
+          n,
+          {
+            ...sc,
+            actors: sc.actors.map((a) => (a.sprite > b ? { ...a, sprite: a.sprite - 1 } : a)),
+          },
+        ])
+      );
+      const charsets = blockNames.filter((_, i) => i !== b);
+      const d2 = { ...data, scenes, project: { ...data.project, charsets } };
+      await saveProject(d2);
+      await writeBinaryFile(
+        `${root}/${data.project.assets.sprites}`,
+        new Uint8Array(await blob.arrayBuffer())
+      );
+      await reloadProject(root, keep);
+      setStatus(`Personnage supprimé : « ${blockNames[b]} »`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
+  async function deleteChipset(stem: string) {
+    if (!data || (usedChipsets[stem] ?? []).length > 0 || tilesetNames.length <= 1) return;
+    if (!confirm(`Supprimer le tileset « ${stem} » et ses fichiers (grille, sidecar, autotiles) ?`))
+      return;
+    const root = data.root;
+    const keep = sceneName;
+    try {
+      const rel = tilesetPaths[tilesetNames.indexOf(stem)];
+      const tsMeta = data.tilesetMeta[stem];
+      // autotiles partagés avec un autre tileset : conservés
+      const shared = new Set(
+        Object.entries(data.tilesetMeta)
+          .filter(([k]) => k !== stem)
+          .flatMap(([, m]) => m.autotiles)
+      );
+      const tilesets = projectTilesets(data.project).filter((p) => p !== rel);
+      const metaCopy = { ...data.tilesetMeta };
+      delete metaCopy[stem];
+      const assets =
+        data.project.assets.tileset === rel
+          ? { ...data.project.assets, tileset: tilesets[0] }
+          : data.project.assets;
+      const d2: ProjectData = {
+        ...data,
+        tilesetMeta: metaCopy,
+        project: { ...data.project, tilesets, assets },
+      };
+      await saveProject(d2);
+      for (const f of [rel, rel.replace(/\.[^.]+$/, ".json")]) {
+        try {
+          await removePath(`${root}/${f}`);
+        } catch {
+          /* déjà absent */
+        }
+      }
+      for (const a of tsMeta?.autotiles ?? []) {
+        if (shared.has(a)) continue;
+        try {
+          await removePath(`${root}/${a}`);
+        } catch {
+          /* déjà absent */
+        }
+      }
+      await reloadProject(root, keep);
+      setStatus(`Tileset supprimé : « ${stem} »`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
     }
   }
 
@@ -546,26 +794,13 @@ export default function App() {
             </button>
           </span>
         )}
-        {data && scene && (
-          <label title="Musique de la scène">
-            ♪
-            <select
-              value={scene.music ?? ""}
-              onChange={(e) =>
-                setScene((sc) => ({
-                  ...sc,
-                  music: e.target.value === "" ? undefined : e.target.value,
-                }))
-              }
-            >
-              <option value="">aucune</option>
-              {(data.project.musics ?? []).map((m) => (
-                <option key={m} value={musicStem(m)}>
-                  {musicStem(m)}
-                </option>
-              ))}
-            </select>
-          </label>
+        {data && (
+          <button
+            onClick={() => setShowResources(true)}
+            title="Gestionnaire de ressources (charsets, chipsets) — importer, exporter, renommer, supprimer"
+          >
+            🗂 Ressources
+          </button>
         )}
         <label>
           <input
@@ -694,9 +929,11 @@ export default function App() {
                 scene={scene}
                 tilesetNames={tilesetNames}
                 current={tsStem}
+                musicNames={(data.project.musics ?? []).map(musicStem)}
                 canImport={canWriteFiles()}
                 passMode={passMode}
                 onSelectTileset={setSceneTileset}
+                onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
                 onImport={importTileset}
                 onImportChipset={importChipset}
                 onPassMode={setPassMode}
@@ -708,6 +945,8 @@ export default function App() {
                 scene={scene}
                 selected={selActor}
                 canImport={canWriteFiles()}
+                blockCount={spriteBlocks}
+                blockNames={blockNames}
                 onImportCharset={importCharset}
                 onSelect={setSelActor}
                 onUpdate={(i, patch: Partial<Actor>) => setScene((sc) => updateActor(sc, i, patch))}
@@ -761,9 +1000,34 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+      {showResources && data && (
+        <ResourceManagerModal
+          tilesetNames={tilesetNames}
+          tilesets={tilesets}
+          sprites={sprites}
+          blockCount={spriteBlocks}
+          blockNames={blockNames}
+          usedCharsets={usedCharsets}
+          usedChipsets={usedChipsets}
+          canWrite={canWriteFiles()}
+          onImportCharset={importCharset}
+          onImportChipset={importChipset}
+          onExportCharset={exportCharset}
+          onExportChipset={exportChipset}
+          onRenameCharset={renameCharset}
+          onRenameChipset={renameChipset}
+          onDeleteCharset={deleteCharset}
+          onDeleteChipset={deleteChipset}
+          onClose={() => setShowResources(false)}
+        />
+      )}
+      {/* rendu APRÈS le gestionnaire de ressources : s'empile au-dessus */}
       {charsetImport && (
         <CharsetImportModal
           bitmap={charsetImport.bmp}
+          blockCount={spriteBlocks}
+          blockNames={blockNames}
+          defaultBloc={Math.min(spriteBlocks, 63)}
           onImport={doImportCharset}
           onClose={() => setCharsetImport(null)}
         />

@@ -24,6 +24,8 @@ typedef struct
   u8 music_id;   /* index soundbank, MUSIC_NONE = silence */
   u8 tileset_id; /* gfx_set_id : index dans les tables gfx_* (data_assets.c,
                     gfx compilés par scène — v0.4) */
+  u8 sprite_set_id; /* index dans les tables sprite_* (sprites compilés par
+                       scène — v0.5, header octet 27) */
   u8 player_start_x, player_start_y;
 } SceneCtx;
 

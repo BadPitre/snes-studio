@@ -183,41 +183,48 @@ impl IndexedImage {
         out
     }
 
-    /// Feuille de sprites 16x24 (Phase 6, modèle charset RM2003) : bande de
-    /// frames 16x24, groupées en blocs de personnage de 12 frames
-    /// (4 directions × 3 : repos, pas A, pas B). Chaque frame est rendue par
-    /// 2 OBJs 16x16 empilés — en VRAM, un groupe de 8 frames occupe 4
-    /// rangées de 16 chars : rangées 0-1 = moitiés hautes, rangées 2-3 =
-    /// moitiés basses (les 8 dernières lignes, vides, restent à 0).
-    /// OBJ haut de la frame f : char ((f&0xF8)<<3)|((f&7)<<1) ; bas : +32.
-    ///
-    /// Chaque bloc reçoit SA palette OBJ (bloc b → palette b, max 8 blocs) :
-    /// les couleurs du bloc sont ré-indexées localement (1..15, 0 =
-    /// transparent) ; au-delà de 15 couleurs, fusion des plus proches avec
-    /// avertissement (jamais d'échec).
-    ///
-    /// Retourne (chars 4bpp, CGRAM OBJ complète 8x16 couleurs, nb de blocs).
-    pub fn to_obj_sheet(&self) -> Result<(Vec<u8>, Vec<u16>, usize)> {
+    /// Nombre de blocs de personnage de la feuille (12 frames 16x24 par
+    /// bloc, modèle charset RM2003) — valide aussi le format de la bande.
+    pub fn sprite_blocks(&self) -> Result<usize> {
         if self.height != 24 || self.width % 16 != 0 {
             bail!(
                 "sprites : attendu une bande de frames 16x24 (hauteur 24) — \
                  blocs de 12 frames (4 directions x 3, modele RM2003)"
             );
         }
+        Ok((self.width / 16).div_ceil(12))
+    }
+
+    /// Feuille OBJ d'un SET de sprites (v0.5, compilé par scène comme les
+    /// tilesets) : `blocks` liste les blocs de personnage du projet à
+    /// embarquer (max 5 — le slot local s reçoit le bloc global blocks[s]).
+    /// Chaque frame 16x24 est rendue par 2 OBJs 16x16 empilés — en VRAM,
+    /// un groupe de 8 frames occupe 4 rangées de 16 chars : rangées 0-1 =
+    /// moitiés hautes, rangées 2-3 = moitiés basses (les 8 dernières
+    /// lignes, vides, restent à 0). OBJ haut de la frame locale f :
+    /// char ((f&0xF8)<<3)|((f&7)<<1) ; bas : +32.
+    ///
+    /// Chaque slot reçoit SA palette OBJ (slot s → palette s) : les
+    /// couleurs du bloc sont ré-indexées localement (1..15, 0 =
+    /// transparent) ; au-delà de 15 couleurs, fusion des plus proches avec
+    /// avertissement (jamais d'échec).
+    ///
+    /// Retourne (chars 4bpp, CGRAM OBJ complète 8x16 couleurs).
+    pub fn to_obj_sheet(&self, blocks: &[usize]) -> Result<(Vec<u8>, Vec<u16>)> {
+        let total_blocks = self.sprite_blocks()?;
         let frames = self.width / 16;
-        if frames > 64 {
-            bail!("sprites : 64 frames max (8 blocs de personnage)");
-        }
-        let blocks = frames.div_ceil(12);
-        if blocks > 8 {
-            bail!("sprites : 8 blocs de personnage max (une palette OBJ chacun)");
+        if blocks.len() > 5 {
+            bail!("sprites : 5 blocs de personnage max par set (60 frames OBJ)");
         }
 
-        // Palette + ré-indexation par bloc : couleurs BGR555 distinctes des
+        // Palette + ré-indexation par slot : couleurs BGR555 distinctes des
         // frames du bloc (index source 0 = transparent, convention inchangée)
         let mut pal = vec![0u16; 128];
         let mut remaps: Vec<[u8; 256]> = Vec::new();
-        for b in 0..blocks {
+        for (s, &b) in blocks.iter().enumerate() {
+            if b >= total_blocks {
+                bail!("sprites : bloc {} hors feuille ({} bloc(s))", b, total_blocks);
+            }
             let f0 = b * 12;
             let f1 = ((b + 1) * 12).min(frames);
             // fréquence par couleur BGR555 (ordre d'apparition stable)
@@ -283,31 +290,39 @@ impl IndexedImage {
                 }
             }
             for (k, &(c, _)) in colors.iter().enumerate() {
-                pal[b * 16 + 1 + k] = c;
+                pal[s * 16 + 1 + k] = c;
             }
             remaps.push(remap);
         }
 
-        // Chars : groupes de 8 frames = 4 rangées de 16 chars
+        // Chars : groupes de 8 frames locales = 4 rangées de 16 chars.
+        // La frame locale s*12+i vient de la frame source blocks[s]*12+i
+        // (blanche si le dernier bloc de la feuille est incomplet).
         let blank = [0u8; 32];
         let mut out = Vec::new();
-        let groups = frames.div_ceil(8);
+        let local_frames = blocks.len() * 12;
+        let groups = local_frames.div_ceil(8);
         for p in 0..groups {
             for part in 0..4 {
                 for i in 0..8 {
                     let f = p * 8 + i;
-                    if f >= frames || part == 3 {
+                    let src = if f < local_frames {
+                        blocks[f / 12] * 12 + f % 12
+                    } else {
+                        frames // hors feuille → blanc
+                    };
+                    if src >= frames || part == 3 {
                         out.extend_from_slice(&blank);
                         out.extend_from_slice(&blank);
                         continue;
                     }
                     let remap = &remaps[f / 12];
-                    out.extend_from_slice(&self.char4bpp_mapped(f * 16, part * 8, remap));
-                    out.extend_from_slice(&self.char4bpp_mapped(f * 16 + 8, part * 8, remap));
+                    out.extend_from_slice(&self.char4bpp_mapped(src * 16, part * 8, remap));
+                    out.extend_from_slice(&self.char4bpp_mapped(src * 16 + 8, part * 8, remap));
                 }
             }
         }
-        Ok((out, pal, blocks))
+        Ok((out, pal))
     }
 
     /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du

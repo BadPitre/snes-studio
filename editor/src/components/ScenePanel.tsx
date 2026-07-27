@@ -9,9 +9,11 @@ interface Props {
   scene: Scene;
   tilesetNames: string[]; // stems, ordre = tileset_id
   current: string; // stem du tileset de la scène
+  musicNames: string[]; // stems des modules du projet
   canImport: boolean;
   passMode: boolean;
   onSelectTileset: (stem: string) => void;
+  onSelectMusic: (stem: string | undefined) => void;
   onImport: () => void;
   onImportChipset: () => void;
   onPassMode: (on: boolean) => void;
@@ -72,6 +74,24 @@ export default function ScenePanel(props: Props) {
         >
           Passabilité O/X/☆
         </button>
+      </div>
+
+      <div className="palette-title">Musique</div>
+      <div className="scene-section">
+        <select
+          value={scene.music ?? ""}
+          onChange={(e) =>
+            props.onSelectMusic(e.target.value === "" ? undefined : e.target.value)
+          }
+          title="Musique de la scène (modules du projet)"
+        >
+          <option value="">— aucune —</option>
+          {props.musicNames.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="palette-title">Redimensionner</div>

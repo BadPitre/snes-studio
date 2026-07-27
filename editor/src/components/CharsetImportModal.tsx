@@ -1,21 +1,28 @@
 // Import d'un charset RPG Maker 2003 : aperçu de la feuille (288x256 =
-// 8 personnages, ou 72x128 = un seul), choix du personnage au clic et du
-// bloc de destination dans la feuille de sprites du projet.
+// 8 personnages, ou 72x128 = un seul), choix du personnage au clic, du
+// bloc de destination (existant ou nouveau) et du nom du personnage.
 
 import { useEffect, useRef, useState } from "react";
-import { SPRITE_BLOCKS_MAX } from "../types";
+import { PROJECT_SPRITE_BLOCKS_MAX } from "../types";
 
 interface Props {
   bitmap: ImageBitmap; // 288x256 ou 72x128 (déjà validé)
-  onImport: (perso: number, bloc: number) => void;
+  blockCount: number; // blocs existants dans la feuille de sprites
+  blockNames: string[]; // noms affichés (index = bloc)
+  defaultBloc: number;
+  onImport: (perso: number, bloc: number, name: string) => void;
   onClose: () => void;
 }
 
-export default function CharsetImportModal({ bitmap, onImport, onClose }: Props) {
+export default function CharsetImportModal(props: Props) {
+  const { bitmap, blockCount, blockNames, onImport, onClose } = props;
   const full = bitmap.width === 288; // sinon : un personnage seul
   const [perso, setPerso] = useState(0);
-  const [bloc, setBloc] = useState(1);
+  const [bloc, setBloc] = useState(props.defaultBloc);
+  const [name, setName] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // destinations : blocs existants + « nouveau bloc » en fin de feuille
+  const choices = Math.min(blockCount + 1, PROJECT_SPRITE_BLOCKS_MAX);
 
   useEffect(() => {
     const cv = canvasRef.current;
@@ -59,16 +66,25 @@ export default function CharsetImportModal({ bitmap, onImport, onClose }: Props)
         <label>
           Bloc de destination (dans la feuille de sprites)
           <select value={bloc} onChange={(e) => setBloc(Number(e.target.value))}>
-            {Array.from({ length: SPRITE_BLOCKS_MAX }, (_, b) => (
+            {Array.from({ length: choices }, (_, b) => (
               <option key={b} value={b}>
-                Bloc {b}
-                {b === 0 ? " — joueur" : ""}
+                {b >= blockCount
+                  ? `Bloc ${b} — nouveau`
+                  : `Bloc ${b} — ${blockNames[b] ?? ""}`}
               </option>
             ))}
           </select>
         </label>
+        <label>
+          Nom du personnage (facultatif)
+          <input
+            value={name}
+            placeholder={blockNames[bloc] ?? `Bloc ${bloc}`}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
         <div className="row">
-          <button onClick={() => onImport(perso, bloc)}>Importer</button>
+          <button onClick={() => onImport(perso, bloc, name.trim())}>Importer</button>
           <button onClick={onClose}>Annuler</button>
         </div>
       </div>

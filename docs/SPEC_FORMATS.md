@@ -103,7 +103,8 @@ Offset  Taille  Champ
 23      1       warp_count      (u8)
 24      3       ptr_tilemap_upper (far) — couche SUPÉRIEURE (v0.3, Phase 5c ;
                                         cellule vide = id du metatile transparent)
-27      1       reserved        (u8)
+27      1       sprite_set_id   (u8)  — index dans les tables sprite_*
+                                        générées (v0.5 ; avant : réservé)
 ```
 
 *Évolution v0 → v0.2 (Phase 4) : header étendu de 20 à 24 octets avec la
@@ -124,6 +125,12 @@ warp, comme la musique.*
 gfx (chars, metatiles, priorités, palettes) sont compilés PAR SCÈNE (§0.3),
 les valeurs du tilemap sont des ids LOCAUX au set de la scène.*
 
+*Évolution v0.4 → v0.5 (Phase 6) : l'octet 27 devient `sprite_set_id` —
+les sprites (chars OBJ + palettes) sont compilés PAR SCÈNE comme les
+tilesets : seuls les blocs de personnage utilisés par la scène (joueur
+inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
+vers le slot local (§1.3, §5).*
+
 ### 1.3 Entrée acteur (8 octets par acteur)
 
 ```
@@ -131,7 +138,10 @@ Offset  Taille  Champ
 0       1       actor_type    (u8)  — 0x01 = PNJ statique (seul type en v0)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
-3       1       sprite_id     (u8)  — index de BLOC de personnage (§5, v0.5)
+3       1       sprite_id     (u8)  — SLOT de bloc de personnage dans le
+                                      sprite set de la scène (§5, v0.5 —
+                                      datagen remappe le bloc projet du
+                                      JSON vers le slot local, joueur = 0)
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
 7       1       reserved      (u8)
@@ -331,29 +341,37 @@ deviendront des paramètres générés quand les outils Rust existeront) :
 - layout VRAM (`vram.h`) et constantes hardware (écran 256x224, tiles 16 px,
   wrap BG 64 chars).
 
-**Feuille de sprites globale (v0.5, modèle charset RM2003)** : asset global
-dans `data_assets.c` (`sprite_gfx[]` / `sprite_pal[]`), bande de **frames
-16x24** 4bpp, organisée en **blocs de personnage de 12 frames** :
-4 directions (0=bas 1=haut 2=gauche 3=droite) × 3 pas (repos, pas A, pas B).
-Maximum 64 frames (5 blocs complets). Le joueur est le bloc 0.
+**Sprites compilés par scène (v0.5, modèle charset RM2003)** : la feuille
+source du projet (`assets.sprites`) est une bande de **frames 16x24**,
+organisée en **blocs de personnage de 12 frames** : 4 directions (0=bas
+1=haut 2=gauche 3=droite) × 3 pas (repos, pas A, pas B). Le joueur est le
+bloc 0. Le projet peut avoir de nombreux blocs — datagen compile, pour
+chaque scène, un **sprite set** ne contenant que le bloc joueur + les
+blocs de ses acteurs (**5 blocs max par scène**, sinon erreur), dédupliqué
+entre scènes identiques. Tables générées `sprite_chars[]` /
+`sprite_chars_sizes[]` / `sprite_pals[]` (`data_assets.c`), indexées par
+`sprite_set_id` (header octet 27) ; chargées en VRAM/CGRAM au boot et à
+chaque warp, écran éteint.
 
 - **Metasprite** : une frame = 2 OBJs 16x16 empilés, ancrés sur la tile de
   l'entité avec **8 px de débord au-dessus** (la tête chevauche la tile du
   dessus, comme dans RM2003). Une tile ☆ de la couche sup passe devant.
-- **Layout VRAM OBJ** : un groupe de 8 frames = 4 rangées de 16 chars
-  (rangées 0-1 : moitiés hautes 16x16, rangées 2-3 : moitiés basses — les
-  8 dernières lignes de la frame sont vides). OBJ haut de la frame f :
-  tile `((f&0xF8)<<3) | ((f&7)<<1)` ; OBJ bas : `+32`.
-- **Palettes OBJ** : le bloc b utilise la palette OBJ b — datagen ré-indexe
-  les couleurs de chaque bloc (15 max + transparent, fusion des plus
-  proches au-delà, avec avertissement) et émet la CGRAM OBJ complète
-  (couleurs 128-255).
+- **Layout VRAM OBJ** (frames LOCALES au set, 60 max) : un groupe de 8
+  frames = 4 rangées de 16 chars (rangées 0-1 : moitiés hautes 16x16,
+  rangées 2-3 : moitiés basses — les 8 dernières lignes de la frame sont
+  vides). OBJ haut de la frame f : tile `((f&0xF8)<<3) | ((f&7)<<1)` ;
+  OBJ bas : `+32`.
+- **Palettes OBJ** : le slot s du set utilise la palette OBJ s — datagen
+  ré-indexe les couleurs de chaque bloc (15 max + transparent, fusion des
+  plus proches au-delà, avec avertissement) et émet la CGRAM OBJ complète
+  (couleurs 128-255) par set.
 - **Cycle de marche** : phase 0-3 → pas affiché repos, A, repos, B (avance
   toutes les 8 frames de mouvement).
 
-**Convention metasprite (v0.5) :** le `sprite_id` d'un acteur est l'index
-de son **bloc de personnage** ; la frame de repos affichée est
-`sprite_id*12 + direction*3`, avec la palette OBJ `sprite_id`.
+**Convention metasprite (v0.5) :** le `sprite_id` binaire d'un acteur est
+le **slot local** de son bloc dans le sprite set de la scène (le JSON
+source déclare le bloc projet ; datagen remappe) ; la frame de repos
+affichée est `sprite_id*12 + direction*3`, avec la palette OBJ `sprite_id`.
 
 **Interaction (semaine 3)** : bouton A + acteur sur la tile face au joueur →
 `actor_interact()`. Effet provisoire jalon S3 : bascule de la couleur 2 de la
