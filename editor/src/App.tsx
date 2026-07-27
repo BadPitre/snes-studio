@@ -39,14 +39,14 @@ import SettingsModal from "./components/SettingsModal";
 import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
-import ResizeSceneModal from "./components/ResizeSceneModal";
+import ScenePanel from "./components/ScenePanel";
 import ActorPanel from "./components/ActorPanel";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
 
-type Tab = "actors" | "warps" | "script" | "texts";
+type Tab = "scene" | "actors" | "warps" | "script" | "texts";
 
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
@@ -64,14 +64,13 @@ export default function App() {
     emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
   }));
   const [playing, setPlaying] = useState(false);
-  const [tab, setTab] = useState<Tab>("actors");
+  const [tab, setTab] = useState<Tab>("scene");
   const [selActor, setSelActor] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
-  const [showResize, setShowResize] = useState(false);
   const [building, setBuilding] = useState(false);
 
   const history = useHistory();
@@ -450,13 +449,6 @@ export default function App() {
             </select>
             <button onClick={() => setShowNewScene(true)}>+ Scène</button>
             <button
-              onClick={() => setShowResize(true)}
-              disabled={!scene}
-              title="Redimensionner cette scène"
-            >
-              Redim.
-            </button>
-            <button
               onClick={setBootScene}
               disabled={!sceneName || sceneName === data.project.boot_scene}
               title="Définir comme scène de boot"
@@ -531,19 +523,12 @@ export default function App() {
             tileset={tileset}
             autotiles={autotiles}
             meta={meta}
-            tilesetNames={tilesetNames}
-            current={tsStem}
-            canImport={canWriteFiles()}
             tool={tool}
             layer={layer}
             passMode={passMode}
             drawMode={drawMode}
             onTool={setTool}
             onDrawMode={setDrawMode}
-            onSelectTileset={setSceneTileset}
-            onImport={importTileset}
-            onImportChipset={importChipset}
-            onPassMode={setPassMode}
             onCyclePassability={cyclePass}
           />
           <div className="map-scroll">
@@ -569,6 +554,9 @@ export default function App() {
           </div>
           <div className="sidebar">
             <div className="tabs">
+              <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
+                Scène
+              </button>
               <button className={tab === "actors" ? "active" : ""} onClick={() => setTab("actors")}>
                 Acteurs
               </button>
@@ -582,6 +570,20 @@ export default function App() {
                 Textes
               </button>
             </div>
+            {tab === "scene" && (
+              <ScenePanel
+                scene={scene}
+                tilesetNames={tilesetNames}
+                current={tsStem}
+                canImport={canWriteFiles()}
+                passMode={passMode}
+                onSelectTileset={setSceneTileset}
+                onImport={importTileset}
+                onImportChipset={importChipset}
+                onPassMode={setPassMode}
+                onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
+              />
+            )}
             {tab === "actors" && (
               <ActorPanel
                 scene={scene}
@@ -635,17 +637,6 @@ export default function App() {
           config={playCfg}
           onSave={savePlayCfg}
           onClose={() => setShowSettings(false)}
-        />
-      )}
-      {showResize && scene && (
-        <ResizeSceneModal
-          width={scene.width}
-          height={scene.height}
-          onResize={(w, h) => {
-            setScene((sc) => resizeScene(sc, w, h));
-            setShowResize(false);
-          }}
-          onClose={() => setShowResize(false)}
         />
       )}
     </div>

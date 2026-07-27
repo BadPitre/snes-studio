@@ -22,19 +22,12 @@ interface Props {
   tileset: ImageBitmap | null;
   autotiles: ImageBitmap[];
   meta: TilesetMeta;
-  tilesetNames: string[]; // stems, ordre = tileset_id
-  current: string; // stem du tileset de la scène
-  canImport: boolean;
   tool: Tool;
   layer: Layer;
   passMode: boolean;
   drawMode: DrawMode;
   onTool: (t: Tool) => void;
   onDrawMode: (m: DrawMode) => void;
-  onSelectTileset: (stem: string) => void;
-  onImport: () => void;
-  onImportChipset: () => void;
-  onPassMode: (on: boolean) => void;
   onCyclePassability: (id: number) => void;
 }
 
@@ -179,39 +172,18 @@ export default function TilePalette(props: Props) {
 
   return (
     <div className="palette">
-      <div className="palette-title">Tileset</div>
-      <div className="palette-tileset">
-        <select
-          value={props.current}
-          onChange={(e) => props.onSelectTileset(e.target.value)}
-          title="Tileset de la scène"
-        >
-          {props.tilesetNames.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        {props.canImport && (
-          <button onClick={props.onImport} title="Importer un PNG de tileset dans le projet">
-            Importer…
-          </button>
-        )}
-        {props.canImport && (
+      <div className="palette-title">Dessin</div>
+      <div className="draw-modes">
+        {DRAW_MODES.map((d) => (
           <button
-            onClick={props.onImportChipset}
-            title="Importer un chipset RPG Maker 2003 (PNG 480x256) : tiles, autotiles et couches découpés automatiquement"
+            key={d.mode}
+            className={props.drawMode === d.mode ? "active" : ""}
+            onClick={() => props.onDrawMode(d.mode)}
+            title={d.hint}
           >
-            Chipset RM2003…
+            {d.label}
           </button>
-        )}
-        <button
-          className={passMode ? "active" : ""}
-          onClick={() => props.onPassMode(!passMode)}
-          title="Éditer la passabilité des tiles : O passable, X solide, ☆ au-dessus du héros"
-        >
-          Passabilité O/X/☆
-        </button>
+        ))}
       </div>
       <div className="palette-title">Tiles</div>
       <canvas
@@ -243,20 +215,6 @@ export default function TilePalette(props: Props) {
           onTool({ kind: "tile", tiles: rectTiles(r) });
         }}
       />
-      <div className="palette-title">Dessin</div>
-      <div className="draw-modes">
-        {DRAW_MODES.map((d) => (
-          <button
-            key={d.mode}
-            className={props.drawMode === d.mode ? "active" : ""}
-            onClick={() => props.onDrawMode(d.mode)}
-            title={d.hint}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
-      <p className="hint">Clic droit sur la map : pipette (glisser = copier un bloc)</p>
       <div className="palette-title">Outils</div>
       <div className="tools">
         <button

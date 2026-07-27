@@ -72,6 +72,10 @@ consomme** : aucun format intermédiaire.
   et l'ajoute au projet — voir TOOLS.md. Avec un chipset, la palette est
   **filtrée par couche** comme dans RPG Maker (tiles basses sur la couche
   inf., objets sur la couche sup.).
+- **Onglet « Scène »** (premier onglet à droite) : paramètres de la scène
+  courante — tileset (choix, imports, passabilité) et redimensionnement
+  (rognage/extension, bordure reconstruite). Le panneau gauche ne garde
+  que le dessin : modes, tiles, outils.
 
 ## Fonctionnalités (5e) — boucle de création
 

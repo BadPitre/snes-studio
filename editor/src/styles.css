@@ -20,8 +20,10 @@ body {
 .palette { width: 216px; padding: 10px; background: #22252a; overflow-y: auto; flex-shrink: 0; }
 .palette-title { font-weight: 600; margin: 8px 0 6px; color: #9aa0a8; font-size: 12px; text-transform: uppercase; }
 .palette canvas { background: #16181c; border: 1px solid #000; cursor: crosshair; touch-action: none; }
-.palette-tileset { display: flex; flex-direction: column; gap: 6px; }
-.palette-tileset select { width: 100%; }
+.scene-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.scene-section select { width: 100%; }
+.scene-section label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
+.panel .palette-title { margin-top: 12px; }
 .draw-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .draw-modes button { padding: 6px 4px; font-size: 12px; }
 .layer-switch { display: flex; }
