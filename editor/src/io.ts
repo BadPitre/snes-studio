@@ -180,11 +180,20 @@ export async function loadAutotiles(
   return out;
 }
 
-// Sélection d'un PNG (sans copie) — pour l'import de chipset RM2003
-export async function pickPngFile(title: string): Promise<string | null> {
+// Sélection d'un fichier (sans copie)
+export async function pickFile(
+  title: string,
+  name: string,
+  extensions: string[]
+): Promise<string | null> {
   if (!hasTauri) return null;
-  const file = await open({ title, filters: [{ name: "PNG", extensions: ["png"] }] });
+  const file = await open({ title, filters: [{ name, extensions }] });
   return typeof file === "string" ? file : null;
+}
+
+// Sélection d'un PNG — pour l'import de chipset RM2003
+export function pickPngFile(title: string): Promise<string | null> {
+  return pickFile(title, "PNG", ["png"]);
 }
 
 // Import d'un PNG de tileset : choisi via dialog, copié dans assets/

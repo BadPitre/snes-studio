@@ -81,6 +81,7 @@ input, select, textarea {
 .modal label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
 .row { display: flex; gap: 10px; }
 .row > * { flex: 1; }
+.row > button.browse { flex: 0 0 auto; padding: 5px 10px; }
 
 .warp-entry { border: 1px solid #000; border-radius: 6px; padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .warp-entry label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
