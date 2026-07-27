@@ -63,6 +63,9 @@ export interface Scene {
   warps: Warp[];
   music?: string; // stem d'un module de project.musics — absent = silence
   tileset?: string; // stem d'un tileset de project.tilesets — absent = le premier
+  // scène parente dans l'arborescence de l'éditeur (organisationnel
+  // uniquement — ignoré par datagen)
+  parent?: string;
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

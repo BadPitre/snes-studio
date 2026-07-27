@@ -142,11 +142,12 @@ function sceneToJson(sc: Scene): string {
       : "[\n" + sc.script.map((l) => "    " + JSON.stringify(l)).join(",\n") + "\n  ]";
   const music = sc.music ? `\n  "music": ${JSON.stringify(sc.music)},` : "";
   const tileset = sc.tileset ? `\n  "tileset": ${JSON.stringify(sc.tileset)},` : "";
+  const parent = sc.parent ? `\n  "parent": ${JSON.stringify(sc.parent)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}${parent}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "actors": ${actors},

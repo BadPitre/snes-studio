@@ -92,6 +92,15 @@ consomme** : aucun format intermédiaire.
 - **Pipette / copie de bloc** : clic droit = prendre la tile sous le
   curseur ; glisser-droit = copier un bloc de la map dans le tampon
   (fonctionne aussi comme copier/coller).
+- **Arborescence des scènes** (sous la palette, comme RM2003) : racine =
+  projet, scènes imbricables (champ `parent`, purement organisationnel —
+  ignoré par datagen), glisser-déposer pour réorganiser, ＋ crée une scène
+  sous la ligne sélectionnée, ★ scène de boot, 🗑 suppression (les enfants
+  remontent d'un cran). Le séparateur palette/arborescence se redimensionne
+  à la souris (hauteur mémorisée).
+- **Zoom** : 4 niveaux 1/1 → 1/8 (barre d'état sous la map, ou
+  Ctrl + molette) ; la barre d'état affiche aussi la position du curseur
+  en tiles.
 
 Pas encore : animation des autotiles (eau), édition des gfx.
 

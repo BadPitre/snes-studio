@@ -40,6 +40,7 @@ import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ScenePanel from "./components/ScenePanel";
+import SceneTree from "./components/SceneTree";
 import ActorPanel from "./components/ActorPanel";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
@@ -74,6 +75,12 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
+  const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
+  // hauteur de la palette (séparateur palette / arborescence, persisté)
+  const [paletteH, setPaletteH] = useState(() =>
+    Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
+  );
+  const splitDrag = useRef<{ y: number; h: number } | null>(null);
   const [building, setBuilding] = useState(false);
 
   const ZOOMS = [32, 16, 8, 4];
@@ -327,14 +334,26 @@ export default function App() {
   }
 
   function createScene(name: string, width: number, height: number) {
+    const parent = newSceneParent ?? undefined;
     mutate((d) => ({
       ...d,
       project: { ...d.project, scenes: [...d.project.scenes, name] },
-      scenes: { ...d.scenes, [name]: newScene(name, width, height) },
+      scenes: { ...d.scenes, [name]: { ...newScene(name, width, height), parent } },
     }));
     setSceneName(name);
     setSelActor(null);
     setShowNewScene(false);
+  }
+
+  // déplacement dans l'arborescence (organisationnel — datagen l'ignore)
+  function reparentScene(name: string, parent: string | null) {
+    mutate((d) => ({
+      ...d,
+      scenes: {
+        ...d.scenes,
+        [name]: { ...d.scenes[name], parent: parent ?? undefined },
+      },
+    }));
   }
 
   function deleteScene() {
@@ -346,8 +365,13 @@ export default function App() {
     if (data.project.scenes.length <= 1) return;
     const remaining = data.project.scenes.filter((s) => s !== sceneName);
     mutate((d) => {
-      const scenes = { ...d.scenes };
-      delete scenes[sceneName];
+      const dead = d.scenes[sceneName];
+      const scenes: Record<string, Scene> = {};
+      for (const [n, sc] of Object.entries(d.scenes)) {
+        if (n === sceneName) continue;
+        // les enfants de la scène supprimée remontent d'un cran
+        scenes[n] = sc.parent === sceneName ? { ...sc, parent: dead.parent } : sc;
+      }
       return { ...d, project: { ...d.project, scenes: remaining }, scenes };
     });
     setSceneName(remaining[0]);
@@ -404,6 +428,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  useEffect(() => {
+    localStorage.setItem("snesstudio.paletteH", String(paletteH));
+  }, [paletteH]);
+
   // Ctrl + molette sur la map : zoom RM2003 (listener non-passif pour
   // pouvoir bloquer le zoom du navigateur)
   useEffect(() => {
@@ -452,40 +480,7 @@ export default function App() {
             ⚙
           </button>
         )}
-        {data && (
-          <>
-            <select
-              value={sceneName}
-              onChange={(e) => {
-                setSceneName(e.target.value);
-                setSelActor(null);
-              }}
-            >
-              {data.project.scenes.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                  {s === data.project.boot_scene ? " ★" : ""}
-                </option>
-              ))}
-            </select>
-            <button onClick={() => setShowNewScene(true)}>+ Scène</button>
-            <button
-              onClick={setBootScene}
-              disabled={!sceneName || sceneName === data.project.boot_scene}
-              title="Définir comme scène de boot"
-            >
-              ★ Boot
-            </button>
-            <button
-              className="danger"
-              onClick={deleteScene}
-              disabled={!sceneName || sceneName === data.project.boot_scene}
-              title="Supprimer cette scène"
-            >
-              Suppr. scène
-            </button>
-          </>
-        )}
+        {/* gestion des scènes : arborescence sous la palette (façon RM2003) */}
         {data && scene && (
           <span className="layer-switch" title="Couche éditée (modèle RPG Maker 2003)">
             <button
@@ -540,18 +535,54 @@ export default function App() {
 
       {data && scene ? (
         <div className="workspace">
-          <TilePalette
-            tileset={tileset}
-            autotiles={autotiles}
-            meta={meta}
-            tool={tool}
-            layer={layer}
-            passMode={passMode}
-            drawMode={drawMode}
-            onTool={setTool}
-            onDrawMode={setDrawMode}
-            onCyclePassability={cyclePass}
-          />
+          <div className="left-col">
+            <div className="palette-box" style={{ height: paletteH }}>
+              <TilePalette
+                tileset={tileset}
+                autotiles={autotiles}
+                meta={meta}
+                tool={tool}
+                layer={layer}
+                passMode={passMode}
+                drawMode={drawMode}
+                onTool={setTool}
+                onDrawMode={setDrawMode}
+                onCyclePassability={cyclePass}
+              />
+            </div>
+            <div
+              className="v-split"
+              title="Glisser pour redimensionner palette / scènes"
+              onPointerDown={(e) => {
+                splitDrag.current = { y: e.clientY, h: paletteH };
+                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (splitDrag.current) {
+                  setPaletteH(
+                    Math.max(120, splitDrag.current.h + e.clientY - splitDrag.current.y)
+                  );
+                }
+              }}
+              onPointerUp={() => (splitDrag.current = null)}
+            />
+            <SceneTree
+              project={data.project}
+              scenes={data.scenes}
+              current={sceneName}
+              onSelect={(n) => {
+                setSceneName(n);
+                setSelActor(null);
+              }}
+              onCreate={(parent) => {
+                setNewSceneParent(parent);
+                setShowNewScene(true);
+              }}
+              onDelete={deleteScene}
+              onSetBoot={setBootScene}
+              onReparent={reparentScene}
+            />
+          </div>
           <div className="map-col" ref={mapColRef}>
             <div className="map-scroll">
               <MapCanvas
@@ -667,6 +698,7 @@ export default function App() {
       {showNewScene && data && (
         <NewSceneModal
           existing={data.project.scenes}
+          parent={newSceneParent}
           onCreate={createScene}
           onClose={() => setShowNewScene(false)}
         />
