@@ -163,7 +163,7 @@ export default function TilePalette(props: Props) {
     for (let y = 1; y < rows; y++) ctx.strokeRect(0, y * CELL + 0.5, COLS * CELL, 0);
     if (!passMode) {
       const r = drag ?? sel;
-      ctx.strokeStyle = tool.kind === "tile" ? "#20c0ff" : "#7a8290";
+      ctx.strokeStyle = "#20c0ff";
       ctx.lineWidth = 3;
       ctx.strokeRect(r.x * CELL + 1.5, r.y * CELL + 1.5, r.w * CELL - 3, r.h * CELL - 3);
     }
@@ -229,33 +229,6 @@ export default function TilePalette(props: Props) {
           onTool({ kind: "tile", tiles: rectTiles(r) });
         }}
       />
-      <div className="palette-title">Outils</div>
-      <div className="tools">
-        <button
-          className={tool.kind === "select" ? "active" : ""}
-          onClick={() => onTool({ kind: "select" })}
-        >
-          Sélection
-        </button>
-        <button
-          className={tool.kind === "actor" ? "active" : ""}
-          onClick={() => onTool({ kind: "actor" })}
-        >
-          + PNJ
-        </button>
-        <button
-          className={tool.kind === "warp" ? "active" : ""}
-          onClick={() => onTool({ kind: "warp" })}
-        >
-          + Warp
-        </button>
-        <button
-          className={tool.kind === "player_start" ? "active" : ""}
-          onClick={() => onTool({ kind: "player_start" })}
-        >
-          Départ joueur
-        </button>
-      </div>
     </div>
   );
 }

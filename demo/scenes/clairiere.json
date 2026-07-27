@@ -73,19 +73,37 @@
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
   ],
-  "actors": [
-    {"type": "npc", "x": 10, "y": 10, "sprite": 1, "dir": "down", "entry": "accueil"},
-    {"type": "auto", "x": 0, "y": 0, "sprite": 0, "dir": "down", "entry": "fraicheur"}
+  "events":
+  [
+    {
+      "name": "Villageois",
+      "x": 10,
+      "y": 10,
+      "trigger": "action",
+      "sprite": 1,
+      "dir": "down",
+      "commands": [
+        {
+          "c": "msg",
+          "text": "Ici c'est la scene 1 : meme moteur, autres donnees !"
+        }
+      ]
+    },
+    {
+      "name": "Fraicheur",
+      "x": 0,
+      "y": 0,
+      "trigger": "auto",
+      "commands": [
+        {
+          "c": "msg",
+          "text": "Il fait frais sous les arbres de la clairiere..."
+        }
+      ]
+    }
   ],
   "warps": [
     {"x": 16, "y": 1, "to": "plaine", "tx": 12, "ty": 2}
   ],
-  "script": [
-    "accueil:",
-    "  MSG scene1",
-    "  END",
-    "fraicheur:",
-    "  MSG bienvenue",
-    "  END"
-  ]
+  "script": []
 }

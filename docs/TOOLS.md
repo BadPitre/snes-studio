@@ -95,6 +95,38 @@ Touch) ; `auto` = invisible, son script part **au chargement de la scène**
 (Autorun — boot ou arrivée par warp). `trigger`/`auto` exigent `entry`
 (sprite/dir ignorés).
 
+## Événements (Event Editor — A2)
+
+**`events`** est la forme moderne des acteurs (l'Event Editor de l'éditeur
+les produit) : datagen les compile vers des acteurs + du bytecode VM, et
+leurs textes INLINE rejoignent automatiquement la bank de textes
+(dédupliqués). Le format binaire ne change pas.
+
+```json
+"events": [
+  {"name": "Fleuriste", "x": 23, "y": 14,
+   "trigger": "action",              // action (A) | touch (contact) | auto
+   "sprite": 1, "dir": "down",       // apparence : bloc ; -1 = invisible
+   "commands": [
+     {"c": "msg", "text": "Bonjour !"},
+     {"c": "choice", "options": [       // 2-4 options, branches "do"
+        {"text": "Oui", "do": [ {"c": "set", "var": "g1", "value": 1} ]},
+        {"text": "Non", "do": []} ]},
+     {"c": "add", "var": "v0", "value": 1},
+     {"c": "if", "var": "g1", "op": "==", "value": 1,
+      "then": [ ... ], "else": [ ... ]},   // op : == != >=
+     {"c": "warp", "to": "bourg", "x": 16, "y": 28},
+     {"c": "face", "event": 0, "dir": "down"}
+   ]}
+]
+```
+
+Un event « touche action » doit avoir une apparence (`sprite` >= 0).
+`entry` (label du script assembleur de la scène) reste possible pour les
+events sans `commands` — les deux mondes cohabitent. La variable de
+travail des `choice` sans `"var"` est **v63** (réservée par convention).
+Imbrication maximale : 6 niveaux.
+
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
 de 16, max 999 tiles), indices **rangée par rangée** comme la palette
 RPG Maker, jusqu'à 256 couleurs (chipsets). datagen compile les gfx **par

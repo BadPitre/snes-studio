@@ -41,7 +41,11 @@ pub struct Scene {
     #[serde(default)]
     #[allow(dead_code)]
     pub collision: Option<Vec<Vec<u8>>>,
+    #[serde(default)]
     pub actors: Vec<Actor>,
+    /// Événements (Event Editor) — compilés vers actors + script (events.rs)
+    #[serde(default)]
+    pub events: Vec<Event>,
     #[serde(default)]
     pub script: Vec<String>,
     #[serde(default)]
@@ -91,6 +95,38 @@ fn dir_down() -> String {
 pub struct TextEntry {
     pub name: String,
     pub text: String,
+}
+
+/// Événement (Event Editor, modèle RM2003) — sucre du format SOURCE :
+/// compilé par events.rs vers un acteur + du bytecode VM (TOOLS.md).
+#[derive(Deserialize)]
+pub struct Event {
+    #[serde(default)]
+    pub name: String,
+    pub x: u8,
+    pub y: u8,
+    /// "action" (touche A), "touch" (contact), "auto" (chargement)
+    #[serde(default = "trigger_action")]
+    pub trigger: String,
+    /// Bloc de personnage ; -1 = invisible (touch/auto)
+    #[serde(default = "minus_one")]
+    pub sprite: i16,
+    #[serde(default = "dir_down")]
+    pub dir: String,
+    /// Label d'un script écrit à la main (avancé) — ignoré si commands
+    #[serde(default)]
+    pub entry: Option<String>,
+    /// Commandes structurées (Event Editor)
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+}
+
+fn trigger_action() -> String {
+    "action".into()
+}
+
+fn minus_one() -> i16 {
+    -1
 }
 
 impl Scene {

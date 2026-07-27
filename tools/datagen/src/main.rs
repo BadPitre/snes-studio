@@ -13,6 +13,7 @@ mod binbank;
 mod charset;
 mod chipset;
 mod emit;
+mod events;
 mod gfx;
 mod project;
 mod script;
@@ -54,26 +55,34 @@ fn main() -> Result<()> {
 
     let project: project::Project =
         read_json(&proj_dir.join("project.json")).context("project.json")?;
-    let texts: Vec<project::TextEntry> =
+    let mut texts: Vec<project::TextEntry> =
         read_json(&proj_dir.join("texts.json")).context("texts.json")?;
-
-    let mut text_ids: HashMap<String, u16> = HashMap::new();
-    for (i, t) in texts.iter().enumerate() {
-        if text_ids.insert(t.name.clone(), i as u16).is_some() {
-            bail!("texte en double : '{}'", t.name);
-        }
-    }
 
     let mut scenes = Vec::new();
     for name in &project.scenes {
-        let scene: project::Scene =
+        let mut scene: project::Scene =
             read_json(&proj_dir.join("scenes").join(format!("{}.json", name)))
                 .with_context(|| format!("scene '{}'", name))?;
         if &scene.name != name {
             bail!("scene '{}' : champ name incoherent ('{}')", name, scene.name);
         }
         scene.validate()?;
+        // Événements (Event Editor) : compilés vers acteurs + asm VM, leurs
+        // textes inline rejoignent la bank de textes (dédupliqués)
+        if !scene.events.is_empty() {
+            let mut ec = events::EventCompiler::new(&mut texts);
+            let (asm, actors) = ec.compile_scene(name, &scene.events)?;
+            scene.script.extend(asm);
+            scene.actors.extend(actors);
+        }
         scenes.push(scene);
+    }
+
+    let mut text_ids: HashMap<String, u16> = HashMap::new();
+    for (i, t) in texts.iter().enumerate() {
+        if text_ids.insert(t.name.clone(), i as u16).is_some() {
+            bail!("texte en double : '{}'", t.name);
+        }
     }
     let boot_id = project
         .scenes

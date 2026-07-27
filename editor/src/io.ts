@@ -4,8 +4,8 @@
 
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove } from "@tauri-apps/plugin-fs";
-import type { Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
-import { EMPTY_TILE, assetStem, projectTilesets } from "./types";
+import type { Actor, Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
+import { EMPTY_TILE, actorToEvent, assetStem, projectTilesets } from "./types";
 
 // Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
 // HTTP (lecture seule) — pratique pour développer l'UI et les captures.
@@ -83,10 +83,25 @@ export async function loadProject(root: string): Promise<ProjectData> {
     const sc: Scene = JSON.parse(await readTextFile(`${root}/scenes/${name}.json`));
     sc.warps ??= []; // champs optionnels dans les anciens fichiers
     sc.script ??= [];
+    sc.events ??= [];
     sc.upper ??= Array.from({ length: sc.height }, () =>
       Array.from({ length: sc.width }, () => EMPTY_TILE)
     );
-    delete (sc as unknown as Record<string, unknown>)["collision"]; // héritage : dérivée du tileset
+    const raw = sc as unknown as Record<string, unknown>;
+    delete raw["collision"]; // héritage : dérivée du tileset
+    // héritage : les vieux "actors" deviennent des événements
+    const legacy = raw["actors"] as Actor[] | undefined;
+    if (legacy?.length) {
+      sc.events.push(...legacy.map((a, i) => actorToEvent(a, sc.events.length + i)));
+    }
+    delete raw["actors"];
+    for (const e of sc.events) {
+      e.commands ??= [];
+      e.sprite ??= -1;
+      e.dir ??= "down";
+      e.trigger ??= "action";
+      e.name ??= "EV";
+    }
     scenes[name] = sc;
   }
   // sidecars de passabilité (assets/<stem>.json) — absent = tout passable
@@ -154,17 +169,11 @@ export async function loadPngBitmap(path: string): Promise<ImageBitmap> {
 function sceneToJson(sc: Scene): string {
   const grid = (rows: number[][]) =>
     "[\n" + rows.map((r) => "    [" + r.join(", ") + "]").join(",\n") + "\n  ]";
-  const actors =
-    sc.actors.length === 0
+  // événements : un par ligne (les commandes imbriquées restent compactes)
+  const events =
+    sc.events.length === 0
       ? "[]"
-      : "[\n" +
-        sc.actors
-          .map((a) => {
-            const entry = a.entry !== undefined ? `, "entry": ${JSON.stringify(a.entry)}` : "";
-            return `    {"type": ${JSON.stringify(a.type)}, "x": ${a.x}, "y": ${a.y}, "sprite": ${a.sprite}, "dir": "${a.dir}"${entry}}`;
-          })
-          .join(",\n") +
-        "\n  ]";
+      : "[\n" + sc.events.map((e) => "    " + JSON.stringify(e)).join(",\n") + "\n  ]";
   const warps =
     sc.warps.length === 0
       ? "[]"
@@ -190,7 +199,7 @@ function sceneToJson(sc: Scene): string {
   "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}${parent}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
-  "actors": ${actors},
+  "events": ${events},
   "warps": ${warps},
   "script": ${script}
 }

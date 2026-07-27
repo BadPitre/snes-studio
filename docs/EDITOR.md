@@ -157,6 +157,28 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   des banks (scènes/textes sur 32 Ko), gains de compression, warnings de
   génération (fusions de couleurs…), taille du dernier ROM.
 
+## Fonctionnalités (A2) — système d'events façon RM2003
+
+- **Couche Événements** (3e bouton de couche) : les events (boîte blanche),
+  les warps (W), le départ du joueur (S). **Clic droit sur une tile** :
+  nouvel événement, nouvel événement depuis un prefab, coller, nouveau
+  warp, départ du joueur ici — ou, sur un event : éditer, couper/copier,
+  prefab, supprimer. Double-clic = Event Editor. La palette d'outils
+  (« Sélection / +PNJ / +Warp / Départ ») a disparu : tout se fait ici.
+- **Event Editor** (calqué sur RM2003) : nom + pages (P4), conditions
+  (P4), apparence (personnage + direction + aperçu), type de mouvement
+  (PNJ mobiles à venir), déclencheur (Touche action / Contact /
+  Auto-start), et la liste **Contenu** (`@>`) : Message, Choix (2-4, avec
+  branches « : Quand […] »), Variables (= et +), Condition (si variable,
+  branches Si vrai/Sinon), Téléporter le héros, Tourner un event. Les
+  textes se tapent directement dans les commandes — datagen les collecte
+  dans la bank de textes et compile le tout vers la VM.
+- **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
+  prefab » (stocké dans project.json) ; clic droit sur une tile vide →
+  « Prefab : <nom> » pour l'instancier.
+- L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
+  warps s'éditent aussi au clic droit (mini-fenêtre scène cible/arrivée).
+
 ## Lancer
 
 Prérequis : Node.js, Rust (déjà requis pour datagen). Sous Windows,

@@ -15,6 +15,7 @@ export interface Project {
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
+  prefabs?: EventPrefab[]; // prefabs d'events (éditeur seulement)
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -38,6 +39,8 @@ export type Direction = "down" | "up" | "left" | "right";
 // Types d'acteurs (déclencheurs RM2003, v0.6) : npc = PNJ visible (parle
 // avec A), trigger = script au contact (marcher sur la tile), auto =
 // script au chargement de la scène. trigger/auto : invisibles, sans sprite.
+// HÉRITAGE : les vieux fichiers de scènes portent des "actors" — convertis
+// en ÉVÉNEMENTS au chargement (io.ts), sauvegardés en events.
 export type ActorKind = "npc" | "trigger" | "auto";
 
 export interface Actor {
@@ -47,6 +50,52 @@ export interface Actor {
   sprite: number;
   dir: Direction;
   entry?: string;
+}
+
+// ---- Événements (Event Editor, modèle RM2003) -----------------------------
+// Un event = position + déclencheur + apparence + COMMANDES structurées,
+// compilées par datagen vers la VM (acteur + bytecode). Voir docs/TOOLS.md.
+
+export type EventTrigger = "action" | "touch" | "auto";
+
+export type Command =
+  | { c: "msg"; text: string }
+  | { c: "choice"; var?: string; options: { text: string; do: Command[] }[] }
+  | { c: "set"; var: string; value: number }
+  | { c: "add"; var: string; value: number }
+  | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
+  | { c: "warp"; to: string; x: number; y: number }
+  | { c: "face"; event: number; dir: Direction };
+
+export interface GameEvent {
+  name: string;
+  x: number;
+  y: number;
+  trigger: EventTrigger;
+  sprite: number; // bloc de personnage ; -1 = invisible
+  dir: Direction;
+  entry?: string; // label d'un script écrit à la main (avancé)
+  commands: Command[];
+}
+
+// Prefab : un event réutilisable, sans position (project.json "prefabs")
+export interface EventPrefab {
+  name: string;
+  event: Omit<GameEvent, "x" | "y">;
+}
+
+// conversion des vieux acteurs (io.ts)
+export function actorToEvent(a: Actor, index: number): GameEvent {
+  return {
+    name: `EV${String(index + 1).padStart(3, "0")}`,
+    x: a.x,
+    y: a.y,
+    trigger: a.type === "npc" ? "action" : a.type === "trigger" ? "touch" : "auto",
+    sprite: a.type === "npc" ? a.sprite : -1,
+    dir: a.dir,
+    entry: a.entry,
+    commands: [],
+  };
 }
 
 export interface Warp {
@@ -65,7 +114,7 @@ export interface Scene {
   // ids logiques : 0.. = tile de la grille, AUTOTILE_BASE+k = autotile k
   tilemap: number[][]; // couche inférieure
   upper: number[][]; // couche supérieure, EMPTY_TILE = vide
-  actors: Actor[];
+  events: GameEvent[]; // la couche Événements (les vieux actors y migrent)
   script: string[];
   warps: Warp[];
   music?: string; // stem d'un module de project.musics — absent = silence
@@ -89,7 +138,7 @@ export interface TilesetMeta {
 export const AUTOTILE_BASE = 1000;
 export const EMPTY_TILE = -1;
 
-export type Layer = "lower" | "upper";
+export type Layer = "lower" | "upper" | "events";
 
 export interface TextEntry {
   name: string;
@@ -133,9 +182,21 @@ export function charsetName(p: Project, b: number): string {
 }
 
 // blocs de personnage utilisés par une scène (joueur = bloc 0 inclus) —
-// les déclencheurs (trigger/auto) sont invisibles, sans sprite
+// seuls les events « touche action » avec apparence comptent
 export function sceneSpriteBlocks(sc: Scene): number[] {
   const used = new Set<number>([0]);
-  for (const a of sc.actors) if (a.type === "npc") used.add(a.sprite);
+  for (const e of sc.events) {
+    if (e.trigger === "action" && e.sprite >= 0) used.add(e.sprite);
+  }
   return [...used].sort((x, y) => x - y);
+}
+
+// frame de repos affichée pour un event visible
+export function eventFrame(e: GameEvent): number {
+  return e.sprite * 12 + DIRECTIONS.indexOf(e.dir) * 3;
+}
+
+// événement à cette tile (le premier trouvé), ou -1
+export function eventAt(sc: Scene, tx: number, ty: number): number {
+  return sc.events.findIndex((e) => e.x === tx && e.y === ty);
 }

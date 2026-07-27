@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Layer, Scene, TilesetMeta } from "../types";
-import { AUTOTILE_BASE, EMPTY_TILE, actorFrame } from "../types";
+import { AUTOTILE_BASE, EMPTY_TILE, eventAt, eventFrame } from "../types";
 import type { DrawMode, Tool } from "../state";
 import { cellSolid } from "../state";
 import { drawAutotileCell } from "../autotile";
@@ -42,7 +42,11 @@ interface Props {
   onPickBlock: (tiles: number[][]) => void;
   // position du curseur en tiles (null = hors de la map)
   onHover: (pos: [number, number] | null) => void;
-  onSelectActor: (index: number) => void;
+  // couche Événements : sélection, double-clic (éditer), menu contextuel
+  selectedEvent: number | null;
+  onSelectEvent: (index: number | null) => void;
+  onOpenEvent: (index: number) => void;
+  onEventMenu: (tx: number, ty: number, cx: number, cy: number) => void;
 }
 
 type Cell = [number, number];
@@ -59,7 +63,8 @@ export default function MapCanvas(props: Props) {
   const { scene, tileset, autotiles, meta, sprites, layer, drawMode, showCollision, showGrid } =
     props;
   const TS = props.ts;
-  const activeGrid = layer === "lower" ? scene.tilemap : scene.upper;
+  const evLayer = layer === "events";
+  const activeGrid = layer === "upper" ? scene.upper : scene.tilemap;
 
   // --- rendu de la map (couches + overlays statiques) ---------------------
   useEffect(() => {
@@ -103,7 +108,8 @@ export default function MapCanvas(props: Props) {
       ctx.globalAlpha = 1;
     };
 
-    // couche inf puis sup — la couche non éditée est atténuée (repère RM2003)
+    // couche inf puis sup — la couche non éditée est atténuée (repère
+    // RM2003) ; sur la couche Événements, les deux sont pleines
     drawLayer(scene.tilemap, layer === "upper");
     drawLayer(scene.upper, layer === "lower");
 
@@ -159,34 +165,46 @@ export default function MapCanvas(props: Props) {
       TS - 2
     );
 
-    // acteurs — PNJ = sprite ; déclencheurs invisibles en jeu = marqueurs
-    // éditeur (orange "C" contact, cyan "A" auto, comme les warps "W")
-    for (const a of scene.actors) {
-      if (a.type !== "npc") {
-        const auto = a.type === "auto";
-        ctx.fillStyle = auto ? "rgba(60,190,210,0.35)" : "rgba(255,150,40,0.35)";
-        ctx.fillRect(a.x * TS, a.y * TS, TS, TS);
-        ctx.strokeStyle = auto ? "#40c8e0" : "#ff9628";
+    // événements — apparence = sprite ; sans apparence = marqueur (orange
+    // "C" contact, cyan "A" auto, gris "E" action invisible)
+    scene.events.forEach((ev, i) => {
+      const visible = ev.trigger === "action" && ev.sprite >= 0;
+      if (!visible) {
+        const color =
+          ev.trigger === "auto"
+            ? ["rgba(60,190,210,0.35)", "#40c8e0", "#d8f4fa", "A"]
+            : ev.trigger === "touch"
+              ? ["rgba(255,150,40,0.35)", "#ff9628", "#ffe8c8", "C"]
+              : ["rgba(200,200,200,0.3)", "#c8c8c8", "#f0f0f0", "E"];
+        ctx.fillStyle = color[0];
+        ctx.fillRect(ev.x * TS, ev.y * TS, TS, TS);
+        ctx.strokeStyle = color[1];
         ctx.lineWidth = 2;
-        ctx.strokeRect(a.x * TS + 1, a.y * TS + 1, TS - 2, TS - 2);
-        ctx.fillStyle = auto ? "#d8f4fa" : "#ffe8c8";
-        ctx.fillText(auto ? "A" : "C", a.x * TS + TS / 2, a.y * TS + TS / 2 + 1);
-        continue;
-      }
-      if (sprites) {
+        ctx.strokeRect(ev.x * TS + 1, ev.y * TS + 1, TS - 2, TS - 2);
+        ctx.fillStyle = color[2];
+        ctx.fillText(color[3], ev.x * TS + TS / 2, ev.y * TS + TS / 2 + 1);
+      } else if (sprites) {
         // frame 16x24 ancrée en bas de la tile (la tête dépasse de 8 px
         // au-dessus, façon RM2003)
-        const f = actorFrame(a);
+        const f = eventFrame(ev);
         ctx.drawImage(
           sprites, f * 16, 0, 16, 24,
-          a.x * TS, a.y * TS - TS / 2, TS, TS + TS / 2
+          ev.x * TS, ev.y * TS - TS / 2, TS, TS + TS / 2
         );
       }
-      ctx.strokeStyle = "#ffe020";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(a.x * TS + 1, a.y * TS + 1, TS - 2, TS - 2);
+      // couche Événements : boîte blanche RM2003 sur chaque event
+      if (evLayer) {
+        ctx.strokeStyle = i === props.selectedEvent ? "#ffe020" : "rgba(255,255,255,0.85)";
+        ctx.lineWidth = i === props.selectedEvent ? 3 : 1.5;
+        ctx.strokeRect(ev.x * TS + 1.5, ev.y * TS + 1.5, TS - 3, TS - 3);
+      }
+    });
+    // départ joueur : "S" lisible sur la couche Événements
+    if (evLayer) {
+      ctx.fillStyle = "#20c0ff";
+      ctx.fillText("S", scene.player_start[0] * TS + TS / 2, scene.player_start[1] * TS + TS / 2 + 1);
     }
-  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS]);
+  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS, props.selectedEvent]);
 
   // --- calque d'interaction : survol encadré + aperçus --------------------
   useEffect(() => {
@@ -256,13 +274,13 @@ export default function MapCanvas(props: Props) {
       // cadre de survol à la taille du tampon (1x1 pour les autres outils)
       let w = 1;
       let h = 1;
-      if (props.tool.kind === "tile" && drawMode !== "fill") {
+      if (!evLayer && props.tool.kind === "tile" && drawMode !== "fill") {
         h = props.tool.tiles.length;
         w = props.tool.tiles[0]?.length ?? 1;
       }
       frame(hover[0], hover[1], w, h);
     }
-  }, [hover, shapeDrag, pickDrag, props.tool, drawMode, scene.width, scene.height, TS]);
+  }, [hover, shapeDrag, pickDrag, props.tool, drawMode, scene.width, scene.height, TS, evLayer]);
 
   function tileAt(e: React.MouseEvent): Cell {
     const rect = overlayRef.current!.getBoundingClientRect();
@@ -318,17 +336,19 @@ export default function MapCanvas(props: Props) {
 
   function handleDown(e: React.MouseEvent) {
     const [tx, ty] = tileAt(e);
+    if (evLayer) {
+      if (e.button === 0) {
+        const hit = eventAt(props.scene, tx, ty);
+        props.onSelectEvent(hit >= 0 ? hit : null);
+      }
+      return; // clic droit : menu contextuel (onContextMenu), pas de pipette
+    }
     if (e.button === 2) {
       // pipette : clic = tile, glisser = bloc
       setPickDrag({ start: [tx, ty], cur: [tx, ty] });
       return;
     }
     if (e.button !== 0) return;
-    const hit = props.scene.actors.findIndex((a) => a.x === tx && a.y === ty);
-    if (props.tool.kind === "select" && hit >= 0) {
-      props.onSelectActor(hit);
-      return;
-    }
     if (props.tool.kind === "tile") {
       if (drawMode === "fill") {
         props.onApplyPattern(floodCells(tx, ty), tx, ty);
@@ -394,14 +414,13 @@ export default function MapCanvas(props: Props) {
     painting.current = false;
   }
 
-  const cursor =
-    props.tool.kind === "tile"
-      ? drawMode === "pen"
-        ? CUR_PEN
-        : drawMode === "fill"
-          ? CUR_FILL
-          : "crosshair"
-      : "crosshair";
+  const cursor = evLayer
+    ? "pointer"
+    : drawMode === "pen"
+      ? CUR_PEN
+      : drawMode === "fill"
+        ? CUR_FILL
+        : "crosshair";
 
   return (
     <div
@@ -432,7 +451,19 @@ export default function MapCanvas(props: Props) {
           setShapeDrag(null);
           setPickDrag(null);
         }}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (evLayer) {
+            const [tx, ty] = tileAt(e);
+            props.onEventMenu(tx, ty, e.clientX, e.clientY);
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (!evLayer) return;
+          const [tx, ty] = tileAt(e);
+          const hit = eventAt(props.scene, tx, ty);
+          if (hit >= 0) props.onOpenEvent(hit);
+        }}
       />
     </div>
   );
