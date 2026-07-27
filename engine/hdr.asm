@@ -21,10 +21,12 @@
   SLOWROM
   LOROM
 
-  CARTRIDGETYPE $00             ; $00=ROM only
+  CARTRIDGETYPE $02             ; $02=ROM+RAM+batterie (sauvegardes SRAM)
   ROMSIZE $08                   ; $08=2 Megabits
-  SRAMSIZE $00                  ; No SRAM for the POC
-  COUNTRY $02                   ; $02=Europe
+  SRAMSIZE $01                  ; 16 Kbit (2 Ko) : 4 slots de sauvegarde
+  COUNTRY $01                   ; $01=USA (NTSC 60 Hz — le moteur suppose
+                                ; NTSC ; $02=Europe ferait tourner les
+                                ; émulateurs fidèles en PAL 50 Hz)
   LICENSEECODE $00
   VERSION $00                   ; $00 = 1.00
 .ENDSNES

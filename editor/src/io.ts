@@ -2,8 +2,8 @@
 // Les JSON écrits restent lisibles en diff : tilemap/collision à une
 // rangée par ligne, même mise en page que les sources historiques.
 
-import { open } from "@tauri-apps/plugin-dialog";
-import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite } from "@tauri-apps/plugin-fs";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove } from "@tauri-apps/plugin-fs";
 import type { Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
 import { EMPTY_TILE, assetStem, projectTilesets } from "./types";
 
@@ -28,6 +28,40 @@ async function readFile(path: string): Promise<Uint8Array> {
 async function writeTextFile(path: string, content: string): Promise<void> {
   if (hasTauri) return tauriWriteText(path, content);
   console.warn(`mode navigateur : écriture ignorée (${path})`, content.length);
+}
+
+// Fichiers binaires / gestion d'assets (Resource Manager) — Tauri seulement
+export async function readBinaryFile(path: string): Promise<Uint8Array> {
+  return readFile(path);
+}
+
+export async function writeBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
+  if (!hasTauri) {
+    console.warn(`mode navigateur : écriture ignorée (${path})`, bytes.length);
+    return;
+  }
+  return tauriWrite(path, bytes);
+}
+
+export async function renamePath(oldPath: string, newPath: string): Promise<void> {
+  if (hasTauri) await tauriRename(oldPath, newPath);
+}
+
+export async function removePath(path: string): Promise<void> {
+  if (hasTauri) await tauriRemove(path);
+}
+
+// dialogue « enregistrer sous » (export d'assets)
+export async function pickSavePath(
+  title: string,
+  defaultName: string
+): Promise<string | null> {
+  if (!hasTauri) return null;
+  return save({
+    title,
+    defaultPath: defaultName,
+    filters: [{ name: "PNG", extensions: ["png"] }],
+  });
 }
 
 // le mode navigateur est en lecture seule (pas d'import d'assets)
@@ -92,7 +126,13 @@ function pngFirstPaletteColor(bytes: Uint8Array): [number, number, number] | nul
 }
 
 export async function loadAssetPng(root: string, rel: string): Promise<ImageBitmap> {
-  const bytes = await readFile(`${root}/${rel}`);
+  return loadPngBitmap(`${root}/${rel}`);
+}
+
+// PNG depuis un chemin absolu (aperçus d'import) — même clé de transparence
+// que les assets projet (première couleur de la palette PLTE)
+export async function loadPngBitmap(path: string): Promise<ImageBitmap> {
+  const bytes = await readFile(path);
   const bmp = await createImageBitmap(
     new Blob([new Uint8Array(bytes)], { type: "image/png" })
   );
@@ -121,7 +161,7 @@ function sceneToJson(sc: Scene): string {
         sc.actors
           .map((a) => {
             const entry = a.entry !== undefined ? `, "entry": ${JSON.stringify(a.entry)}` : "";
-            return `    {"type": "npc", "x": ${a.x}, "y": ${a.y}, "sprite": ${a.sprite}, "dir": "${a.dir}"${entry}}`;
+            return `    {"type": ${JSON.stringify(a.type)}, "x": ${a.x}, "y": ${a.y}, "sprite": ${a.sprite}, "dir": "${a.dir}"${entry}}`;
           })
           .join(",\n") +
         "\n  ]";

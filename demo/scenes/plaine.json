@@ -89,8 +89,9 @@
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
   ],
   "actors": [
-    {"type": "npc", "x": 8, "y": 4, "sprite": 8, "dir": "left", "entry": "compteur"},
-    {"type": "npc", "x": 23, "y": 14, "sprite": 8, "dir": "down", "entry": "salut"}
+    {"type": "npc", "x": 8, "y": 4, "sprite": 1, "dir": "left", "entry": "compteur"},
+    {"type": "npc", "x": 23, "y": 14, "sprite": 1, "dir": "down", "entry": "salut"},
+    {"type": "trigger", "x": 12, "y": 10, "sprite": 0, "dir": "down", "entry": "panneau"}
   ],
   "warps": [
     {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2},
@@ -106,7 +107,25 @@
     "  MSG encore",
     "  END",
     "salut:",
-    "  MSG belle_journee",
-    "  END"
+    "  JEQ g1 1 fleur_donnee",
+    "  MSG q_fleur",
+    "  CHOICE v1 opt_oui opt_non",
+    "  JEQ v1 1 refus",
+    "  MSG r_fleur",
+    "  SETVAR g1 1",
+    "  END",
+    "refus:",
+    "  MSG r_non",
+    "  END",
+    "fleur_donnee:",
+    "  MSG deja_fleur",
+    "  END",
+    "panneau:",
+    "  MSG q_bourg",
+    "  CHOICE v2 opt_oui opt_non",
+    "  JEQ v2 0 va_bourg",
+    "  END",
+    "va_bourg:",
+    "  WARP bourg 16 28"
   ]
 }

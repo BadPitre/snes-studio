@@ -2,24 +2,40 @@
  * actors.c — acteurs de scène (PNJ statiques v0).
  *
  * Tout vient de la table d'acteurs de la scène (spec §1.3) : position en
- * tiles, sprite_id (frame de base dans la feuille OBJ globale), direction.
- * Convention metasprite v0 : frame affichée = sprite_id + direction.
+ * tiles, sprite_id (SLOT de bloc de personnage dans le sprite set de la
+ * scène — datagen remappe les blocs projet vers les slots locaux, v0.5),
+ * direction. Frame affichée = slot*12 + dir*3 (repos), palette OBJ =
+ * slot. Metasprite 16x24 = 2 OBJs 16x16 empilés.
  */
 #include <snes.h>
 #include "formats.h"
 #include "scene.h"
 #include "camera.h"
 #include "actors.h"
+#include "player.h"
 #include "vm.h"
 
-/* OAM : joueur = id 0 ; acteur i = (1+i)*4 (structure OAM PVSnesLib) */
-#define ACTOR_OAM_ID(i) (((u16)(i) + 1) << 2)
+/* OAM : joueur = ids 0 et 4 ; acteur i = ids (2+2i)*4 (haut) et (3+2i)*4
+   (bas) — structure OAM PVSnesLib, id = index d'objet * 4 */
+#define ACTOR_OAM_TOP(i) ((((u16)(i) << 1) + 2) << 2)
+#define ACTOR_OAM_BOT(i) ((((u16)(i) << 1) + 3) << 2)
 #define ACTOR_OBJ_PRIO 2
+
+/* frame de repos d'un acteur : bloc*12 + dir*3 (pas d'anim v0). La
+   direction vit en WRAM (FACE, se tourner vers le héros) — la valeur ROM
+   n'est que l'état initial. */
+#define ACTOR_FRAME(a, d) ((u8)((a)->sprite_id * 12 + (d) * 3))
 
 /* Slots OAM réservés aux acteurs (1..ACTOR_SLOTS) — les slots au-delà du
    nombre d'acteurs de la scène sont cachés (résidus d'une scène plus
    peuplée après un warp) */
 #define ACTOR_SLOTS 24
+
+/* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
+static u8 actor_dirs[ACTOR_SLOTS];
+
+/* Un déclencheur (contact/auto) est invisible et traversable */
+#define ACTOR_VISIBLE(a) ((a)->actor_type == ACTOR_TYPE_NPC_STATIC)
 
 void actors_init(void)
 {
@@ -27,18 +43,30 @@ void actors_init(void)
   const ActorDef *a = scene_ctx.actors;
 
   for (i = 0; i < ACTOR_SLOTS; i++)
-    oamSetVisible(ACTOR_OAM_ID(i), OBJ_HIDE);
+  {
+    oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+    oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+    actor_dirs[i] = DIR_DOWN;
+  }
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    oamSet(ACTOR_OAM_ID(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
-           OBJ_FRAME_TILE(a->sprite_id + a->direction), 0);
+    if (i < ACTOR_SLOTS)
+      actor_dirs[i] = a->direction;
+    if (!ACTOR_VISIBLE(a))
+      continue;
+    oamSet(ACTOR_OAM_TOP(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
+           OBJ_TOP_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
+    oamSet(ACTOR_OAM_BOT(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
+           OBJ_BOTTOM_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
     /* oamSetEx UNE SEULE FOIS ici : il réécrit la paire de bits de la table
        OAM 2 (taille + 9e bit de X). L'appeler après oamSet à chaque frame
        écraserait le 9e bit de X posé par oamSet, et un sprite partiellement
        hors écran à gauche (X négatif) réapparaîtrait à droite. */
-    oamSetEx(ACTOR_OAM_ID(i), OBJ_SMALL, OBJ_SHOW);
-    oamSetVisible(ACTOR_OAM_ID(i), OBJ_HIDE);
+    oamSetEx(ACTOR_OAM_TOP(i), OBJ_SMALL, OBJ_SHOW);
+    oamSetEx(ACTOR_OAM_BOT(i), OBJ_SMALL, OBJ_SHOW);
+    oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+    oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
   }
 }
 
@@ -50,20 +78,30 @@ void actors_draw(void)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
+    if (!ACTOR_VISIBLE(a))
+      continue;
     ax = (u16)a->x << 4;
     ay = (u16)a->y << 4;
 
-    /* Visible ? (sprite 16x16 vs fenêtre caméra 256x224) */
+    /* Visible ? (metasprite 16x24 ancré 8 px au-dessus de la tile vs
+       fenêtre caméra 256x224) */
     if (ax + 16 > camera.x && ax < camera.x + 256 &&
-        ay + 16 > camera.y && ay < camera.y + 224)
+        ay + 16 > camera.y && ay < camera.y + 224 + SPRITE_Y_OVERLAP)
     {
+      u8 d = (i < ACTOR_SLOTS) ? actor_dirs[i] : a->direction;
+
       /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
-      oamSet(ACTOR_OAM_ID(i), ax - camera.x, ay - camera.y, ACTOR_OBJ_PRIO,
-             0, 0, OBJ_FRAME_TILE(a->sprite_id + a->direction), 0);
+      oamSet(ACTOR_OAM_TOP(i), ax - camera.x,
+             ay - camera.y - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             OBJ_TOP_TILE(ACTOR_FRAME(a, d)), a->sprite_id);
+      oamSet(ACTOR_OAM_BOT(i), ax - camera.x,
+             ay - camera.y + 16 - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             OBJ_BOTTOM_TILE(ACTOR_FRAME(a, d)), a->sprite_id);
     }
     else
     {
-      oamSetVisible(ACTOR_OAM_ID(i), OBJ_HIDE);
+      oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+      oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
     }
   }
 }
@@ -75,15 +113,52 @@ u8 actor_at_tile(u8 tx, u8 ty)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (a->x == tx && a->y == ty)
+    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && a->x == tx && a->y == ty)
       return i;
   }
   return ACTOR_NONE;
 }
 
+u8 actor_trigger_at(u8 tx, u8 ty)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_TRIGGER && a->x == tx && a->y == ty &&
+        a->script_offset != SCRIPT_NONE)
+      return i;
+  }
+  return ACTOR_NONE;
+}
+
+u16 actors_autorun(void)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_AUTO && a->script_offset != SCRIPT_NONE)
+      return a->script_offset;
+  }
+  return SCRIPT_NONE;
+}
+
+void actor_face(u8 index, u8 dir)
+{
+  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count)
+    actor_dirs[index] = dir & 3;
+}
+
 void actor_interact(u8 index)
 {
   u16 ofs = scene_ctx.actors[index].script_offset;
+
+  /* Réflexe RM2003 : le PNJ se tourne vers le héros (direction opposée —
+     DOWN<->UP et LEFT<->RIGHT s'échangent par xor 1) */
+  actor_face(index, player.dir ^ 1);
 
   if (ofs != SCRIPT_NONE)
     vm_start(ofs);

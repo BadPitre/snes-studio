@@ -25,6 +25,8 @@ pub fn build_scene_bank(
     scenes: &[project::Scene],
     grids: &[tileset::SceneGrids],
     set_ids: &[u8],
+    sprite_set_ids: &[u8],
+    sprite_remaps: &[HashMap<u8, u8>],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
@@ -38,22 +40,53 @@ pub fn build_scene_bank(
     let mut blob = vec![0u8; table_size];
     blob[0..2].copy_from_slice(&(scenes.len() as u16).to_le_bytes());
     blob[2] = boot_id;
+    let (mut grids_raw, mut grids_rle) = (0usize, 0usize);
 
     for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids)
+        let asm = script::assemble(&sc.script, text_ids, &scene_ids)
             .with_context(|| format!("script de la scene '{}'", sc.name))?;
 
         let w = sc.width as usize;
         let h = sc.height as usize;
         let g = &grids[i];
 
+        // v0.7 : les trois grilles voyagent compressées (RLE) et sont
+        // décompressées au chargement vers les buffers WRAM du moteur —
+        // d'où la limite de cellules par scène.
+        if w * h > MAP_BUF_CELLS {
+            bail!(
+                "scene '{}' : {}x{} = {} tiles > {} (budget WRAM de \
+                 décompression, spec §1.6) — réduire la map ou la découper",
+                sc.name, w, h, w * h, MAP_BUF_CELLS
+            );
+        }
+        // Collision dérivée du tileset (spec §1.4) ; les tiles de warp
+        // sont marquées 0x02 par l'outil — et doivent être traversables
+        let mut collision = g.collision.clone();
+        for wp in &sc.warps {
+            let ofs = wp.y as usize * w + wp.x as usize;
+            if collision[ofs] != 0 {
+                bail!(
+                    "scene '{}' : warp ({},{}) sur une tile solide",
+                    sc.name, wp.x, wp.y
+                );
+            }
+            collision[ofs] = 0x02;
+        }
+        let rle_lower = rle_encode(&g.lower);
+        let rle_upper = rle_encode(&g.upper);
+        let rle_col = rle_encode(&collision);
+        grids_raw += 3 * w * h;
+        grids_rle += rle_lower.len() + rle_upper.len() + rle_col.len();
+
         // Layout de la scène : header 28 o (v0.3), puis tilemap (couche
-        // inf), tilemap sup, collision, acteurs (8 o), warps (8 o), scripts
+        // inf) RLE, tilemap sup RLE, collision RLE, acteurs (8 o),
+        // warps (8 o), scripts
         let header_ofs = blob.len();
         let tilemap_ofs = header_ofs + 28;
-        let upper_ofs = tilemap_ofs + w * h;
-        let collision_ofs = upper_ofs + w * h;
-        let actors_ofs = collision_ofs + w * h;
+        let upper_ofs = tilemap_ofs + rle_lower.len();
+        let collision_ofs = upper_ofs + rle_upper.len();
+        let actors_ofs = collision_ofs + rle_col.len();
         let warps_ofs = actors_ofs + sc.actors.len() * 8;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
@@ -85,24 +118,12 @@ pub fn build_scene_bank(
         write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
         header[23] = sc.warps.len() as u8;
         write_far(&mut header[24..27], BANK_SCENES, upper_ofs);
+        header[27] = sprite_set_ids[i]; // sprite_set_id (v0.5)
         blob.extend_from_slice(&header);
 
-        blob.extend_from_slice(&g.lower);
-        blob.extend_from_slice(&g.upper);
-        // Collision dérivée du tileset (spec §1.4) ; les tiles de warp
-        // sont marquées 0x02 par l'outil — et doivent être traversables
-        let mut collision = g.collision.clone();
-        for wp in &sc.warps {
-            let ofs = wp.y as usize * w + wp.x as usize;
-            if collision[ofs] != 0 {
-                bail!(
-                    "scene '{}' : warp ({},{}) sur une tile solide",
-                    sc.name, wp.x, wp.y
-                );
-            }
-            collision[ofs] = 0x02;
-        }
-        blob.extend_from_slice(&collision);
+        blob.extend_from_slice(&rle_lower);
+        blob.extend_from_slice(&rle_upper);
+        blob.extend_from_slice(&rle_col);
 
         // Entrées acteurs (spec §1.3, 8 octets)
         for a in &sc.actors {
@@ -112,10 +133,22 @@ pub fn build_scene_bank(
                     format!("scene '{}' : entry '{}' introuvable", sc.name, label)
                 })?,
             };
-            blob.push(0x01); // ACTOR_TYPE_NPC_STATIC
+            // actor_type (spec §1.3) : 0x01 npc, 0x02 contact, 0x03 auto
+            blob.push(match a.kind.as_str() {
+                "npc" => 0x01,
+                "trigger" => 0x02,
+                _ => 0x03,
+            });
             blob.push(a.x);
             blob.push(a.y);
-            blob.push(a.sprite);
+            // sprite_id binaire = SLOT LOCAL dans le sprite set de la
+            // scène (v0.5) — le bloc global du JSON est remappé ici.
+            // Déclencheurs : invisibles, pas de sprite (0).
+            blob.push(if a.kind == "npc" {
+                sprite_remaps[i][&a.sprite]
+            } else {
+                0
+            });
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
             blob.push(0);
@@ -146,6 +179,12 @@ pub fn build_scene_bank(
         blob.extend_from_slice(&asm.bytecode);
     }
 
+    println!(
+        "  grilles : {} -> {} octets (RLE, {}%)",
+        grids_raw,
+        grids_rle,
+        if grids_raw > 0 { grids_rle * 100 / grids_raw } else { 100 }
+    );
     if blob.len() > BANK_CAPACITY {
         bail!(
             "bank scenes : {} octets > 32 Ko — decoupage multi-bank a implementer \
@@ -162,22 +201,92 @@ fn write_far(dst: &mut [u8], bank: u8, offset: usize) {
     dst[1..3].copy_from_slice(&addr.to_le_bytes());
 }
 
-/// Bank textes (spec §2) :
-/// [u16 text_count][u16 offset × N (relatifs au debut de bank)][chaines \0]
-pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
-    let table_size = 2 + texts.len() * 2;
-    let mut blob = vec![0u8; table_size];
-    blob[0..2].copy_from_slice(&(texts.len() as u16).to_le_bytes());
+/// Grilles de scène compressées en RLE (v0.7) : paires [count 1-255][valeur],
+/// décodées au chargement de scène vers les buffers WRAM du moteur.
+fn rle_encode(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < data.len() {
+        let v = data[i];
+        let mut n = 1usize;
+        while n < 255 && i + n < data.len() && data[i + n] == v {
+            n += 1;
+        }
+        out.push(n as u8);
+        out.push(v);
+        i += n;
+    }
+    out
+}
 
-    for (i, t) in texts.iter().enumerate() {
-        let ofs = blob.len() as u16;
-        blob[2 + i * 2..4 + i * 2].copy_from_slice(&ofs.to_le_bytes());
+/// Budget WRAM du moteur pour une grille décompressée (scene.c)
+pub const MAP_BUF_CELLS: usize = 8192;
+
+/// Bank textes (spec §2 v0.7) — chaînes compressées par dictionnaire de
+/// bigrammes (DTE) : les codes 0x80-0xFF désignent une PAIRE de caractères
+/// ASCII de la table (256 octets), décodée à la volée par la textbox.
+/// [u16 text_count][u16 offset × N (relatifs au debut de bank)]
+/// [table de paires : 128 × 2 octets][chaines encodees \0]
+pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
+    for t in texts {
         if !t.text.chars().all(|c| (' '..='~').contains(&c)) {
             bail!("texte '{}' : caractere non-ASCII (v0 : ASCII 32-126)", t.name);
         }
-        blob.extend_from_slice(t.text.as_bytes());
+    }
+
+    // Dictionnaire : les 128 bigrammes ASCII les plus fréquents (une seule
+    // passe, paires de caractères BRUTS — le décodeur moteur n'est pas
+    // récursif). Ordre déterministe : fréquence puis valeur.
+    let mut freq: HashMap<[u8; 2], usize> = HashMap::new();
+    for t in texts {
+        let b = t.text.as_bytes();
+        for w in b.windows(2) {
+            *freq.entry([w[0], w[1]]).or_insert(0) += 1;
+        }
+    }
+    let mut pairs: Vec<([u8; 2], usize)> =
+        freq.into_iter().filter(|&(_, n)| n >= 2).collect();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    pairs.truncate(128);
+    let mut table = [b' '; 256];
+    let mut code_of: HashMap<[u8; 2], u8> = HashMap::new();
+    for (k, (p, _)) in pairs.iter().enumerate() {
+        table[k * 2] = p[0];
+        table[k * 2 + 1] = p[1];
+        code_of.insert(*p, 0x80 | k as u8);
+    }
+
+    let table_size = 2 + texts.len() * 2;
+    let mut blob = vec![0u8; table_size];
+    blob[0..2].copy_from_slice(&(texts.len() as u16).to_le_bytes());
+    blob.extend_from_slice(&table);
+
+    let mut raw = 0usize;
+    for (i, t) in texts.iter().enumerate() {
+        let ofs = blob.len() as u16;
+        blob[2 + i * 2..4 + i * 2].copy_from_slice(&ofs.to_le_bytes());
+        let b = t.text.as_bytes();
+        raw += b.len() + 1;
+        let mut j = 0;
+        while j < b.len() {
+            if j + 1 < b.len() {
+                if let Some(&c) = code_of.get(&[b[j], b[j + 1]]) {
+                    blob.push(c);
+                    j += 2;
+                    continue;
+                }
+            }
+            blob.push(b[j]);
+            j += 1;
+        }
         blob.push(0);
     }
+    println!(
+        "  textes : {} -> {} octets (DTE, {}%)",
+        raw,
+        blob.len() - table_size - 256,
+        if raw > 0 { (blob.len() - table_size - 256) * 100 / raw } else { 100 }
+    );
 
     if blob.len() > BANK_CAPACITY {
         bail!("bank textes : {} octets > 32 Ko", blob.len());

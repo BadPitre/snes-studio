@@ -104,6 +104,59 @@ consomme** : aucun format intermédiaire.
 
 Pas encore : animation des autotiles (eau), édition des gfx.
 
+## Fonctionnalités (6) — personnages façon RM2003
+
+- **Sprites 16x24** : les acteurs sont dessinés sur la map avec leur frame
+  de repos (bloc × 12 + direction × 3), ancrée en bas de leur tile — la
+  tête dépasse de 8 px au-dessus, comme dans RM2003 et en jeu.
+- **Charset (personnage)** : dans l'onglet Acteurs, le sprite d'un PNJ se
+  choisit parmi les personnages du projet (nommés via `project.charsets`).
+  Le projet n'est pas limité (64 blocs max) ; chaque **scène** peut en
+  afficher **5 différents** (héros inclus — limite VRAM SNES, datagen
+  compile un sprite set par scène). L'onglet affiche le compteur
+  « Charsets de la scène : n/5 ».
+- **Import de charsets RM2003** : bouton « Charset RM2003… » (onglet
+  Acteurs ou Gestionnaire de ressources) → choisir un PNG 288x256
+  (8 personnages) ou 72x128 (un seul), cliquer le personnage dans
+  l'aperçu, choisir le bloc de destination (existant ou nouveau) et un
+  nom → `datagen import-charset` recadre les frames 24x32 en 16x24 et
+  réécrit `assets/sprites.png`.
+- **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
+  catégories **CharSet** (personnages) et **ChipSet** (tilesets), liste
+  avec aperçu, et actions **Importer / Exporter / Renommer / Supprimer**.
+  Export charset au format RM2003 (72x128, PNG transparent) ; export
+  chipset = copie de la grille PNG. Renommer un tileset renomme ses
+  fichiers et met à jour les scènes ; supprimer est bloqué si la
+  ressource est utilisée par une scène (et le bloc 0 = héros est
+  protégé). Supprimer un personnage décale les blocs suivants (les
+  acteurs sont mis à jour).
+- **Musique de la scène** : dans l'onglet Scène (section Musique).
+- **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
+  déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
+  script quand le héros marche sur la tile — marqueur orange « C » sur la
+  map) ou *Auto* (invisible, script au chargement de la scène — marqueur
+  cyan « A »). Scripts : `CHOICE` (choix 2-4 avec curseur), variables
+  globales `g<n>` dans les conditions (give/has), `WARP` (téléport
+  scripté), `FACE` (tourner un PNJ) — voir docs/TOOLS.md.
+- **Barre de menus** (façon RM2003) :
+  - *Projet* : Nouveau projet (dossier vide → projet minimal jouable avec
+    tileset/personnages/fonte de démarrage), Ouvrir, Fermer, Explorer le
+    dossier du projet, Quitter.
+  - *Edit* : Annuler/Rétablir (Ctrl+Z / Ctrl+Y), Couper/Copier/Coller/
+    Supprimer le PNJ sélectionné, Réglages du projet (bash, émulateur).
+  - *Tools* : réservé.
+  - *Game* : Lancer le jeu, Générer les données.
+  - *Help* : Version.
+  La barre de boutons se réduit à : 💾 (sauvegarder), couches, Ressources,
+  Collision/Grille, puis « Générer les données » et « ▶ Jouer » en fin.
+- **Vérification du projet** (Tools → Vérifier le projet…) : fenêtre de
+  diagnostic — tableau des scènes (taille, budget tiles 8192, charsets
+  n/5, acteurs, warps), problèmes bloquants et avertissements détectés
+  côté éditeur (labels/textes/scènes manquants, dépassements de limites,
+  déclencheurs sans script…), puis le verdict réel de datagen : tailles
+  des banks (scènes/textes sur 32 Ko), gains de compression, warnings de
+  génération (fusions de couleurs…), taille du dernier ROM.
+
 ## Lancer
 
 Prérequis : Node.js, Rust (déjà requis pour datagen). Sous Windows,

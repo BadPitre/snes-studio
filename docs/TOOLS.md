@@ -30,7 +30,8 @@ demo/
   scenes/<nom>.json     # une scène par fichier
   assets/*.png          # tilesets : grille de tiles 16x16, PNG indexé 16 couleurs
   assets/<tileset>.json # sidecar : autotiles + passabilité (solid/above)
-  assets/sprites.png    # bande de frames 16x16 (max 64), PNG indexé
+  assets/sprites.png    # bande de frames 16x24 en blocs de personnage de 12
+                        # (64 blocs max au projet, 5 par scène), PNG indexé ou RGBA
   assets/font.png       # 96 glyphes 8x8 (ASCII 32-127), bande 768x8, PNG indexé
 ```
 
@@ -54,7 +55,9 @@ troncature à 5 bits.
   "upper":   [[...], ...],              // couche SUPÉRIEURE : -1 = vide
   "actors": [
     {"type": "npc", "x": 8, "y": 4, "sprite": 4,
-     "dir": "left", "entry": "compteur"}   // entry : label du script (optionnel)
+     "dir": "left", "entry": "compteur"},  // entry : label du script (optionnel)
+    {"type": "trigger", "x": 12, "y": 10, "entry": "panneau"}, // au contact
+    {"type": "auto", "x": 0, "y": 0, "entry": "intro"}  // au chargement
   ],
   "warps": [                               // optionnel (Phase 4)
     {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
@@ -80,8 +83,17 @@ dans `"musics"` (l'ordre donne les music_id) ; chaque scène peut déclarer
 soundbank (smconv) épinglé en bank $87. La musique du demo (pollen8) vient
 des exemples PVSnesLib — placeholder à remplacer.
 
-`dir` : `down` / `up` / `left` / `right`. `sprite` : index de la frame « bas »
-dans la feuille de sprites (convention metasprite : frame = sprite + dir).
+`dir` : `down` / `up` / `left` / `right`. `sprite` : index du **bloc de
+personnage** dans la feuille de sprites du projet (12 frames par bloc,
+modèle RM2003). En binaire, datagen le remappe vers le slot local du
+sprite set de la scène (5 blocs max par scène, spec §5).
+
+**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ visible qui
+parle avec A (et se tourne vers le héros) ; `trigger` = invisible et
+traversable, son script part quand le héros **marche sur sa tile** (Player
+Touch) ; `auto` = invisible, son script part **au chargement de la scène**
+(Autorun — boot ou arrivée par warp). `trigger`/`auto` exigent `entry`
+(sprite/dir ignorés).
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
 de 16, max 999 tiles), indices **rangée par rangée** comme la palette
@@ -93,11 +105,20 @@ scène : 254 tiles distinctes, 512 chars 8x8 (char 0 réservé transparent),
 `"tilesets"` (l'ordre donne les tileset_id ; absent = `assets.tileset`
 seul) ; chaque scène peut déclarer `"tileset": "<stem>"` (absent = le
 premier). datagen valide les ids des deux couches contre le tileset de la
-scène. **Feuille de sprites** : frames 16x16, layout OBJ multi-rangées
-généré ; convention : joueur = frames 0-7 (direction×2 + pas de marche),
-PNJ à partir de la frame 8 (4 frames directionnelles — `sprite` = frame de
-base). Les tiles destinées à la couche sup doivent avoir un **fond index 0**
-(transparent) pour laisser voir le sol.
+scène. **Feuille de sprites (Phase 6)** : bande de frames **16x24**, en
+**blocs de personnage de 12 frames** (4 directions bas/haut/gauche/droite ×
+3 pas repos/pas A/pas B — modèle charset RM2003). Joueur = bloc 0,
+`sprite` d'un acteur = index de bloc. Le projet peut avoir de nombreux
+blocs (64 max) : datagen compile un **sprite set par scène** (comme les
+tilesets) avec seulement le joueur + les blocs des acteurs de la scène —
+**5 blocs max par scène** (limite VRAM SNES), erreur explicite au-delà.
+Chaque bloc reçoit sa palette OBJ (15 couleurs + transparent ; au-delà,
+fusion automatique des plus proches avec avertissement). Chaque frame est
+rendue par 2 OBJs 16x16 empilés, ancrés avec 8 px de débord au-dessus de
+la tile (la tête chevauche la tile du dessus). `project.json` peut porter
+`"charsets": ["Héros", ...]` — noms des blocs affichés par l'éditeur
+(ignoré par datagen). Les tiles destinées à la couche sup doivent avoir un
+**fond index 0** (transparent) pour laisser voir le sol.
 
 ## Sidecar de tileset (Phase 5c — modèle RPG Maker 2003)
 
@@ -140,24 +161,55 @@ devient l'index 0 (transparent). La passabilité arrive vierge (eau solide
 par défaut) : se règle dans l'éditeur, mode « Passabilité O/X/☆ ». Non
 importés : eau B/eau profonde, tiles d'animation (cascades).
 
+## Import de charsets RPG Maker 2003
+
+```bash
+cargo run --release --manifest-path tools/Cargo.toml -p datagen -- \
+  import-charset mon_charset.png demo 2 1
+```
+
+Importe un personnage d'un charset RM2003 (PNG **288x256** = 8 personnages
+de 72x128, ou **72x128** = un seul) vers un **bloc** de la feuille de
+sprites du projet (`assets.sprites`). Arguments : personnage (0-7, en
+lisant par rangées) puis bloc de destination (0-63 ; 0 = joueur). Chaque
+frame RM2003 24x32 est recadrée en 16x24 (centre-bas) ; l'ordre RM des
+rangées (haut, droite, bas, gauche) et des colonnes (pas gauche, repos,
+pas droit) est recomposé vers le nôtre. La feuille est réécrite en PNG
+RGBA (étendue au besoin) — la transparence vient de l'alpha, ou de
+l'index 0 de la palette pour un charset indexé (convention RM2003).
+
 ## Assembleur de scripts (VM v0, spec §2)
 
 Une instruction par ligne, `;` commentaire, `label:` pour les cibles de saut.
 Les acteurs pointent sur un label via `entry` — plus d'offsets à la main.
 
 ```
-compteur:
-  JGEQ v0 2 deja_vu     ; v0..v63 = variables de scene
-  MSG bonjour           ; nom d'un texte de texts.json
-  ADDVAR v0 1
+salut:
+  JEQ g1 1 deja         ; g0..g63 = variables GLOBALES (persistent entre
+  MSG q_fleur           ;   scenes) - pattern give/has de RM2003
+  CHOICE v1 opt_oui opt_non   ; 2-4 choix, index choisi -> v1
+  JEQ v1 1 refus
+  MSG r_fleur
+  SETVAR g1 1           ; « donner la fleur » : une gvar
   END
-deja_vu:
-  MSG encore
+refus:
+  MSG r_non
   END
+deja:
+  MSG deja_fleur
+  END
+panneau:                ; script d'un acteur "trigger" (au contact)
+  CHOICE v2 opt_oui opt_non
+  JEQ v2 0 va_bourg
+  END
+va_bourg:
+  WARP bourg 16 28      ; teleporte le heros - termine le script
 ```
 
-Opcodes : `END`, `MSG <texte>`, `SETVAR v<n> <val>`, `ADDVAR v<n> <val>`,
-`SETGVAR g<n> <val>`, `JMP <label>`, `JEQ|JNE|JGEQ v<n> <val> <label>`.
+Opcodes (spec §2 v0.6) : `END`, `MSG <texte>`, `SETVAR|ADDVAR v<n>|g<n>
+<val>`, `SETGVAR g<n> <val>` (alias), `JMP <label>`, `JEQ|JNE|JGEQ
+v<n>|g<n> <val> <label>`, `CHOICE v<n>|g<n> <texte>...` (2-4 choix),
+`WARP <scene> <x> <y>`, `FACE <acteur> <down|up|left|right>`.
 La table est contractuelle (spec §2) — l'outil refuse tout le reste.
 
 ## Garanties

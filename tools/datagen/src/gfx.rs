@@ -2,6 +2,7 @@
 //! palettes BGR555). Les PNG doivent être en mode palette : l'index de
 //! chaque pixel EST l'index de couleur SNES (round-trip sans perte).
 
+use crate::tileset::dist555 as color_dist;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -150,12 +151,14 @@ impl IndexedImage {
         self.pixels[y * self.width + x]
     }
 
-    /// Encode un char 8x8 en 4bpp planaire SNES (32 octets)
-    pub(crate) fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
+    /// char4bpp avec ré-indexation (palettes OBJ par bloc de personnage) :
+    /// chaque index source passe par la table remap avant encodage
+    fn char4bpp_mapped(&self, ox: usize, oy: usize, remap: &[u8; 256]) -> [u8; 32] {
         let mut out = [0u8; 32];
         for y in 0..8 {
             for x in 0..8 {
-                let c = self.pixel(ox + x, oy + y);
+                let src = self.pixel(ox + x, oy + y);
+                let c = if src == 0 { 0 } else { remap[src as usize] };
                 let bit = 0x80u8 >> x;
                 if c & 1 != 0 { out[y * 2] |= bit; }
                 if c & 2 != 0 { out[y * 2 + 1] |= bit; }
@@ -180,42 +183,146 @@ impl IndexedImage {
         out
     }
 
-    /// Feuille de sprites : bande de frames 16x16 → table OBJ 32 chars
-    /// (rangée haute : TL,TR par frame ; rangée basse : BL,BR — la frame f
-    /// utilise les tiles {2f, 2f+1, 2f+16, 2f+17})
-    pub fn to_obj_sheet(&self) -> Result<Vec<u8>> {
-        if self.height != 16 || self.width % 16 != 0 {
-            bail!("sprites : attendu une bande de frames 16x16 (hauteur 16)");
+    /// Nombre de blocs de personnage de la feuille (12 frames 16x24 par
+    /// bloc, modèle charset RM2003) — valide aussi le format de la bande.
+    pub fn sprite_blocks(&self) -> Result<usize> {
+        if self.height != 24 || self.width % 16 != 0 {
+            bail!(
+                "sprites : attendu une bande de frames 16x24 (hauteur 24) — \
+                 blocs de 12 frames (4 directions x 3, modele RM2003)"
+            );
         }
+        Ok((self.width / 16).div_ceil(12))
+    }
+
+    /// Feuille OBJ d'un SET de sprites (v0.5, compilé par scène comme les
+    /// tilesets) : `blocks` liste les blocs de personnage du projet à
+    /// embarquer (max 5 — le slot local s reçoit le bloc global blocks[s]).
+    /// Chaque frame 16x24 est rendue par 2 OBJs 16x16 empilés — en VRAM,
+    /// un groupe de 8 frames occupe 4 rangées de 16 chars : rangées 0-1 =
+    /// moitiés hautes, rangées 2-3 = moitiés basses (les 8 dernières
+    /// lignes, vides, restent à 0). OBJ haut de la frame locale f :
+    /// char ((f&0xF8)<<3)|((f&7)<<1) ; bas : +32.
+    ///
+    /// Chaque slot reçoit SA palette OBJ (slot s → palette s) : les
+    /// couleurs du bloc sont ré-indexées localement (1..15, 0 =
+    /// transparent) ; au-delà de 15 couleurs, fusion des plus proches avec
+    /// avertissement (jamais d'échec).
+    ///
+    /// Retourne (chars 4bpp, CGRAM OBJ complète 8x16 couleurs).
+    pub fn to_obj_sheet(&self, blocks: &[usize]) -> Result<(Vec<u8>, Vec<u16>)> {
+        let total_blocks = self.sprite_blocks()?;
         let frames = self.width / 16;
-        if frames > 64 {
-            bail!("sprites : 64 frames max");
+        if blocks.len() > 5 {
+            bail!("sprites : 5 blocs de personnage max par set (60 frames OBJ)");
         }
-        let blank = [0u8; 32];
-        let mut out = Vec::new();
-        // paires de rangées OBJ de 16 chars : 8 frames par paire
-        let pairs = frames.div_ceil(8);
-        for p in 0..pairs {
-            let mut top = Vec::new();
-            let mut bottom = Vec::new();
-            for i in 0..8 {
-                let f = p * 8 + i;
-                if f < frames {
-                    top.extend_from_slice(&self.char4bpp(f * 16, 0));
-                    top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
-                    bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
-                    bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
-                } else {
-                    top.extend_from_slice(&blank);
-                    top.extend_from_slice(&blank);
-                    bottom.extend_from_slice(&blank);
-                    bottom.extend_from_slice(&blank);
+
+        // Palette + ré-indexation par slot : couleurs BGR555 distinctes des
+        // frames du bloc (index source 0 = transparent, convention inchangée)
+        let mut pal = vec![0u16; 128];
+        let mut remaps: Vec<[u8; 256]> = Vec::new();
+        for (s, &b) in blocks.iter().enumerate() {
+            if b >= total_blocks {
+                bail!("sprites : bloc {} hors feuille ({} bloc(s))", b, total_blocks);
+            }
+            let f0 = b * 12;
+            let f1 = ((b + 1) * 12).min(frames);
+            // fréquence par couleur BGR555 (ordre d'apparition stable)
+            let mut colors: Vec<(u16, usize)> = Vec::new();
+            for y in 0..24 {
+                for x in f0 * 16..f1 * 16 {
+                    let idx = self.pixel(x, y);
+                    if idx == 0 {
+                        continue;
+                    }
+                    let c = self.palette[idx as usize];
+                    match colors.iter_mut().find(|e| e.0 == c) {
+                        Some(e) => e.1 += 1,
+                        None => colors.push((c, 1)),
+                    }
                 }
             }
-            out.extend(top);
-            out.extend(bottom);
+            // > 15 couleurs : fusion des deux plus proches (la moins
+            // fréquente prend la valeur de l'autre), comme pour les tiles BG
+            let mut merged = 0usize;
+            while colors.len() > 15 {
+                let (mut bi, mut bj, mut bd) = (0usize, 1usize, u32::MAX);
+                for i in 0..colors.len() {
+                    for j in i + 1..colors.len() {
+                        let d = color_dist(colors[i].0, colors[j].0);
+                        if d < bd {
+                            (bi, bj, bd) = (i, j, d);
+                        }
+                    }
+                }
+                // la plus fréquente absorbe l'autre
+                let (keep, drop) = if colors[bi].1 >= colors[bj].1 {
+                    (bi, bj)
+                } else {
+                    (bj, bi)
+                };
+                colors[keep].1 += colors[drop].1;
+                colors.remove(drop);
+                merged += 1;
+            }
+            if merged > 0 {
+                println!(
+                    "attention : sprites — bloc {} : plus de 15 couleurs, {} fusion(s)",
+                    b, merged
+                );
+            }
+            // table index source → index local du bloc (via valeur BGR555,
+            // couleur fusionnée → sa couleur d'arrivée la plus proche)
+            let mut remap = [0u8; 256];
+            for (src, &c) in self.palette.iter().enumerate() {
+                if src == 0 {
+                    continue;
+                }
+                let mut best = (0usize, u32::MAX);
+                for (k, &(pc, _)) in colors.iter().enumerate() {
+                    let d = color_dist(c, pc);
+                    if d < best.1 {
+                        best = (k, d);
+                    }
+                }
+                if !colors.is_empty() {
+                    remap[src] = (best.0 + 1) as u8;
+                }
+            }
+            for (k, &(c, _)) in colors.iter().enumerate() {
+                pal[s * 16 + 1 + k] = c;
+            }
+            remaps.push(remap);
         }
-        Ok(out)
+
+        // Chars : groupes de 8 frames locales = 4 rangées de 16 chars.
+        // La frame locale s*12+i vient de la frame source blocks[s]*12+i
+        // (blanche si le dernier bloc de la feuille est incomplet).
+        let blank = [0u8; 32];
+        let mut out = Vec::new();
+        let local_frames = blocks.len() * 12;
+        let groups = local_frames.div_ceil(8);
+        for p in 0..groups {
+            for part in 0..4 {
+                for i in 0..8 {
+                    let f = p * 8 + i;
+                    let src = if f < local_frames {
+                        blocks[f / 12] * 12 + f % 12
+                    } else {
+                        frames // hors feuille → blanc
+                    };
+                    if src >= frames || part == 3 {
+                        out.extend_from_slice(&blank);
+                        out.extend_from_slice(&blank);
+                        continue;
+                    }
+                    let remap = &remaps[f / 12];
+                    out.extend_from_slice(&self.char4bpp_mapped(src * 16, part * 8, remap));
+                    out.extend_from_slice(&self.char4bpp_mapped(src * 16 + 8, part * 8, remap));
+                }
+            }
+        }
+        Ok((out, pal))
     }
 
     /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du

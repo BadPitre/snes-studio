@@ -34,10 +34,12 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
    Attention : ne pas nommer un symbole « metatiles » — il entre en
    collision silencieuse avec un symbole interne de PVSnesLib (maps.asm).
 2. **Contrainte de taille : minimum 20x15** (un écran, comme RM2003),
-   maximum 255 (u8). Les maps plus grandes que la fenêtre VRAM 32x32 sont
-   streamées (voir §4) ; les plus petites tiennent entièrement dans la
-   fenêtre (pas de streaming sur l'axe concerné, zone hors map remplie de
-   char 0 — jamais visible, la caméra est clampée aux bords).
+   maximum 255 (u8) par axe et **8192 tiles au total** (v0.7 : les grilles
+   voyagent compressées et sont décompressées vers des buffers WRAM de
+   8192 octets — ex. 90x90, 64x128). Les maps plus grandes que la fenêtre
+   VRAM 32x32 sont streamées (voir §4) ; les plus petites tiennent
+   entièrement dans la fenêtre (pas de streaming sur l'axe concerné, zone
+   hors map remplie de char 0 — jamais visible, la caméra est clampée).
 3. **GFX compilés par scène (v0.4, Phase 5d)** : l'octet 1 du Scene Header
    est le `gfx_set_id` — index dans les tables générées `gfx_chars[]` /
    `gfx_chars_sizes[]` / `gfx_metas[]` / `gfx_prios[]` / `gfx_pals[]`
@@ -103,7 +105,8 @@ Offset  Taille  Champ
 23      1       warp_count      (u8)
 24      3       ptr_tilemap_upper (far) — couche SUPÉRIEURE (v0.3, Phase 5c ;
                                         cellule vide = id du metatile transparent)
-27      1       reserved        (u8)
+27      1       sprite_set_id   (u8)  — index dans les tables sprite_*
+                                        générées (v0.5 ; avant : réservé)
 ```
 
 *Évolution v0 → v0.2 (Phase 4) : header étendu de 20 à 24 octets avec la
@@ -124,14 +127,29 @@ warp, comme la musique.*
 gfx (chars, metatiles, priorités, palettes) sont compilés PAR SCÈNE (§0.3),
 les valeurs du tilemap sont des ids LOCAUX au set de la scène.*
 
+*Évolution v0.4 → v0.5 (Phase 6) : l'octet 27 devient `sprite_set_id` —
+les sprites (chars OBJ + palettes) sont compilés PAR SCÈNE comme les
+tilesets : seuls les blocs de personnage utilisés par la scène (joueur
+inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
+vers le slot local (§1.3, §5).*
+
 ### 1.3 Entrée acteur (8 octets par acteur)
 
 ```
 Offset  Taille  Champ
-0       1       actor_type    (u8)  — 0x01 = PNJ statique (seul type en v0)
+0       1       actor_type    (u8)  — 0x01 = PNJ statique (parle avec A)
+                                      0x02 = déclencheur de CONTACT (v0.6) :
+                                      invisible, traversable — script lancé
+                                      quand le héros marche sur la tile
+                                      0x03 = déclencheur AUTO (v0.6) :
+                                      invisible — script lancé au chargement
+                                      de la scène (boot ou warp)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
-3       1       sprite_id     (u8)  — index dans la table de metasprites
+3       1       sprite_id     (u8)  — SLOT de bloc de personnage dans le
+                                      sprite set de la scène (§5, v0.5 —
+                                      datagen remappe le bloc projet du
+                                      JSON vers le slot local, joueur = 0)
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
 7       1       reserved      (u8)
@@ -173,6 +191,17 @@ transition v0 est fondu sortant → chargement de la scène cible (vars VM
 remises à zéro, gvars conservées) → fondu entrant. Pas de re-déclenchement
 tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
 
+### 1.6 Compression des grilles — RLE (v0.7)
+
+Les trois grilles d'une scène (`ptr_tilemap`, `ptr_tilemap_upper`,
+`ptr_collision`) sont stockées en **RLE** : suites de paires
+`[count (u8, 1-255)][valeur (u8)]`, décodées au chargement de scène vers
+les buffers WRAM du moteur (3 × 8192 octets, écran éteint) jusqu'à
+`w*h` octets exactement. datagen valide `w*h <= 8192`. Sur des maps
+typées RM2003 le gain est massif (~85 % sur la demo) — c'est ce qui rend
+des jeux de la taille d'un RM2003 possibles dans 4 Mo, avec le découpage
+multi-bank à venir.
+
 ---
 
 ## 2. Spec VM v0 — le bytecode
@@ -194,9 +223,13 @@ struct VmState {
   u8  active;          // 0 = inactive
   u8  bank;            // bank du bytecode courant
   u16 pc;              // program counter (offset dans la bank)
-  u8  wait_mode;       // 0=non, 1=attend touche A, 2=attend fermeture textbox
+  u8  wait_mode;       // 0=non, 1=attend touche A, 2=attend fermeture textbox,
+                       // 3=CHOICE en cours (curseur haut/bas, A valide — v0.6)
   u8  vars[64];        // variables de scène (réinitialisées au chargement de scène)
   u8  gvars[64];       // variables globales (persistent entre scènes)
+  u8  choice_var;      // v0.6 : variable destination du CHOICE en cours
+  u8  choice_count;    // v0.6 : nombre d'options (2-4)
+  u8  choice_sel;      // v0.6 : option sous le curseur
 };
 ```
 
@@ -207,33 +240,53 @@ offsets des opcodes de saut et les `script_offset` d'acteurs sont absolus
 dans le bloc scripts de la scène). Garde-fou : 32 opcodes immédiats max par
 frame, halt debug au-delà (idem opcode inconnu).
 
-### Table des opcodes v0
+### Table des opcodes — v0.6
+
+**Octet variable (v0.6)** : bits 0-5 = numéro (0-63), **bit 7 = variable
+GLOBALE** (`gvars`, persiste entre les scènes) — partout où « var »
+apparaît ci-dessous. L'assembleur écrit `v<n>` (scène) ou `g<n>` (globale).
+Le pattern RM2003 « donner/posséder un objet » = une gvar : `SETVAR g<n> 1`
+pour donner, `JEQ g<n> 1 <label>` pour tester.
 
 | Op | Nom | Opérandes | Effet |
 |----|-----|-----------|-------|
 | 0x00 | END | — | Termine le script, VM inactive, rend le contrôle au joueur |
 | 0x01 | MSG | text_id (u16) | **Bloquant.** Ouvre la textbox, affiche le texte `text_id`, attend A pour fermer |
-| 0x02 | SETVAR | var (u8), val (u8) | vars[var] = val |
-| 0x03 | ADDVAR | var (u8), val (u8) | vars[var] += val (wrap 8-bit assumé) |
+| 0x02 | SETVAR | var (u8), val (u8) | var = val |
+| 0x03 | ADDVAR | var (u8), val (u8) | var += val (wrap 8-bit assumé) |
 | 0x04 | JMP | offset (u16) | pc = offset (absolu dans le bloc scripts) |
-| 0x05 | JEQ | var (u8), val (u8), offset (u16) | si vars[var] == val → saut |
-| 0x06 | JNE | var (u8), val (u8), offset (u16) | si vars[var] != val → saut |
-| 0x07 | SETGVAR | var (u8), val (u8) | gvars[var] = val |
-| 0x08 | JGEQ | var (u8), val (u8), offset (u16) | si vars[var] >= val → saut (utile compteurs) |
+| 0x05 | JEQ | var (u8), val (u8), offset (u16) | si var == val → saut |
+| 0x06 | JNE | var (u8), val (u8), offset (u16) | si var != val → saut |
+| 0x07 | SETGVAR | var (u8), val (u8) | gvars[var] = val (alias historique de SETVAR g) |
+| 0x08 | JGEQ | var (u8), val (u8), offset (u16) | si var >= val → saut (utile compteurs) |
+| 0x09 | CHOICE | var (u8), count (u8), count × text_id (u16) | **Bloquant.** Affiche 2-4 options (une par ligne, curseur `>` haut/bas), A valide → var = index choisi (0..count-1) |
+| 0x0A | WARP | scene (u8), x (u8), y (u8) | Téléporte le héros (fondu, rechargement complet) et **termine le script** — le bloc scripts change de scène |
+| 0x0B | FACE | acteur (u8), dir (u8) | Tourne l'acteur (index dans la table d'acteurs) vers dir (0=bas 1=haut 2=gauche 3=droite) |
 
-8 opcodes. C'est tout. Pas d'ajout sans besoin prouvé.
+*Évolution v0 → v0.6 (demande explicite) : CHOICE (Show Choices RM2003),
+WARP (Teleport scripté), FACE (orientation d'événement), et le bit gvar
+sur les opérandes variable — le déplacement pas-à-pas des PNJ par script
+arrive avec le chantier « PNJ mobiles ». En complément, hors bytecode :
+`wait_mode` 3 = VM_WAIT_CHOICE, et le PNJ à qui l'on parle se tourne vers
+le héros (réflexe RM2003, moteur).*
 
-**Textes :** bank $86, à $86:8000 :
+**Textes (v0.7) :** bank $86, à $86:8000, chaînes compressées par
+**dictionnaire de bigrammes (DTE)** :
 
 ```
 Offset      Taille  Champ
 0           2       text_count (u16)
 2           2×N     offsets (u16) — relatifs au début de bank ($8000)
-(offsets)   ...     chaînes terminées par 0x00
+2+2N        256     table de paires : 128 × 2 caractères ASCII
+(offsets)   ...     chaînes encodées terminées par 0x00
 ```
 
-`text_id` indexe la table d'offsets. Encodage v0 : ASCII simple (32-126,
-accents en v1 avec la fonte définitive).
+`text_id` indexe la table d'offsets. Dans une chaîne, un octet 0x80-0xFF
+désigne la paire `(code & 0x7F)` de la table (2 caractères BRUTS — le
+décodeur n'est pas récursif) ; la textbox décode vers un buffer WRAM
+avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
+projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
+(32-126, accents en v1 avec la fonte définitive).
 
 ---
 
@@ -318,6 +371,35 @@ en C array (`data_font.c`).
 
 ---
 
+## 4bis. Sauvegardes SRAM (v0.7)
+
+Cartouche à batterie (hdr.asm : `CARTRIDGETYPE $02`, `SRAMSIZE $01` =
+2 Ko, mappée en bank $70). **4 slots de 128 octets** :
+
+```
+Offset  Taille  Champ
+0       2       magie "SG"
+2       1       version (1) — un slot d'une autre version est « vide »
+3       1       scene (index Scene Table)
+4       1       x du héros (en tiles)
+5       1       y
+6       1       dir (0=bas 1=haut 2=gauche 3=droite)
+7       1       réservé
+8       64      gvars[64] (variables globales)
+72      54      réservé (0)
+126     2       checksum (somme 16-bit des octets 0-125, little-endian)
+```
+
+Un slot est valide si magie + version + checksum concordent (sinon il est
+présenté « vide »). Interface : **menu Système sur START** (Sauvegarder /
+Charger / Fermer, puis choix du slot — B revient/ferme), construit sur la
+textbox et son curseur de choix. Charger applique les gvars puis recharge
+la scène sauvegardée (même chemin que les warps) et repose position et
+direction du héros. Les variables de SCÈNE (v0-63) ne sont pas
+sauvegardées : elles se réinitialisent au chargement de scène (spec §2).
+
+---
+
 ## 5. Audit "constantes de jeu" — état semaine 5
 
 Aucune donnée de jeu en dur dans le moteur : positions, maps, collision,
@@ -327,22 +409,44 @@ deviendront des paramètres générés quand les outils Rust existeront) :
 
 - vitesse joueur 1 px/frame et cadence de pseudo-anim (8 frames) — kit S2 ;
 - géométrie de la textbox (rangées 20-27, 28 colonnes) ;
+- vocabulaire du menu Système (« Sauvegarder », « Charger », « Slot n »…) —
+  chaînes moteur v0.7, comme le menu intégré de RM2003 (configurable par
+  projet en v1+) ;
 - marge de fenêtre de streaming (8 metatiles) ;
 - layout VRAM (`vram.h`) et constantes hardware (écran 256x224, tiles 16 px,
   wrap BG 64 chars).
 
-**Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
-(`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles
-(0=bas 1=haut 2=gauche 3=droite), layout table OBJ multi-rangées (frame f =
-tiles {base, base+1, base+16, base+17}, base = (f/8)*32 + (f%8)*2).
-Frames 0-7 : joueur (direction*2 + pas de marche — pas de sprite_id, gfx
-global contrairement aux tilesets, par scène depuis la Phase 5b).
-Frames 8-11 : PNJ villageois.
+**Sprites compilés par scène (v0.5, modèle charset RM2003)** : la feuille
+source du projet (`assets.sprites`) est une bande de **frames 16x24**,
+organisée en **blocs de personnage de 12 frames** : 4 directions (0=bas
+1=haut 2=gauche 3=droite) × 3 pas (repos, pas A, pas B). Le joueur est le
+bloc 0. Le projet peut avoir de nombreux blocs — datagen compile, pour
+chaque scène, un **sprite set** ne contenant que le bloc joueur + les
+blocs de ses acteurs (**5 blocs max par scène**, sinon erreur), dédupliqué
+entre scènes identiques. Tables générées `sprite_chars[]` /
+`sprite_chars_sizes[]` / `sprite_pals[]` (`data_assets.c`), indexées par
+`sprite_set_id` (header octet 27) ; chargées en VRAM/CGRAM au boot et à
+chaque warp, écran éteint.
 
-**Convention metasprite v0 :** le `sprite_id` d'un acteur est l'index de sa
-frame « bas » dans la feuille ; la frame affichée est `sprite_id + direction`.
-(La « table de metasprites » deviendra une vraie structure quand les outils
-Rust génèreront les assets, Phase 2.)
+- **Metasprite** : une frame = 2 OBJs 16x16 empilés, ancrés sur la tile de
+  l'entité avec **8 px de débord au-dessus** (la tête chevauche la tile du
+  dessus, comme dans RM2003). Une tile ☆ de la couche sup passe devant.
+- **Layout VRAM OBJ** (frames LOCALES au set, 60 max) : un groupe de 8
+  frames = 4 rangées de 16 chars (rangées 0-1 : moitiés hautes 16x16,
+  rangées 2-3 : moitiés basses — les 8 dernières lignes de la frame sont
+  vides). OBJ haut de la frame f : tile `((f&0xF8)<<3) | ((f&7)<<1)` ;
+  OBJ bas : `+32`.
+- **Palettes OBJ** : le slot s du set utilise la palette OBJ s — datagen
+  ré-indexe les couleurs de chaque bloc (15 max + transparent, fusion des
+  plus proches au-delà, avec avertissement) et émet la CGRAM OBJ complète
+  (couleurs 128-255) par set.
+- **Cycle de marche** : phase 0-3 → pas affiché repos, A, repos, B (avance
+  toutes les 8 frames de mouvement).
+
+**Convention metasprite (v0.5) :** le `sprite_id` binaire d'un acteur est
+le **slot local** de son bloc dans le sprite set de la scène (le JSON
+source déclare le bloc projet ; datagen remappe) ; la frame de repos
+affichée est `sprite_id*12 + direction*3`, avec la palette OBJ `sprite_id`.
 
 **Interaction (semaine 3)** : bouton A + acteur sur la tile face au joueur →
 `actor_interact()`. Effet provisoire jalon S3 : bascule de la couleur 2 de la

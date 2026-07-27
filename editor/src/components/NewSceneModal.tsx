@@ -18,7 +18,10 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
 
   const clean = name.replace(/[^a-z0-9_]/g, "");
   const nameOk = clean.length > 0 && !existing.includes(clean);
-  const sizeOk = width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255;
+  // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
+  const sizeOk =
+    width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 &&
+    width * height <= 8192;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -52,7 +55,7 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
           </label>
         </div>
         {!nameOk && clean.length > 0 && <p className="hint">Nom déjà pris.</p>}
-        {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255.</p>}
+        {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255, 8192 tiles max.</p>}
         <div className="row">
           <button disabled={!nameOk || !sizeOk} onClick={() => onCreate(clean, width, height)}>
             Créer

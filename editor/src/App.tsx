@@ -6,18 +6,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Actor, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
-import { assetStem, musicStem, projectTilesets } from "./types";
+import {
+  assetStem,
+  charsetName,
+  musicStem,
+  projectTilesets,
+  spriteBlockCount,
+} from "./types";
 import {
   canWriteFiles,
   importTilesetPng,
   loadAssetPng,
   loadAutotiles,
+  loadPngBitmap,
   loadProject,
   pickPngFile,
   pickProjectDir,
+  pickSavePath,
+  readBinaryFile,
+  removePath,
+  renamePath,
   saveProject,
+  writeBinaryFile,
 } from "./io";
-import { runImportChipset } from "./build";
+import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
   cyclePassability,
@@ -46,6 +58,15 @@ import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
+import CharsetImportModal from "./components/CharsetImportModal";
+import ResourceManagerModal from "./components/ResourceManagerModal";
+import MenuBar from "./components/MenuBar";
+import DiagnosticsModal from "./components/DiagnosticsModal";
+import type { DatagenReport } from "./components/DiagnosticsModal";
+import { checkProject } from "./diagnostics";
+import type { Diag } from "./diagnostics";
+import { scaffoldProject } from "./template";
+import pkg from "../package.json";
 
 type Tab = "scene" | "actors" | "warps" | "script" | "texts";
 
@@ -76,6 +97,19 @@ export default function App() {
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
+  // import de charset en cours (fichier choisi, en attente du personnage/bloc)
+  const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
+    null
+  );
+  // gestionnaire de ressources (façon RM2003)
+  const [showResources, setShowResources] = useState(false);
+  // menu Aide → À propos
+  const [showAbout, setShowAbout] = useState(false);
+  // fenêtre de diagnostic (Tools → Vérifier le projet)
+  const [diags, setDiags] = useState<Diag[] | null>(null);
+  const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
+  // presse-papier du menu Edit (PNJ sélectionné)
+  const [actorClipboard, setActorClipboard] = useState<Actor | null>(null);
   // hauteur de la palette (séparateur palette / arborescence, persisté)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
@@ -97,6 +131,26 @@ export default function App() {
   const emptyMeta: TilesetMeta = { autotiles: [], solid: [], above: [] };
   const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
   const autotiles = autoImgs[tsStem] ?? [];
+
+  // Blocs de personnage de la feuille de sprites (v0.5 : le projet n'est
+  // plus limité — datagen compile un set par scène, 5 blocs max chacune)
+  const spriteBlocks = spriteBlockCount(sprites);
+  const blockNames = data
+    ? Array.from({ length: spriteBlocks }, (_, b) => charsetName(data.project, b))
+    : [];
+  // ressource → scènes qui l'utilisent (suppression bloquée si utilisé)
+  const usedCharsets: Record<number, string[]> = {};
+  const usedChipsets: Record<string, string[]> = {};
+  if (data) {
+    for (const [n, sc] of Object.entries(data.scenes)) {
+      for (const a of sc.actors) {
+        if (a.type !== "npc") continue; // déclencheurs : pas de sprite
+        (usedCharsets[a.sprite] ??= []).includes(n) || usedCharsets[a.sprite].push(n);
+      }
+      const stem = sc.tileset ?? tilesetNames[0];
+      (usedChipsets[stem] ??= []).push(n);
+    }
+  }
 
   // (re)chargement complet du projet depuis le disque
   async function reloadProject(root: string, keepScene?: string) {
@@ -132,6 +186,150 @@ export default function App() {
     }
   }
 
+  // ---- Menu Projet ---------------------------------------------------------
+
+  // Nouveau projet : dossier choisi (vide) → projet minimal généré (une
+  // scène 30x20, tileset/personnages/fonte de démarrage embarqués)
+  async function newProject() {
+    const root = await pickProjectDir();
+    if (!root) return;
+    try {
+      let taken = false;
+      try {
+        await readBinaryFile(`${root}/project.json`);
+        taken = true;
+      } catch {
+        /* pas de project.json : dossier libre */
+      }
+      if (taken) {
+        setStatus("Ce dossier contient déjà un projet — l'ouvrir plutôt");
+        return;
+      }
+      await scaffoldProject(root);
+      const d = await reloadProject(root);
+      setStatus(`Projet « ${d.project.name} » créé — bon courage !`);
+    } catch (e) {
+      setStatus(`Nouveau projet : ${e}`);
+    }
+  }
+
+  function closeProject() {
+    if (!data) return;
+    if (dirty && !confirm("Modifications non sauvegardées — fermer quand même ?")) return;
+    setData(null);
+    setSceneName("");
+    setTilesets({});
+    setAutoImgs({});
+    setSprites(null);
+    setSelActor(null);
+    setDirty(false);
+    history.reset();
+    setStatus("Ouvre un dossier projet (ex. demo/)");
+  }
+
+  async function quitApp() {
+    if (dirty && !confirm("Modifications non sauvegardées — quitter quand même ?")) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      window.close(); // mode navigateur
+    }
+  }
+
+  // ---- Tools : vérification du projet --------------------------------------
+
+  async function openDiagnostics() {
+    if (!data) return;
+    setDiags(checkProject(data, spriteBlocks));
+    if (!canBuild()) {
+      setDiagReport(null);
+      return;
+    }
+    setDiagReport({ running: true, compression: [], warnings: [] });
+    try {
+      await saveProject(data); // datagen lit le disque
+      const res = await runDatagen(data.root);
+      const rep: DatagenReport = {
+        running: false,
+        ok: res.ok,
+        compression: [],
+        warnings: [],
+      };
+      for (const line of res.output.split("\n")) {
+        const l = line.trim();
+        if (l.startsWith("attention :")) rep.warnings.push(l.replace("attention :", "").trim());
+        if (l.startsWith("grilles :") || l.startsWith("textes :")) rep.compression.push(l);
+        const ms = l.match(/scenes\.bin \((\d+) octets\)/);
+        if (ms) rep.scenesBytes = Number(ms[1]);
+        const mt = l.match(/texts\.bin \((\d+) octets\)/);
+        if (mt) rep.textsBytes = Number(mt[1]);
+      }
+      if (!res.ok) rep.errorTail = res.output.slice(-500);
+      try {
+        const repo = data.root.replace(/[\\/][^\\/]+$/, "");
+        rep.romBytes = (await readBinaryFile(`${repo}/engine/snesstudio.sfc`)).length;
+      } catch {
+        /* pas encore de ROM compilé */
+      }
+      setDiagReport(rep);
+    } catch (e) {
+      setDiagReport({
+        running: false,
+        ok: false,
+        compression: [],
+        warnings: [],
+        errorTail: String(e),
+      });
+    }
+  }
+
+  // ---- Menu Edit : presse-papier du PNJ sélectionné ------------------------
+
+  const selectedActor = scene && selActor !== null ? scene.actors[selActor] ?? null : null;
+
+  function copyActor() {
+    if (selectedActor) setActorClipboard({ ...selectedActor });
+  }
+
+  function deleteSelActor() {
+    if (selActor === null) return;
+    setScene((sc) => removeActor(sc, selActor));
+    setSelActor(null);
+  }
+
+  function cutActor() {
+    copyActor();
+    deleteSelActor();
+  }
+
+  function pasteActor() {
+    if (!scene || !actorClipboard) return;
+    // première tile libre en partant de la position d'origine
+    const free = (tx: number, ty: number) =>
+      !scene.actors.some((a) => a.x === tx && a.y === ty);
+    let placed: [number, number] | null = null;
+    outer: for (let r = 0; r < Math.max(scene.width, scene.height); r++) {
+      for (let dy = -r; dy <= r && !placed; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = actorClipboard.x + dx;
+          const ty = actorClipboard.y + dy;
+          if (tx < 0 || ty < 0 || tx >= scene.width || ty >= scene.height) continue;
+          if (free(tx, ty)) {
+            placed = [tx, ty];
+            break outer;
+          }
+        }
+      }
+    }
+    if (!placed) return;
+    const [tx, ty] = placed;
+    setScene((sc) => ({ ...sc, actors: [...sc.actors, { ...actorClipboard, x: tx, y: ty }] }));
+    setSelActor(scene.actors.length);
+    setTab("actors");
+  }
+
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
   // puis rechargement du projet (project.json et assets modifiés sur disque)
   async function importChipset() {
@@ -157,6 +355,264 @@ export default function App() {
       setStatus(`Chipset importé : tileset « ${name} » (288 tiles + 13 autotiles)`);
     } catch (e) {
       setStatus(`Import chipset : ${e}`);
+    }
+  }
+
+  // Import d'un charset RPG Maker 2003 : choix du fichier, puis modal
+  // d'aperçu (personnage + bloc de destination) → datagen import-charset
+  async function importCharset() {
+    if (!data) return;
+    const file = await pickPngFile("Importer un charset RPG Maker 2003 (288x256 ou 72x128)");
+    if (!file) return;
+    try {
+      const bmp = await loadPngBitmap(file);
+      const ok =
+        (bmp.width === 288 && bmp.height === 256) ||
+        (bmp.width === 72 && bmp.height === 128);
+      if (!ok) {
+        setStatus(
+          `Import charset : attendu 288x256 (8 personnages) ou 72x128 (recu ${bmp.width}x${bmp.height})`
+        );
+        return;
+      }
+      setCharsetImport({ path: file, bmp });
+    } catch (e) {
+      setStatus(`Import charset : ${e}`);
+    }
+  }
+
+  async function doImportCharset(perso: number, bloc: number, name: string) {
+    if (!data || !charsetImport) return;
+    const root = data.root;
+    const scene = sceneName;
+    setCharsetImport(null);
+    try {
+      // le nom du personnage part dans project.json (charsets[bloc]) avant
+      // la sauvegarde — l'import CLI ne réécrit que assets/sprites.png
+      const charsets = Array.from(
+        { length: Math.max(spriteBlocks, bloc + 1) },
+        (_, i) => data.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
+      );
+      if (name) charsets[bloc] = name;
+      const d2 = { ...data, project: { ...data.project, charsets } };
+      await saveProject(d2);
+      setStatus("Import du charset…");
+      const res = await runImportCharset(root, charsetImport.path, perso, bloc);
+      if (!res.ok) {
+        setStatus(`Import charset : ${res.output.slice(-300)}`);
+        return;
+      }
+      await reloadProject(root, scene);
+      setStatus(`Charset importé : « ${name || charsets[bloc]} » (bloc ${bloc})`);
+    } catch (e) {
+      setStatus(`Import charset : ${e}`);
+    }
+  }
+
+  // ---- Gestionnaire de ressources (façon RM2003) --------------------------
+
+  async function exportCharset(b: number) {
+    if (!data || !sprites) return;
+    const path = await pickSavePath(
+      "Exporter le charset (format RM2003, 72x128)",
+      `${blockNames[b] ?? "charset"}.png`
+    );
+    if (!path) return;
+    try {
+      // recomposition d'une feuille RM2003 d'un personnage : nos frames
+      // 16x24 recollées au centre-bas des cases 24x32, ordre RM des
+      // rangées (haut, droite, bas, gauche) et colonnes (gauche, repos, droit)
+      const RM_ROW = [2, 0, 3, 1];
+      const RM_COL = [1, 0, 2];
+      const cv = new OffscreenCanvas(72, 128);
+      const ctx = cv.getContext("2d")!;
+      for (let d = 0; d < 4; d++) {
+        for (let s = 0; s < 3; s++) {
+          const f = b * 12 + d * 3 + s;
+          if ((f + 1) * 16 > sprites.width) continue;
+          ctx.drawImage(
+            sprites, f * 16, 0, 16, 24,
+            RM_COL[s] * 24 + 4, RM_ROW[d] * 32 + 8, 16, 24
+          );
+        }
+      }
+      const blob = await cv.convertToBlob({ type: "image/png" });
+      await writeBinaryFile(path, new Uint8Array(await blob.arrayBuffer()));
+      setStatus(`Charset exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export charset : ${e}`);
+    }
+  }
+
+  async function exportChipset(stem: string) {
+    if (!data) return;
+    const rel = tilesetPaths[tilesetNames.indexOf(stem)];
+    if (!rel) return;
+    const path = await pickSavePath("Exporter le tileset (grille PNG)", `${stem}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Tileset exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export tileset : ${e}`);
+    }
+  }
+
+  function renameCharset(b: number, name: string) {
+    mutate((d) => {
+      const charsets = Array.from(
+        { length: Math.max(spriteBlocks, b + 1) },
+        (_, i) => d.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
+      );
+      charsets[b] = name;
+      return { ...d, project: { ...d.project, charsets } };
+    });
+  }
+
+  async function renameChipset(oldStem: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === oldStem) return;
+    if (tilesetNames.includes(newStem)) {
+      setStatus(`Renommage : le tileset « ${newStem} » existe déjà`);
+      return;
+    }
+    const root = data.root;
+    const keep = sceneName;
+    const oldRel = tilesetPaths[tilesetNames.indexOf(oldStem)];
+    const newRel = oldRel.replace(/[^\\/]+$/, `${newStem}.png`);
+    try {
+      // fichiers : la grille est renommée, l'ancien sidecar retiré (le
+      // nouveau est réécrit par la sauvegarde), les refs mises à jour
+      const scenes = Object.fromEntries(
+        Object.entries(data.scenes).map(([n, sc]) => [
+          n,
+          sc.tileset === oldStem ? { ...sc, tileset: newStem } : sc,
+        ])
+      );
+      const tilesets = projectTilesets(data.project).map((p) => (p === oldRel ? newRel : p));
+      const tsMeta = { ...data.tilesetMeta };
+      if (tsMeta[oldStem]) {
+        tsMeta[newStem] = tsMeta[oldStem];
+        delete tsMeta[oldStem];
+      }
+      const assets =
+        data.project.assets.tileset === oldRel
+          ? { ...data.project.assets, tileset: newRel }
+          : data.project.assets;
+      const d2: ProjectData = {
+        ...data,
+        scenes,
+        tilesetMeta: tsMeta,
+        project: { ...data.project, tilesets, assets },
+      };
+      await renamePath(`${root}/${oldRel}`, `${root}/${newRel}`);
+      try {
+        await removePath(`${root}/${oldRel.replace(/\.[^.]+$/, ".json")}`);
+      } catch {
+        /* pas de sidecar */
+      }
+      await saveProject(d2);
+      await reloadProject(root, keep);
+      setStatus(`Tileset renommé : ${oldStem} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteCharset(b: number) {
+    if (!data || !sprites || b === 0 || (usedCharsets[b] ?? []).length > 0) return;
+    if (
+      !confirm(
+        `Supprimer le personnage « ${blockNames[b]} » ?\nLes personnages suivants seront décalés d'un bloc.`
+      )
+    )
+      return;
+    const root = data.root;
+    const keep = sceneName;
+    try {
+      // bande réécrite sans les 12 frames du bloc
+      const cut0 = b * 12 * 16;
+      const cut1 = Math.min((b + 1) * 12 * 16, sprites.width);
+      const w2 = sprites.width - (cut1 - cut0);
+      const cv = new OffscreenCanvas(w2, 24);
+      const ctx = cv.getContext("2d")!;
+      ctx.drawImage(sprites, 0, 0, cut0, 24, 0, 0, cut0, 24);
+      if (cut1 < sprites.width) {
+        const w = sprites.width - cut1;
+        ctx.drawImage(sprites, cut1, 0, w, 24, cut0, 0, w, 24);
+      }
+      const blob = await cv.convertToBlob({ type: "image/png" });
+      const scenes = Object.fromEntries(
+        Object.entries(data.scenes).map(([n, sc]) => [
+          n,
+          {
+            ...sc,
+            actors: sc.actors.map((a) => (a.sprite > b ? { ...a, sprite: a.sprite - 1 } : a)),
+          },
+        ])
+      );
+      const charsets = blockNames.filter((_, i) => i !== b);
+      const d2 = { ...data, scenes, project: { ...data.project, charsets } };
+      await saveProject(d2);
+      await writeBinaryFile(
+        `${root}/${data.project.assets.sprites}`,
+        new Uint8Array(await blob.arrayBuffer())
+      );
+      await reloadProject(root, keep);
+      setStatus(`Personnage supprimé : « ${blockNames[b]} »`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
+  async function deleteChipset(stem: string) {
+    if (!data || (usedChipsets[stem] ?? []).length > 0 || tilesetNames.length <= 1) return;
+    if (!confirm(`Supprimer le tileset « ${stem} » et ses fichiers (grille, sidecar, autotiles) ?`))
+      return;
+    const root = data.root;
+    const keep = sceneName;
+    try {
+      const rel = tilesetPaths[tilesetNames.indexOf(stem)];
+      const tsMeta = data.tilesetMeta[stem];
+      // autotiles partagés avec un autre tileset : conservés
+      const shared = new Set(
+        Object.entries(data.tilesetMeta)
+          .filter(([k]) => k !== stem)
+          .flatMap(([, m]) => m.autotiles)
+      );
+      const tilesets = projectTilesets(data.project).filter((p) => p !== rel);
+      const metaCopy = { ...data.tilesetMeta };
+      delete metaCopy[stem];
+      const assets =
+        data.project.assets.tileset === rel
+          ? { ...data.project.assets, tileset: tilesets[0] }
+          : data.project.assets;
+      const d2: ProjectData = {
+        ...data,
+        tilesetMeta: metaCopy,
+        project: { ...data.project, tilesets, assets },
+      };
+      await saveProject(d2);
+      for (const f of [rel, rel.replace(/\.[^.]+$/, ".json")]) {
+        try {
+          await removePath(`${root}/${f}`);
+        } catch {
+          /* déjà absent */
+        }
+      }
+      for (const a of tsMeta?.autotiles ?? []) {
+        if (shared.has(a)) continue;
+        try {
+          await removePath(`${root}/${a}`);
+        } catch {
+          /* déjà absent */
+        }
+      }
+      await reloadProject(root, keep);
+      setStatus(`Tileset supprimé : « ${stem} »`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
     }
   }
 
@@ -314,6 +770,29 @@ export default function App() {
     }
   }
 
+  // Recompilation complète : make clean + make (à utiliser après une mise à
+  // jour du moteur — évite tout mélange d'objets compilés obsolètes)
+  async function rebuildAll() {
+    if (!data || building || playing) return;
+    setBuilding(true);
+    try {
+      await save();
+      setStatus("datagen…");
+      const gen = await runDatagen(data.root);
+      if (!gen.ok) {
+        setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
+        return;
+      }
+      setStatus("Recompilation complète du ROM (make clean + make)…");
+      const mk = await runMake(data.root, playCfg.bash, true);
+      setStatus(mk.ok ? "ROM recompilé de zéro." : `make a échoué : ${mk.output.slice(-400)}`);
+    } catch (e) {
+      setStatus(`Recompilation : ${e}`);
+    } finally {
+      setBuilding(false);
+    }
+  }
+
   function savePlayCfg(c: PlayConfig) {
     setPlayCfg(c);
     localStorage.setItem("snesstudio.bash", c.bash);
@@ -454,32 +933,92 @@ export default function App() {
     }
   }, [data, sceneName]);
 
+  // Barre de menus (façon RM2003)
+  const menus = [
+    {
+      label: "Projet",
+      items: [
+        { label: "Nouveau projet…", action: newProject, disabled: !canWriteFiles() },
+        { label: "Ouvrir un projet…", action: openProject },
+        { label: "Fermer le projet", action: closeProject, disabled: !data },
+        { sep: true },
+        {
+          label: "Explorer le dossier du projet",
+          action: () => {
+            if (data) void openProjectFolder(data.root);
+          },
+          disabled: !data || !canWriteFiles(),
+        },
+        { sep: true },
+        { label: "Quitter", action: () => void quitApp() },
+      ],
+    },
+    {
+      label: "Edit",
+      items: [
+        { label: "Annuler", hint: "Ctrl+Z", action: doUndo, disabled: !data },
+        { label: "Rétablir", hint: "Ctrl+Y", action: doRedo, disabled: !data },
+        { sep: true },
+        { label: "Couper le PNJ sélectionné", action: cutActor, disabled: !selectedActor },
+        { label: "Copier le PNJ sélectionné", action: copyActor, disabled: !selectedActor },
+        { label: "Coller le PNJ", action: pasteActor, disabled: !data || !actorClipboard },
+        { label: "Supprimer le PNJ sélectionné", action: deleteSelActor, disabled: !selectedActor },
+        { sep: true },
+        {
+          label: "Réglages du projet…",
+          action: () => setShowSettings(true),
+          disabled: !canBuild(),
+        },
+      ],
+    },
+    {
+      label: "Tools",
+      items: [
+        {
+          label: "Vérifier le projet…",
+          action: () => void openDiagnostics(),
+          disabled: !data,
+        },
+      ],
+    },
+    {
+      label: "Game",
+      items: [
+        {
+          label: "▶ Lancer le jeu",
+          action: play,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Générer les données",
+          action: generate,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Recompiler tout (clean)",
+          hint: "après mise à jour",
+          action: () => void rebuildAll(),
+          disabled: !data || !canBuild() || playing || building,
+        },
+      ],
+    },
+    {
+      label: "Help",
+      items: [{ label: "Version…", action: () => setShowAbout(true) }],
+    },
+  ];
+
   return (
     <div className="app">
+      <MenuBar menus={menus} />
       <div className="toolbar">
-        <button onClick={openProject}>Ouvrir…</button>
-        <button onClick={save} disabled={!data || !dirty}>
-          Sauvegarder{dirty ? " *" : ""}
+        <button
+          onClick={save}
+          disabled={!data || !dirty}
+          title="Sauvegarder le projet (Ctrl+S)"
+        >
+          💾{dirty ? " *" : ""}
         </button>
-        {data && canBuild() && (
-          <button onClick={generate} disabled={building || playing}>
-            {building ? "Génération…" : "Générer les données"}
-          </button>
-        )}
-        {data && canBuild() && (
-          <button
-            onClick={play}
-            disabled={playing || building}
-            title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : ⚙)"
-          >
-            {playing ? "…" : "▶ Jouer"}
-          </button>
-        )}
-        {canBuild() && (
-          <button onClick={() => setShowSettings(true)} title="Réglages (bash MSYS2, émulateur)">
-            ⚙
-          </button>
-        )}
         {/* gestion des scènes : arborescence sous la palette (façon RM2003) */}
         {data && scene && (
           <span className="layer-switch" title="Couche éditée (modèle RPG Maker 2003)">
@@ -497,26 +1036,13 @@ export default function App() {
             </button>
           </span>
         )}
-        {data && scene && (
-          <label title="Musique de la scène">
-            ♪
-            <select
-              value={scene.music ?? ""}
-              onChange={(e) =>
-                setScene((sc) => ({
-                  ...sc,
-                  music: e.target.value === "" ? undefined : e.target.value,
-                }))
-              }
-            >
-              <option value="">aucune</option>
-              {(data.project.musics ?? []).map((m) => (
-                <option key={m} value={musicStem(m)}>
-                  {musicStem(m)}
-                </option>
-              ))}
-            </select>
-          </label>
+        {data && (
+          <button
+            onClick={() => setShowResources(true)}
+            title="Gestionnaire de ressources (charsets, chipsets) — importer, exporter, renommer, supprimer"
+          >
+            🗂 Ressources
+          </button>
         )}
         <label>
           <input
@@ -530,6 +1056,20 @@ export default function App() {
           <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
           Grille
         </label>
+        {data && canBuild() && (
+          <button onClick={generate} disabled={building || playing}>
+            {building ? "Génération…" : "Générer les données"}
+          </button>
+        )}
+        {data && canBuild() && (
+          <button
+            onClick={play}
+            disabled={playing || building}
+            title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : Edit → Réglages du projet)"
+          >
+            {playing ? "…" : "▶ Jouer"}
+          </button>
+        )}
         <span className="status">{status}</span>
       </div>
 
@@ -645,9 +1185,11 @@ export default function App() {
                 scene={scene}
                 tilesetNames={tilesetNames}
                 current={tsStem}
+                musicNames={(data.project.musics ?? []).map(musicStem)}
                 canImport={canWriteFiles()}
                 passMode={passMode}
                 onSelectTileset={setSceneTileset}
+                onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
                 onImport={importTileset}
                 onImportChipset={importChipset}
                 onPassMode={setPassMode}
@@ -658,6 +1200,10 @@ export default function App() {
               <ActorPanel
                 scene={scene}
                 selected={selActor}
+                canImport={canWriteFiles()}
+                blockCount={spriteBlocks}
+                blockNames={blockNames}
+                onImportCharset={importCharset}
                 onSelect={setSelActor}
                 onUpdate={(i, patch: Partial<Actor>) => setScene((sc) => updateActor(sc, i, patch))}
                 onRemove={(i) => {
@@ -708,6 +1254,63 @@ export default function App() {
           config={playCfg}
           onSave={savePlayCfg}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {showResources && data && (
+        <ResourceManagerModal
+          tilesetNames={tilesetNames}
+          tilesets={tilesets}
+          sprites={sprites}
+          blockCount={spriteBlocks}
+          blockNames={blockNames}
+          usedCharsets={usedCharsets}
+          usedChipsets={usedChipsets}
+          canWrite={canWriteFiles()}
+          onImportCharset={importCharset}
+          onImportChipset={importChipset}
+          onExportCharset={exportCharset}
+          onExportChipset={exportChipset}
+          onRenameCharset={renameCharset}
+          onRenameChipset={renameChipset}
+          onDeleteCharset={deleteCharset}
+          onDeleteChipset={deleteChipset}
+          onClose={() => setShowResources(false)}
+        />
+      )}
+      {diags && data && (
+        <DiagnosticsModal
+          data={data}
+          diags={diags}
+          report={diagReport}
+          onClose={() => {
+            setDiags(null);
+            setDiagReport(null);
+          }}
+        />
+      )}
+      {showAbout && (
+        <div className="modal-backdrop" onClick={() => setShowAbout(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">SNES Studio — éditeur</div>
+            <p>Version {pkg.version}</p>
+            <p className="hint">
+              Créateur de jeux Super Nintendo sans code, dans l'esprit de
+              RPG Maker 2003 et GB Studio. Éditeur Tauri + React, moteur C
+              (PVSnesLib), outils Rust. Les jeux sont des données.
+            </p>
+            <button onClick={() => setShowAbout(false)}>Fermer</button>
+          </div>
+        </div>
+      )}
+      {/* rendu APRÈS le gestionnaire de ressources : s'empile au-dessus */}
+      {charsetImport && (
+        <CharsetImportModal
+          bitmap={charsetImport.bmp}
+          blockCount={spriteBlocks}
+          blockNames={blockNames}
+          defaultBloc={Math.min(spriteBlocks, 63)}
+          onImport={doImportCharset}
+          onClose={() => setCharsetImport(null)}
         />
       )}
     </div>

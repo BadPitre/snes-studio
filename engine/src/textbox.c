@@ -18,19 +18,43 @@ extern const u8 font_gfx[];
 extern const u16 font_gfx_size;
 extern const u16 textbox_pal[];
 
-/* Textes : bank $86 (spec §2) — [u16 count][u16 offsets][chaînes \0].
-   Retourne 0 si text_id hors table. */
-static const char *text_ptr(u16 text_id)
+/* Textes : bank $86 (spec §2 v0.7) — [u16 count][u16 offsets]
+   [table de paires DTE 256 o][chaînes encodées \0]. Les codes 0x80-0xFF
+   désignent une paire de caractères de la table : on décode dans un
+   buffer WRAM avant le rendu (le wrap par mot lit en avant). */
+static void text_decode(u16 text_id, char *dst, u8 max)
 {
   const u8 *tbl = make_far(BANK_TEXTS, BANK_BASE_ADDR);
   u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
-  u16 ofs;
+  const u8 *pairs;
+  const u8 *s;
+  u16 ofs, k;
+  u8 n = 0, c;
 
+  dst[0] = 0;
   if (text_id >= count)
-    return 0;
+    return;
+  pairs = tbl + 2 + (count << 1);
   ofs = (u16)tbl[2 + (text_id << 1)] | ((u16)tbl[3 + (text_id << 1)] << 8);
-  return (const char *)make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  s = make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  while (*s && n < (u8)(max - 2))
+  {
+    c = *s++;
+    if (c & 0x80)
+    {
+      k = (u16)(c & 0x7F) << 1;
+      dst[n++] = pairs[k];
+      dst[n++] = pairs[k + 1];
+    }
+    else
+      dst[n++] = c;
+  }
+  dst[n] = 0;
 }
+
+/* Buffers de décodage (WRAM) : un message plein écran, 4 options */
+static char tb_text[176];
+static char tb_opts[4][28];
 
 /* Géométrie de la boîte (rangées de la map BG3 32x32) */
 #define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
@@ -86,7 +110,14 @@ void textbox_init(void)
 
 void textbox_open(u16 text_id)
 {
-  const char *s;
+  text_decode(text_id, tb_text, sizeof(tb_text));
+  textbox_open_raw(tb_text);
+}
+
+/* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
+   vocabulaire moteur du menu Système — spec §5) */
+void textbox_open_raw(const char *s)
+{
   u16 wl;
   u8 row, col;
   char c;
@@ -94,7 +125,6 @@ void textbox_open(u16 text_id)
   /* Fond de boîte : chars "espace" opaques partout */
   tb_fill(TB_ENTRY(TB_CHAR(' ')));
 
-  s = text_ptr(text_id);
   if (s)
   {
     row = TB_TEXT_ROW;
@@ -129,6 +159,56 @@ void textbox_open(u16 text_id)
     }
   }
 
+  tb_dirty = 1;
+}
+
+/* CHOICE (spec §2 v0.6) : 2-4 options, une par ligne, curseur '>' devant
+   l'option sélectionnée. Textes sur une seule ligne (pas de wrap). */
+void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
+{
+  const char *opts[4];
+  u8 i;
+
+  for (i = 0; i < count; i++)
+  {
+    text_decode(text_ids[i], tb_opts[i & 3], sizeof(tb_opts[0]));
+    opts[i & 3] = tb_opts[i & 3];
+  }
+  textbox_choices_raw(opts, count, sel);
+}
+
+/* Choix depuis des chaînes C (menu Système : vocabulaire moteur) */
+void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
+{
+  const char *s;
+  u8 i, col;
+
+  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+  for (i = 0; i < count; i++)
+  {
+    s = options[i];
+    col = 0;
+    while (s && *s && col < TB_TEXT_COLS - 2)
+    {
+      tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL + 2 + col] =
+          TB_ENTRY(TB_CHAR(*s));
+      col++;
+      s++;
+    }
+  }
+  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
+  tb_dirty = 1;
+}
+
+/* Déplace le curseur du CHOICE (redessine la colonne des '>') */
+void textbox_choice_cursor(u8 sel)
+{
+  u8 i;
+
+  for (i = 0; i < TB_TEXT_ROWS; i++)
+    tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL] =
+        TB_ENTRY(TB_CHAR(' '));
+  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
   tb_dirty = 1;
 }
 

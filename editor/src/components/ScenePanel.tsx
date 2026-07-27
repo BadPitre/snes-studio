@@ -9,9 +9,11 @@ interface Props {
   scene: Scene;
   tilesetNames: string[]; // stems, ordre = tileset_id
   current: string; // stem du tileset de la scène
+  musicNames: string[]; // stems des modules du projet
   canImport: boolean;
   passMode: boolean;
   onSelectTileset: (stem: string) => void;
+  onSelectMusic: (stem: string | undefined) => void;
   onImport: () => void;
   onImportChipset: () => void;
   onPassMode: (on: boolean) => void;
@@ -29,7 +31,10 @@ export default function ScenePanel(props: Props) {
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
 
-  const sizeOk = width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255;
+  // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
+  const cellsOk = width * height <= 8192;
+  const sizeOk =
+    width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 && cellsOk;
   const changed = width !== scene.width || height !== scene.height;
   const shrinks = width < scene.width || height < scene.height;
 
@@ -74,6 +79,24 @@ export default function ScenePanel(props: Props) {
         </button>
       </div>
 
+      <div className="palette-title">Musique</div>
+      <div className="scene-section">
+        <select
+          value={scene.music ?? ""}
+          onChange={(e) =>
+            props.onSelectMusic(e.target.value === "" ? undefined : e.target.value)
+          }
+          title="Musique de la scène (modules du projet)"
+        >
+          <option value="">— aucune —</option>
+          {props.musicNames.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="palette-title">Redimensionner</div>
       <div className="scene-section">
         <div className="row">
@@ -98,7 +121,12 @@ export default function ScenePanel(props: Props) {
             />
           </label>
         </div>
-        {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255.</p>}
+        {!sizeOk && (
+          <p className="hint">
+            Dimensions : {MIN_W}x{MIN_H} à 255x255, et {8192} tiles max
+            (ex. 90x90, 64x128){!cellsOk ? ` — ${width * height} demandées` : ""}.
+          </p>
+        )}
         {shrinks && sizeOk && (
           <p className="hint">Rognage : les acteurs et warps hors limites seront supprimés.</p>
         )}

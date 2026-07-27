@@ -14,15 +14,31 @@
 /* scene_type — seule valeur v0, mais le champ existe partout (règle projet) */
 #define SCENE_TYPE_TOP_DOWN 0x01
 
-/* actor_type */
-#define ACTOR_TYPE_NPC_STATIC 0x01
+/* actor_type — spec §1.3 v0.6 : déclencheurs façon RM2003 */
+#define ACTOR_TYPE_NPC_STATIC 0x01 /* PNJ visible, parle avec A */
+#define ACTOR_TYPE_TRIGGER 0x02    /* invisible : script au contact (marcher) */
+#define ACTOR_TYPE_AUTO 0x03       /* invisible : script au chargement de scène */
 
 /* script_offset d'un acteur sans script */
 #define SCRIPT_NONE 0xFFFF
 
-/* Feuille OBJ multi-rangées : la frame 16x16 f occupe les tiles
-   {base, base+1, base+16, base+17} avec base = (f/8)*32 + (f%8)*2 */
-#define OBJ_FRAME_TILE(f) ((u16)(((f) & 0xF8) << 2) | (u16)(((f) & 7) << 1))
+/* Feuille OBJ 16x24 (Phase 6, modèle charset RM2003) : une frame = 2 OBJs
+   16x16 empilés, un groupe de 8 frames = 4 rangées de 16 chars (rangées
+   0-1 : moitiés hautes, 2-3 : moitiés basses — les 8 dernières lignes
+   restent vides). Tile de l'OBJ haut de la frame f, puis OBJ bas = +32. */
+#define OBJ_TOP_TILE(f) ((u16)(((f) & 0xF8) << 3) | (u16)(((f) & 7) << 1))
+#define OBJ_BOTTOM_TILE(f) (OBJ_TOP_TILE(f) + 32)
+
+/* Bloc de personnage RM2003 : 12 frames = 4 directions x 3 pas (repos,
+   pas A, pas B). sprite_id d'un acteur = SLOT de bloc dans le sprite set
+   de la scène (v0.5, remappé par datagen) ; le slot s utilise la palette
+   OBJ s, le joueur est toujours le slot 0. Frame de repos : slot*12 +
+   dir*3. */
+#define CHAR_BLOCK_FRAMES 12
+
+/* Le metasprite 16x24 est ancré sur sa tile : l'OBJ haut dépasse de 8 px
+   au-dessus (la tête chevauche la tile du dessus, façon RM2003). */
+#define SPRITE_Y_OVERLAP 8
 
 /* Couche collision — spec §1.4 v0.2 */
 #define COL_FREE 0x00
@@ -46,6 +62,16 @@
 #define VM_OP_JNE     0x06 /* var, val, offset */
 #define VM_OP_SETGVAR 0x07 /* var (u8), val (u8) */
 #define VM_OP_JGEQ    0x08 /* var, val, offset */
+#define VM_OP_CHOICE  0x09 /* var, count (2-4), count x text_id (u16) —
+                              bloquant : curseur haut/bas + A, index -> var */
+#define VM_OP_WARP    0x0A /* scene (u8), x (u8), y (u8) — téléporte le
+                              héros et TERMINE le script (le bloc scripts
+                              change de scène) */
+#define VM_OP_FACE    0x0B /* acteur (u8), dir (u8) — tourne l'acteur */
+
+/* Octet variable des opcodes : bit 7 = variable GLOBALE (gvar, persiste
+   entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
+#define VM_VAR_GLOBAL 0x80
 
 /* Entrée acteur — spec §1.3. Layout C = layout binaire (8 octets, tcc-816
    ne pad pas) : le moteur caste directement le bloc acteurs des données. */

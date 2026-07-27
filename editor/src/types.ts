@@ -13,6 +13,8 @@ export interface Project {
   };
   musics?: string[]; // chemins .it, l'ordre donne les music_id
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
+  charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
+  // ignoré par datagen) — index = bloc de la feuille de sprites
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -33,8 +35,13 @@ export function projectTilesets(p: Project): string[] {
 
 export type Direction = "down" | "up" | "left" | "right";
 
+// Types d'acteurs (déclencheurs RM2003, v0.6) : npc = PNJ visible (parle
+// avec A), trigger = script au contact (marcher sur la tile), auto =
+// script au chargement de la scène. trigger/auto : invisibles, sans sprite.
+export type ActorKind = "npc" | "trigger" | "auto";
+
 export interface Actor {
-  type: "npc";
+  type: ActorKind;
   x: number;
   y: number;
   sprite: number;
@@ -103,7 +110,32 @@ export const MIN_W = 20; // taille minimum d'une scène (un écran, comme RM2003
 export const MIN_H = 15;
 export const DIRECTIONS: Direction[] = ["down", "up", "left", "right"];
 
-// index de frame dans la feuille de sprites : sprite + direction
+// Feuille de sprites 16x24 (Phase 6) : blocs de personnage RM2003 de
+// 12 frames (4 directions × repos/pas A/pas B). sprite d'un acteur = bloc.
+// Les sets sont compilés PAR SCÈNE par datagen (v0.5) : le projet peut
+// avoir beaucoup de blocs, chaque scène en utilise 5 max (joueur inclus).
+export const SCENE_SPRITE_BLOCKS_MAX = 5;
+export const PROJECT_SPRITE_BLOCKS_MAX = 64;
+
+// frame de repos affichée pour un acteur : bloc*12 + direction*3
 export function actorFrame(a: Actor): number {
-  return a.sprite + DIRECTIONS.indexOf(a.dir);
+  return a.sprite * 12 + DIRECTIONS.indexOf(a.dir) * 3;
+}
+
+// nombre de blocs de la feuille de sprites chargée
+export function spriteBlockCount(bmp: ImageBitmap | null): number {
+  return bmp ? Math.max(1, Math.ceil(bmp.width / 16 / 12)) : 1;
+}
+
+// nom d'un bloc de personnage (project.charsets, éditeur seulement)
+export function charsetName(p: Project, b: number): string {
+  return p.charsets?.[b] || (b === 0 ? "Héros" : `Bloc ${b}`);
+}
+
+// blocs de personnage utilisés par une scène (joueur = bloc 0 inclus) —
+// les déclencheurs (trigger/auto) sont invisibles, sans sprite
+export function sceneSpriteBlocks(sc: Scene): number[] {
+  const used = new Set<number>([0]);
+  for (const a of sc.actors) if (a.type === "npc") used.add(a.sprite);
+  return [...used].sort((x, y) => x - y);
 }

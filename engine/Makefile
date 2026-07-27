@@ -11,6 +11,12 @@ endif
 
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
 
+# snes_rules ne suit PAS les dépendances d'en-têtes : sans cette règle, un
+# build incrémental après un changement de struct (scene.h, formats.h…)
+# mélange des .obj compilés contre des layouts différents — bugs fantômes
+# (positions corrompues, données décalées) sur console/émulateur fidèle.
+$(OFILES): $(wildcard src/*.h) $(wildcard src/data/*.h) hdr.asm
+
 SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 7
 
 .PHONY: all clean data

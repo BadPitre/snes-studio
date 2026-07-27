@@ -10,6 +10,7 @@
 //!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
 
 mod binbank;
+mod charset;
 mod chipset;
 mod emit;
 mod gfx;
@@ -29,10 +30,22 @@ fn main() -> Result<()> {
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
     }
+    if args.len() >= 2 && args[1] == "import-charset" {
+        if args.len() != 6 {
+            bail!(
+                "usage : datagen import-charset <charset.png> <dossier_projet> \
+                 <personnage 0-7> <bloc 0-4>"
+            );
+        }
+        let perso: usize = args[4].parse().context("personnage : nombre attendu")?;
+        let bloc: usize = args[5].parse().context("bloc : nombre attendu")?;
+        return charset::import(Path::new(&args[2]), Path::new(&args[3]), perso, bloc);
+    }
     if args.len() != 3 {
         bail!(
             "usage : datagen <dossier_projet> <dossier_engine>\n\
-             \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>"
+             \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
+             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
         );
     }
     let proj_dir = PathBuf::from(&args[1]);
@@ -197,9 +210,70 @@ fn main() -> Result<()> {
     }
     println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
+    // Feuille de sprites 16x24 (Phase 6) : blocs de personnage de 12 frames
+    // (modele charset RM2003) — sprite d'un acteur = index de bloc.
+    // Sets compilés PAR SCÈNE (v0.5, comme les tilesets) : chaque scène
+    // n'embarque que le bloc joueur (0) + les blocs de ses acteurs (5 max),
+    // datagen remappe les sprite_id binaires vers les slots locaux.
+    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
+        .with_context(|| format!("sprites {}", project.assets.sprites))?;
+    let sprite_blocks = sprites.sprite_blocks()?;
+    let mut ss_ids: HashMap<Vec<usize>, u8> = HashMap::new();
+    let mut sprite_sets: Vec<(Vec<u8>, Vec<u16>)> = Vec::new();
+    let mut sprite_set_ids: Vec<u8> = Vec::new();
+    let mut sprite_remaps: Vec<HashMap<u8, u8>> = Vec::new();
+    for sc in &scenes {
+        let mut used: std::collections::BTreeSet<usize> = [0usize].into();
+        for a in &sc.actors {
+            if a.kind != "npc" {
+                continue; // déclencheurs : invisibles, pas de sprite
+            }
+            if (a.sprite as usize) >= sprite_blocks {
+                bail!(
+                    "scene '{}' : acteur en ({},{}) — bloc de personnage {} \
+                     hors feuille de sprites ({} bloc(s))",
+                    sc.name, a.x, a.y, a.sprite, sprite_blocks
+                );
+            }
+            used.insert(a.sprite as usize);
+        }
+        let used: Vec<usize> = used.into_iter().collect();
+        if used.len() > 5 {
+            bail!(
+                "scene '{}' : {} blocs de personnage utilises > 5 (joueur \
+                 inclus) — reduire la variete des charsets de la scene",
+                sc.name,
+                used.len()
+            );
+        }
+        let id = match ss_ids.get(&used) {
+            Some(&i) => i,
+            None => {
+                let i = sprite_sets.len() as u8;
+                sprite_sets.push(sprites.to_obj_sheet(&used)?);
+                ss_ids.insert(used.clone(), i);
+                i
+            }
+        };
+        sprite_set_ids.push(id);
+        sprite_remaps.push(
+            used.iter()
+                .enumerate()
+                .map(|(s, &b)| (b as u8, s as u8))
+                .collect(),
+        );
+    }
+    println!(
+        "  {} sprite sets pour {} scenes ({} bloc(s) dans la feuille)",
+        sprite_sets.len(),
+        scenes.len(),
+        sprite_blocks
+    );
+
     // Banks binaires (spec §1-2) + asm d'épinglage
     let scene_bank = binbank::build_scene_bank(
-        &scenes, &grids, &set_ids, &text_ids, &music_ids, boot_id as u8,
+        &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &text_ids,
+        &music_ids, boot_id as u8,
     )?;
     let text_bank = binbank::build_text_bank(&texts)?;
     write_bin(&out_dir, "scenes.bin", &scene_bank)?;
@@ -207,7 +281,7 @@ fn main() -> Result<()> {
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
     // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &gfx_sets)?)?;
+    write_out(&out_dir, "data_assets.c", gen_assets(&gfx_sets, &sprite_sets)?)?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -240,12 +314,9 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
 }
 
 fn gen_assets(
-    proj_dir: &Path,
-    project: &project::Project,
     gfx_sets: &[tileset::GfxSet],
+    sprite_sets: &[(Vec<u8>, Vec<u16>)],
 ) -> Result<String> {
-    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))?;
-
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
 
@@ -290,9 +361,31 @@ fn gen_assets(
     }
     s.push_str("};\n\n");
 
-    s.push_str(&emit::u8_array("sprite_gfx", &sprites.to_obj_sheet()?, 16, false));
-    s.push_str("\nconst u16 sprite_gfx_size = sizeof(sprite_gfx);\n\n");
-    s.push_str(&emit::u16_array("sprite_pal", &sprites.palette_n(16)));
+    // Sprite sets par scène (v0.5) : un set = chars OBJ + CGRAM OBJ
+    // complete (slot local s → palette s), indexés par l'octet 27 du
+    // Scene Header via des tables de pointeurs (pattern « scene_table »).
+    for (i, (chars, pal)) in sprite_sets.iter().enumerate() {
+        s.push_str(&emit::u8_array(&format!("ss{}_chars", i), chars, 16, true));
+        s.push_str(&format!(
+            "static const u16 ss{}_chars_size = sizeof(ss{}_chars);\n\n",
+            i, i
+        ));
+        s.push_str(&emit::u16_array_static(&format!("ss{}_pal", i), pal));
+        s.push('\n');
+    }
+    s.push_str("const u8 *const sprite_chars[] = {\n");
+    for i in 0..sprite_sets.len() {
+        s.push_str(&format!("  ss{}_chars,\n", i));
+    }
+    s.push_str("};\n\nconst u16 *const sprite_chars_sizes[] = {\n");
+    for i in 0..sprite_sets.len() {
+        s.push_str(&format!("  &ss{}_chars_size,\n", i));
+    }
+    s.push_str("};\n\nconst u16 *const sprite_pals[] = {\n");
+    for i in 0..sprite_sets.len() {
+        s.push_str(&format!("  ss{}_pal,\n", i));
+    }
+    s.push_str("};\n");
     Ok(s)
 }
 

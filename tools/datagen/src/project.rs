@@ -66,15 +66,25 @@ pub struct Warp {
 
 #[derive(Deserialize)]
 pub struct Actor {
+    /// "npc" (parle avec A), "trigger" (contact : le script part quand le
+    /// héros marche sur la tile), "auto" (le script part au chargement de
+    /// la scène) — modèle des déclencheurs RM2003 (v0.6)
     #[serde(rename = "type")]
     pub kind: String,
     pub x: u8,
     pub y: u8,
+    /// Bloc de personnage — ignoré pour trigger/auto (invisibles)
+    #[serde(default)]
     pub sprite: u8,
+    #[serde(default = "dir_down")]
     pub dir: String,
     /// Label d'entrée dans le script de la scène (absent = pas de script)
     #[serde(default)]
     pub entry: Option<String>,
+}
+
+fn dir_down() -> String {
+    "down".into()
 }
 
 #[derive(Deserialize)]
@@ -111,8 +121,21 @@ impl Scene {
             bail!("scene '{}' : trop d'acteurs", self.name);
         }
         for a in &self.actors {
-            if a.kind != "npc" {
-                bail!("scene '{}' : actor_type '{}' inconnu (v0 : npc)", self.name, a.kind);
+            match a.kind.as_str() {
+                "npc" => {}
+                "trigger" | "auto" => {
+                    // sans script, un déclencheur ne sert à rien
+                    if a.entry.is_none() {
+                        bail!(
+                            "scene '{}' : acteur '{}' en ({},{}) sans entry (script requis)",
+                            self.name, a.kind, a.x, a.y
+                        );
+                    }
+                }
+                other => bail!(
+                    "scene '{}' : actor_type '{}' inconnu (npc, trigger, auto)",
+                    self.name, other
+                ),
             }
             dir_code(&a.dir)?;
         }

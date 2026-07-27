@@ -447,7 +447,7 @@ fn extract_quarter(img: &IndexedImage, ox: usize, oy: usize) -> Quarter {
 }
 
 /// Distance entre deux couleurs BGR555 (carrés des écarts par canal)
-fn dist555(a: u16, b: u16) -> u32 {
+pub(crate) fn dist555(a: u16, b: u16) -> u32 {
     let d = |x: u16, y: u16| {
         let v = (x as i32) - (y as i32);
         (v * v) as u32

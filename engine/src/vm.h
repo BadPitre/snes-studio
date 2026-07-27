@@ -10,6 +10,7 @@
 #define VM_WAIT_NONE 0
 #define VM_WAIT_KEY 1     /* réservé (non utilisé v0) */
 #define VM_WAIT_TEXTBOX 2 /* attend la fermeture de la textbox (touche A) */
+#define VM_WAIT_CHOICE 3  /* CHOICE : curseur haut/bas, A valide (v0.6) */
 
 /* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
    le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),
@@ -21,6 +22,9 @@ typedef struct
   u16 pc;       /* offset dans le bloc scripts de la scène */
   u8 vars[64];  /* variables de scène (reset au chargement de scène) */
   u8 gvars[64]; /* variables globales (persistent entre scènes) */
+  u8 choice_var;   /* variable destination du CHOICE en cours */
+  u8 choice_count; /* nombre d'options (2-4) */
+  u8 choice_sel;   /* option sous le curseur */
 } VmState;
 
 extern VmState vm;
