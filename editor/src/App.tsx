@@ -1483,6 +1483,7 @@ export default function App() {
           scenes={data.scenes}
           blockCount={spriteBlocks}
           blockNames={blockNames}
+          usedBlocks={[...new Set([0, ...scene.events.filter((_, i) => i !== evEdit.index).map((e) => e.sprite).filter((b) => b >= 0)])]}
           sprites={sprites}
           labels={scriptLabels(scene.script)}
           onSave={(ev) => {

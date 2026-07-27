@@ -16,6 +16,11 @@ pub struct Project {
     /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
     #[serde(default)]
     pub tilesets: Vec<String>,
+    /// Noms des blocs de personnage (écrits par l'éditeur) — purement
+    /// cosmétique côté datagen : sert à nommer les charsets dans les
+    /// messages d'erreur (« PNJ vert » plutôt que « bloc 3 »)
+    #[serde(default)]
+    pub charsets: Vec<String>,
 }
 
 #[derive(Deserialize)]

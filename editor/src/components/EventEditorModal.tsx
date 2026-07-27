@@ -14,6 +14,9 @@ interface Props {
   scenes: Record<string, Scene>;
   blockCount: number;
   blockNames: string[];
+  // charsets déjà affichés par la scène (héros + AUTRES events) : sert à
+  // avertir dès qu'une apparence ferait dépasser les 5 charsets/scène
+  usedBlocks: number[];
   sprites: ImageBitmap | null;
   labels: string[]; // labels du script manuel (champ avancé)
   onSave: (ev: GameEvent) => void;
@@ -249,10 +252,20 @@ export default function EventEditorModal(props: Props) {
                     <option value={-1}>(invisible)</option>
                     {Array.from({ length: props.blockCount }, (_, b) => (
                       <option key={b} value={b}>
-                        {props.blockNames[b] ?? `Bloc ${b}`}
+                        {(props.blockNames[b] ?? `Bloc ${b}`) +
+                          (props.usedBlocks.includes(b) ? " ✓" : "")}
                       </option>
                     ))}
                   </select>
+                  {draft.sprite >= 0 &&
+                    !props.usedBlocks.includes(draft.sprite) &&
+                    props.usedBlocks.length >= 5 && (
+                      <span className="hint" style={{ color: "#ff7070" }}>
+                        {props.usedBlocks.length + 1}e charset de la scène —
+                        la SNES en affiche 5 max (héros compris). Réutiliser
+                        une apparence ✓, sinon datagen refusera.
+                      </span>
+                    )}
                   <select
                     value={draft.dir}
                     onChange={(e) => setDraft({ ...draft, dir: e.target.value as Direction })}

@@ -254,11 +254,43 @@ fn main() -> Result<()> {
         }
         let used: Vec<usize> = used.into_iter().collect();
         if used.len() > 5 {
+            // Nommer les coupables : ce n'est PAS le nombre d'events qui
+            // deborde mais la variete d'apparences (VRAM OBJ = 16 Ko, soit
+            // 5 charsets par scene, heros compris).
+            let charset_name = |b: usize| -> String {
+                match project.charsets.get(b) {
+                    Some(n) if !n.is_empty() => format!("bloc {} « {} »", b, n),
+                    _ if b == 0 => "bloc 0 (heros)".to_string(),
+                    _ => format!("bloc {}", b),
+                }
+            };
+            let mut detail = String::new();
+            for &b in &used {
+                let evs: Vec<String> = sc
+                    .actors
+                    .iter()
+                    .filter(|a| a.sprite as usize == b)
+                    .map(|a| format!("({},{})", a.x, a.y))
+                    .collect();
+                detail.push_str(&format!(
+                    "\n  - {}{}",
+                    charset_name(b),
+                    if b == 0 && evs.is_empty() {
+                        " : le joueur".to_string()
+                    } else {
+                        format!(" : event(s) en {}", evs.join(" "))
+                    }
+                ));
+            }
             bail!(
-                "scene '{}' : {} blocs de personnage utilises > 5 (joueur \
-                 inclus) — reduire la variete des charsets de la scene",
+                "scene '{}' : {} charsets DIFFERENTS utilises, limite SNES : \
+                 5 par scene, heros compris (VRAM OBJ 16 Ko). Le nombre \
+                 d'events est libre — c'est la variete d'apparences qui \
+                 compte.{}\nReutiliser des apparences deja presentes, ou \
+                 repartir ces events sur d'autres scenes.",
                 sc.name,
-                used.len()
+                used.len(),
+                detail
             );
         }
         let id = match ss_ids.get(&used) {
