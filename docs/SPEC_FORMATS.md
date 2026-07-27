@@ -465,7 +465,11 @@ blocs de ses acteurs (**5 blocs max par scène**, sinon erreur), dédupliqué
 entre scènes identiques. Tables générées `sprite_chars[]` /
 `sprite_chars_sizes[]` / `sprite_pals[]` (`data_assets.c`), indexées par
 `sprite_set_id` (header octet 27) ; chargées en VRAM/CGRAM au boot et à
-chaque warp, écran éteint.
+chaque warp, écran éteint. Les données de chaque set vivent dans leur
+propre fichier généré (`data_sprites{i}.c` / `data_gfx{i}.c`) : une
+section ROM est insécable (32 Ko), l'éclatement laisse wlalink répartir
+les sets sur les banks libres — le budget d'assets du projet devient la
+ROM entière, plus une seule bank.
 
 - **Metasprite** : une frame = 2 OBJs 16x16 empilés, ancrés sur la tile de
   l'entité avec **8 px de débord au-dessus** (la tête chevauche la tile du

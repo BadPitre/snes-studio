@@ -8,8 +8,15 @@ indexés) en données moteur. **La source de vérité est le dossier projet
   format binaire byte-exact de la spec §1 (far 24-bit)
 - `engine/src/data/texts.bin` — bank $86 : table d'offsets + chaînes
 - `engine/databanks.asm` — épingle les blobs dans leurs banks
-- `engine/src/data/data_assets.c` + `data_font.c` — assets gfx (C arrays,
-  pas de format binaire en spec pour eux)
+- `engine/src/data/data_gfx{i}.c` / `data_sprites{i}.c` — UN FICHIER PAR
+  SET : le `.rodata` d'un .c est une section WLA insécable (32 Ko max, une
+  bank LoROM) ; en éclatant par set, wlalink répartit les assets sur les
+  banks libres et le total n'est plus plafonné à 32 Ko. datagen purge les
+  fichiers d'une génération précédente avant d'écrire.
+- `engine/src/data/data_assets.c` — uniquement les tables de pointeurs
+  (`gfx_chars[]`, `sprite_chars[]`…) indexées par set_id, résolues au link
+  (pointeurs far 24-bit, la bank de chaque set n'importe pas)
+- `engine/src/data/data_font.c` — fonte de la textbox
 
 ## Usage
 

@@ -295,8 +295,23 @@ fn main() -> Result<()> {
     write_bin(&out_dir, "texts.bin", &text_bank)?;
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
-    // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&gfx_sets, &sprite_sets)?)?;
+    // Assets gfx (representation C v0 — pas de format binaire en spec).
+    // Un fichier par set (section ROM insécable = 32 Ko max) : purger
+    // d'abord les data_gfx*/data_sprites* d'une génération précédente,
+    // sinon un set disparu resterait compilé et lié (symboles fantômes).
+    for entry in std::fs::read_dir(&out_dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if (name.starts_with("data_gfx") || name.starts_with("data_sprites"))
+            && !path.is_dir()
+        {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("purge de {}", path.display()))?;
+        }
+    }
+    for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
+        write_out(&out_dir, &name, content)?;
+    }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -328,12 +343,22 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn gen_assets(
+/// Fichiers C d'assets : UN FICHIER PAR SET. tcc-816 émet le `.rodata` de
+/// chaque .c comme UNE section WLA SUPERFREE — insécable, donc 32 Ko max
+/// (une bank LoROM). Tout dans un seul data_assets.c plafonnait le projet
+/// entier à ~32 Ko d'assets (« No room for section .rodata ») ; en
+/// éclatant par set, wlalink répartit les sections sur les banks libres.
+/// data_assets.c ne garde que les tables de pointeurs (résolues au link,
+/// pointeurs far 24-bit : la bank de chaque set n'importe pas).
+fn gen_asset_files(
     gfx_sets: &[tileset::GfxSet],
     sprite_sets: &[(Vec<u8>, Vec<u16>)],
-) -> Result<String> {
-    let mut s = String::from(emit::HEADER);
-    s.push_str("#include <snes.h>\n\n");
+) -> Result<Vec<(String, String)>> {
+    // Garde-fou : une section = une bank. Aucun set légitime n'approche
+    // cette taille (chipset complet ~15 Ko) — si on y arrive, c'est un
+    // asset pathologique, pas un problème de découpage.
+    const SET_MAX: usize = 0x7C00;
+    let mut files = Vec::new();
 
     // Un gfx set par scene (partage par empreinte) + tables de pointeurs
     // indexees par gfx_set_id (header octet 1) — pattern « scene_table » :
@@ -341,18 +366,79 @@ fn gen_assets(
     // gs{i}_prio : 1 octet par id local, 1 = ☆ (priorite BG1, couche sup).
     // gs{i}_pal : CGRAM BG complete, 8 palettes x 16 couleurs.
     for (i, g) in gfx_sets.iter().enumerate() {
-        s.push_str(&emit::u8_array(&format!("gs{}_chars", i), &g.charset, 16, true));
+        let bytes = g.charset.len() + 2 * g.table.len() + g.prio.len() + 2 * g.pal.len();
+        if bytes > SET_MAX {
+            bail!(
+                "gfx set {} : {} octets > {} (une section ROM = une bank \
+                 LoROM de 32 Ko) — reduire le tileset",
+                i, bytes, SET_MAX
+            );
+        }
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&emit::u8_array(&format!("gs{}_chars", i), &g.charset, 16, false));
         s.push_str(&format!(
-            "static const u16 gs{}_chars_size = sizeof(gs{}_chars);\n\n",
+            "const u16 gs{}_chars_size = sizeof(gs{}_chars);\n\n",
             i, i
         ));
-        s.push_str(&emit::u16_array_static(&format!("gs{}_meta", i), &g.table));
+        s.push_str(&emit::u16_array(&format!("gs{}_meta", i), &g.table));
         s.push('\n');
-        s.push_str(&emit::u8_array(&format!("gs{}_prio", i), &g.prio, 16, true));
+        s.push_str(&emit::u8_array(&format!("gs{}_prio", i), &g.prio, 16, false));
         s.push('\n');
-        s.push_str(&emit::u16_array_static(&format!("gs{}_pal", i), &g.pal));
-        s.push('\n');
+        s.push_str(&emit::u16_array(&format!("gs{}_pal", i), &g.pal));
+        files.push((format!("data_gfx{}.c", i), s));
     }
+
+    // Sprite sets par scène (v0.5) : chars OBJ + CGRAM OBJ complète
+    for (i, (chars, pal)) in sprite_sets.iter().enumerate() {
+        let bytes = chars.len() + 2 * pal.len();
+        if bytes > SET_MAX {
+            bail!(
+                "sprite set {} : {} octets > {} (une section ROM = une bank \
+                 LoROM de 32 Ko)",
+                i, bytes, SET_MAX
+            );
+        }
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&emit::u8_array(&format!("ss{}_chars", i), chars, 16, false));
+        s.push_str(&format!(
+            "const u16 ss{}_chars_size = sizeof(ss{}_chars);\n\n",
+            i, i
+        ));
+        s.push_str(&emit::u16_array(&format!("ss{}_pal", i), pal));
+        files.push((format!("data_sprites{}.c", i), s));
+    }
+
+    files.push(("data_assets.c".to_string(), gen_asset_tables(gfx_sets, sprite_sets)));
+    Ok(files)
+}
+
+/// data_assets.c : les tables de pointeurs indexées par set_id, seules
+/// structures que le moteur référence (les données vivent dans les
+/// data_gfx{i}.c / data_sprites{i}.c, banks choisies par le linker).
+fn gen_asset_tables(
+    gfx_sets: &[tileset::GfxSet],
+    sprite_sets: &[(Vec<u8>, Vec<u16>)],
+) -> String {
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..gfx_sets.len() {
+        s.push_str(&format!(
+            "extern const u8 gs{i}_chars[];\nextern const u16 gs{i}_chars_size;\n\
+             extern const u16 gs{i}_meta[];\nextern const u8 gs{i}_prio[];\n\
+             extern const u16 gs{i}_pal[];\n",
+            i = i
+        ));
+    }
+    for i in 0..sprite_sets.len() {
+        s.push_str(&format!(
+            "extern const u8 ss{i}_chars[];\nextern const u16 ss{i}_chars_size;\n\
+             extern const u16 ss{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push('\n');
 
     s.push_str("const u8 *const gfx_chars[] = {\n");
     for i in 0..gfx_sets.len() {
@@ -376,18 +462,8 @@ fn gen_assets(
     }
     s.push_str("};\n\n");
 
-    // Sprite sets par scène (v0.5) : un set = chars OBJ + CGRAM OBJ
-    // complete (slot local s → palette s), indexés par l'octet 27 du
-    // Scene Header via des tables de pointeurs (pattern « scene_table »).
-    for (i, (chars, pal)) in sprite_sets.iter().enumerate() {
-        s.push_str(&emit::u8_array(&format!("ss{}_chars", i), chars, 16, true));
-        s.push_str(&format!(
-            "static const u16 ss{}_chars_size = sizeof(ss{}_chars);\n\n",
-            i, i
-        ));
-        s.push_str(&emit::u16_array_static(&format!("ss{}_pal", i), pal));
-        s.push('\n');
-    }
+    // Sprite sets par scène (v0.5), indexés par l'octet 27 du Scene
+    // Header via des tables de pointeurs (pattern « scene_table »).
     s.push_str("const u8 *const sprite_chars[] = {\n");
     for i in 0..sprite_sets.len() {
         s.push_str(&format!("  ss{}_chars,\n", i));
@@ -401,7 +477,7 @@ fn gen_assets(
         s.push_str(&format!("  ss{}_pal,\n", i));
     }
     s.push_str("};\n");
-    Ok(s)
+    s
 }
 
 fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
