@@ -99,6 +99,37 @@
 #define ROUTE_FLAG_REPEAT 0x01
 #define ROUTE_FLAG_SKIP   0x02
 
+/* v0.13 : opérations avancées, timer, caméra scriptée */
+#define VM_OP_VAROP   0x14 /* dst (u8), op (u8), src_type (u8), src (u16) —
+                              vars16[dst] = vars16[dst] OP valeur(src).
+                              op : 0 =, 1 +, 2 -, 3 *, 4 /, 5 mod,
+                              6 aleatoire 0..valeur (inclus).
+                              src_type : 0 constante, 1 variable[src],
+                              2 X heros (tiles), 3 Y heros (tiles),
+                              4 timer (secondes restantes).
+                              division/mod par zero -> 0. */
+#define VM_OP_TIMER   0x15 /* op (u8) : 0 regler+demarrer (val = secondes),
+                              1 stop, 2 afficher, 3 cacher ; val (u16) */
+#define VM_OP_CAMPAN  0x16 /* tx (u8), ty (u8), vitesse (u8 px/frame) —
+                              pan de la camera vers la tile (centree),
+                              NON bloquant */
+#define VM_OP_CAMRET  0x17 /* vitesse (u8) — pan de retour vers le heros
+                              puis reprise du suivi */
+#define VM_OP_WAITCAM 0x18 /* bloquant : attend la fin du pan */
+
+#define VAROP_SET 0
+#define VAROP_ADD 1
+#define VAROP_SUB 2
+#define VAROP_MUL 3
+#define VAROP_DIV 4
+#define VAROP_MOD 5
+#define VAROP_RAND 6
+#define VARSRC_CONST 0
+#define VARSRC_VAR 1
+#define VARSRC_HERO_X 2
+#define VARSRC_HERO_Y 3
+#define VARSRC_TIMER 4
+
 /* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
    Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
 #define VM_SWITCH_COUNT 512

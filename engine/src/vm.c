@@ -12,11 +12,17 @@
 #include "textbox.h"
 #include "actors.h"
 #include "player.h"
+#include "camera.h"
+#include "timer.h"
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
 
 VmState vm;
+
+/* Aléatoire de la VM (VAROP op 6) — xorshift 16-bit, semé explicitement
+   (statics tcc) et brassé par la position du héros à chaque vm_start. */
+static u16 vm_seed;
 
 /* Halt debug : opcode inconnu ou boucle infinie dans un script — bug de
    données, on fige pour le voir immédiatement (kit §5). */
@@ -30,6 +36,8 @@ static void vm_halt(void)
 void vm_init(void)
 {
   u16 i;
+
+  vm_seed = 0xBEEF; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
 
   vm.active = 0;
   vm.wait_mode = VM_WAIT_NONE;
@@ -82,6 +90,7 @@ void vm_start(u16 offset)
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = offset;
   vm.script_actor = 0xFF; /* renseigné après coup par l'appelant (v0.12) */
+  vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* brasse l'aléatoire */
 }
 
 u8 vm_active(void)
@@ -118,6 +127,32 @@ static void var_set(u8 v, u8 val)
 
 /* Options du CHOICE en cours (copiées du flux au décodage) */
 static u16 choice_ids[4];
+
+static u16 vm_rand(void)
+{
+  vm_seed ^= vm_seed << 7;
+  vm_seed ^= vm_seed >> 9;
+  vm_seed ^= vm_seed << 8;
+  return vm_seed;
+}
+
+/* Valeur source d'un VAROP (spec §2 v0.13) */
+static u16 varop_src(u8 src_type, u16 src)
+{
+  switch (src_type)
+  {
+  case VARSRC_VAR:
+    return vm.vars16[src & 255];
+  case VARSRC_HERO_X:
+    return (u16)((player.x + 8) >> 4);
+  case VARSRC_HERO_Y:
+    return (u16)((player.y + 8) >> 4);
+  case VARSRC_TIMER:
+    return timer_secs();
+  default:
+    return src;
+  }
+}
 
 static void vm_step(void)
 {
@@ -254,6 +289,63 @@ static void vm_step(void)
       vm.wait_mode = VM_WAIT_TIMER;
       break;
 
+    case VM_OP_VAROP: /* opérations avancées (v0.13) */
+      var = fetch8();          /* variable destination */
+      val = fetch8();          /* opération */
+      idx16 = fetch8();        /* type de source */
+      val16 = varop_src((u8)idx16, fetch16());
+      switch (val)
+      {
+      case VAROP_SET:
+        vm.vars16[var] = val16;
+        break;
+      case VAROP_ADD:
+        vm.vars16[var] += val16;
+        break;
+      case VAROP_SUB:
+        vm.vars16[var] -= val16;
+        break;
+      case VAROP_MUL:
+        vm.vars16[var] *= val16;
+        break;
+      case VAROP_DIV:
+        vm.vars16[var] = val16 ? vm.vars16[var] / val16 : 0;
+        break;
+      case VAROP_MOD:
+        vm.vars16[var] = val16 ? vm.vars16[var] % val16 : 0;
+        break;
+      default: /* aléatoire 0..val16 inclus */
+        vm.vars16[var] = val16 == 0xFFFF ? vm_rand()
+                                         : vm_rand() % (val16 + 1);
+        break;
+      }
+      break;
+
+    case VM_OP_TIMER: /* timer de jeu (v0.13) */
+      var = fetch8();
+      val16 = fetch16();
+      if (var == 0)
+        timer_set(val16);
+      else if (var == 1)
+        timer_stop();
+      else
+        timer_display(var == 2);
+      break;
+
+    case VM_OP_CAMPAN: /* pan caméra scripté — NON bloquant */
+      var = fetch8();
+      val = fetch8();
+      camera_pan_to(var, val, fetch8());
+      break;
+
+    case VM_OP_CAMRET: /* retour caméra vers le héros */
+      camera_return(fetch8());
+      break;
+
+    case VM_OP_WAITCAM: /* bloquant : fin du pan */
+      vm.wait_mode = VM_WAIT_CAM;
+      break;
+
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
       var = fetch8();
       val = fetch8(); /* 0 ==, 1 !=, 2 >= */
@@ -287,6 +379,13 @@ void vm_update(void)
   if (vm.wait_mode == VM_WAIT_ROUTE)
   {
     if (!actors_routes_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_CAM)
+  {
+    if (!camera_busy())
       vm.wait_mode = VM_WAIT_NONE;
     else
       return;

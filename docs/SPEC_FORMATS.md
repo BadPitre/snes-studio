@@ -347,6 +347,21 @@ Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
 | 0x12 | WAITROUTE | — | bloquant : attend la fin de tous les itinéraires non répétés |
 | 0x13 | WAIT | frames u8 | pause bloquante |
 
+**v0.13 (opérations, timer, caméra) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x14 | VAROP | dst u8, op u8, src_type u8, src u16 | vars16[dst] = dst OP source — op : 0 `=`, 1 `+`, 2 `-`, 3 `*`, 4 `/`, 5 `mod`, 6 hasard 0..src ; source : 0 constante, 1 variable[src], 2 X héros (tiles), 3 Y héros, 4 timer (s). Division/mod par 0 → 0. |
+| 0x15 | TIMER | op u8, val u16 | 0 régler+démarrer (val s), 1 stop, 2 afficher (« M:SS » coin haut-droit BG3), 3 cacher |
+| 0x16 | CAMPAN | tx u8, ty u8, vitesse u8 | pan caméra vers la tile (centrée), NON bloquant |
+| 0x17 | CAMRET | vitesse u8 | pan de retour vers le héros puis reprise du suivi |
+| 0x18 | WAITCAM | — | bloquant : fin du pan |
+
+Pièges toolchain documentés au passage : un couple de paramètres
+`(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à
+paramètre unique) ; les glyphes BG3 commencent au char 1 (char 0
+transparent, glyphe = ascii − 31).
+
 Pas d'itinéraire (1 octet) : `0x00-0x03` marcher bas/haut/gauche/droite,
 `0x10-0x13` se tourner, `0x20` un pas en avant, `0x21` se tourner vers le
 héros, `0x40|n` attendre n×8 frames (n 1-15). La route vit INLINE dans le

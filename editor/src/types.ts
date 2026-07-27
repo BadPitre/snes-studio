@@ -72,14 +72,22 @@ export type Command =
   // set/add/if sur v/g 8-bit restent lisibles (héritage) mais la fenêtre
   // de commandes ne propose plus que les versions modernes.
   | { c: "switch"; n: number; on: boolean }
-  | { c: "var"; n: number; op: "=" | "+"; value: number }
   | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
   | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
   // v0.12 — Move Route (cinématiques) : itinéraire en tâche de fond,
   // attente de fin, pause bloquante
   | { c: "route"; event: number; repeat: boolean; skip: boolean; steps: RouteStep[] }
   | { c: "wait_route" }
-  | { c: "wait"; frames: number };
+  | { c: "wait"; frames: number }
+  // v0.13 — opérations avancées, timer, caméra scriptée
+  | { c: "var"; n: number; op: VarOp; from?: VarSource; value: number }
+  | { c: "timer"; op: "start" | "stop" | "show" | "hide"; secs?: number }
+  | { c: "campan"; x: number; y: number; speed: number }
+  | { c: "cam_return"; speed: number }
+  | { c: "wait_cam" };
+
+export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
+export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer";
 
 // Un pas d'itinéraire. wait : n × 8 frames (1-15).
 export type RouteStep =

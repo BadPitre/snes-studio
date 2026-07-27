@@ -189,17 +189,55 @@ impl<'a> EventCompiler<'a> {
                     out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
                 }
                 "var" => {
+                    // v0.13 : arithmétique complète, aléatoire, sources
+                    // (constante, variable, X/Y héros, timer)
                     let n = Self::idx_field(cmd, "n", 256)?;
+                    let op = cmd["op"].as_str().unwrap_or("=");
+                    if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
+                        bail!("var : operation inconnue « {} »", op);
+                    }
+                    let from = cmd["from"].as_str().unwrap_or("const");
+                    let st = match from {
+                        "const" => "const",
+                        "var" => "var",
+                        "hero_x" => "hx",
+                        "hero_y" => "hy",
+                        "timer" => "timer",
+                        o => bail!("var : source inconnue « {} »", o),
+                    };
                     let val = cmd["value"]
                         .as_i64()
                         .filter(|v| (-32768..=65535).contains(v))
-                        .with_context(|| format!("var : valeur 16-bit invalide : {}", cmd))?;
-                    let mnem = match cmd["op"].as_str().unwrap_or("=") {
-                        "=" => "SET16",
-                        "+" => "ADD16",
-                        o => bail!("var : operation inconnue « {} » (=, +)", o),
+                        .unwrap_or(0);
+                    // les vieux set/add 16-bit passent aussi par VAROP
+                    out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
+                }
+                "timer" => {
+                    let op = match cmd["op"].as_str().unwrap_or("start") {
+                        "start" => "start",
+                        "stop" => "stop",
+                        "show" => "show",
+                        "hide" => "hide",
+                        o => bail!("timer : operation inconnue « {} »", o),
                     };
-                    out.push(format!("  {} {} {}", mnem, n, val));
+                    let secs = cmd["secs"].as_u64().filter(|&v| v <= 5999).unwrap_or(0);
+                    out.push(format!("  TIMER {} {}", op, secs));
+                }
+                "campan" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!(
+                        "  CAMPAN {} {} {}",
+                        Self::u8_field(cmd, "x")?,
+                        Self::u8_field(cmd, "y")?,
+                        speed
+                    ));
+                }
+                "cam_return" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!("  CAMRET {}", speed));
+                }
+                "wait_cam" => {
+                    out.push("  WAITCAM".to_string());
                 }
                 "if_sw" | "if_var" => {
                     let then_l = self.label("alors");

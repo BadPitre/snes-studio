@@ -24,6 +24,10 @@ const PAGE1: { c: Command["c"]; label: string }[] = [
   { c: "route", label: "Déplacer un event…" },
   { c: "wait_route", label: "Attendre la fin des déplacements" },
   { c: "wait", label: "Attendre" },
+  { c: "timer", label: "Timer (régler / afficher)" },
+  { c: "campan", label: "Déplacer la caméra" },
+  { c: "cam_return", label: "Caméra : retour au héros" },
+  { c: "wait_cam", label: "Attendre la caméra" },
 ];
 
 // Cases annoncées mais pas encore compilables — affichées grisées pour que

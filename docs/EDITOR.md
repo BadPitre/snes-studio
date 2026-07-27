@@ -199,6 +199,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   si bloqué ; cible « Cet event » ou un event de la scène). L'itinéraire
   part en tâche de fond — le séquencer avec « Attendre la fin des
   déplacements » ; « Attendre » (frames) complète la panoplie cinématique.
+- **v0.13** : « Modifier une variable » couvre l'arithmétique complète
+  (=, +, −, ×, ÷, mod, hasard 0..N) et des sources (constante, autre
+  variable, X/Y du héros, timer) ; commandes **Timer** (régler/arrêter/
+  afficher « M:SS » au coin haut-droit), **Déplacer la caméra** (pan
+  scripté non bloquant), **Caméra : retour au héros** et **Attendre la
+  caméra**.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

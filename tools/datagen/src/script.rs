@@ -52,6 +52,11 @@ const OP_JCMP16: u8 = 0x10;
 const OP_ROUTE: u8 = 0x11;
 const OP_WAITROUTE: u8 = 0x12;
 const OP_WAIT: u8 = 0x13;
+const OP_VAROP: u8 = 0x14;
+const OP_TIMER: u8 = 0x15;
+const OP_CAMPAN: u8 = 0x16;
+const OP_CAMRET: u8 = 0x17;
+const OP_WAITCAM: u8 = 0x18;
 
 /// Encode un pas d'itinéraire (spec §2 v0.12)
 fn route_step(tok: &str) -> Result<u8> {
@@ -125,6 +130,11 @@ fn op_size(op: &str, argc: usize) -> Result<u16> {
         "JCMP16" => 7,
         "WAITROUTE" => 1,
         "WAIT" => 2,
+        "VAROP" => 6,
+        "TIMER" => 4,
+        "CAMPAN" => 4,
+        "CAMRET" => 2,
+        "WAITCAM" => 1,
         // ROUTE <acteur> <r0|1> <s0|1> <pas...> : 4 octets + 1 par pas
         "ROUTE" => {
             if argc < 4 {
@@ -327,6 +337,59 @@ pub fn assemble(
                 code.push(opb);
                 code.extend_from_slice(&val.to_le_bytes());
                 code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
+            }
+            // VAROP <dst> <=|+|-|*|/|%|rand> <const|var|hx|hy|timer> <src>
+            "VAROP" => {
+                if argc != 4 { bail!("VAROP <dst> <op> <src_type> <src>"); }
+                let dst: u8 = args[0].parse()
+                    .with_context(|| format!("variable invalide : '{}'", args[0]))?;
+                let opb = match args[1] {
+                    "=" => 0u8, "+" => 1, "-" => 2, "*" => 3, "/" => 4,
+                    "%" => 5, "rand" => 6,
+                    o => bail!("VAROP : operation inconnue '{}'", o),
+                };
+                let st = match args[2] {
+                    "const" => 0u8, "var" => 1, "hx" => 2, "hy" => 3, "timer" => 4,
+                    o => bail!("VAROP : source inconnue '{}'", o),
+                };
+                let src: i32 = args[3].parse()
+                    .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
+                if !(-32768..=65535).contains(&src) {
+                    bail!("VAROP : valeur hors limite : {}", src);
+                }
+                code.push(OP_VAROP);
+                code.push(dst);
+                code.push(opb);
+                code.push(st);
+                code.extend_from_slice(&(src as u16).to_le_bytes());
+            }
+            "TIMER" => {
+                if argc != 2 { bail!("TIMER <start|stop|show|hide> <val>"); }
+                let opb = match args[0] {
+                    "start" => 0u8, "stop" => 1, "show" => 2, "hide" => 3,
+                    o => bail!("TIMER : operation inconnue '{}'", o),
+                };
+                let val: u16 = args[1].parse()
+                    .with_context(|| format!("valeur invalide : '{}'", args[1]))?;
+                code.push(OP_TIMER);
+                code.push(opb);
+                code.extend_from_slice(&val.to_le_bytes());
+            }
+            "CAMPAN" => {
+                if argc != 3 { bail!("CAMPAN <tx> <ty> <vitesse 1-8>"); }
+                code.push(OP_CAMPAN);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+            }
+            "CAMRET" => {
+                if argc != 1 { bail!("CAMRET <vitesse 1-8>"); }
+                code.push(OP_CAMRET);
+                code.push(parse_u8(args[0])?);
+            }
+            "WAITCAM" => {
+                if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
+                code.push(OP_WAITCAM);
             }
             "WAITROUTE" => {
                 if argc != 0 { bail!("WAITROUTE ne prend pas d'argument"); }

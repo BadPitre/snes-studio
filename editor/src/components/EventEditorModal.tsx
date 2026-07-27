@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, GameEvent, MoveType, Scene } from "../types";
+import type { Command, Direction, EventPage, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -59,8 +59,15 @@ function labelOf(c: Command): string {
       return `Tourner l'event ${c.event} vers ${c.dir}`;
     case "switch":
       return `Switch [${c.n}] ${c.on ? "ON" : "OFF"}`;
-    case "var":
-      return `Variable [${c.n}] ${c.op === "=" ? "=" : "+="} ${c.value}`;
+    case "var": {
+      const src = c.from === "var" ? `variable [${c.value}]`
+        : c.from === "hero_x" ? "X du héros"
+        : c.from === "hero_y" ? "Y du héros"
+        : c.from === "timer" ? "le timer" : String(c.value);
+      return c.op === "rand"
+        ? `Variable [${c.n}] = hasard 0..${src}`
+        : `Variable [${c.n}] ${c.op}= ${src}`;
+    }
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
     case "if_var":
@@ -71,6 +78,16 @@ function labelOf(c: Command): string {
       return "Attendre la fin des déplacements";
     case "wait":
       return `Attendre ${c.frames} frames`;
+    case "timer":
+      return c.op === "start" ? `Timer : démarrer (${c.secs ?? 0} s)`
+        : c.op === "stop" ? "Timer : arrêter"
+        : c.op === "show" ? "Timer : afficher" : "Timer : cacher";
+    case "campan":
+      return `Caméra : pan vers (${c.x},${c.y}) vitesse ${c.speed}`;
+    case "cam_return":
+      return `Caméra : retour au héros (vitesse ${c.speed})`;
+    case "wait_cam":
+      return "Attendre la caméra";
   }
 }
 
@@ -280,6 +297,14 @@ export default function EventEditorModal(props: Props) {
         return { c: "wait_route" };
       case "wait":
         return { c: "wait", frames: 60 };
+      case "timer":
+        return { c: "timer", op: "start", secs: 60 };
+      case "campan":
+        return { c: "campan", x: 0, y: 0, speed: 2 };
+      case "cam_return":
+        return { c: "cam_return", speed: 2 };
+      case "wait_cam":
+        return { c: "wait_cam" };
     }
   }
 
@@ -799,7 +824,7 @@ function CommandForm(props: {
     case "var":
       valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
       body = (
-        <div className="row">
+        <div className="row" style={{ flexWrap: "wrap" }}>
           <label>
             Variable (0-255)
             <span className="row" style={{ gap: 4 }}>
@@ -816,19 +841,43 @@ function CommandForm(props: {
             Opération
             <select
               value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "=" | "+" })}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as VarOp })}
             >
               <option value="=">= (affecter)</option>
               <option value="+">+ (ajouter)</option>
+              <option value="-">− (soustraire)</option>
+              <option value="*">× (multiplier)</option>
+              <option value="/">÷ (diviser)</option>
+              <option value="%">mod (reste)</option>
+              <option value="rand">hasard 0..N</option>
             </select>
           </label>
           <label>
-            Valeur (16 bits{cmd.op === "+" ? ", négatif accepté" : ""})
-            <input
-              type="number" min={-32768} max={65535} value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-            />
+            Source
+            <select
+              value={cmd.from ?? "const"}
+              onChange={(e) => {
+                const from = e.target.value as VarSource;
+                onChange({ ...cmd, from: from === "const" ? undefined : from });
+              }}
+            >
+              <option value="const">Constante</option>
+              <option value="var">Une variable</option>
+              <option value="hero_x">X du héros (tiles)</option>
+              <option value="hero_y">Y du héros (tiles)</option>
+              <option value="timer">Timer (secondes)</option>
+            </select>
           </label>
+          {(cmd.from ?? "const") === "const" || cmd.from === "var" ? (
+            <label>
+              {cmd.from === "var" ? "N° de variable source" : "Valeur"}
+              <input
+                type="number" min={cmd.from === "var" ? 0 : -32768}
+                max={cmd.from === "var" ? 255 : 65535} value={cmd.value}
+                onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+              />
+            </label>
+          ) : null}
         </div>
       );
       break;
@@ -943,6 +992,68 @@ function CommandForm(props: {
           />
         </label>
       );
+      break;
+    case "timer":
+      valid = cmd.op !== "start" || ((cmd.secs ?? 0) >= 1 && (cmd.secs ?? 0) <= 5999);
+      body = (
+        <div className="row">
+          <label>
+            Action
+            <select
+              value={cmd.op}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as "start" | "stop" | "show" | "hide" })}
+            >
+              <option value="start">Régler et démarrer</option>
+              <option value="stop">Arrêter</option>
+              <option value="show">Afficher (coin haut-droit)</option>
+              <option value="hide">Cacher</option>
+            </select>
+          </label>
+          {cmd.op === "start" && (
+            <label>
+              Secondes (1-5999)
+              <input
+                type="number" min={1} max={5999} value={cmd.secs ?? 60}
+                onChange={(e) => onChange({ ...cmd, secs: Number(e.target.value) })}
+              />
+            </label>
+          )}
+        </div>
+      );
+      break;
+    case "campan":
+      body = (
+        <div className="row">
+          <label>
+            Tile x
+            <input type="number" min={0} max={254} value={cmd.x}
+              onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
+          </label>
+          <label>
+            Tile y
+            <input type="number" min={0} max={254} value={cmd.y}
+              onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
+          </label>
+          <label>
+            Vitesse (px/frame)
+            <input type="number" min={1} max={8} value={cmd.speed}
+              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
+          </label>
+          <span className="hint">Non bloquant — enchaîner avec « Attendre la caméra ».</span>
+        </div>
+      );
+      break;
+    case "cam_return":
+      body = (
+        <label>
+          Vitesse (px/frame)
+          <input type="number" min={1} max={8} value={cmd.speed}
+            onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
+        </label>
+      );
+      break;
+    case "wait_cam":
+      body = <span className="hint">Bloque le script jusqu'à la fin du pan caméra.</span>;
       break;
     case "warp": {
       const dest = props.scenes[cmd.to];

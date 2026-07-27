@@ -158,6 +158,15 @@ autre event, et gèle pendant les dialogues.
 `{"c":"wait","frames":n}` fait une pause. Assembleur : `ROUTE <acteur|self>
 <r> <s> <pas...>`, `WAITROUTE`, `WAIT <frames>`.
 
+**v0.13** : `{"c":"var"}` gagne l'arithmétique complète (`op` : `=`, `+`,
+`-`, `*`, `/`, `%`, `rand`) et des sources (`from` : `const` (défaut),
+`var` (value = n° de variable source), `hero_x`, `hero_y`, `timer`) ;
+`{"c":"timer","op":"start|stop|show|hide","secs":n}` (affichage « M:SS »
+coin haut-droit) ; `{"c":"campan","x","y","speed":1-8}` (non bloquant),
+`{"c":"cam_return","speed"}`, `{"c":"wait_cam"}`. Assembleur : `VAROP
+<dst> <op> <const|var|hx|hy|timer> <src>`, `TIMER <op> <val>`, `CAMPAN`,
+`CAMRET`, `WAITCAM`.
+
 **Pages (v0.10)** : un event peut remplacer ses champs plats par
 `"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
 ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,
