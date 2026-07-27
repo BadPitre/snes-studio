@@ -96,7 +96,15 @@ export type Command =
   | { c: "hero_loc"; vs: number; vx: number; vy: number }
   | { c: "warp_var"; vs: number; vx: number; vy: number }
   | { c: "setpos"; event: number; from: "const" | "vars"; x: number; y: number }
-  | { c: "swappos"; a: number; b: number };
+  | { c: "swappos"; a: number; b: number }
+  // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
+  // persistante (décor seulement — hardware), flash et secousse non
+  // bloquants (enchaîner avec « Attendre »)
+  | { c: "scr_hide"; speed: number }
+  | { c: "scr_show"; speed: number }
+  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
+  | { c: "flash"; r: number; g: number; b: number; frames: number }
+  | { c: "shake"; power: number; speed: number; frames: number };
 
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";

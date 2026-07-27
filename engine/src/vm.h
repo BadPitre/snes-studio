@@ -14,6 +14,7 @@
 #define VM_WAIT_ROUTE 4   /* WAITROUTE : fin des itinéraires (v0.12) */
 #define VM_WAIT_TIMER 5   /* WAIT : compteur de frames (v0.12) */
 #define VM_WAIT_CAM 6     /* WAITCAM : fin du pan camera (v0.13) */
+#define VM_WAIT_SCREEN 7  /* SCRHIDE/SCRSHOW : fin du fondu (v0.15) */
 
 /* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
    le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),

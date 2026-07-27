@@ -14,6 +14,7 @@
 #include "player.h"
 #include "camera.h"
 #include "timer.h"
+#include "screenfx.h"
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
@@ -388,6 +389,39 @@ static void vm_step(void)
       actors_swap_pos(var, val);
       break;
 
+    case VM_OP_SCRHIDE: /* fondu vers le noir — bloquant (v0.15) */
+      screenfx_hide(fetch8());
+      vm.wait_mode = VM_WAIT_SCREEN;
+      break;
+
+    case VM_OP_SCRSHOW: /* fondu entrant — bloquant */
+      screenfx_show(fetch8());
+      vm.wait_mode = VM_WAIT_SCREEN;
+      break;
+
+    case VM_OP_TINT: /* teinte du décor (v0.15) — rgb PUIS mode (piège
+                        tcc des paramètres multiples : 3 u8 max) */
+      var = fetch8();   /* mode */
+      val = fetch8();   /* r */
+      idx16 = fetch8(); /* g */
+      screenfx_tint_rgb(val, (u8)idx16, fetch8());
+      screenfx_tint(var);
+      break;
+
+    case VM_OP_FLASH: /* flash additif décroissant — NON bloquant */
+      val = fetch8();
+      idx16 = fetch8();
+      ofs = fetch8();
+      screenfx_flash(val, (u8)idx16, (u8)ofs);
+      screenfx_flash_start(fetch8());
+      break;
+
+    case VM_OP_SHAKE: /* secousse horizontale — NON bloquant */
+      var = fetch8();
+      val = fetch8();
+      screenfx_shake(var, val, fetch8());
+      break;
+
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
       var = fetch8();
       val = fetch8(); /* 0 ==, 1 !=, 2 >= */
@@ -428,6 +462,13 @@ void vm_update(void)
   if (vm.wait_mode == VM_WAIT_CAM)
   {
     if (!camera_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_SCREEN)
+  {
+    if (!screenfx_busy())
       vm.wait_mode = VM_WAIT_NONE;
     else
       return;

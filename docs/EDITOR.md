@@ -230,7 +230,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   variables), **Téléporter aux variables** (rappel de la position
   mémorisée), **Placer un event** (coordonnées constantes ou lues dans
   des variables) et **Échanger deux events** ; « Modifier une variable »
-  gagne la source **N° de la scène courante**.
+  gagne la source **N° de la scène courante**. Onglet **Écran** :
+  **Cacher / Montrer l'écran** (fondu bloquant), **Teinter l'écran**
+  (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
+  personnages et le texte gardent leurs couleurs), **Flash d'écran** et
+  **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

@@ -387,6 +387,22 @@ Le VAROP gagne la source 5 = **index de la scène courante** : « mémoriser
 la position du héros » = trois VAROP (scène, X, Y), « rappeler » = WARPV
 sur les mêmes variables.
 
+**v0.15 (effets d'écran — module `screenfx.c`) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x1C | SCRHIDE | vitesse u8 (1-15) | fondu vers le noir (INIDISP, `vitesse` niveaux de luminosité par frame), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume) |
+| 0x1D | SCRSHOW | vitesse u8 | fondu entrant, BLOQUANT |
+| 0x1E | TINT | mode u8, r u8, g u8, b u8 | teinte du décor : 0 normale, 1 éclaircir (addition), 2 assombrir (soustraction), composantes 0-31 — color math couleur fixe ($2130-$2132) sur BG1+BG2+fond ; BG3 (textbox) exclu, et les OBJ ne participent pas (palettes 0-3, limite hardware). Immédiate, persiste entre les scènes (réaffirmée après warp). |
+| 0x1F | FLASH | r u8, g u8, b u8, frames u8 | addition décroissant linéairement sur `frames`, puis la teinte courante revient — NON bloquant |
+| 0x20 | SHAKE | power u8 (0-8), vitesse u8 (1-8), frames u8 | secousse : offset de scroll horizontal ±power px alternant toutes `vitesse` frames pendant `frames` frames ; power 0 = stop — NON bloquant |
+
+Toutes les écritures registres ($2100, $2130-$2132) partent au VBlank
+(`screenfx_vblank`). Les fondus scriptés et `setFadeEffect` (warps) ne se
+chevauchent jamais : SCRHIDE/SCRSHOW sont bloquants côté VM, et
+`screenfx_warp_reset()` resynchronise le fondu après chaque warp. Nouveau
+wait_mode : `VM_WAIT_SCREEN` (7).
+
 Pièges toolchain documentés au passage : un couple de paramètres
 `(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à
 paramètre unique) ; les glyphes BG3 commencent au char 1 (char 0

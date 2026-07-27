@@ -107,6 +107,20 @@ function labelOf(c: Command): string {
     case "swappos":
       return `Échanger ${c.a < 0 ? "cet event" : `l'event ${c.a}`} ↔ ${
         c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
+    case "scr_hide":
+      return `Cacher l'écran (vitesse ${c.speed})`;
+    case "scr_show":
+      return `Montrer l'écran (vitesse ${c.speed})`;
+    case "tint":
+      return c.mode === "off"
+        ? "Teinte : normale"
+        : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`;
+    case "flash":
+      return `Flash d'écran (${c.r},${c.g},${c.b}) ${c.frames} frames`;
+    case "shake":
+      return c.power === 0
+        ? "Secousse : stop"
+        : `Secouer l'écran (force ${c.power}, ${c.frames} frames)`;
   }
 }
 
@@ -139,6 +153,11 @@ function cmdTitle(c: Command["c"]): string {
     warp_var: "Téléporter aux variables",
     setpos: "Placer un event",
     swappos: "Échanger deux events",
+    scr_hide: "Cacher l'écran",
+    scr_show: "Montrer l'écran",
+    tint: "Teinter l'écran",
+    flash: "Flash d'écran",
+    shake: "Secouer l'écran",
   };
   return titles[c] ?? "Options de la commande";
 }
@@ -411,6 +430,16 @@ export default function EventEditorModal(props: Props) {
         return { c: "setpos", event: -1, from: "const", x: 0, y: 0 };
       case "swappos":
         return { c: "swappos", a: -1, b: 0 };
+      case "scr_hide":
+        return { c: "scr_hide", speed: 1 };
+      case "scr_show":
+        return { c: "scr_show", speed: 1 };
+      case "tint":
+        return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
+      case "flash":
+        return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
+      case "shake":
+        return { c: "shake", power: 4, speed: 2, frames: 30 };
     }
   }
 
@@ -1380,6 +1409,127 @@ function CommandForm(props: {
             </label>
           ))}
         </div>
+      );
+      break;
+    case "scr_hide":
+    case "scr_show":
+      valid = cmd.speed >= 1 && cmd.speed <= 15;
+      body = (
+        <>
+          <label>
+            Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
+            <input
+              type="number" min={1} max={15} value={cmd.speed} autoFocus
+              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+            />
+          </label>
+          <span className="hint">
+            {cmd.c === "scr_hide"
+              ? "Fondu vers le noir — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
+              : "Fondu entrant — bloque le script jusqu'à la pleine luminosité."}
+          </span>
+        </>
+      );
+      break;
+    case "tint":
+      valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <label>
+              Mode
+              <select
+                value={cmd.mode}
+                onChange={(e) => onChange({ ...cmd, mode: e.target.value as "off" | "add" | "sub" })}
+              >
+                <option value="off">Normale (retirer la teinte)</option>
+                <option value="add">Éclaircir (+)</option>
+                <option value="sub">Assombrir (−)</option>
+              </select>
+            </label>
+            {cmd.mode !== "off" &&
+              (["r", "g", "b"] as const).map((k) => (
+                <label key={k}>
+                  {k.toUpperCase()} (0-31)
+                  <input
+                    type="number" min={0} max={31} value={cmd[k]}
+                    onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                  />
+                </label>
+              ))}
+          </div>
+          <span className="hint">
+            Immédiate, persiste entre les scènes. Teinte le décor — pas les
+            personnages ni le texte (limite hardware SNES). Nuit :
+            assombrir (12,12,4).
+          </span>
+        </>
+      );
+      break;
+    case "flash":
+      valid =
+        [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31) &&
+        cmd.frames >= 1 && cmd.frames <= 255;
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {(["r", "g", "b"] as const).map((k) => (
+              <label key={k}>
+                {k.toUpperCase()} (0-31)
+                <input
+                  type="number" min={0} max={31} value={cmd[k]}
+                  onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                />
+              </label>
+            ))}
+            <label>
+              Durée (frames)
+              <input
+                type="number" min={1} max={255} value={cmd.frames}
+                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Éclair qui décroît sur la durée — non bloquant (enchaîner avec
+            « Attendre »). Blanc plein : 31,31,31.
+          </span>
+        </>
+      );
+      break;
+    case "shake":
+      valid = cmd.power >= 0 && cmd.power <= 8 && cmd.speed >= 1 && cmd.speed <= 8 &&
+        cmd.frames >= 0 && cmd.frames <= 255;
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Force (px, 0 = arrêter)
+              <input
+                type="number" min={0} max={8} value={cmd.power} autoFocus
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Vitesse (frames par va-et-vient)
+              <input
+                type="number" min={1} max={8} value={cmd.speed}
+                onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Durée (frames)
+              <input
+                type="number" min={0} max={255} value={cmd.frames}
+                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Secousse horizontale — non bloquante (enchaîner avec
+            « Attendre »).
+          </span>
+        </>
       );
       break;
     case "warp": {

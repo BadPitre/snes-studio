@@ -184,6 +184,16 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**v0.15 (écran)** : `{"c":"scr_hide","speed":1-15}` / `{"c":"scr_show",
+"speed"}` — fondu sortant/entrant bloquant (assembleur `SCRHIDE`/
+`SCRSHOW <vitesse>`) ; `{"c":"tint","mode":"off"|"add"|"sub","r","g",
+"b"}` (0-31) — teinte du décor, immédiate et persistante (`TINT <mode>
+<r> <g> <b>`) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
+"frames"}` — secousse horizontale non bloquante, power 0 = stop
+(`SHAKE`). La teinte et le flash ne touchent ni le texte ni les
+personnages (hardware SNES : color math OBJ limité aux palettes 4-7).
+
 **v0.15** : `{"c":"loop","do":[...]}` — boucle RM2003 : le corps se
 répète pour toujours ; `{"c":"break"}` saute à la fin de la boucle la
 plus proche (hors d'une boucle : erreur datagen). Compilation pure

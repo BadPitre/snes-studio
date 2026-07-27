@@ -151,6 +151,20 @@
 #define VM_OP_SWAPPOS 0x1B /* a (u8), b (u8, 0xFF = event du script) —
                               échange les positions de deux events */
 
+/* v0.15 : effets d'écran (module screenfx) */
+#define VM_OP_SCRHIDE 0x1C /* vitesse (u8 1-15, pas de luminosité/frame) —
+                              fondu vers le noir, BLOQUANT */
+#define VM_OP_SCRSHOW 0x1D /* vitesse (u8) — fondu entrant, BLOQUANT */
+#define VM_OP_TINT    0x1E /* mode (u8 : 0 normale, 1 eclaircir, 2
+                              assombrir), r, g, b (u8 0-31) — teinte du
+                              décor (color math couleur fixe, BG3 et OBJ
+                              pal 0-3 exclus), persiste entre scènes */
+#define VM_OP_FLASH   0x1F /* r, g, b (u8 0-31), frames (u8) — flash
+                              additif décroissant, NON bloquant */
+#define VM_OP_SHAKE   0x20 /* power (u8 0-8 px, 0 = stop), vitesse (u8
+                              1-8, frames par alternance), frames (u8) —
+                              secousse horizontale, NON bloquant */
+
 #define VAROP_SET 0
 #define VAROP_ADD 1
 #define VAROP_SUB 2

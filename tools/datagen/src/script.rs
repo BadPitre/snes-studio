@@ -60,6 +60,11 @@ const OP_WAITCAM: u8 = 0x18;
 const OP_WARPV: u8 = 0x19;
 const OP_SETPOS: u8 = 0x1A;
 const OP_SWAPPOS: u8 = 0x1B;
+const OP_SCRHIDE: u8 = 0x1C;
+const OP_SCRSHOW: u8 = 0x1D;
+const OP_TINT: u8 = 0x1E;
+const OP_FLASH: u8 = 0x1F;
+const OP_SHAKE: u8 = 0x20;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -203,6 +208,9 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "WARPV" => 4,
         "SETPOS" => 5,
         "SWAPPOS" => 3,
+        "SCRHIDE" | "SCRSHOW" => 2,
+        "TINT" | "FLASH" => 5,
+        "SHAKE" => 4,
         // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
         "ROUTE" => {
             if argc < 5 {
@@ -489,6 +497,71 @@ pub fn assemble(
                 code.push(OP_SWAPPOS);
                 code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
                 code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
+            }
+            // Effets d'écran (v0.15)
+            "SCRHIDE" | "SCRSHOW" => {
+                if argc != 1 { bail!("{} <vitesse 1-15>", op); }
+                let speed: u8 = args[0]
+                    .parse()
+                    .ok()
+                    .filter(|&v| (1..=15).contains(&v))
+                    .with_context(|| format!("vitesse invalide : '{}' (1-15)", args[0]))?;
+                code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
+                code.push(speed);
+            }
+            // TINT <off|add|sub> <r> <g> <b> (0-31)
+            "TINT" => {
+                if argc != 4 { bail!("TINT <off|add|sub> <r> <g> <b>"); }
+                let mode = match args[0] {
+                    "off" => 0u8,
+                    "add" => 1,
+                    "sub" => 2,
+                    o => bail!("TINT : mode inconnu '{}' (off, add, sub)", o),
+                };
+                code.push(OP_TINT);
+                code.push(mode);
+                for t in &args[1..4] {
+                    let v: u8 = t
+                        .parse()
+                        .ok()
+                        .filter(|&v| v <= 31)
+                        .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
+                    code.push(v);
+                }
+            }
+            // FLASH <r> <g> <b> <frames 1-255>
+            "FLASH" => {
+                if argc != 4 { bail!("FLASH <r> <g> <b> <frames>"); }
+                code.push(OP_FLASH);
+                for t in &args[0..3] {
+                    let v: u8 = t
+                        .parse()
+                        .ok()
+                        .filter(|&v| v <= 31)
+                        .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
+                    code.push(v);
+                }
+                let frames = parse_u8(args[3])?;
+                if frames == 0 { bail!("FLASH : frames entre 1 et 255"); }
+                code.push(frames);
+            }
+            // SHAKE <power 0-8> <vitesse 1-8> <frames> (power 0 = stop)
+            "SHAKE" => {
+                if argc != 3 { bail!("SHAKE <power 0-8> <vitesse 1-8> <frames>"); }
+                let power: u8 = args[0]
+                    .parse()
+                    .ok()
+                    .filter(|&v| v <= 8)
+                    .with_context(|| format!("power invalide : '{}' (0-8)", args[0]))?;
+                let speed: u8 = args[1]
+                    .parse()
+                    .ok()
+                    .filter(|&v| (1..=8).contains(&v))
+                    .with_context(|| format!("vitesse invalide : '{}' (1-8)", args[1]))?;
+                code.push(OP_SHAKE);
+                code.push(power);
+                code.push(speed);
+                code.push(parse_u8(args[2])?);
             }
             "RTBLOB" => {
                 if argc < 4 { bail!("RTBLOB <r> <s> <freq> <pas...>"); }

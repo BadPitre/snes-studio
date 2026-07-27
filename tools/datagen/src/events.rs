@@ -27,6 +27,11 @@
 //!   {"c":"hero_loc","vs":n,"vx":n,"vy":n}   {"c":"warp_var","vs","vx","vy"}
 //!   {"c":"setpos","event":-1|n,"from":"const"|"vars","x":..,"y":..}
 //!   {"c":"swappos","a":-1|n,"b":-1|n}
+//!   v0.15 (effets d'écran) :
+//!   {"c":"scr_hide","speed":1-15}   {"c":"scr_show","speed":1-15}
+//!   {"c":"tint","mode":"off"|"add"|"sub","r":0-31,"g":..,"b":..}
+//!   {"c":"flash","r","g","b","frames":1-255}
+//!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
 use crate::project::{Actor, Event, TextEntry};
 use anyhow::{bail, Context, Result};
@@ -294,6 +299,46 @@ impl<'a> EventCompiler<'a> {
                 }
                 "wait_cam" => {
                     out.push("  WAITCAM".to_string());
+                }
+                // v0.15 — effets d'écran
+                "scr_hide" | "scr_show" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=15).contains(&v)).unwrap_or(1);
+                    out.push(format!(
+                        "  {} {}",
+                        if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
+                        speed
+                    ));
+                }
+                "tint" => {
+                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
+                        "off" => "off",
+                        "add" => "add",
+                        "sub" => "sub",
+                        o => bail!("tint : mode inconnu « {} » (off, add, sub)", o),
+                    };
+                    let comp = |key: &str| -> u64 {
+                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
+                    };
+                    out.push(format!(
+                        "  TINT {} {} {} {}",
+                        mode, comp("r"), comp("g"), comp("b")
+                    ));
+                }
+                "flash" => {
+                    let comp = |key: &str| -> u64 {
+                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(31)
+                    };
+                    let frames = cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)).unwrap_or(8);
+                    out.push(format!(
+                        "  FLASH {} {} {} {}",
+                        comp("r"), comp("g"), comp("b"), frames
+                    ));
+                }
+                "shake" => {
+                    let power = cmd["power"].as_u64().filter(|&v| v <= 8).unwrap_or(4);
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
+                    out.push(format!("  SHAKE {} {} {}", power, speed, frames));
                 }
                 "if_sw" | "if_var" => {
                     let then_l = self.label("alors");

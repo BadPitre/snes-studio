@@ -58,8 +58,13 @@ const TABS: Tab[] = [
   },
   {
     title: "Écran",
-    items: [],
-    soon: ["Cacher l'écran", "Montrer l'écran", "Teinter l'écran", "Flash", "Secousse"],
+    items: [
+      { c: "scr_hide", label: "Cacher l'écran" },
+      { c: "scr_show", label: "Montrer l'écran" },
+      { c: "tint", label: "Teinter l'écran" },
+      { c: "flash", label: "Flash d'écran" },
+      { c: "shake", label: "Secouer l'écran" },
+    ],
   },
   {
     title: "Caméra",
