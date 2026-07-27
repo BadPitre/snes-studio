@@ -284,29 +284,34 @@ impl SourceTileset {
         }
 
         // 2. quarts + jeux de couleurs
-        let mut quarters: Vec<Quarter> = Vec::with_capacity(locals.len() * 4);
-        for &key in &locals {
-            let qs = tile_quarters(self, key)?;
-            quarters.extend_from_slice(&qs);
-        }
         let colorset = |q: &Quarter| -> BTreeSet<u16> {
             q.iter().flatten().flatten().copied().collect()
         };
+        let mut quarters: Vec<Quarter> = Vec::with_capacity(locals.len() * 4);
+        for &key in &locals {
+            let qs = tile_quarters(self, key)?;
+            for q in &qs {
+                let n = colorset(q).len();
+                if n > 15 {
+                    let id = match key {
+                        TileKey::Grid(t) => t as i32,
+                        TileKey::Var(k, _) => AUTO_BASE + k as i32,
+                    };
+                    bail!(
+                        "scene '{}' : la tile {} a un bloc 8x8 de {} couleurs > 15 \
+                         (limite SNES — simplifier cette tile dans le PNG)",
+                        name, id, n
+                    );
+                }
+            }
+            quarters.extend_from_slice(&qs);
+        }
 
         // 3. répartition en palettes : jeux uniques triés (taille desc puis
         //    contenu), placement dans la première palette qui peut absorber
         let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
         uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         uniq.dedup();
-        for set in &uniq {
-            if set.len() > 15 {
-                bail!(
-                    "scene '{}' : un char 8x8 utilise {} couleurs > 15",
-                    name,
-                    set.len()
-                );
-            }
-        }
         // Fusion agglomérative : on fusionne en boucle la paire de clusters
         // dont l'union tient en 15 couleurs avec le recouvrement maximal
         // (ordre déterministe : indices croissants à égalité).
@@ -482,6 +487,46 @@ impl SourceTileset {
             upper: expand(upper, true)?,
             collision,
         })
+    }
+}
+
+impl SourceTileset {
+    /// Auto-contrôle : décode chaque tile compilée (char 4bpp + bits de
+    /// palette + CGRAM) et la compare pixel par pixel à la source. Toute
+    /// divergence est un bug datagen — on refuse d'émettre des données
+    /// fausses plutôt que de corrompre le rendu.
+    pub fn verify_gfx(&self, name: &str, gfx: &GfxSet) -> Result<()> {
+        for (&key, &local) in &gfx.local_of {
+            let qs = tile_quarters(self, key)?;
+            for (q, quarter) in qs.iter().enumerate() {
+                let entry = gfx.table[local as usize * 4 + q];
+                let char_id = (entry & 0x3FF) as usize;
+                let pal = ((entry >> 10) & 7) as usize;
+                let ch = &gfx.charset[char_id * 32..char_id * 32 + 32];
+                for y in 0..8 {
+                    for x in 0..8 {
+                        let bit = 7 - x;
+                        let idx = ((ch[y * 2] >> bit) & 1)
+                            | (((ch[y * 2 + 1] >> bit) & 1) << 1)
+                            | (((ch[16 + y * 2] >> bit) & 1) << 2)
+                            | (((ch[16 + y * 2 + 1] >> bit) & 1) << 3);
+                        let got = if idx == 0 {
+                            None
+                        } else {
+                            Some(gfx.pal[pal * 16 + idx as usize])
+                        };
+                        if got != quarter[y][x] {
+                            bail!(
+                                "verify: scene '{}' tile locale {} quart {} pixel \
+                                 ({},{}) : attendu {:?}, obtenu {:?} (bug datagen)",
+                                name, local, q, x, y, quarter[y][x], got
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

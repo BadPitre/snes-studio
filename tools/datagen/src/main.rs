@@ -178,6 +178,7 @@ fn main() -> Result<()> {
         let ts = scene_ts(sc)?;
         let upper = sc.upper_or_empty();
         let gfx = sources[ts].compile_scene(&sc.name, &sc.tilemap, &upper)?;
+        sources[ts].verify_gfx(&sc.name, &gfx)?;
         grids.push(sources[ts].expand_scene(&gfx, &sc.name, &sc.tilemap, &upper)?);
         let fp = gfx.fingerprint();
         let id = match fp_ids.get(&fp) {
