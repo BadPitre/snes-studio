@@ -56,12 +56,20 @@ static void tb_fill(u16 entry)
     tb_shadow[i] = entry;
 }
 
+/* Palette de la fonte : CGRAM 16-19 (palette BG 2bpp n°4). Ces slots sont
+   RÉSERVÉS (spec §4) : datagen n'y place aucune couleur de tileset, et le
+   chargement de scène (CGRAM BG complète) les écrase — à rappeler après
+   CHAQUE scene_load, pas seulement au boot. */
+void textbox_load_pal(void)
+{
+  dmaCopyCGram((u8 *)textbox_pal, 16, 4 * 2);
+}
+
 void textbox_init(void)
 {
-  /* Fonte 2bpp + palette (4 couleurs, CGRAM 16 = palette BG 2bpp n°4) —
-     écran éteint, transferts sûrs */
+  /* Fonte 2bpp + palette — écran éteint, transferts sûrs */
   bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
-  dmaCopyCGram((u8 *)textbox_pal, 16, 4 * 2);
+  textbox_load_pal();
   bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
 
   /* Map BG3 entièrement transparente (char 0) : le shadow ne couvre que la

@@ -301,8 +301,12 @@ DEVANT les sprites. Les deux couches partagent charset, palettes, fenêtre de
 streaming et scroll (budget VBlank : 1 Ko max par frame, 2 couches).
 **Palettes multiples (v0.4)** : les entrées BG portent leurs bits de palette
 (10-12), bakés par datagen ; la CGRAM BG complète (couleurs 0-127, 8
-palettes de 16) est chargée au chargement de scène. Layout déclaré dans
-`engine/src/vram.h`.
+palettes de 16) est chargée au chargement de scène. **Slots CGRAM 16-19
+RÉSERVÉS à la fonte de la textbox** (palette BG 2bpp n°4) : datagen n'y
+place aucune couleur (palette 1 évitée jusqu'à 7 clusters ; à 8, le plus
+petit cluster loge en palette 1 aux indices 4-15, max 12 couleurs), et le
+moteur recharge la palette de la fonte après chaque scene_load. Layout
+déclaré dans `engine/src/vram.h`.
 
 **Textbox (`engine/src/textbox.c`)** : rangées 20-27 de la map BG3 (bas
 d'écran, 64 px), texte 28 colonnes × 6 lignes max, retour à la ligne par mot.

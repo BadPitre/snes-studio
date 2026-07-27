@@ -10,6 +10,11 @@
    À appeler écran éteint. */
 void textbox_init(void);
 
+/* Recharge la palette de la fonte (CGRAM 16-19, slots réservés spec §4) —
+   à appeler après chaque scene_load : le chargement CGRAM de la scène
+   écrase ces slots. */
+void textbox_load_pal(void);
+
 /* Prépare la boîte avec le texte text_id (table de data_texts.c),
    avec retour à la ligne par mot. Affichée au prochain VBlank. */
 void textbox_open(u16 text_id);

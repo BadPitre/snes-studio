@@ -23,6 +23,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   setScreenOff();
 
   scene_load(dest_scene);
+  textbox_load_pal(); /* scene_load écrase la CGRAM 16-19 (fonte, spec §4) */
   vm_scene_reset();
   player_init();
   player_set_pos(dest_x, dest_y);

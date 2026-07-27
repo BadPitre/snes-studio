@@ -347,7 +347,42 @@ impl SourceTileset {
                 total.len()
             );
         }
-        clusters.sort(); // ordre stable des palettes
+        clusters.sort(); // ordre stable
+        // Palettes hardware : la CGRAM 16-19 (palette 1, indices 0-3) est
+        // RÉSERVÉE à la fonte de la textbox (BG3 2bpp, spec §4). Tant qu'il
+        // y a <= 7 clusters, la palette 1 n'est pas utilisée ; à 8, le plus
+        // petit cluster (<= 12 couleurs) y loge, ses couleurs placées aux
+        // indices 4-15 (CGRAM 20-31).
+        let hw_free: [u8; 7] = [0, 2, 3, 4, 5, 6, 7];
+        let mut hw: Vec<u8> = vec![0; clusters.len()];
+        if clusters.len() <= 7 {
+            for (i, h) in hw.iter_mut().enumerate() {
+                *h = hw_free[i];
+            }
+        } else {
+            let small = (0..clusters.len())
+                .min_by_key(|&i| (clusters[i].len(), i))
+                .unwrap();
+            if clusters[small].len() > 12 {
+                bail!(
+                    "scene '{}' : 8 palettes de plus de 12 couleurs — \
+                     impossible de reserver les slots CGRAM 16-19 de la \
+                     textbox (reduire les couleurs de la scene)",
+                    name
+                );
+            }
+            let mut next = 0;
+            for (i, h) in hw.iter_mut().enumerate() {
+                if i == small {
+                    *h = 1;
+                } else {
+                    *h = hw_free[next];
+                    next += 1;
+                }
+            }
+        }
+        let base = |h: u8| -> u8 { if h == 1 { 4 } else { 1 } };
+
         let palettes: Vec<Vec<u16>> =
             clusters.iter().map(|c| c.iter().copied().collect()).collect();
         let mut assign: HashMap<Vec<u16>, u8> = HashMap::new();
@@ -371,15 +406,17 @@ impl SourceTileset {
             local_of.insert(key, i as u8);
             for q in &quarters[i * 4..i * 4 + 4] {
                 let set: Vec<u16> = colorset(q).iter().copied().collect();
-                let p = *assign.get(&set).unwrap();
-                let pal = &palettes[p as usize];
+                let ci = *assign.get(&set).unwrap() as usize;
+                let h = hw[ci];
+                let b = base(h);
+                let pal = &palettes[ci];
                 let mut ch = [0u8; 32];
                 for y in 0..8 {
                     for x in 0..8 {
                         let c = match q[y][x] {
                             None => 0u8,
                             Some(col) => {
-                                1 + pal.iter().position(|&v| v == col).unwrap() as u8
+                                b + pal.iter().position(|&v| v == col).unwrap() as u8
                             }
                         };
                         let bit = 0x80u8 >> x;
@@ -394,7 +431,7 @@ impl SourceTileset {
                     charset.extend_from_slice(&ch);
                     next
                 });
-                table.push(id | ((p as u16) << 10));
+                table.push(id | ((h as u16) << 10));
             }
         }
 
@@ -424,9 +461,11 @@ impl SourceTileset {
         prio.push(0); // blank
 
         let mut pal = vec![0u16; 128];
-        for (p, cols) in palettes.iter().enumerate() {
+        for (ci, cols) in palettes.iter().enumerate() {
+            let h = hw[ci] as usize;
+            let b = base(hw[ci]) as usize;
             for (i, &c) in cols.iter().enumerate() {
-                pal[p * 16 + 1 + i] = c;
+                pal[h * 16 + b + i] = c;
             }
         }
 
