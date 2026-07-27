@@ -356,31 +356,31 @@ export default function App() {
     }));
   }
 
-  function deleteScene() {
-    if (!data || !sceneName) return;
-    if (sceneName === data.project.boot_scene) {
+  function deleteScene(name: string) {
+    if (!data || !name) return;
+    if (name === data.project.boot_scene) {
       setStatus("Impossible de supprimer la scène de boot.");
       return;
     }
     if (data.project.scenes.length <= 1) return;
-    const remaining = data.project.scenes.filter((s) => s !== sceneName);
+    const remaining = data.project.scenes.filter((s) => s !== name);
     mutate((d) => {
-      const dead = d.scenes[sceneName];
+      const dead = d.scenes[name];
       const scenes: Record<string, Scene> = {};
       for (const [n, sc] of Object.entries(d.scenes)) {
-        if (n === sceneName) continue;
+        if (n === name) continue;
         // les enfants de la scène supprimée remontent d'un cran
-        scenes[n] = sc.parent === sceneName ? { ...sc, parent: dead.parent } : sc;
+        scenes[n] = sc.parent === name ? { ...sc, parent: dead.parent } : sc;
       }
       return { ...d, project: { ...d.project, scenes: remaining }, scenes };
     });
-    setSceneName(remaining[0]);
+    if (sceneName === name) setSceneName(remaining[0]);
     setSelActor(null);
   }
 
-  function setBootScene() {
-    if (!data || !sceneName) return;
-    mutate((d) => ({ ...d, project: { ...d.project, boot_scene: sceneName } }));
+  function setBootScene(name: string) {
+    if (!data || !name) return;
+    mutate((d) => ({ ...d, project: { ...d.project, boot_scene: name } }));
   }
 
   const doUndo = useCallback(() => {

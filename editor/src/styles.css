@@ -37,6 +37,17 @@ body {
 .tree-row.active { background: #31547a; }
 .tree-icon { font-size: 11px; color: #8fd48f; }
 .tree-root .tree-icon { color: #e8c860; }
+.tree-fold { width: 12px; text-align: center; font-size: 10px; color: #9aa0a8; }
+.ctx-backdrop { position: fixed; inset: 0; z-index: 50; }
+.ctx-menu {
+  position: fixed; z-index: 51; display: flex; flex-direction: column;
+  background: #26292f; border: 1px solid #000; border-radius: 6px;
+  padding: 4px; gap: 2px; min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.ctx-menu button { text-align: left; border: none; background: none; padding: 6px 10px; }
+.ctx-menu button:hover:not(:disabled) { background: #31547a; }
+.ctx-menu button:disabled { opacity: 0.4; }
 .palette-title { font-weight: 600; margin: 8px 0 6px; color: #9aa0a8; font-size: 12px; text-transform: uppercase; }
 .palette canvas { background: #16181c; border: 1px solid #000; cursor: crosshair; touch-action: none; }
 .scene-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
