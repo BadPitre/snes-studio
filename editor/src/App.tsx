@@ -61,6 +61,10 @@ import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
 import MenuBar from "./components/MenuBar";
+import DiagnosticsModal from "./components/DiagnosticsModal";
+import type { DatagenReport } from "./components/DiagnosticsModal";
+import { checkProject } from "./diagnostics";
+import type { Diag } from "./diagnostics";
 import { scaffoldProject } from "./template";
 import pkg from "../package.json";
 
@@ -101,6 +105,9 @@ export default function App() {
   const [showResources, setShowResources] = useState(false);
   // menu Aide → À propos
   const [showAbout, setShowAbout] = useState(false);
+  // fenêtre de diagnostic (Tools → Vérifier le projet)
+  const [diags, setDiags] = useState<Diag[] | null>(null);
+  const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier du menu Edit (PNJ sélectionné)
   const [actorClipboard, setActorClipboard] = useState<Actor | null>(null);
   // hauteur de la palette (séparateur palette / arborescence, persisté)
@@ -227,6 +234,53 @@ export default function App() {
       await getCurrentWindow().close();
     } catch {
       window.close(); // mode navigateur
+    }
+  }
+
+  // ---- Tools : vérification du projet --------------------------------------
+
+  async function openDiagnostics() {
+    if (!data) return;
+    setDiags(checkProject(data, spriteBlocks));
+    if (!canBuild()) {
+      setDiagReport(null);
+      return;
+    }
+    setDiagReport({ running: true, compression: [], warnings: [] });
+    try {
+      await saveProject(data); // datagen lit le disque
+      const res = await runDatagen(data.root);
+      const rep: DatagenReport = {
+        running: false,
+        ok: res.ok,
+        compression: [],
+        warnings: [],
+      };
+      for (const line of res.output.split("\n")) {
+        const l = line.trim();
+        if (l.startsWith("attention :")) rep.warnings.push(l.replace("attention :", "").trim());
+        if (l.startsWith("grilles :") || l.startsWith("textes :")) rep.compression.push(l);
+        const ms = l.match(/scenes\.bin \((\d+) octets\)/);
+        if (ms) rep.scenesBytes = Number(ms[1]);
+        const mt = l.match(/texts\.bin \((\d+) octets\)/);
+        if (mt) rep.textsBytes = Number(mt[1]);
+      }
+      if (!res.ok) rep.errorTail = res.output.slice(-500);
+      try {
+        const repo = data.root.replace(/[\\/][^\\/]+$/, "");
+        rep.romBytes = (await readBinaryFile(`${repo}/engine/snesstudio.sfc`)).length;
+      } catch {
+        /* pas encore de ROM compilé */
+      }
+      setDiagReport(rep);
+    } catch (e) {
+      setDiagReport({
+        running: false,
+        ok: false,
+        compression: [],
+        warnings: [],
+        errorTail: String(e),
+      });
     }
   }
 
@@ -894,7 +948,16 @@ export default function App() {
         },
       ],
     },
-    { label: "Tools", items: [{ label: "(bientôt)", disabled: true }] },
+    {
+      label: "Tools",
+      items: [
+        {
+          label: "Vérifier le projet…",
+          action: () => void openDiagnostics(),
+          disabled: !data,
+        },
+      ],
+    },
     {
       label: "Game",
       items: [
@@ -1183,6 +1246,17 @@ export default function App() {
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
           onClose={() => setShowResources(false)}
+        />
+      )}
+      {diags && data && (
+        <DiagnosticsModal
+          data={data}
+          diags={diags}
+          report={diagReport}
+          onClose={() => {
+            setDiags(null);
+            setDiagReport(null);
+          }}
         />
       )}
       {showAbout && (

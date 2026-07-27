@@ -149,6 +149,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   - *Help* : Version.
   La barre de boutons se réduit à : 💾 (sauvegarder), couches, Ressources,
   Collision/Grille, puis « Générer les données » et « ▶ Jouer » en fin.
+- **Vérification du projet** (Tools → Vérifier le projet…) : fenêtre de
+  diagnostic — tableau des scènes (taille, budget tiles 8192, charsets
+  n/5, acteurs, warps), problèmes bloquants et avertissements détectés
+  côté éditeur (labels/textes/scènes manquants, dépassements de limites,
+  déclencheurs sans script…), puis le verdict réel de datagen : tailles
+  des banks (scènes/textes sur 32 Ko), gains de compression, warnings de
+  génération (fusions de couleurs…), taille du dernier ROM.
 
 ## Lancer
 

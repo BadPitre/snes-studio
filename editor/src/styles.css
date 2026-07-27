@@ -163,6 +163,21 @@ input, select, textarea {
 .resmgr-rename input { width: 0; flex: 1; }
 .resmgr-preview { border: 1px solid #000; border-radius: 4px; background: #16181c; }
 
+/* Fenêtre de diagnostic (Tools → Vérifier le projet) */
+.diag-body { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.diag-body p { margin: 0; }
+.diag-table { border-collapse: collapse; font-size: 12px; }
+.diag-table th, .diag-table td { border: 1px solid #000; padding: 3px 8px; text-align: left; }
+.diag-table th { background: #16181c; color: #9aa0a8; }
+.diag-ok { color: #7fd47f; }
+.diag-bad { color: #ff7070; }
+.diag-warn { color: #ffb057; }
+.diag-out {
+  background: #16181c; border: 1px solid #000; border-radius: 4px;
+  padding: 6px; font-size: 11px; white-space: pre-wrap; max-height: 140px;
+  overflow-y: auto; margin: 0;
+}
+
 .warp-entry { border: 1px solid #000; border-radius: 6px; padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .warp-entry label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
 .warp-head { display: flex; justify-content: space-between; align-items: center; }
