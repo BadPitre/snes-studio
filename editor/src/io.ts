@@ -66,6 +66,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
         autotiles: m.autotiles ?? [],
         solid: m.solid ?? [],
         above: m.above ?? [],
+        upper_start: m.upper_start,
       };
     } catch {
       tilesetMeta[stem] = { autotiles: [], solid: [], above: [] };
@@ -157,10 +158,12 @@ function sceneToJson(sc: Scene): string {
 
 // Sidecar de passabilité, format canonique (diffs lisibles)
 function metaToJson(m: import("./types").TilesetMeta): string {
+  const upper =
+    m.upper_start !== undefined ? `,\n  "upper_start": ${m.upper_start}` : "";
   return `{
   "autotiles": [${m.autotiles.map((a) => JSON.stringify(a)).join(", ")}],
   "solid": [${m.solid.join(", ")}],
-  "above": [${m.above.join(", ")}]
+  "above": [${m.above.join(", ")}]${upper}
 }
 `;
 }
@@ -175,6 +178,13 @@ export async function loadAutotiles(
     out.push(await loadAssetPng(root, rel));
   }
   return out;
+}
+
+// Sélection d'un PNG (sans copie) — pour l'import de chipset RM2003
+export async function pickPngFile(title: string): Promise<string | null> {
+  if (!hasTauri) return null;
+  const file = await open({ title, filters: [{ name: "PNG", extensions: ["png"] }] });
+  return typeof file === "string" ? file : null;
 }
 
 // Import d'un PNG de tileset : choisi via dialog, copié dans assets/

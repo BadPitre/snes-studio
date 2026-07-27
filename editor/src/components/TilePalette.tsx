@@ -24,6 +24,7 @@ interface Props {
   onTool: (t: Tool) => void;
   onSelectTileset: (stem: string) => void;
   onImport: () => void;
+  onImportChipset: () => void;
   onPassMode: (on: boolean) => void;
   onCyclePassability: (id: number) => void;
 }
@@ -49,8 +50,15 @@ export default function TilePalette(props: Props) {
     : 0;
   const cells: number[] = [];
   if (layer === "upper" && !passMode) cells.push(EMPTY_TILE); // gomme
-  for (let k = 0; k < autotiles.length; k++) cells.push(AUTOTILE_BASE + k);
-  for (let t = 0; t < gridCount; t++) cells.push(t);
+  // Chipset RM2003 (upper_start) : la palette filtre les tiles par couche,
+  // comme RPG Maker — sauf en mode passabilité (tout est éditable)
+  const us = passMode ? undefined : meta.upper_start;
+  if (us === undefined || layer === "lower") {
+    for (let k = 0; k < autotiles.length; k++) cells.push(AUTOTILE_BASE + k);
+  }
+  const t0 = us !== undefined && layer === "upper" ? Math.min(us, gridCount) : 0;
+  const t1 = us !== undefined && layer === "lower" ? Math.min(us, gridCount) : gridCount;
+  for (let t = t0; t < t1; t++) cells.push(t);
   const rows = Math.max(1, Math.ceil(cells.length / COLS));
 
   const [sel, setSel] = useState<Rect>({ x: 0, y: 0, w: 1, h: 1 });
@@ -178,6 +186,14 @@ export default function TilePalette(props: Props) {
         {props.canImport && (
           <button onClick={props.onImport} title="Importer un PNG de tileset dans le projet">
             Importer…
+          </button>
+        )}
+        {props.canImport && (
+          <button
+            onClick={props.onImportChipset}
+            title="Importer un chipset RPG Maker 2003 (PNG 480x256) : tiles, autotiles et couches découpés automatiquement"
+          >
+            Chipset RM2003…
           </button>
         )}
         <button

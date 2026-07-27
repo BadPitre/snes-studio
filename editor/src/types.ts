@@ -71,6 +71,9 @@ export interface TilesetMeta {
   autotiles: string[]; // chemins PNG 48x64
   solid: number[]; // ids logiques X
   above: number[]; // ids logiques ☆ (au-dessus du héros, passables)
+  // Chipsets RM2003 : premier id de la section « couche haute » — la
+  // palette filtre alors les tiles par couche, comme RPG Maker
+  upper_start?: number;
 }
 
 export const AUTOTILE_BASE = 1000;

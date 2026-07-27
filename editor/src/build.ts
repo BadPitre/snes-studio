@@ -21,6 +21,32 @@ export function canBuild(): boolean {
   return hasTauri;
 }
 
+// Import d'un chipset RPG Maker 2003 (480x256) via datagen import-chipset
+export async function runImportChipset(
+  projectRoot: string,
+  chipsetPath: string,
+  name: string
+): Promise<BuildResult> {
+  if (!hasTauri) return { ok: false, output: "mode navigateur : import indisponible" };
+  const repo = parentDir(projectRoot);
+  const cmd = Command.create("cargo", [
+    "run",
+    "--release",
+    "--manifest-path",
+    `${repo}/tools/Cargo.toml`,
+    "-p",
+    "datagen",
+    "--",
+    "import-chipset",
+    chipsetPath,
+    projectRoot,
+    name,
+  ]);
+  const out = await cmd.execute();
+  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
+  return { ok: out.code === 0, output };
+}
+
 export async function runDatagen(projectRoot: string): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
   const repo = parentDir(projectRoot);

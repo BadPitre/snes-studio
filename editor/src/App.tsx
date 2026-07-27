@@ -13,9 +13,11 @@ import {
   loadAssetPng,
   loadAutotiles,
   loadProject,
+  pickPngFile,
   pickProjectDir,
   saveProject,
 } from "./io";
+import { runImportChipset } from "./build";
 import type { Tool } from "./state";
 import {
   cyclePassability,
@@ -73,31 +75,65 @@ export default function App() {
   const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
   const autotiles = autoImgs[tsStem] ?? [];
 
+  // (re)chargement complet du projet depuis le disque
+  async function reloadProject(root: string, keepScene?: string) {
+    const d = await loadProject(root);
+    const bitmaps: Record<string, ImageBitmap> = {};
+    const autos: Record<string, ImageBitmap[]> = {};
+    for (const p of projectTilesets(d.project)) {
+      const stem = assetStem(p);
+      bitmaps[stem] = await loadAssetPng(root, p);
+      autos[stem] = await loadAutotiles(root, d.tilesetMeta[stem]);
+    }
+    setData(d);
+    setSceneName(keepScene && d.scenes[keepScene] ? keepScene : d.project.boot_scene);
+    setTilesets(bitmaps);
+    setAutoImgs(autos);
+    setSprites(await loadAssetPng(root, d.project.assets.sprites));
+    setSelActor(null);
+    setLayer("lower");
+    setPassMode(false);
+    setDirty(false);
+    history.reset();
+    return d;
+  }
+
   async function openProject() {
     const root = await pickProjectDir();
     if (!root) return;
     try {
-      const d = await loadProject(root);
-      const bitmaps: Record<string, ImageBitmap> = {};
-      const autos: Record<string, ImageBitmap[]> = {};
-      for (const p of projectTilesets(d.project)) {
-        const stem = assetStem(p);
-        bitmaps[stem] = await loadAssetPng(root, p);
-        autos[stem] = await loadAutotiles(root, d.tilesetMeta[stem]);
-      }
-      setData(d);
-      setSceneName(d.project.boot_scene);
-      setTilesets(bitmaps);
-      setAutoImgs(autos);
-      setSprites(await loadAssetPng(root, d.project.assets.sprites));
-      setSelActor(null);
-      setLayer("lower");
-      setPassMode(false);
-      setDirty(false);
-      history.reset();
+      const d = await reloadProject(root);
       setStatus(`Projet « ${d.project.name} » — ${d.project.scenes.length} scènes`);
     } catch (e) {
       setStatus(`Erreur d'ouverture : ${e}`);
+    }
+  }
+
+  // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
+  // puis rechargement du projet (project.json et assets modifiés sur disque)
+  async function importChipset() {
+    if (!data) return;
+    const file = await pickPngFile("Importer un chipset RPG Maker 2003 (480x256)");
+    if (!file) return;
+    const name =
+      (file.split(/[\\/]/).pop() ?? "chipset")
+        .replace(/\.[^.]+$/, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "_") || "chipset";
+    const root = data.root;
+    const scene = sceneName;
+    try {
+      await saveProject(data); // l'import réécrit project.json sur disque
+      setStatus("Import du chipset…");
+      const res = await runImportChipset(root, file, name);
+      if (!res.ok) {
+        setStatus(`Import chipset : ${res.output.slice(-300)}`);
+        return;
+      }
+      await reloadProject(root, scene);
+      setStatus(`Chipset importé : tileset « ${name} » (288 tiles + 13 autotiles)`);
+    } catch (e) {
+      setStatus(`Import chipset : ${e}`);
     }
   }
 
@@ -432,6 +468,7 @@ export default function App() {
             onTool={setTool}
             onSelectTileset={setSceneTileset}
             onImport={importTileset}
+            onImportChipset={importChipset}
             onPassMode={setPassMode}
             onCyclePassability={cyclePass}
           />
