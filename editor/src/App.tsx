@@ -29,7 +29,7 @@ import {
   saveProject,
   writeBinaryFile,
 } from "./io";
-import { runImportCharset, runImportChipset } from "./build";
+import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
   cyclePassability,
@@ -60,6 +60,9 @@ import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
+import MenuBar from "./components/MenuBar";
+import { scaffoldProject } from "./template";
+import pkg from "../package.json";
 
 type Tab = "scene" | "actors" | "warps" | "script" | "texts";
 
@@ -96,6 +99,10 @@ export default function App() {
   );
   // gestionnaire de ressources (façon RM2003)
   const [showResources, setShowResources] = useState(false);
+  // menu Aide → À propos
+  const [showAbout, setShowAbout] = useState(false);
+  // presse-papier du menu Edit (PNJ sélectionné)
+  const [actorClipboard, setActorClipboard] = useState<Actor | null>(null);
   // hauteur de la palette (séparateur palette / arborescence, persisté)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
@@ -169,6 +176,103 @@ export default function App() {
     } catch (e) {
       setStatus(`Erreur d'ouverture : ${e}`);
     }
+  }
+
+  // ---- Menu Projet ---------------------------------------------------------
+
+  // Nouveau projet : dossier choisi (vide) → projet minimal généré (une
+  // scène 30x20, tileset/personnages/fonte de démarrage embarqués)
+  async function newProject() {
+    const root = await pickProjectDir();
+    if (!root) return;
+    try {
+      let taken = false;
+      try {
+        await readBinaryFile(`${root}/project.json`);
+        taken = true;
+      } catch {
+        /* pas de project.json : dossier libre */
+      }
+      if (taken) {
+        setStatus("Ce dossier contient déjà un projet — l'ouvrir plutôt");
+        return;
+      }
+      await scaffoldProject(root);
+      const d = await reloadProject(root);
+      setStatus(`Projet « ${d.project.name} » créé — bon courage !`);
+    } catch (e) {
+      setStatus(`Nouveau projet : ${e}`);
+    }
+  }
+
+  function closeProject() {
+    if (!data) return;
+    if (dirty && !confirm("Modifications non sauvegardées — fermer quand même ?")) return;
+    setData(null);
+    setSceneName("");
+    setTilesets({});
+    setAutoImgs({});
+    setSprites(null);
+    setSelActor(null);
+    setDirty(false);
+    history.reset();
+    setStatus("Ouvre un dossier projet (ex. demo/)");
+  }
+
+  async function quitApp() {
+    if (dirty && !confirm("Modifications non sauvegardées — quitter quand même ?")) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      window.close(); // mode navigateur
+    }
+  }
+
+  // ---- Menu Edit : presse-papier du PNJ sélectionné ------------------------
+
+  const selectedActor = scene && selActor !== null ? scene.actors[selActor] ?? null : null;
+
+  function copyActor() {
+    if (selectedActor) setActorClipboard({ ...selectedActor });
+  }
+
+  function deleteSelActor() {
+    if (selActor === null) return;
+    setScene((sc) => removeActor(sc, selActor));
+    setSelActor(null);
+  }
+
+  function cutActor() {
+    copyActor();
+    deleteSelActor();
+  }
+
+  function pasteActor() {
+    if (!scene || !actorClipboard) return;
+    // première tile libre en partant de la position d'origine
+    const free = (tx: number, ty: number) =>
+      !scene.actors.some((a) => a.x === tx && a.y === ty);
+    let placed: [number, number] | null = null;
+    outer: for (let r = 0; r < Math.max(scene.width, scene.height); r++) {
+      for (let dy = -r; dy <= r && !placed; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = actorClipboard.x + dx;
+          const ty = actorClipboard.y + dy;
+          if (tx < 0 || ty < 0 || tx >= scene.width || ty >= scene.height) continue;
+          if (free(tx, ty)) {
+            placed = [tx, ty];
+            break outer;
+          }
+        }
+      }
+    }
+    if (!placed) return;
+    const [tx, ty] = placed;
+    setScene((sc) => ({ ...sc, actors: [...sc.actors, { ...actorClipboard, x: tx, y: ty }] }));
+    setSelActor(scene.actors.length);
+    setTab("actors");
   }
 
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
@@ -751,32 +855,77 @@ export default function App() {
     }
   }, [data, sceneName]);
 
+  // Barre de menus (façon RM2003)
+  const menus = [
+    {
+      label: "Projet",
+      items: [
+        { label: "Nouveau projet…", action: newProject, disabled: !canWriteFiles() },
+        { label: "Ouvrir un projet…", action: openProject },
+        { label: "Fermer le projet", action: closeProject, disabled: !data },
+        { sep: true },
+        {
+          label: "Explorer le dossier du projet",
+          action: () => {
+            if (data) void openProjectFolder(data.root);
+          },
+          disabled: !data || !canWriteFiles(),
+        },
+        { sep: true },
+        { label: "Quitter", action: () => void quitApp() },
+      ],
+    },
+    {
+      label: "Edit",
+      items: [
+        { label: "Annuler", hint: "Ctrl+Z", action: doUndo, disabled: !data },
+        { label: "Rétablir", hint: "Ctrl+Y", action: doRedo, disabled: !data },
+        { sep: true },
+        { label: "Couper le PNJ sélectionné", action: cutActor, disabled: !selectedActor },
+        { label: "Copier le PNJ sélectionné", action: copyActor, disabled: !selectedActor },
+        { label: "Coller le PNJ", action: pasteActor, disabled: !data || !actorClipboard },
+        { label: "Supprimer le PNJ sélectionné", action: deleteSelActor, disabled: !selectedActor },
+        { sep: true },
+        {
+          label: "Réglages du projet…",
+          action: () => setShowSettings(true),
+          disabled: !canBuild(),
+        },
+      ],
+    },
+    { label: "Tools", items: [{ label: "(bientôt)", disabled: true }] },
+    {
+      label: "Game",
+      items: [
+        {
+          label: "▶ Lancer le jeu",
+          action: play,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Générer les données",
+          action: generate,
+          disabled: !data || !canBuild() || playing || building,
+        },
+      ],
+    },
+    {
+      label: "Help",
+      items: [{ label: "Version…", action: () => setShowAbout(true) }],
+    },
+  ];
+
   return (
     <div className="app">
+      <MenuBar menus={menus} />
       <div className="toolbar">
-        <button onClick={openProject}>Ouvrir…</button>
-        <button onClick={save} disabled={!data || !dirty}>
-          Sauvegarder{dirty ? " *" : ""}
+        <button
+          onClick={save}
+          disabled={!data || !dirty}
+          title="Sauvegarder le projet (Ctrl+S)"
+        >
+          💾{dirty ? " *" : ""}
         </button>
-        {data && canBuild() && (
-          <button onClick={generate} disabled={building || playing}>
-            {building ? "Génération…" : "Générer les données"}
-          </button>
-        )}
-        {data && canBuild() && (
-          <button
-            onClick={play}
-            disabled={playing || building}
-            title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : ⚙)"
-          >
-            {playing ? "…" : "▶ Jouer"}
-          </button>
-        )}
-        {canBuild() && (
-          <button onClick={() => setShowSettings(true)} title="Réglages (bash MSYS2, émulateur)">
-            ⚙
-          </button>
-        )}
         {/* gestion des scènes : arborescence sous la palette (façon RM2003) */}
         {data && scene && (
           <span className="layer-switch" title="Couche éditée (modèle RPG Maker 2003)">
@@ -814,6 +963,20 @@ export default function App() {
           <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
           Grille
         </label>
+        {data && canBuild() && (
+          <button onClick={generate} disabled={building || playing}>
+            {building ? "Génération…" : "Générer les données"}
+          </button>
+        )}
+        {data && canBuild() && (
+          <button
+            onClick={play}
+            disabled={playing || building}
+            title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : Edit → Réglages du projet)"
+          >
+            {playing ? "…" : "▶ Jouer"}
+          </button>
+        )}
         <span className="status">{status}</span>
       </div>
 
@@ -1020,6 +1183,20 @@ export default function App() {
           onDeleteChipset={deleteChipset}
           onClose={() => setShowResources(false)}
         />
+      )}
+      {showAbout && (
+        <div className="modal-backdrop" onClick={() => setShowAbout(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">SNES Studio — éditeur</div>
+            <p>Version {pkg.version}</p>
+            <p className="hint">
+              Créateur de jeux Super Nintendo sans code, dans l'esprit de
+              RPG Maker 2003 et GB Studio. Éditeur Tauri + React, moteur C
+              (PVSnesLib), outils Rust. Les jeux sont des données.
+            </p>
+            <button onClick={() => setShowAbout(false)}>Fermer</button>
+          </div>
+        </div>
       )}
       {/* rendu APRÈS le gestionnaire de ressources : s'empile au-dessus */}
       {charsetImport && (

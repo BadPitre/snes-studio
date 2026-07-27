@@ -61,6 +61,16 @@ export async function launchEmulator(
   return { ok: true, output: "" };
 }
 
+// Ouvre le dossier du projet dans l'explorateur de fichiers du système
+export async function openProjectFolder(root: string): Promise<void> {
+  if (!hasTauri) return;
+  if (isWindows()) {
+    await Command.create("cmd", ["/C", "start", "", root]).execute();
+  } else {
+    await Command.create("sh", ["-c", `xdg-open '${root}' >/dev/null 2>&1 &`]).execute();
+  }
+}
+
 // Import d'un chipset RPG Maker 2003 (480x256) via datagen import-chipset
 export async function runImportChipset(
   projectRoot: string,

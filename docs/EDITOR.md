@@ -131,6 +131,17 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   protégé). Supprimer un personnage décale les blocs suivants (les
   acteurs sont mis à jour).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
+- **Barre de menus** (façon RM2003) :
+  - *Projet* : Nouveau projet (dossier vide → projet minimal jouable avec
+    tileset/personnages/fonte de démarrage), Ouvrir, Fermer, Explorer le
+    dossier du projet, Quitter.
+  - *Edit* : Annuler/Rétablir (Ctrl+Z / Ctrl+Y), Couper/Copier/Coller/
+    Supprimer le PNJ sélectionné, Réglages du projet (bash, émulateur).
+  - *Tools* : réservé.
+  - *Game* : Lancer le jeu, Générer les données.
+  - *Help* : Version.
+  La barre de boutons se réduit à : 💾 (sauvegarder), couches, Ressources,
+  Collision/Grille, puis « Générer les données » et « ▶ Jouer » en fin.
 
 ## Lancer
 
