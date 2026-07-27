@@ -4,7 +4,7 @@
 // acteurs, warps, textes, scripts ; undo/redo, gestion des scènes,
 // sauvegarde, génération des données moteur.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Actor, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
 import { assetStem, musicStem, projectTilesets } from "./types";
 import {
@@ -66,12 +66,19 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("scene");
   const [selActor, setSelActor] = useState<number | null>(null);
-  const [showCollision, setShowCollision] = useState(true);
-  const [showGrid, setShowGrid] = useState(false);
+  const [showCollision, setShowCollision] = useState(false);
+  const [showGrid, setShowGrid] = useState(true);
+  const [hoverPos, setHoverPos] = useState<[number, number] | null>(null);
+  // zoom façon RM2003 : 1/1, 1/2, 1/4, 1/8 (taille de tile à l'écran)
+  const [zoomIdx, setZoomIdx] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
   const [building, setBuilding] = useState(false);
+
+  const ZOOMS = [32, 16, 8, 4];
+  const ZOOM_LABELS = ["1/1", "1/2", "1/4", "1/8"];
+  const mapColRef = useRef<HTMLDivElement>(null);
 
   const history = useHistory();
   const scene: Scene | null = data && sceneName ? data.scenes[sceneName] ?? null : null;
@@ -397,6 +404,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Ctrl + molette sur la map : zoom RM2003 (listener non-passif pour
+  // pouvoir bloquer le zoom du navigateur)
+  useEffect(() => {
+    const el = mapColRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoomIdx((z) => Math.max(0, Math.min(3, z + (e.deltaY > 0 ? 1 : -1))));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [data, sceneName]);
+
   // garde-fou : la scène affichée peut avoir disparu après un undo
   useEffect(() => {
     if (data && !data.scenes[sceneName]) {
@@ -531,26 +552,44 @@ export default function App() {
             onDrawMode={setDrawMode}
             onCyclePassability={cyclePass}
           />
-          <div className="map-scroll">
-            <MapCanvas
-              scene={scene}
-              tileset={tileset}
-              autotiles={autotiles}
-              meta={meta}
-              sprites={sprites}
-              tool={tool}
-              layer={layer}
-              drawMode={drawMode}
-              showCollision={showCollision}
-              showGrid={showGrid}
-              onPaint={handlePaint}
-              onApplyPattern={applyPattern}
-              onPickBlock={pickBlock}
-              onSelectActor={(i) => {
-                setSelActor(i);
-                setTab("actors");
-              }}
-            />
+          <div className="map-col" ref={mapColRef}>
+            <div className="map-scroll">
+              <MapCanvas
+                scene={scene}
+                tileset={tileset}
+                autotiles={autotiles}
+                meta={meta}
+                sprites={sprites}
+                tool={tool}
+                layer={layer}
+                drawMode={drawMode}
+                ts={ZOOMS[zoomIdx]}
+                showCollision={showCollision}
+                showGrid={showGrid}
+                onPaint={handlePaint}
+                onApplyPattern={applyPattern}
+                onPickBlock={pickBlock}
+                onHover={setHoverPos}
+                onSelectActor={(i) => {
+                  setSelActor(i);
+                  setTab("actors");
+                }}
+              />
+            </div>
+            <div className="map-status">
+              <span>{hoverPos ? `${hoverPos[0]}, ${hoverPos[1]}` : " "}</span>
+              <span className="zoom-group" title="Zoom (Ctrl + molette)">
+                {ZOOM_LABELS.map((l, i) => (
+                  <button
+                    key={l}
+                    className={zoomIdx === i ? "active" : ""}
+                    onClick={() => setZoomIdx(i)}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </span>
+            </div>
           </div>
           <div className="sidebar">
             <div className="tabs">

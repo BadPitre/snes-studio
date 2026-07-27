@@ -10,13 +10,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Layer, Scene, TilesetMeta } from "../types";
-import { AUTOTILE_BASE, EMPTY_TILE, TILE_SIZE, actorFrame } from "../types";
+import { AUTOTILE_BASE, EMPTY_TILE, actorFrame } from "../types";
 import type { DrawMode, Tool } from "../state";
 import { cellSolid } from "../state";
 import { drawAutotileCell } from "../autotile";
-
-const SCALE = 2;
-const TS = TILE_SIZE * SCALE;
 
 // curseurs façon RM2003 : crayon (dessin) et pot de peinture
 const CUR_PEN =
@@ -33,6 +30,8 @@ interface Props {
   tool: Tool;
   layer: Layer;
   drawMode: DrawMode;
+  // taille d'une tile à l'écran, en px (zoom : 32 = 1/1 … 4 = 1/8)
+  ts: number;
   showCollision: boolean;
   showGrid: boolean;
   // crayon / outils ponctuels — first = début de geste (1 entrée d'historique)
@@ -41,6 +40,8 @@ interface Props {
   onApplyPattern: (cells: Array<[number, number]>, ax: number, ay: number) => void;
   // pipette (clic droit) : bloc copié depuis la couche active
   onPickBlock: (tiles: number[][]) => void;
+  // position du curseur en tiles (null = hors de la map)
+  onHover: (pos: [number, number] | null) => void;
   onSelectActor: (index: number) => void;
 }
 
@@ -57,6 +58,7 @@ export default function MapCanvas(props: Props) {
 
   const { scene, tileset, autotiles, meta, sprites, layer, drawMode, showCollision, showGrid } =
     props;
+  const TS = props.ts;
   const activeGrid = layer === "lower" ? scene.tilemap : scene.upper;
 
   // --- rendu de la map (couches + overlays statiques) ---------------------
@@ -134,7 +136,7 @@ export default function MapCanvas(props: Props) {
     }
 
     // warps (violet, "W")
-    ctx.font = `${TS - 10}px monospace`;
+    ctx.font = `${Math.max(6, TS - 10)}px monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const w of scene.warps) {
@@ -167,7 +169,7 @@ export default function MapCanvas(props: Props) {
       ctx.lineWidth = 2;
       ctx.strokeRect(a.x * TS + 1, a.y * TS + 1, TS - 2, TS - 2);
     }
-  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid]);
+  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS]);
 
   // --- calque d'interaction : survol encadré + aperçus --------------------
   useEffect(() => {
@@ -243,7 +245,7 @@ export default function MapCanvas(props: Props) {
       }
       frame(hover[0], hover[1], w, h);
     }
-  }, [hover, shapeDrag, pickDrag, props.tool, drawMode, scene.width, scene.height]);
+  }, [hover, shapeDrag, pickDrag, props.tool, drawMode, scene.width, scene.height, TS]);
 
   function tileAt(e: React.MouseEvent): Cell {
     const rect = overlayRef.current!.getBoundingClientRect();
@@ -327,7 +329,11 @@ export default function MapCanvas(props: Props) {
 
   function handleMove(e: React.MouseEvent) {
     const [tx, ty] = tileAt(e);
-    setHover((h) => (h && h[0] === tx && h[1] === ty ? h : [tx, ty]));
+    setHover((h) => {
+      if (h && h[0] === tx && h[1] === ty) return h;
+      props.onHover([tx, ty]);
+      return [tx, ty];
+    });
     if (pickDrag) {
       setPickDrag((d) => (d ? { start: d.start, cur: [tx, ty] } : d));
       return;
@@ -405,6 +411,7 @@ export default function MapCanvas(props: Props) {
         onMouseLeave={() => {
           painting.current = false;
           setHover(null);
+          props.onHover(null);
           setShapeDrag(null);
           setPickDrag(null);
         }}
