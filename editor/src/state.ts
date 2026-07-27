@@ -116,7 +116,8 @@ export function cyclePassability(meta: TilesetMeta, id: number): TilesetMeta {
 
 export function placeActor(sc: Scene, tx: number, ty: number): Scene {
   if (sc.actors.some((a) => a.x === tx && a.y === ty)) return sc;
-  const actor: Actor = { type: "npc", x: tx, y: ty, sprite: 8, dir: "down" };
+  // bloc de personnage 1 par défaut (0 = joueur)
+  const actor: Actor = { type: "npc", x: tx, y: ty, sprite: 1, dir: "down" };
   return { ...sc, actors: [...sc.actors, actor] };
 }
 

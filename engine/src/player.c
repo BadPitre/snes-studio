@@ -3,7 +3,8 @@
  * interaction.
  *
  * Position de départ et dimensions de map : depuis les données de scène
- * (SceneCtx). Gfx : feuille de sprites globale (data_assets.c, frames 0-3).
+ * (SceneCtx). Gfx : feuille de sprites globale (data_assets.c), frames
+ * 16x24 en blocs de personnage RM2003 — joueur = bloc 0.
  */
 #include <snes.h>
 #include "formats.h"
@@ -13,14 +14,16 @@
 #include "actors.h"
 #include "vram.h"
 
-/* Feuille de sprites globale (data_assets.c) : frames 16x16 directionnelles,
-   joueur = frames 0-3 */
+/* Feuille de sprites globale (data_assets.c) : frames 16x24, blocs de
+   personnage de 12 frames (modèle RM2003) — joueur = bloc 0, palette OBJ
+   complète (8 palettes, une par bloc) */
 extern const u8 sprite_gfx[];
 extern const u16 sprite_gfx_size;
 extern const u16 sprite_pal[];
 
-/* id OAM du joueur (id * 4 à cause de la structure OAM PVSnesLib) */
-#define PLAYER_OAM_ID 0
+/* ids OAM du joueur : 2 OBJs 16x16 empilés (id * 4, structure PVSnesLib) */
+#define PLAYER_OAM_TOP 0
+#define PLAYER_OAM_BOT 4
 
 /* Priorité OBJ 2 : au-dessus des tiles BG basse priorité en mode 1 */
 #define PLAYER_OBJ_PRIO 2
@@ -189,12 +192,15 @@ void player_init(void)
   player.anim_frame = 0;
   player.anim_timer = 0;
 
-  /* Feuille de sprites + palette OBJ 0, sprites 16x16 par défaut */
-  oamInitGfxSet((u8 *)sprite_gfx, sprite_gfx_size, (u8 *)sprite_pal, 16 * 2, 0,
-                VRAM_OBJ_GFX, OBJ_SIZE16_L32);
+  /* Feuille de sprites + CGRAM OBJ complète (8 palettes, une par bloc de
+     personnage), sprites 16x16 par défaut (2 OBJs empilés par frame) */
+  oamInitGfxSet((u8 *)sprite_gfx, sprite_gfx_size, (u8 *)sprite_pal, 128 * 2,
+                0, VRAM_OBJ_GFX, OBJ_SIZE16_L32);
 
-  oamSet(PLAYER_OAM_ID, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);
-  oamSetEx(PLAYER_OAM_ID, OBJ_SMALL, OBJ_SHOW);
+  oamSet(PLAYER_OAM_TOP, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);
+  oamSet(PLAYER_OAM_BOT, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);
+  oamSetEx(PLAYER_OAM_TOP, OBJ_SMALL, OBJ_SHOW);
+  oamSetEx(PLAYER_OAM_BOT, OBJ_SMALL, OBJ_SHOW);
 }
 
 void player_update(void)
@@ -260,16 +266,15 @@ void player_update(void)
   if (padsDown(0) & KEY_A)
     player_try_interact();
 
-  /* Pseudo-anim de marche : bascule anim_frame toutes les 8 frames de
-     mouvement, utilisée comme flip horizontal en haut/bas (frames dédiées
-     de marche quand les assets seront générés, Phase 2) */
+  /* Cycle de marche RM2003 : anim_frame 0-3 → repos, pas A, repos, pas B
+     (avance toutes les 8 frames de mouvement) */
   if (player.moving)
   {
     player.anim_timer++;
     if (player.anim_timer >= 8)
     {
       player.anim_timer = 0;
-      player.anim_frame ^= 1;
+      player.anim_frame = (player.anim_frame + 1) & 3;
     }
   }
   else
@@ -283,8 +288,17 @@ void player_draw(void)
 {
   u16 sx = player.x - camera.x;
   u16 sy = player.y - camera.y;
-  /* frames joueur : dir*2 + frame de marche (feuille de sprites, 0-7) */
-  u8 f = (u8)((player.dir << 1) | player.anim_frame);
+  /* phase du cycle 0-3 → pas affiché : 0, A, 0, B (pas d'indexation de
+     tableau : tcc-816 est fragile sur les symboles tableau) */
+  u8 add = (player.anim_frame & 1) ? (u8)(1 + (player.anim_frame >> 1)) : 0;
+  /* joueur = bloc 0 : frame = dir*3 + pas, palette OBJ 0 */
+  u8 f = (u8)(player.dir * 3 + add);
 
-  oamSet(PLAYER_OAM_ID, sx, sy, PLAYER_OBJ_PRIO, 0, 0, OBJ_FRAME_TILE(f), 0);
+  /* 2 OBJs empilés, ancrés 8 px au-dessus de la tile (tête façon RM2003) —
+     un y négatif enroule au-delà de 224 : les lignes hautes disparaissent,
+     les basses reviennent en haut d'écran = clipping correct au bord */
+  oamSet(PLAYER_OAM_TOP, sx, sy - SPRITE_Y_OVERLAP, PLAYER_OBJ_PRIO, 0, 0,
+         OBJ_TOP_TILE(f), 0);
+  oamSet(PLAYER_OAM_BOT, sx, sy + 16 - SPRITE_Y_OVERLAP, PLAYER_OBJ_PRIO, 0, 0,
+         OBJ_BOTTOM_TILE(f), 0);
 }

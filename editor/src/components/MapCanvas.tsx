@@ -162,8 +162,13 @@ export default function MapCanvas(props: Props) {
     // acteurs
     for (const a of scene.actors) {
       if (sprites) {
+        // frame 16x24 ancrée en bas de la tile (la tête dépasse de 8 px
+        // au-dessus, façon RM2003)
         const f = actorFrame(a);
-        ctx.drawImage(sprites, f * 16, 0, 16, 16, a.x * TS, a.y * TS, TS, TS);
+        ctx.drawImage(
+          sprites, f * 16, 0, 16, 24,
+          a.x * TS, a.y * TS - TS / 2, TS, TS + TS / 2
+        );
       }
       ctx.strokeStyle = "#ffe020";
       ctx.lineWidth = 2;

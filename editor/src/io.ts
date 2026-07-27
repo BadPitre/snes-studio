@@ -92,7 +92,13 @@ function pngFirstPaletteColor(bytes: Uint8Array): [number, number, number] | nul
 }
 
 export async function loadAssetPng(root: string, rel: string): Promise<ImageBitmap> {
-  const bytes = await readFile(`${root}/${rel}`);
+  return loadPngBitmap(`${root}/${rel}`);
+}
+
+// PNG depuis un chemin absolu (aperçus d'import) — même clé de transparence
+// que les assets projet (première couleur de la palette PLTE)
+export async function loadPngBitmap(path: string): Promise<ImageBitmap> {
+  const bytes = await readFile(path);
   const bmp = await createImageBitmap(
     new Blob([new Uint8Array(bytes)], { type: "image/png" })
   );

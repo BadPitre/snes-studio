@@ -89,8 +89,8 @@
     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
   ],
   "actors": [
-    {"type": "npc", "x": 8, "y": 4, "sprite": 8, "dir": "left", "entry": "compteur"},
-    {"type": "npc", "x": 23, "y": 14, "sprite": 8, "dir": "down", "entry": "salut"}
+    {"type": "npc", "x": 8, "y": 4, "sprite": 1, "dir": "left", "entry": "compteur"},
+    {"type": "npc", "x": 23, "y": 14, "sprite": 1, "dir": "down", "entry": "salut"}
   ],
   "warps": [
     {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2},

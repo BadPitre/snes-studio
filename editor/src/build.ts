@@ -87,6 +87,35 @@ export async function runImportChipset(
   return { ok: out.code === 0, output };
 }
 
+// Import d'un charset RPG Maker 2003 (288x256 ou 72x128) via
+// datagen import-charset : personnage → bloc de la feuille de sprites
+export async function runImportCharset(
+  projectRoot: string,
+  charsetPath: string,
+  perso: number,
+  bloc: number
+): Promise<BuildResult> {
+  if (!hasTauri) return { ok: false, output: "mode navigateur : import indisponible" };
+  const repo = parentDir(projectRoot);
+  const cmd = Command.create("cargo", [
+    "run",
+    "--release",
+    "--manifest-path",
+    `${repo}/tools/Cargo.toml`,
+    "-p",
+    "datagen",
+    "--",
+    "import-charset",
+    charsetPath,
+    projectRoot,
+    String(perso),
+    String(bloc),
+  ]);
+  const out = await cmd.execute();
+  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
+  return { ok: out.code === 0, output };
+}
+
 export async function runDatagen(projectRoot: string): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
   const repo = parentDir(projectRoot);

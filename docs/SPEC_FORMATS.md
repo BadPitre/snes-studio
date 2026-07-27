@@ -131,7 +131,7 @@ Offset  Taille  Champ
 0       1       actor_type    (u8)  — 0x01 = PNJ statique (seul type en v0)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
-3       1       sprite_id     (u8)  — index dans la table de metasprites
+3       1       sprite_id     (u8)  — index de BLOC de personnage (§5, v0.5)
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
 7       1       reserved      (u8)
@@ -331,18 +331,29 @@ deviendront des paramètres générés quand les outils Rust existeront) :
 - layout VRAM (`vram.h`) et constantes hardware (écran 256x224, tiles 16 px,
   wrap BG 64 chars).
 
-**Feuille de sprites globale (v0)** : asset global dans `data_assets.c`
-(`sprite_gfx[]` / `sprite_pal[]`), frames 16x16 4bpp directionnelles
-(0=bas 1=haut 2=gauche 3=droite), layout table OBJ multi-rangées (frame f =
-tiles {base, base+1, base+16, base+17}, base = (f/8)*32 + (f%8)*2).
-Frames 0-7 : joueur (direction*2 + pas de marche — pas de sprite_id, gfx
-global contrairement aux tilesets, par scène depuis la Phase 5b).
-Frames 8-11 : PNJ villageois.
+**Feuille de sprites globale (v0.5, modèle charset RM2003)** : asset global
+dans `data_assets.c` (`sprite_gfx[]` / `sprite_pal[]`), bande de **frames
+16x24** 4bpp, organisée en **blocs de personnage de 12 frames** :
+4 directions (0=bas 1=haut 2=gauche 3=droite) × 3 pas (repos, pas A, pas B).
+Maximum 64 frames (5 blocs complets). Le joueur est le bloc 0.
 
-**Convention metasprite v0 :** le `sprite_id` d'un acteur est l'index de sa
-frame « bas » dans la feuille ; la frame affichée est `sprite_id + direction`.
-(La « table de metasprites » deviendra une vraie structure quand les outils
-Rust génèreront les assets, Phase 2.)
+- **Metasprite** : une frame = 2 OBJs 16x16 empilés, ancrés sur la tile de
+  l'entité avec **8 px de débord au-dessus** (la tête chevauche la tile du
+  dessus, comme dans RM2003). Une tile ☆ de la couche sup passe devant.
+- **Layout VRAM OBJ** : un groupe de 8 frames = 4 rangées de 16 chars
+  (rangées 0-1 : moitiés hautes 16x16, rangées 2-3 : moitiés basses — les
+  8 dernières lignes de la frame sont vides). OBJ haut de la frame f :
+  tile `((f&0xF8)<<3) | ((f&7)<<1)` ; OBJ bas : `+32`.
+- **Palettes OBJ** : le bloc b utilise la palette OBJ b — datagen ré-indexe
+  les couleurs de chaque bloc (15 max + transparent, fusion des plus
+  proches au-delà, avec avertissement) et émet la CGRAM OBJ complète
+  (couleurs 128-255).
+- **Cycle de marche** : phase 0-3 → pas affiché repos, A, repos, B (avance
+  toutes les 8 frames de mouvement).
+
+**Convention metasprite (v0.5) :** le `sprite_id` d'un acteur est l'index
+de son **bloc de personnage** ; la frame de repos affichée est
+`sprite_id*12 + direction*3`, avec la palette OBJ `sprite_id`.
 
 **Interaction (semaine 3)** : bouton A + acteur sur la tile face au joueur →
 `actor_interact()`. Effet provisoire jalon S3 : bascule de la couleur 2 de la

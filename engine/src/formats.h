@@ -20,9 +20,21 @@
 /* script_offset d'un acteur sans script */
 #define SCRIPT_NONE 0xFFFF
 
-/* Feuille OBJ multi-rangées : la frame 16x16 f occupe les tiles
-   {base, base+1, base+16, base+17} avec base = (f/8)*32 + (f%8)*2 */
-#define OBJ_FRAME_TILE(f) ((u16)(((f) & 0xF8) << 2) | (u16)(((f) & 7) << 1))
+/* Feuille OBJ 16x24 (Phase 6, modèle charset RM2003) : une frame = 2 OBJs
+   16x16 empilés, un groupe de 8 frames = 4 rangées de 16 chars (rangées
+   0-1 : moitiés hautes, 2-3 : moitiés basses — les 8 dernières lignes
+   restent vides). Tile de l'OBJ haut de la frame f, puis OBJ bas = +32. */
+#define OBJ_TOP_TILE(f) ((u16)(((f) & 0xF8) << 3) | (u16)(((f) & 7) << 1))
+#define OBJ_BOTTOM_TILE(f) (OBJ_TOP_TILE(f) + 32)
+
+/* Bloc de personnage RM2003 : 12 frames = 4 directions x 3 pas (repos,
+   pas A, pas B). sprite_id d'un acteur = index de bloc ; le bloc b utilise
+   la palette OBJ b. Frame de repos d'une direction : bloc*12 + dir*3. */
+#define CHAR_BLOCK_FRAMES 12
+
+/* Le metasprite 16x24 est ancré sur sa tile : l'OBJ haut dépasse de 8 px
+   au-dessus (la tête chevauche la tile du dessus, façon RM2003). */
+#define SPRITE_Y_OVERLAP 8
 
 /* Couche collision — spec §1.4 v0.2 */
 #define COL_FREE 0x00

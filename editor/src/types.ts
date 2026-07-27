@@ -103,7 +103,11 @@ export const MIN_W = 20; // taille minimum d'une scène (un écran, comme RM2003
 export const MIN_H = 15;
 export const DIRECTIONS: Direction[] = ["down", "up", "left", "right"];
 
-// index de frame dans la feuille de sprites : sprite + direction
+// Feuille de sprites 16x24 (Phase 6) : blocs de personnage RM2003 de
+// 12 frames (4 directions × repos/pas A/pas B). sprite d'un acteur = bloc.
+export const SPRITE_BLOCKS_MAX = 5; // 5 blocs × 12 frames = 60 ≤ 64 frames OBJ
+
+// frame de repos affichée pour un acteur : bloc*12 + direction*3
 export function actorFrame(a: Actor): number {
-  return a.sprite + DIRECTIONS.indexOf(a.dir);
+  return a.sprite * 12 + DIRECTIONS.indexOf(a.dir) * 3;
 }

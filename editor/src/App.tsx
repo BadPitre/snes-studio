@@ -12,12 +12,13 @@ import {
   importTilesetPng,
   loadAssetPng,
   loadAutotiles,
+  loadPngBitmap,
   loadProject,
   pickPngFile,
   pickProjectDir,
   saveProject,
 } from "./io";
-import { runImportChipset } from "./build";
+import { runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
   cyclePassability,
@@ -46,6 +47,7 @@ import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
+import CharsetImportModal from "./components/CharsetImportModal";
 
 type Tab = "scene" | "actors" | "warps" | "script" | "texts";
 
@@ -76,6 +78,10 @@ export default function App() {
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
+  // import de charset en cours (fichier choisi, en attente du personnage/bloc)
+  const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
+    null
+  );
   // hauteur de la palette (séparateur palette / arborescence, persisté)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
@@ -157,6 +163,49 @@ export default function App() {
       setStatus(`Chipset importé : tileset « ${name} » (288 tiles + 13 autotiles)`);
     } catch (e) {
       setStatus(`Import chipset : ${e}`);
+    }
+  }
+
+  // Import d'un charset RPG Maker 2003 : choix du fichier, puis modal
+  // d'aperçu (personnage + bloc de destination) → datagen import-charset
+  async function importCharset() {
+    if (!data) return;
+    const file = await pickPngFile("Importer un charset RPG Maker 2003 (288x256 ou 72x128)");
+    if (!file) return;
+    try {
+      const bmp = await loadPngBitmap(file);
+      const ok =
+        (bmp.width === 288 && bmp.height === 256) ||
+        (bmp.width === 72 && bmp.height === 128);
+      if (!ok) {
+        setStatus(
+          `Import charset : attendu 288x256 (8 personnages) ou 72x128 (recu ${bmp.width}x${bmp.height})`
+        );
+        return;
+      }
+      setCharsetImport({ path: file, bmp });
+    } catch (e) {
+      setStatus(`Import charset : ${e}`);
+    }
+  }
+
+  async function doImportCharset(perso: number, bloc: number) {
+    if (!data || !charsetImport) return;
+    const root = data.root;
+    const scene = sceneName;
+    setCharsetImport(null);
+    try {
+      await saveProject(data); // l'import réécrit assets/sprites.png sur disque
+      setStatus("Import du charset…");
+      const res = await runImportCharset(root, charsetImport.path, perso, bloc);
+      if (!res.ok) {
+        setStatus(`Import charset : ${res.output.slice(-300)}`);
+        return;
+      }
+      await reloadProject(root, scene);
+      setStatus(`Charset importé : personnage ${perso} → bloc ${bloc}`);
+    } catch (e) {
+      setStatus(`Import charset : ${e}`);
     }
   }
 
@@ -658,6 +707,8 @@ export default function App() {
               <ActorPanel
                 scene={scene}
                 selected={selActor}
+                canImport={canWriteFiles()}
+                onImportCharset={importCharset}
                 onSelect={setSelActor}
                 onUpdate={(i, patch: Partial<Actor>) => setScene((sc) => updateActor(sc, i, patch))}
                 onRemove={(i) => {
@@ -708,6 +759,13 @@ export default function App() {
           config={playCfg}
           onSave={savePlayCfg}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {charsetImport && (
+        <CharsetImportModal
+          bitmap={charsetImport.bmp}
+          onImport={doImportCharset}
+          onClose={() => setCharsetImport(null)}
         />
       )}
     </div>

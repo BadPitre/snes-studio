@@ -104,6 +104,20 @@ consomme** : aucun format intermédiaire.
 
 Pas encore : animation des autotiles (eau), édition des gfx.
 
+## Fonctionnalités (6) — personnages façon RM2003
+
+- **Sprites 16x24** : les acteurs sont dessinés sur la map avec leur frame
+  de repos (bloc × 12 + direction × 3), ancrée en bas de leur tile — la
+  tête dépasse de 8 px au-dessus, comme dans RM2003 et en jeu.
+- **Charset (bloc de personnage)** : dans l'onglet Acteurs, le sprite d'un
+  PNJ se choisit par bloc (0 = joueur, 1-4 = PNJ) — un bloc = 12 frames
+  16x24 (4 directions × repos/pas A/pas B) et une palette OBJ.
+- **Import de charsets RM2003** : bouton « Charset RM2003… » (onglet
+  Acteurs) → choisir un PNG 288x256 (8 personnages) ou 72x128 (un seul),
+  cliquer le personnage dans l'aperçu, choisir le bloc de destination →
+  `datagen import-charset` recadre les frames 24x32 en 16x24 et réécrit
+  `assets/sprites.png`.
+
 ## Lancer
 
 Prérequis : Node.js, Rust (déjà requis pour datagen). Sous Windows,

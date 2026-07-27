@@ -10,6 +10,7 @@
 //!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
 
 mod binbank;
+mod charset;
 mod chipset;
 mod emit;
 mod gfx;
@@ -29,10 +30,22 @@ fn main() -> Result<()> {
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
     }
+    if args.len() >= 2 && args[1] == "import-charset" {
+        if args.len() != 6 {
+            bail!(
+                "usage : datagen import-charset <charset.png> <dossier_projet> \
+                 <personnage 0-7> <bloc 0-4>"
+            );
+        }
+        let perso: usize = args[4].parse().context("personnage : nombre attendu")?;
+        let bloc: usize = args[5].parse().context("bloc : nombre attendu")?;
+        return charset::import(Path::new(&args[2]), Path::new(&args[3]), perso, bloc);
+    }
     if args.len() != 3 {
         bail!(
             "usage : datagen <dossier_projet> <dossier_engine>\n\
-             \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>"
+             \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
+             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
         );
     }
     let proj_dir = PathBuf::from(&args[1]);
@@ -197,6 +210,23 @@ fn main() -> Result<()> {
     }
     println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
+    // Feuille de sprites 16x24 (Phase 6) : blocs de personnage de 12 frames
+    // (modele charset RM2003) — sprite d'un acteur = index de bloc
+    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
+        .with_context(|| format!("sprites {}", project.assets.sprites))?;
+    let (sprite_chars, sprite_pal, sprite_blocks) = sprites.to_obj_sheet()?;
+    for sc in &scenes {
+        for a in &sc.actors {
+            if (a.sprite as usize) >= sprite_blocks {
+                bail!(
+                    "scene '{}' : acteur en ({},{}) — bloc de personnage {} \
+                     hors feuille de sprites ({} bloc(s))",
+                    sc.name, a.x, a.y, a.sprite, sprite_blocks
+                );
+            }
+        }
+    }
+
     // Banks binaires (spec §1-2) + asm d'épinglage
     let scene_bank = binbank::build_scene_bank(
         &scenes, &grids, &set_ids, &text_ids, &music_ids, boot_id as u8,
@@ -207,7 +237,11 @@ fn main() -> Result<()> {
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
     // Assets gfx (representation C v0 — pas de format binaire en spec)
-    write_out(&out_dir, "data_assets.c", gen_assets(&proj_dir, &project, &gfx_sets)?)?;
+    write_out(
+        &out_dir,
+        "data_assets.c",
+        gen_assets(&gfx_sets, &sprite_chars, &sprite_pal)?,
+    )?;
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
 
     println!(
@@ -240,12 +274,10 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
 }
 
 fn gen_assets(
-    proj_dir: &Path,
-    project: &project::Project,
     gfx_sets: &[tileset::GfxSet],
+    sprite_chars: &[u8],
+    sprite_pal: &[u16],
 ) -> Result<String> {
-    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))?;
-
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
 
@@ -290,9 +322,10 @@ fn gen_assets(
     }
     s.push_str("};\n\n");
 
-    s.push_str(&emit::u8_array("sprite_gfx", &sprites.to_obj_sheet()?, 16, false));
+    // sprite_pal : CGRAM OBJ complete (8 palettes x 16) — bloc b → palette b
+    s.push_str(&emit::u8_array("sprite_gfx", sprite_chars, 16, false));
     s.push_str("\nconst u16 sprite_gfx_size = sizeof(sprite_gfx);\n\n");
-    s.push_str(&emit::u16_array("sprite_pal", &sprites.palette_n(16)));
+    s.push_str(&emit::u16_array("sprite_pal", sprite_pal));
     Ok(s)
 }
 
