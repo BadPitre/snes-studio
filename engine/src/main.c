@@ -23,6 +23,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   setScreenOff();
 
   scene_load(dest_scene);
+  textbox_load_pal(); /* scene_load écrase la CGRAM 16-19 (fonte, spec §4) */
   vm_scene_reset();
   player_init();
   player_set_pos(dest_x, dest_y);
@@ -34,6 +35,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
      scroll de l'ancienne scène pendant tout le fondu entrant et le joueur
      paraît au mauvais endroit avant de « sauter » au bon. */
   bgSetScroll(0, camera.x, camera.y);
+  bgSetScroll(1, camera.x, camera.y);
   player_draw();
   actors_draw();
 
@@ -60,9 +62,9 @@ int main(void)
   map_init(); /* fenêtre tilemap initiale, écran éteint */
 
   /* Mode 1 avec BG3 en priorité haute (bit 3 de $2105) : la textbox passe
-     au-dessus de tout. BG1 = map, BG3 = textbox, BG2 inutilisé. */
+     au-dessus de tout. BG1 = couche sup (☆ = prio, devant le héros),
+     BG2 = couche inf, BG3 = textbox. */
   setMode(BG_MODE1, 0x08);
-  bgSetDisable(1);
   bgSetScroll(2, 0, 0); /* BG3 fixe (les registres ne sont pas fiables au boot) */
 
   setScreenOn();
@@ -93,6 +95,7 @@ int main(void)
     map_vblank();
     textbox_vblank();
     bgSetScroll(0, camera.x, camera.y);
+    bgSetScroll(1, camera.x, camera.y);
   }
   return 0;
 }

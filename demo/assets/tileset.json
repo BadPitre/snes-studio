@@ -1,0 +1,5 @@
+{
+  "autotiles": ["assets/eau_auto.png", "assets/chemin_auto.png"],
+  "solid": [1, 3, 4, 1000],
+  "above": [5]
+}

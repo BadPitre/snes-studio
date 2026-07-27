@@ -32,7 +32,7 @@ void actors_init(void)
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
     oamSet(ACTOR_OAM_ID(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
-           ((u16)a->sprite_id + a->direction) << 1, 0);
+           OBJ_FRAME_TILE(a->sprite_id + a->direction), 0);
     /* oamSetEx UNE SEULE FOIS ici : il réécrit la paire de bits de la table
        OAM 2 (taille + 9e bit de X). L'appeler après oamSet à chaque frame
        écraserait le 9e bit de X posé par oamSet, et un sprite partiellement
@@ -59,7 +59,7 @@ void actors_draw(void)
     {
       /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
       oamSet(ACTOR_OAM_ID(i), ax - camera.x, ay - camera.y, ACTOR_OBJ_PRIO,
-             0, 0, ((u16)a->sprite_id + a->direction) << 1, 0);
+             0, 0, OBJ_FRAME_TILE(a->sprite_id + a->direction), 0);
     }
     else
     {

@@ -1,16 +1,22 @@
 {
-  "name": "demo",
-  "boot_scene": "plaine",
-  "scenes": [
-    "plaine",
-    "clairiere"
-  ],
   "assets": {
-    "tileset": "assets/tileset.png",
+    "font": "assets/font.png",
     "sprites": "assets/sprites.png",
-    "font": "assets/font.png"
+    "tileset": "assets/tileset.png"
   },
+  "boot_scene": "plaine",
   "musics": [
     "assets/music/pollen8.it"
+  ],
+  "name": "demo",
+  "scenes": [
+    "plaine",
+    "clairiere",
+    "bourg"
+  ],
+  "tilesets": [
+    "assets/tileset.png",
+    "assets/tileset_automne.png",
+    "assets/bourg.png"
   ]
 }

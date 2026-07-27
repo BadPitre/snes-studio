@@ -21,6 +21,72 @@ export function canBuild(): boolean {
   return hasTauri;
 }
 
+function isWindows(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+}
+
+// Compile le ROM : make dans <racine>/engine. Sous Windows on passe par le
+// bash de MSYS2 (chemin configurable — réglages ⚙), ailleurs par sh.
+export async function runMake(projectRoot: string, bashPath: string): Promise<BuildResult> {
+  if (!hasTauri) return { ok: false, output: "mode navigateur : make indisponible" };
+  const repo = parentDir(projectRoot);
+  const cmd = isWindows()
+    ? Command.create("cmd", [
+        "/C",
+        bashPath,
+        "-lc",
+        `cd "$(cygpath '${repo}')/engine" && make`,
+      ])
+    : Command.create("sh", ["-lc", `cd '${repo}/engine' && make`]);
+  const out = await cmd.execute();
+  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
+  return { ok: out.code === 0, output };
+}
+
+// Lance l'émulateur (configurable — réglages ⚙) sur le ROM compilé,
+// sans attendre sa fermeture.
+export async function launchEmulator(
+  projectRoot: string,
+  emulator: string
+): Promise<BuildResult> {
+  if (!hasTauri) return { ok: false, output: "mode navigateur : émulateur indisponible" };
+  const repo = parentDir(projectRoot);
+  const rom = `${repo}/engine/snesstudio.sfc`;
+  if (isWindows()) {
+    const out = await Command.create("cmd", ["/C", "start", "", emulator, rom]).execute();
+    const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
+    return { ok: out.code === 0, output };
+  }
+  await Command.create("sh", ["-c", `'${emulator}' '${rom}' >/dev/null 2>&1 &`]).spawn();
+  return { ok: true, output: "" };
+}
+
+// Import d'un chipset RPG Maker 2003 (480x256) via datagen import-chipset
+export async function runImportChipset(
+  projectRoot: string,
+  chipsetPath: string,
+  name: string
+): Promise<BuildResult> {
+  if (!hasTauri) return { ok: false, output: "mode navigateur : import indisponible" };
+  const repo = parentDir(projectRoot);
+  const cmd = Command.create("cargo", [
+    "run",
+    "--release",
+    "--manifest-path",
+    `${repo}/tools/Cargo.toml`,
+    "-p",
+    "datagen",
+    "--",
+    "import-chipset",
+    chipsetPath,
+    projectRoot,
+    name,
+  ]);
+  const out = await cmd.execute();
+  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
+  return { ok: out.code === 0, output };
+}
+
 export async function runDatagen(projectRoot: string): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
   const repo = parentDir(projectRoot);

@@ -12,6 +12,8 @@ pub struct IndexedImage {
     pub pixels: Vec<u8>,
     /// Palette convertie en BGR555
     pub palette: Vec<u16>,
+    /// Palette source brute (triplets RGB 8-bit) — pour les outils d'import
+    pub palette_rgb: Vec<u8>,
 }
 
 pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
@@ -59,7 +61,7 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
         .map(|c| bgr555(c[0], c[1], c[2]))
         .collect();
 
-    Ok(IndexedImage { width, height, pixels, palette })
+    Ok(IndexedImage { width, height, pixels, palette, palette_rgb })
 }
 
 fn bgr555(r: u8, g: u8, b: u8) -> u16 {
@@ -72,7 +74,7 @@ impl IndexedImage {
     }
 
     /// Encode un char 8x8 en 4bpp planaire SNES (32 octets)
-    fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
+    pub(crate) fn char4bpp(&self, ox: usize, oy: usize) -> [u8; 32] {
         let mut out = [0u8; 32];
         for y in 0..8 {
             for x in 0..8 {
@@ -101,18 +103,6 @@ impl IndexedImage {
         out
     }
 
-    /// Tileset BG : bande horizontale de chars 8x8 → 4bpp
-    pub fn to_bg_tileset(&self) -> Result<Vec<u8>> {
-        if self.height != 8 || self.width % 8 != 0 {
-            bail!("tileset : attendu une bande de chars 8x8 (hauteur 8)");
-        }
-        let mut out = Vec::new();
-        for c in 0..self.width / 8 {
-            out.extend_from_slice(&self.char4bpp(c * 8, 0));
-        }
-        Ok(out)
-    }
-
     /// Feuille de sprites : bande de frames 16x16 → table OBJ 32 chars
     /// (rangée haute : TL,TR par frame ; rangée basse : BL,BR — la frame f
     /// utilise les tiles {2f, 2f+1, 2f+16, 2f+17})
@@ -121,24 +111,34 @@ impl IndexedImage {
             bail!("sprites : attendu une bande de frames 16x16 (hauteur 16)");
         }
         let frames = self.width / 16;
-        if frames > 8 {
-            bail!("sprites : 8 frames max en v0 (rangée OBJ de 16 chars)");
+        if frames > 64 {
+            bail!("sprites : 64 frames max");
         }
         let blank = [0u8; 32];
-        let mut top = Vec::new();
-        let mut bottom = Vec::new();
-        for f in 0..frames {
-            top.extend_from_slice(&self.char4bpp(f * 16, 0));
-            top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
-            bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
-            bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
+        let mut out = Vec::new();
+        // paires de rangées OBJ de 16 chars : 8 frames par paire
+        let pairs = frames.div_ceil(8);
+        for p in 0..pairs {
+            let mut top = Vec::new();
+            let mut bottom = Vec::new();
+            for i in 0..8 {
+                let f = p * 8 + i;
+                if f < frames {
+                    top.extend_from_slice(&self.char4bpp(f * 16, 0));
+                    top.extend_from_slice(&self.char4bpp(f * 16 + 8, 0));
+                    bottom.extend_from_slice(&self.char4bpp(f * 16, 8));
+                    bottom.extend_from_slice(&self.char4bpp(f * 16 + 8, 8));
+                } else {
+                    top.extend_from_slice(&blank);
+                    top.extend_from_slice(&blank);
+                    bottom.extend_from_slice(&blank);
+                    bottom.extend_from_slice(&blank);
+                }
+            }
+            out.extend(top);
+            out.extend(bottom);
         }
-        for _ in frames * 2..16 {
-            top.extend_from_slice(&blank);
-            bottom.extend_from_slice(&blank);
-        }
-        top.extend(bottom);
-        Ok(top)
+        Ok(out)
     }
 
     /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du

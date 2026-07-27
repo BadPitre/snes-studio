@@ -9,6 +9,7 @@
 
 use crate::project;
 use crate::script;
+use crate::tileset;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -22,6 +23,8 @@ pub const BANK_CAPACITY: usize = 0x8000;
 /// puis par scène : { u8 bank, u16 addr, u8 reserved }
 pub fn build_scene_bank(
     scenes: &[project::Scene],
+    grids: &[tileset::SceneGrids],
+    set_ids: &[u8],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
@@ -42,12 +45,14 @@ pub fn build_scene_bank(
 
         let w = sc.width as usize;
         let h = sc.height as usize;
+        let g = &grids[i];
 
-        // Layout de la scène : header 24 o (v0.2), puis tilemap, collision,
-        // acteurs (8 o), warps (8 o), scripts
+        // Layout de la scène : header 28 o (v0.3), puis tilemap (couche
+        // inf), tilemap sup, collision, acteurs (8 o), warps (8 o), scripts
         let header_ofs = blob.len();
-        let tilemap_ofs = header_ofs + 24;
-        let collision_ofs = tilemap_ofs + w * h;
+        let tilemap_ofs = header_ofs + 28;
+        let upper_ofs = tilemap_ofs + w * h;
+        let collision_ofs = upper_ofs + w * h;
         let actors_ofs = collision_ofs + w * h;
         let warps_ofs = actors_ofs + sc.actors.len() * 8;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
@@ -58,10 +63,10 @@ pub fn build_scene_bank(
         blob[entry + 1..entry + 3]
             .copy_from_slice(&(BANK_BASE + header_ofs as u16).to_le_bytes());
 
-        // Scene Header (spec §1.2 v0.2)
-        let mut header = [0u8; 24];
+        // Scene Header (spec §1.2 v0.3 — 28 octets)
+        let mut header = [0u8; 28];
         header[0] = 0x01; // scene_type TOP_DOWN
-        header[1] = 0; // flags
+        header[1] = set_ids[i]; // gfx_set_id (v0.4 — gfx compilés par scène)
         header[2] = sc.width;
         header[3] = sc.height;
         write_far(&mut header[4..7], BANK_SCENES, tilemap_ofs);
@@ -79,20 +84,25 @@ pub fn build_scene_bank(
         };
         write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
         header[23] = sc.warps.len() as u8;
+        write_far(&mut header[24..27], BANK_SCENES, upper_ofs);
         blob.extend_from_slice(&header);
 
-        for row in &sc.tilemap {
-            blob.extend_from_slice(row);
-        }
-        // Collision : les tiles de warp sont marquées 0x02 par l'outil
-        // (spec §1.4) — la couche auteur ne contient que 0/1
-        let mut collision: Vec<Vec<u8>> = sc.collision.clone();
+        blob.extend_from_slice(&g.lower);
+        blob.extend_from_slice(&g.upper);
+        // Collision dérivée du tileset (spec §1.4) ; les tiles de warp
+        // sont marquées 0x02 par l'outil — et doivent être traversables
+        let mut collision = g.collision.clone();
         for wp in &sc.warps {
-            collision[wp.y as usize][wp.x as usize] = 0x02;
+            let ofs = wp.y as usize * w + wp.x as usize;
+            if collision[ofs] != 0 {
+                bail!(
+                    "scene '{}' : warp ({},{}) sur une tile solide",
+                    sc.name, wp.x, wp.y
+                );
+            }
+            collision[ofs] = 0x02;
         }
-        for row in &collision {
-            blob.extend_from_slice(row);
-        }
+        blob.extend_from_slice(&collision);
 
         // Entrées acteurs (spec §1.3, 8 octets)
         for a in &sc.actors {

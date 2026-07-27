@@ -20,6 +20,10 @@
 /* script_offset d'un acteur sans script */
 #define SCRIPT_NONE 0xFFFF
 
+/* Feuille OBJ multi-rangées : la frame 16x16 f occupe les tiles
+   {base, base+1, base+16, base+17} avec base = (f/8)*32 + (f%8)*2 */
+#define OBJ_FRAME_TILE(f) ((u16)(((f) & 0xF8) << 2) | (u16)(((f) & 7) << 1))
+
 /* Couche collision — spec §1.4 v0.2 */
 #define COL_FREE 0x00
 #define COL_SOLID 0x01

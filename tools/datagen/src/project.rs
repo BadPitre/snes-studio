@@ -13,6 +13,9 @@ pub struct Project {
     /// Modules .it, dans l'ordre des music_id (optionnel)
     #[serde(default)]
     pub musics: Vec<String>,
+    /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
+    #[serde(default)]
+    pub tilesets: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,8 +31,16 @@ pub struct Scene {
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
-    pub tilemap: Vec<Vec<u8>>,
-    pub collision: Vec<Vec<u8>>,
+    /// Couche inférieure : ids logiques (0.. = grille, 1000+k = autotile k)
+    pub tilemap: Vec<Vec<i32>>,
+    /// Couche supérieure : -1 = vide (absent = tout vide)
+    #[serde(default)]
+    pub upper: Option<Vec<Vec<i32>>>,
+    /// Héritage pré-passabilité : IGNORÉ (la collision est dérivée du
+    /// tileset depuis la Phase 5c) — accepté pour les vieux fichiers
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub collision: Option<Vec<Vec<u8>>>,
     pub actors: Vec<Actor>,
     #[serde(default)]
     pub script: Vec<String>,
@@ -38,6 +49,9 @@ pub struct Scene {
     /// Nom (stem) d'un module de project.musics — absent = silence
     #[serde(default)]
     pub music: Option<String>,
+    /// Nom (stem) d'un tileset de project.tilesets — absent = le premier
+    #[serde(default)]
+    pub tileset: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -73,9 +87,9 @@ impl Scene {
     /// Vérifications de cohérence avec la spec (§1.2, §1.4, contrainte >= 32)
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
-        if self.width < 32 || self.height < 32 {
+        if self.width < 20 || self.height < 15 {
             bail!(
-                "scene '{}' : map {}x{} — la spec v0 impose >= 32x32",
+                "scene '{}' : map {}x{} — minimum 20x15 (un ecran, comme RM2003)",
                 self.name,
                 self.width,
                 self.height
@@ -86,10 +100,12 @@ impl Scene {
         {
             bail!("scene '{}' : tilemap n'est pas {}x{}", self.name, self.width, self.height);
         }
-        if self.collision.len() != self.height as usize
-            || self.collision.iter().any(|r| r.len() != self.width as usize)
-        {
-            bail!("scene '{}' : collision n'est pas {}x{}", self.name, self.width, self.height);
+        if let Some(up) = &self.upper {
+            if up.len() != self.height as usize
+                || up.iter().any(|r| r.len() != self.width as usize)
+            {
+                bail!("scene '{}' : upper n'est pas {}x{}", self.name, self.width, self.height);
+            }
         }
         if self.actors.len() > 255 {
             bail!("scene '{}' : trop d'acteurs", self.name);
@@ -104,11 +120,18 @@ impl Scene {
             if w.x >= self.width || w.y >= self.height {
                 bail!("scene '{}' : warp ({},{}) hors map", self.name, w.x, w.y);
             }
-            if self.collision[w.y as usize][w.x as usize] != 0 {
-                bail!("scene '{}' : warp ({},{}) sur une tile solide", self.name, w.x, w.y);
-            }
+            // « warp sur tile libre » : vérifié après dérivation de la
+            // collision (binbank), la passabilité venant du tileset
         }
         Ok(())
+    }
+
+    /// Couche supérieure, ou grille vide (-1) si absente
+    pub fn upper_or_empty(&self) -> Vec<Vec<i32>> {
+        match &self.upper {
+            Some(up) => up.clone(),
+            None => vec![vec![crate::tileset::EMPTY; self.width as usize]; self.height as usize],
+        }
     }
 }
 

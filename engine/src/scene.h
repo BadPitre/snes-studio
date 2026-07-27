@@ -14,13 +14,16 @@ typedef struct
   u8 scene_type;
   u8 map_w, map_h;
   u8 actor_count;
-  const u8 *tilemap;
+  const u8 *tilemap;       /* couche inférieure (BG2) */
+  const u8 *tilemap_upper; /* couche supérieure (BG1) — spec §1.2 v0.3 */
   const u8 *collision;
   const ActorDef *actors;
   const u8 *scripts;
   const WarpDef *warps;
   u8 warp_count;
-  u8 music_id; /* index soundbank, MUSIC_NONE = silence */
+  u8 music_id;   /* index soundbank, MUSIC_NONE = silence */
+  u8 tileset_id; /* gfx_set_id : index dans les tables gfx_* (data_assets.c,
+                    gfx compilés par scène — v0.4) */
   u8 player_start_x, player_start_y;
 } SceneCtx;
 
