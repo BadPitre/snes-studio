@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command, Direction, GameEvent, Scene } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
+import EventCommandPicker from "./EventCommandPicker";
 
 interface Props {
   event: GameEvent;
@@ -93,32 +94,44 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
   return { list, index: parseInt(parts[parts.length - 1], 10) };
 }
 
-const CMD_TYPES: { c: Command["c"]; label: string }[] = [
-  { c: "msg", label: "Afficher un message" },
-  { c: "choice", label: "Afficher un choix (2-4)" },
-  { c: "set", label: "Modifier une variable (=)" },
-  { c: "add", label: "Modifier une variable (+)" },
-  { c: "if", label: "Condition (si variable…)" },
-  { c: "warp", label: "Téléporter le héros" },
-  { c: "face", label: "Tourner un event" },
-];
-
 export default function EventEditorModal(props: Props) {
   const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
   const [sel, setSel] = useState<string>(String(props.event.commands.length));
   const [form, setForm] = useState<Command | null>(null); // en cours d'édition
   const [formIsNew, setFormIsNew] = useState(false);
   const [picking, setPicking] = useState(false);
+  // clic droit sur une ligne : menu contextuel Insérer / Éditer / Supprimer
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   const lines: Line[] = [];
   flatten(draft.commands, "", 0, lines);
-  const selLine = lines.find((l) => l.path === sel);
-  const selCmd = (() => {
-    if (!selLine || selLine.branch) return null;
-    const { list, index } = resolve(draft.commands, sel);
+
+  // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
+  function cmdAt(path: string): Command | null {
+    const line = lines.find((l) => l.path === path);
+    if (!line || line.branch) return null;
+    const { list, index } = resolve(draft.commands, path);
     return list[index] ?? null;
-  })();
+  }
+  const selCmd = cmdAt(sel);
+
+  // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
+  function openPicker(path: string) {
+    setSel(path);
+    setForm(null);
+    setPicking(true);
+  }
+
+  // Ouvre le formulaire de la commande de cette ligne
+  function openEditor(path: string) {
+    const c = cmdAt(path);
+    if (!c) return;
+    setSel(path);
+    setPicking(false);
+    setForm(structuredClone(c));
+    setFormIsNew(false);
+  }
 
   useEffect(() => {
     const cv = previewRef.current;
@@ -159,10 +172,10 @@ export default function EventEditorModal(props: Props) {
     setForm(null);
   }
 
-  function deleteCmd() {
-    if (!selCmd) return;
+  function deleteCmd(path = sel) {
+    if (!cmdAt(path)) return;
     commit(() => {
-      const { list, index } = resolve(draft.commands, sel);
+      const { list, index } = resolve(draft.commands, path);
       list.splice(index, 1);
     });
     setForm(null);
@@ -203,7 +216,8 @@ export default function EventEditorModal(props: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <>
+      <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal evedit" onClick={(e) => e.stopPropagation()}>
         <div className="evedit-top">
           <label>
@@ -314,36 +328,33 @@ export default function EventEditorModal(props: Props) {
                     }
                   }}
                   onDoubleClick={() => {
-                    if (!l.branch && selCmd) {
-                      setForm(structuredClone(selCmd));
-                      setFormIsNew(false);
-                    }
+                    if (l.branch) return;
+                    // ligne pleine : on édite ; ligne vide : on choisit une
+                    // commande à insérer (comme RM2003)
+                    if (cmdAt(l.path)) openEditor(l.path);
+                    else openPicker(l.path);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (l.branch) return;
+                    setSel(l.path);
+                    setMenu({ x: e.clientX, y: e.clientY, path: l.path });
                   }}
                 >
                   {l.branch ? l.label : `@> ${l.label}`}
                 </div>
               ))}
             </div>
+            <p className="hint">
+              Double-clic sur une ligne vide : ajouter une commande. Clic droit :
+              insérer / éditer.
+            </p>
             <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-              <button
-                onClick={() => {
-                  setPicking(!picking);
-                  setForm(null);
-                }}
-              >
-                Ajouter…
-              </button>
-              <button
-                disabled={!selCmd}
-                onClick={() => {
-                  setForm(structuredClone(selCmd!));
-                  setFormIsNew(false);
-                  setPicking(false);
-                }}
-              >
+              <button onClick={() => openPicker(sel)}>Ajouter…</button>
+              <button disabled={!selCmd} onClick={() => openEditor(sel)}>
                 Modifier…
               </button>
-              <button disabled={!selCmd} onClick={deleteCmd}>
+              <button disabled={!selCmd} onClick={() => deleteCmd()}>
                 Supprimer
               </button>
               <button disabled={!selCmd} onClick={() => moveCmd(-1)}>
@@ -353,22 +364,6 @@ export default function EventEditorModal(props: Props) {
                 ↓
               </button>
             </div>
-            {picking && (
-              <div className="evedit-pick">
-                {CMD_TYPES.map((t) => (
-                  <button
-                    key={t.c}
-                    onClick={() => {
-                      setForm(defaultCmd(t.c));
-                      setFormIsNew(true);
-                      setPicking(false);
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
             {form && (
               <CommandForm
                 cmd={form}
@@ -390,7 +385,65 @@ export default function EventEditorModal(props: Props) {
           <button onClick={props.onClose}>Annuler</button>
         </div>
       </div>
-    </div>
+      </div>
+
+      {picking && (
+        <EventCommandPicker
+          onClose={() => setPicking(false)}
+          onPick={(t) => {
+            setForm(defaultCmd(t));
+            setFormIsNew(true);
+            setPicking(false);
+          }}
+        />
+      )}
+
+      {menu && (
+        <div
+          className="ctx-backdrop"
+          onClick={() => setMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+          }}
+        >
+          <div
+            className="ctx-menu"
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                openPicker(menu.path);
+                setMenu(null);
+              }}
+            >
+              Insérer…
+            </button>
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                openEditor(menu.path);
+                setMenu(null);
+              }}
+            >
+              Éditer…
+            </button>
+            <div className="menu-sep" />
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                setSel(menu.path);
+                deleteCmd(menu.path);
+                setMenu(null);
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

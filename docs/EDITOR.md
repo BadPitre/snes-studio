@@ -173,6 +173,18 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   branches Si vrai/Sinon), Téléporter le héros, Tourner un event. Les
   textes se tapent directement dans les commandes — datagen les collecte
   dans la bank de textes et compile le tout vers la VM.
+- **L'apparence est indépendante du déclencheur** : un event de *Contact*
+  ou *Auto* peut afficher un personnage (coffre, panneau, PNJ qui aborde
+  le héros) tout en restant traversable ; « (invisible) » dans la liste
+  des personnages le rend transparent.
+- **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
+  une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
+  accueilleront les commandes P4) et une grille de boutons, un par
+  commande. Elle s'ouvre de trois façons : bouton « Ajouter… »,
+  **double-clic sur une ligne vide** `@>`, ou **clic droit → Insérer…**.
+  Le clic droit sur une ligne de commande donne aussi **Éditer…** et
+  **Supprimer** ; le double-clic sur une ligne pleine ouvre directement
+  ses paramètres.
 - **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
   prefab » (stocké dans project.json) ; clic droit sur une tile vide →
   « Prefab : <nom> » pour l'instancier.
