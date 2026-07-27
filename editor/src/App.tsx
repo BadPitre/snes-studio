@@ -1508,6 +1508,7 @@ export default function App() {
           usedBlocks={[...new Set([0, ...scene.events.filter((_, i) => i !== evEdit.index).map((e) => e.sprite).filter((b) => b >= 0)])]}
           switchNames={data.project.switches ?? []}
           varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) => charsetName(data.project, b))}
           entryNames={scene.events.flatMap((ev) => {
             const n = 1 + (ev.extraPages?.length ?? 0);
             return Array.from({ length: n }, (_, k) =>

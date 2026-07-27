@@ -153,7 +153,14 @@ autre event, et gèle pendant les dialogues.
 "skip":false,"steps":[{"s":"right"},{"s":"wait","n":4},{"s":"face"}]}` —
 `event` : -1 = cet event, sinon n° d'ENTRÉE (les pages comptent) ; pas :
 `down/up/left/right`, `tdown/tup/tleft/tright` (tourner), `fwd`, `face`,
-`{"s":"wait","n":1-15}` (n×8 frames). L'itinéraire part en tâche de fond ;
+`{"s":"wait","n":1-15}` (n×8 frames), et v0.13 : `mrand/mhero/mflee`
+(marcher au hasard / vers / fuir le héros), `t90r/t90l/t180/t90x/trand/
+tflee` (rotations), `spd+/spd-` (vitesse 1-4), `frq+/frq-` (fréquence
+1-8), `fixon/fixoff` (direction fixe), `thruon/thruoff` (passe-muraille),
+`{"s":"swon"|"swoff","n":0-511}` (switch dans la route),
+`{"s":"gfx","block":b}` (changer le graphisme — le bloc compte dans les
+5 charsets de la scène). La route accepte `"freq":1-8` (défaut 3).
+L'itinéraire part en tâche de fond ;
 `{"c":"wait_route"}` bloque jusqu'à la fin des itinéraires non répétés,
 `{"c":"wait","frames":n}` fait une pause. Assembleur : `ROUTE <acteur|self>
 <r> <s> <pas...>`, `WAITROUTE`, `WAIT <frames>`.

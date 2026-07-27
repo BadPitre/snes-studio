@@ -76,7 +76,7 @@ export type Command =
   | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
   // v0.12 — Move Route (cinématiques) : itinéraire en tâche de fond,
   // attente de fin, pause bloquante
-  | { c: "route"; event: number; repeat: boolean; skip: boolean; steps: RouteStep[] }
+  | { c: "route"; event: number; repeat: boolean; skip: boolean; freq?: number; steps: RouteStep[] }
   | { c: "wait_route" }
   | { c: "wait"; frames: number }
   // v0.13 — opérations avancées, timer, caméra scriptée
@@ -89,23 +89,55 @@ export type Command =
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer";
 
-// Un pas d'itinéraire. wait : n × 8 frames (1-15).
+// Un pas d'itinéraire (v0.13, dialogue Move Route complet).
+// wait : n × 8 frames (1-15) ; swon/swoff : n = switch ; gfx : block projet.
 export type RouteStep =
-  | { s: "down" | "up" | "left" | "right" | "tdown" | "tup" | "tleft" | "tright" | "fwd" | "face" }
-  | { s: "wait"; n: number };
+  | {
+      s:
+        | "down" | "up" | "left" | "right"
+        | "mrand" | "mhero" | "mflee" | "fwd"
+        | "tdown" | "tup" | "tleft" | "tright"
+        | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face" | "tflee"
+        | "spd+" | "spd-" | "frq+" | "frq-"
+        | "fixon" | "fixoff" | "thruon" | "thruoff";
+    }
+  | { s: "wait"; n: number }
+  | { s: "swon"; n: number }
+  | { s: "swoff"; n: number }
+  | { s: "gfx"; block: number };
 
 export const ROUTE_STEP_LABELS: Record<string, string> = {
   down: "Marcher bas",
   up: "Marcher haut",
   left: "Marcher gauche",
   right: "Marcher droite",
+  mrand: "Marcher au hasard",
+  mhero: "Vers le héros",
+  mflee: "Fuir le héros",
+  fwd: "Un pas en avant",
   tdown: "Tourner bas",
   tup: "Tourner haut",
   tleft: "Tourner gauche",
   tright: "Tourner droite",
-  fwd: "Un pas en avant",
-  face: "Vers le héros",
+  t90r: "Tourner 90° droite",
+  t90l: "Tourner 90° gauche",
+  t180: "Demi-tour",
+  t90x: "90° gauche ou droite",
+  trand: "Tourner au hasard",
+  face: "Se tourner vers le héros",
+  tflee: "Tourner dos au héros",
+  "spd+": "Vitesse +",
+  "spd-": "Vitesse −",
+  "frq+": "Fréquence +",
+  "frq-": "Fréquence −",
+  fixon: "Direction fixe ON",
+  fixoff: "Direction fixe OFF",
+  thruon: "Passe-muraille ON",
+  thruoff: "Passe-muraille OFF",
   wait: "Attendre",
+  swon: "Switch ON",
+  swoff: "Switch OFF",
+  gfx: "Changer le graphisme",
 };
 
 export const SWITCH_COUNT = 512;

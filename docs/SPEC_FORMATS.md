@@ -362,14 +362,23 @@ Pièges toolchain documentés au passage : un couple de paramètres
 paramètre unique) ; les glyphes BG3 commencent au char 1 (char 0
 transparent, glyphe = ascii − 31).
 
-Pas d'itinéraire (1 octet) : `0x00-0x03` marcher bas/haut/gauche/droite,
-`0x10-0x13` se tourner, `0x20` un pas en avant, `0x21` se tourner vers le
-héros, `0x40|n` attendre n×8 frames (n 1-15). La route vit INLINE dans le
-bloc scripts (l'acteur pointe dessus) ; les itinéraires avancent AUSSI
-pendant les scripts — c'est le moteur des cinématiques — tandis que
-l'errance (`move_type`) reste gelée. Un pas bloqué tourne le PNJ et est
-retenté (ou abandonné avec « ignorer si bloqué »). Les v/g 8-bit
-d'origine restent valides (héritage + variable de travail des CHOICE).
+Pas d'itinéraire (v0.13, dialogue Move Route complet) — 1 octet par pas
+sauf mention : `0x00-0x03` marcher bas/haut/gauche/droite, `0x04` au
+hasard, `0x05` vers le héros, `0x06` fuir le héros, `0x07` un pas en
+avant ; `0x10-0x13` se tourner, `0x14` 90° droite, `0x15` 90° gauche,
+`0x16` demi-tour, `0x17` 90° G/D au hasard, `0x18` au hasard, `0x19`
+vers le héros, `0x1A` dos au héros ; `0x20/0x21` vitesse ±(1-4 :
+0.5/1/2/4 px/frame), `0x22/0x23` fréquence ±(1-8 : pause (8-f)×4 frames
+après chaque pas de marche) ; `0x28/0x29` direction fixe ON/OFF (fige
+l'orientation — tours, FACE et le réflexe « se tourner vers le héros »
+ignorés), `0x2A/0x2B` passe-muraille ON/OFF (seul le bord de map
+bloque) ; `0x40|n` attendre n×8 frames ; `0x50/0x51` + u16 switch
+ON/OFF ; `0x52` + u8 changer le graphisme (slot local du sprite set,
+compté dans le budget 5 charsets/scène). L'opcode ROUTE porte
+[acteur][flags][fréquence 1-8][len octets][pas…] ; la route vit INLINE
+dans le bloc scripts et avance AUSSI pendant les scripts (cinématiques),
+l'errance restant gelée. Un pas de marche bloqué tourne le PNJ et est
+retenté (ou abandonné avec « ignorer si bloqué »).
 
 ## 3. Structures WRAM du moteur
 

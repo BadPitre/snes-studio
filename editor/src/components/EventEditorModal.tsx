@@ -26,6 +26,7 @@ interface Props {
   // libellés des ENTRÉES acteur de la scène (une par page d'event) —
   // cibles de « Déplacer un event » et « Tourner un event »
   entryNames: string[];
+  charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -564,6 +565,7 @@ export default function EventEditorModal(props: Props) {
                 switchNames={props.switchNames}
                 varNames={props.varNames}
                 entryNames={props.entryNames}
+                charsetNames={props.charsetNames}
                 onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
                 onChange={setForm}
                 onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -667,6 +669,7 @@ function CommandForm(props: {
   switchNames: string[];
   varNames: string[];
   entryNames: string[];
+  charsetNames: string[];
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
@@ -963,6 +966,8 @@ function CommandForm(props: {
             <MoveRouteModal
               cmd={cmd}
               eventNames={props.entryNames}
+              switchNames={props.switchNames}
+              charsetNames={props.charsetNames}
               onClose={() => setRouteOpen(false)}
               onOk={(c) => {
                 onChange(c);
