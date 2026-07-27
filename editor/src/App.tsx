@@ -770,6 +770,29 @@ export default function App() {
     }
   }
 
+  // Recompilation complète : make clean + make (à utiliser après une mise à
+  // jour du moteur — évite tout mélange d'objets compilés obsolètes)
+  async function rebuildAll() {
+    if (!data || building || playing) return;
+    setBuilding(true);
+    try {
+      await save();
+      setStatus("datagen…");
+      const gen = await runDatagen(data.root);
+      if (!gen.ok) {
+        setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
+        return;
+      }
+      setStatus("Recompilation complète du ROM (make clean + make)…");
+      const mk = await runMake(data.root, playCfg.bash, true);
+      setStatus(mk.ok ? "ROM recompilé de zéro." : `make a échoué : ${mk.output.slice(-400)}`);
+    } catch (e) {
+      setStatus(`Recompilation : ${e}`);
+    } finally {
+      setBuilding(false);
+    }
+  }
+
   function savePlayCfg(c: PlayConfig) {
     setPlayCfg(c);
     localStorage.setItem("snesstudio.bash", c.bash);
@@ -969,6 +992,12 @@ export default function App() {
         {
           label: "Générer les données",
           action: generate,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Recompiler tout (clean)",
+          hint: "après mise à jour",
+          action: () => void rebuildAll(),
           disabled: !data || !canBuild() || playing || building,
         },
       ],

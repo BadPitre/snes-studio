@@ -233,6 +233,12 @@ void player_update(void)
   u16 max_x = (((u16)scene_ctx.map_w << 4)) - 16;
   u16 max_y = (((u16)scene_ctx.map_h << 4)) - 16;
 
+  /* Garde anti-parasites : gauche+droite ou haut+bas simultanés = lecture
+     pad invalide (open bus, manette débranchée) — frame ignorée */
+  if ((pad & (KEY_LEFT | KEY_RIGHT)) == (KEY_LEFT | KEY_RIGHT) ||
+      (pad & (KEY_UP | KEY_DOWN)) == (KEY_UP | KEY_DOWN))
+    pad = 0;
+
   player.moving = 0;
 
   /* 4 directions exclusives, 1 px/frame, collision AABB + glissement */

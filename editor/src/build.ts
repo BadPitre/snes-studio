@@ -27,17 +27,23 @@ function isWindows(): boolean {
 
 // Compile le ROM : make dans <racine>/engine. Sous Windows on passe par le
 // bash de MSYS2 (chemin configurable — réglages ⚙), ailleurs par sh.
-export async function runMake(projectRoot: string, bashPath: string): Promise<BuildResult> {
+// clean = recompilation complète (make clean d'abord).
+export async function runMake(
+  projectRoot: string,
+  bashPath: string,
+  clean = false
+): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : make indisponible" };
   const repo = parentDir(projectRoot);
+  const mk = clean ? "make clean && make" : "make";
   const cmd = isWindows()
     ? Command.create("cmd", [
         "/C",
         bashPath,
         "-lc",
-        `cd "$(cygpath '${repo}')/engine" && make`,
+        `cd "$(cygpath '${repo}')/engine" && ${mk}`,
       ])
-    : Command.create("sh", ["-lc", `cd '${repo}/engine' && make`]);
+    : Command.create("sh", ["-lc", `cd '${repo}/engine' && ${mk}`]);
   const out = await cmd.execute();
   const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
   return { ok: out.code === 0, output };
