@@ -182,11 +182,11 @@ export function charsetName(p: Project, b: number): string {
 }
 
 // blocs de personnage utilisés par une scène (joueur = bloc 0 inclus) —
-// seuls les events « touche action » avec apparence comptent
+// tout event avec une apparence compte, quel que soit son déclencheur
 export function sceneSpriteBlocks(sc: Scene): number[] {
   const used = new Set<number>([0]);
   for (const e of sc.events) {
-    if (e.trigger === "action" && e.sprite >= 0) used.add(e.sprite);
+    if (e.sprite >= 0) used.add(e.sprite);
   }
   return [...used].sort((x, y) => x - y);
 }

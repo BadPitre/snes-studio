@@ -67,6 +67,12 @@ fn main() -> Result<()> {
             bail!("scene '{}' : champ name incoherent ('{}')", name, scene.name);
         }
         scene.validate()?;
+        // Héritage : les vieux acteurs trigger/auto étaient invisibles
+        for a in &mut scene.actors {
+            if a.kind != "npc" {
+                a.sprite = 255;
+            }
+        }
         // Événements (Event Editor) : compilés vers acteurs + asm VM, leurs
         // textes inline rejoignent la bank de textes (dédupliqués)
         if !scene.events.is_empty() {
@@ -234,8 +240,8 @@ fn main() -> Result<()> {
     for sc in &scenes {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for a in &sc.actors {
-            if a.kind != "npc" {
-                continue; // déclencheurs : invisibles, pas de sprite
+            if a.sprite == 255 {
+                continue; // invisible : pas de sprite (spec §1.3 v0.8)
             }
             if (a.sprite as usize) >= sprite_blocks {
                 bail!(

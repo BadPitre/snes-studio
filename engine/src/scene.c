@@ -28,11 +28,14 @@ SceneCtx scene_ctx;
 
 /* Grilles décompressées en WRAM (v0.7) : les scènes voyagent en RLE dans
    la ROM (spec §1.6) et sont dépliées ici au chargement — budget 8192
-   cellules par grille (validé par datagen). */
+   cellules par grille (validé par datagen).
+   DÉFINIES EN ASSEMBLEUR (../wram7f.asm), en bank $7F : le .bss de tcc-816
+   ne dispose que de $7E:2000-$7FFF ; au-delà il recouvre silencieusement
+   l'OAM shadow de PVSnesLib. Voir spec §6 et wram7f.asm. */
 #define MAP_BUF_CELLS 8192
-static u8 scn_lower[MAP_BUF_CELLS];
-static u8 scn_upper[MAP_BUF_CELLS];
-static u8 scn_col[MAP_BUF_CELLS];
+extern u8 scn_lower[MAP_BUF_CELLS];
+extern u8 scn_upper[MAP_BUF_CELLS];
+extern u8 scn_col[MAP_BUF_CELLS];
 
 /* RLE (spec §1.6) : paires [count 1-255][valeur] jusqu'à cells octets */
 static void rle_decode(u8 *dst, const u8 *src, u16 cells)

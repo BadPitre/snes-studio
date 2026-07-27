@@ -152,7 +152,7 @@ export default function App() {
   if (data) {
     for (const [n, sc] of Object.entries(data.scenes)) {
       for (const e of sc.events) {
-        if (e.trigger !== "action" || e.sprite < 0) continue; // invisibles
+        if (e.sprite < 0) continue; // invisibles
         (usedCharsets[e.sprite] ??= []).includes(n) || usedCharsets[e.sprite].push(n);
       }
       const stem = sc.tileset ?? tilesetNames[0];

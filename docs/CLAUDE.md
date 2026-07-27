@@ -37,6 +37,8 @@ docs/     # Specs et planning — LES TENIR À JOUR
 - **LoROM** : 32 Ko utiles par bank ($8000-$FFFF). Layout des banks défini dans le kit section 3.
 - **Garde-fou VM : max 32 opcodes immédiats par frame** (compteur + halt en debug).
 - WRAM : 128 Ko total. Rester économe, pas d'allocations dynamiques (tout en statique).
+- **Plafond `.bss` à `$7E:8000` (spec §3.1).** Le `.bss` de tcc-816 et les variables de PVSnesLib (dont `oamMemory`) partagent la bank `$7E` via deux slots WLA alloués **indépendamment** : au-delà de `$7E:8000` le `.bss` écrase l'OAM shadow **sans erreur de link**, et les entrées OAM remises à zéro deviennent des sprites fantômes empilés en `(0,0)` qui saturent la limite de 32 sprites/ligne — héros et PNJ disparaissent en haut d'écran. Tout tampon de plus de ~1 Ko va en bank `$7F` (`engine/wram7f.asm`) ; `make` refuse de produire le ROM si un symbole `.bss` dépasse la borne.
+- **Max 32 sprites (et 34 tiles 8x8) par ligne.** Un sprite « caché » doit être garé hors écran, pas laissé à `(0,0)`.
 
 ## Environnement de build
 

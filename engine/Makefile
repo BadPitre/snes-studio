@@ -27,7 +27,23 @@ export ROMNAME := snesstudio
 
 # Pas de conversion gfx pour l'instant : les assets du POC sont des C arrays
 # écrits à la main (voir src/data/data_assets.c).
-all: $(ROMNAME).sfc
+all: $(ROMNAME).sfc checkwram
+
+# Garde-fou WRAM : le .bss de tcc-816 (bank $7E, SLOT 2) et les variables
+# de PVSnesLib (oamMemory à $7E:9094, SLOT 0) partagent la bank $7E, et WLA
+# alloue les deux slots SANS détecter le recouvrement. Un .bss qui dépasse
+# $7E:8000 écrase donc l'OAM shadow en silence : sprites fantômes empilés
+# en haut d'écran, limite de 32 sprites par ligne saturée, PNJ tronqués.
+# Les gros tampons doivent aller en bank $7F (wram7f.asm).
+.PHONY: checkwram
+checkwram:
+	@if grep -Eiq '^007e[89a-f][0-9a-f]{3} tccs_' $(ROMNAME).sym; then \
+	  echo "ERREUR: le .bss deborde sur la RAM PVSnesLib (>= \$$7E:8000)."; \
+	  echo "        Deplacer les gros tampons en bank \$$7F (voir wram7f.asm)."; \
+	  grep -Ei '^007e[89a-f][0-9a-f]{3} tccs_' $(ROMNAME).sym; \
+	  rm -f $(ROMNAME).sfc; \
+	  exit 1; \
+	fi
 
 clean: cleanBuildRes cleanRom cleanGfx cleanAudio
 

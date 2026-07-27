@@ -80,7 +80,7 @@ typedef struct
   u8 actor_type;    /* ACTOR_TYPE_* */
   u8 x;             /* en tiles 16x16 */
   u8 y;
-  u8 sprite_id;     /* index dans la table de metasprites */
+  u8 sprite_id;     /* slot de bloc de personnage ; 0xFF = invisible */
   u16 script_offset; /* offset dans le bloc scripts, SCRIPT_NONE = aucun */
   u8 direction;     /* DIR_* */
   u8 reserved;

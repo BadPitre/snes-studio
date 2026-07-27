@@ -139,17 +139,24 @@ vers le slot local (§1.3, §5).*
 Offset  Taille  Champ
 0       1       actor_type    (u8)  — 0x01 = PNJ statique (parle avec A)
                                       0x02 = déclencheur de CONTACT (v0.6) :
-                                      invisible, traversable — script lancé
-                                      quand le héros marche sur la tile
+                                      traversable — script lancé quand le
+                                      héros marche sur la tile
                                       0x03 = déclencheur AUTO (v0.6) :
-                                      invisible — script lancé au chargement
-                                      de la scène (boot ou warp)
+                                      script lancé au chargement de la
+                                      scène (boot ou warp)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
 3       1       sprite_id     (u8)  — SLOT de bloc de personnage dans le
                                       sprite set de la scène (§5, v0.5 —
                                       datagen remappe le bloc projet du
                                       JSON vers le slot local, joueur = 0)
+                                      0xFF = INVISIBLE (v0.8) : l'acteur ne
+                                      consomme aucun slot OAM.
+                                      L'APPARENCE EST INDÉPENDANTE DU
+                                      DÉCLENCHEUR (v0.8) : un acteur de
+                                      CONTACT ou AUTO peut porter un sprite
+                                      (coffre, panneau, PNJ qui accoste le
+                                      héros) et reste traversable
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
 7       1       reserved      (u8)
@@ -315,6 +322,38 @@ struct SceneCtx {
   // pointeurs far résolus vers tilemap, collision, actors, scripts
 };
 ```
+
+### 3.1 Carte WRAM — où vivent les tampons (v0.8, contractuel)
+
+| Zone | Contenu | Contrainte |
+|---|---|---|
+| `$7E:0000-1FFF` | lowram PVSnesLib (registres tcc, pads, VBlank) | intouchable |
+| `$7E:2000-7FFF` | **`.bss` de tcc-816** (24 Ko utiles) | **plafond dur `$8000`** |
+| `$7E:8000-9AB4` | variables PVSnesLib, dont **`oamMemory` (`$7E:9094`)** | intouchable |
+| `$7F:8000-FFFF` | gros tampons du moteur (`wram7f.asm`) | 32 Ko |
+
+**PIÈGE DE TOOLCHAIN (coûteux, vécu) :** le `.bss` de tcc-816 est alloué dans
+le SLOT 2 (`$7E:2000-FFFF`) alors que PVSnesLib pose ses propres variables
+dans le SLOT 0 de la **même bank** (`$7E:8000+`). WLA alloue les deux slots
+**indépendamment et ne détecte pas le recouvrement** : un `.bss` qui dépasse
+`$7E:8000` écrase l'OAM shadow **sans le moindre message du linker**. Les
+symptômes ne ressemblent pas à une corruption mémoire : les entrées OAM
+inutilisées, remises à zéro, deviennent des sprites 16x16 *visibles* empilés
+en `(0,0)`, ce qui sature la limite matérielle de **32 sprites par ligne** sur
+les 16 premières lignes — le héros et les PNJ y sont alors purement et
+simplement **supprimés par le PPU**, comme si le moteur les découpait trop tôt
+en haut de l'écran.
+
+Conséquences contractuelles :
+- Les grilles décompressées `scn_lower` / `scn_upper` / `scn_col`
+  (3 x 8192 octets, §1.6) sont déclarées en **assembleur** dans
+  `engine/wram7f.asm`, RAMSECTION `BANK $7F ORGA $8000 FORCE`, et vues du C
+  via `extern` (les pointeurs tcc-816 sont far 24 bits, l'accès inter-bank est
+  transparent).
+- `make` **échoue** si un symbole `.bss` atterrit à `$7E:8000` ou au-delà
+  (cible `checkwram` du Makefile) — la borne ne peut pas être exprimée dans
+  `hdr.asm`, les libs PVSnesLib étant pré-compilées avec cette carte mémoire.
+- Tout nouveau tampon de plus de ~1 Ko va en bank `$7F`.
 
 **Budget VBlank :** par frame : max 1 colonne + 1 ligne de metatiles streamées
 (256 + 256 octets, cf. streaming ci-dessous) + shadow OAM (544 octets, DMA

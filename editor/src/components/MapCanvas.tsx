@@ -168,7 +168,7 @@ export default function MapCanvas(props: Props) {
     // événements — apparence = sprite ; sans apparence = marqueur (orange
     // "C" contact, cyan "A" auto, gris "E" action invisible)
     scene.events.forEach((ev, i) => {
-      const visible = ev.trigger === "action" && ev.sprite >= 0;
+      const visible = ev.sprite >= 0; // l'apparence s'affiche quel que soit le déclencheur
       if (!visible) {
         const color =
           ev.trigger === "auto"

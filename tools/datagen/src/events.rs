@@ -228,7 +228,9 @@ impl<'a> EventCompiler<'a> {
                 kind: kind.to_string(),
                 x: ev.x,
                 y: ev.y,
-                sprite: ev.sprite.max(0) as u8,
+                // 255 = invisible (spec §1.3 v0.8) — une apparence est
+                // permise sur TOUT declencheur (coffre visible au contact)
+                sprite: if ev.sprite < 0 { 255 } else { ev.sprite as u8 },
                 dir: ev.dir.clone(),
                 entry,
             });

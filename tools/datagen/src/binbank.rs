@@ -143,11 +143,11 @@ pub fn build_scene_bank(
             blob.push(a.y);
             // sprite_id binaire = SLOT LOCAL dans le sprite set de la
             // scène (v0.5) — le bloc global du JSON est remappé ici.
-            // Déclencheurs : invisibles, pas de sprite (0).
-            blob.push(if a.kind == "npc" {
-                sprite_remaps[i][&a.sprite]
+            // 255 = invisible (spec §1.3 v0.8), quel que soit le type.
+            blob.push(if a.sprite == 255 {
+                255
             } else {
-                0
+                sprite_remaps[i][&a.sprite]
             });
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);

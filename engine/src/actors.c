@@ -34,8 +34,10 @@
 /* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
 static u8 actor_dirs[ACTOR_SLOTS];
 
-/* Un déclencheur (contact/auto) est invisible et traversable */
-#define ACTOR_VISIBLE(a) ((a)->actor_type == ACTOR_TYPE_NPC_STATIC)
+/* Apparence : sprite_id 0xFF = invisible (spec §1.3 v0.8). Un event de
+   contact/auto PEUT avoir une apparence (coffre visible…) — il reste
+   traversable, « sous le héros » comme dans RM2003. */
+#define ACTOR_VISIBLE(a) ((a)->sprite_id != 0xFF)
 
 void actors_init(void)
 {

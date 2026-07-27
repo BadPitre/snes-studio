@@ -88,12 +88,16 @@ personnage** dans la feuille de sprites du projet (12 frames par bloc,
 modèle RM2003). En binaire, datagen le remappe vers le slot local du
 sprite set de la scène (5 blocs max par scène, spec §5).
 
-**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ visible qui
-parle avec A (et se tourne vers le héros) ; `trigger` = invisible et
-traversable, son script part quand le héros **marche sur sa tile** (Player
-Touch) ; `auto` = invisible, son script part **au chargement de la scène**
-(Autorun — boot ou arrivée par warp). `trigger`/`auto` exigent `entry`
-(sprite/dir ignorés).
+**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ qui parle
+avec A (et se tourne vers le héros) ; `trigger` = traversable, son script
+part quand le héros **marche sur sa tile** (Player Touch) ; `auto` = son
+script part **au chargement de la scène** (Autorun — boot ou arrivée par
+warp). `trigger`/`auto` exigent `entry`.
+
+Depuis la v0.8, **l'apparence est indépendante du déclencheur** : un acteur
+de contact ou auto peut porter un `sprite` (coffre, panneau, PNJ qui aborde
+le héros) et reste traversable ; `sprite: -1` le rend invisible (compilé en
+`sprite_id = 0xFF`, spec §1.3).
 
 ## Événements (Event Editor — A2)
 
@@ -121,8 +125,10 @@ leurs textes INLINE rejoignent automatiquement la bank de textes
 ]
 ```
 
-Un event « touche action » doit avoir une apparence (`sprite` >= 0).
-`entry` (label du script assembleur de la scène) reste possible pour les
+L'apparence est libre quel que soit le déclencheur (v0.8) : `sprite >= 0`
+affiche le personnage, `-1` rend l'event invisible. Seul un event « touche
+action » **exige** une apparence — sans sprite, le héros n'aurait rien à
+aborder. `entry` (label du script assembleur de la scène) reste possible pour les
 events sans `commands` — les deux mondes cohabitent. La variable de
 travail des `choice` sans `"var"` est **v63** (réservée par convention).
 Imbrication maximale : 6 niveaux.
