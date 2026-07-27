@@ -233,6 +233,136 @@ fn key_of_cell(grid: &[Vec<i32>], x: usize, y: usize, w: usize, h: usize) -> Opt
     }
 }
 
+/* --- Empaquetage des jeux de couleurs en palettes de 15 -------------------
+ * Deux familles d'heuristiques déterministes : fusion agglomérative (par
+ * recouvrement maximal, ou par plus petite union) et best-fit décroissant.
+ * Les égalités se départagent par indices croissants. */
+
+fn pack_agglo(mut clusters: Vec<BTreeSet<u16>>, by_union: bool) -> Vec<BTreeSet<u16>> {
+    loop {
+        let mut best: Option<(i64, usize, usize)> = None; // (score, i, j)
+        for i in 0..clusters.len() {
+            for j in i + 1..clusters.len() {
+                let inter = clusters[i].intersection(&clusters[j]).count() as i64;
+                let union = clusters[i].len() as i64 + clusters[j].len() as i64 - inter;
+                if union > 15 {
+                    continue;
+                }
+                let score = if by_union {
+                    -(union * 100) + inter
+                } else {
+                    inter * 100 - union
+                };
+                if best.map_or(true, |(s, _, _)| score > s) {
+                    best = Some((score, i, j));
+                }
+            }
+        }
+        match best {
+            Some((_, i, j)) => {
+                let merged: BTreeSet<u16> =
+                    clusters[i].union(&clusters[j]).copied().collect();
+                clusters.remove(j);
+                clusters[i] = merged;
+            }
+            None => break,
+        }
+    }
+    clusters
+}
+
+fn pack_bfd(sets: &[BTreeSet<u16>]) -> Vec<BTreeSet<u16>> {
+    let mut sorted = sets.to_vec();
+    sorted.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    let mut clusters: Vec<BTreeSet<u16>> = Vec::new();
+    for s in &sorted {
+        let mut best: Option<(usize, usize)> = None; // (croissance, idx)
+        for (i, c) in clusters.iter().enumerate() {
+            let grow = s.difference(c).count();
+            if c.len() + grow <= 15 && best.map_or(true, |(g, _)| grow < g) {
+                best = Some((grow, i));
+            }
+        }
+        match best {
+            Some((_, i)) => clusters[i].extend(s.iter().copied()),
+            None => clusters.push(s.clone()),
+        }
+    }
+    clusters
+}
+
+/// Regroupe les jeux maximaux par cluster d'accueil (premier sur-ensemble)
+/// et recalcule les unions effectives.
+fn regroup(
+    sets: &[BTreeSet<u16>],
+    clusters: &[BTreeSet<u16>],
+) -> (Vec<Vec<usize>>, Vec<BTreeSet<u16>>) {
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); clusters.len()];
+    for (si, s) in sets.iter().enumerate() {
+        if let Some(ci) = clusters.iter().position(|c| s.is_subset(c)) {
+            groups[ci].push(si);
+        }
+    }
+    let mut out_g = Vec::new();
+    let mut out_u = Vec::new();
+    for g in groups {
+        if g.is_empty() {
+            continue;
+        }
+        let u: BTreeSet<u16> = g.iter().flat_map(|&si| sets[si].iter().copied()).collect();
+        out_g.push(g);
+        out_u.push(u);
+    }
+    (out_g, out_u)
+}
+
+/// Tente de dissoudre UN cluster (le plus petit possible) en redistribuant
+/// ses jeux dans les autres. Retourne true si un cluster a disparu.
+fn reduce_pass(
+    groups: &mut Vec<Vec<usize>>,
+    unions: &mut Vec<BTreeSet<u16>>,
+    sets: &[BTreeSet<u16>],
+) -> bool {
+    let mut order: Vec<usize> = (0..groups.len()).collect();
+    order.sort_by_key(|&i| (unions[i].len(), i));
+    for &ci in &order {
+        let mut t_groups = groups.clone();
+        let mut t_unions = unions.clone();
+        let members = t_groups[ci].clone();
+        let mut ok = true;
+        for &si in &members {
+            let mut host: Option<(usize, usize)> = None; // (croissance, idx)
+            for i in 0..t_unions.len() {
+                if i == ci {
+                    continue;
+                }
+                let grow = sets[si].difference(&t_unions[i]).count();
+                if t_unions[i].len() + grow <= 15 && host.map_or(true, |(g, _)| grow < g) {
+                    host = Some((grow, i));
+                }
+            }
+            match host {
+                Some((_, i)) => {
+                    t_unions[i].extend(sets[si].iter().copied());
+                    t_groups[i].push(si);
+                }
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            t_groups.remove(ci);
+            t_unions.remove(ci);
+            *groups = t_groups;
+            *unions = t_unions;
+            return true;
+        }
+    }
+    false
+}
+
 /* --- Compilation par scène ------------------------------------------------
  * Quart 8x8 en pixels sources : None = transparent (index 0), Some(bgr555).
  * L'encodage 4bpp dépend de la palette attribuée au char : extraction
@@ -379,31 +509,40 @@ impl SourceTileset {
         let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
         uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         uniq.dedup();
-        // Fusion agglomérative : on fusionne en boucle la paire de clusters
-        // dont l'union tient en 15 couleurs avec le recouvrement maximal
-        // (ordre déterministe : indices croissants à égalité).
-        let mut clusters: Vec<BTreeSet<u16>> = uniq.clone();
-        loop {
-            let mut best: Option<(usize, usize, usize)> = None; // (overlap, i, j)
-            for i in 0..clusters.len() {
-                for j in i + 1..clusters.len() {
-                    let inter = clusters[i].intersection(&clusters[j]).count();
-                    let union = clusters[i].len() + clusters[j].len() - inter;
-                    if union <= 15 && best.map_or(true, |(o, _, _)| inter > o) {
-                        best = Some((inter, i, j));
-                    }
+        // Empaquetage en palettes : problème de bin-packing avec contrainte
+        // « chaque jeu entier dans une palette ». Aucune heuristique ne
+        // gagne partout — on en essaie trois (déterministes) et on garde
+        // le plus petit résultat. Seuls les jeux MAXIMAUX contraignent
+        // (les sous-ensembles suivent leur sur-ensemble).
+        let mut max_sets: Vec<BTreeSet<u16>> = Vec::new();
+        'outer: for s in &uniq {
+            for o in &uniq {
+                if o.len() > s.len() && s.is_subset(o) {
+                    continue 'outer;
                 }
             }
-            match best {
-                Some((_, i, j)) => {
-                    let merged: BTreeSet<u16> =
-                        clusters[i].union(&clusters[j]).copied().collect();
-                    clusters.remove(j);
-                    clusters[i] = merged;
-                }
-                None => break,
+            max_sets.push(s.clone());
+        }
+        // Les sous-ensembles peuvent servir de « ponts » à la fusion
+        // agglomérative : chaque stratégie est essayée avec ET sans eux,
+        // puis une passe de réduction dissout les clusters excédentaires
+        // en redistribuant leurs jeux — on garde le meilleur résultat.
+        let mut clusters: Option<Vec<BTreeSet<u16>>> = None;
+        for cand in [
+            pack_agglo(uniq.clone(), false),
+            pack_agglo(uniq.clone(), true),
+            pack_agglo(max_sets.clone(), false),
+            pack_agglo(max_sets.clone(), true),
+            pack_bfd(&uniq),
+            pack_bfd(&max_sets),
+        ] {
+            let (mut groups, mut unions) = regroup(&max_sets, &cand);
+            while unions.len() > 8 && reduce_pass(&mut groups, &mut unions, &max_sets) {}
+            if clusters.as_ref().map_or(true, |c| unions.len() < c.len()) {
+                clusters = Some(unions);
             }
         }
+        let mut clusters = clusters.unwrap_or_default();
         if clusters.len() > 8 {
             let total: BTreeSet<u16> = uniq.iter().flatten().copied().collect();
             bail!(
