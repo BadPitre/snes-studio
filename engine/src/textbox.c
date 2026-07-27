@@ -86,7 +86,13 @@ void textbox_init(void)
 
 void textbox_open(u16 text_id)
 {
-  const char *s;
+  textbox_open_raw(text_ptr(text_id));
+}
+
+/* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
+   vocabulaire moteur du menu Système — spec §5) */
+void textbox_open_raw(const char *s)
+{
   u16 wl;
   u8 row, col;
   char c;
@@ -94,7 +100,6 @@ void textbox_open(u16 text_id)
   /* Fond de boîte : chars "espace" opaques partout */
   tb_fill(TB_ENTRY(TB_CHAR(' ')));
 
-  s = text_ptr(text_id);
   if (s)
   {
     row = TB_TEXT_ROW;
@@ -136,13 +141,24 @@ void textbox_open(u16 text_id)
    l'option sélectionnée. Textes sur une seule ligne (pas de wrap). */
 void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
 {
+  const char *opts[4];
+  u8 i;
+
+  for (i = 0; i < count; i++)
+    opts[i & 3] = text_ptr(text_ids[i]);
+  textbox_choices_raw(opts, count, sel);
+}
+
+/* Choix depuis des chaînes C (menu Système : vocabulaire moteur) */
+void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
+{
   const char *s;
   u8 i, col;
 
   tb_fill(TB_ENTRY(TB_CHAR(' ')));
   for (i = 0; i < count; i++)
   {
-    s = text_ptr(text_ids[i]);
+    s = options[i];
     col = 0;
     while (s && *s && col < TB_TEXT_COLS - 2)
     {

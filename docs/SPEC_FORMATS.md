@@ -352,6 +352,35 @@ en C array (`data_font.c`).
 
 ---
 
+## 4bis. Sauvegardes SRAM (v0.7)
+
+Cartouche à batterie (hdr.asm : `CARTRIDGETYPE $02`, `SRAMSIZE $01` =
+2 Ko, mappée en bank $70). **4 slots de 128 octets** :
+
+```
+Offset  Taille  Champ
+0       2       magie "SG"
+2       1       version (1) — un slot d'une autre version est « vide »
+3       1       scene (index Scene Table)
+4       1       x du héros (en tiles)
+5       1       y
+6       1       dir (0=bas 1=haut 2=gauche 3=droite)
+7       1       réservé
+8       64      gvars[64] (variables globales)
+72      54      réservé (0)
+126     2       checksum (somme 16-bit des octets 0-125, little-endian)
+```
+
+Un slot est valide si magie + version + checksum concordent (sinon il est
+présenté « vide »). Interface : **menu Système sur START** (Sauvegarder /
+Charger / Fermer, puis choix du slot — B revient/ferme), construit sur la
+textbox et son curseur de choix. Charger applique les gvars puis recharge
+la scène sauvegardée (même chemin que les warps) et repose position et
+direction du héros. Les variables de SCÈNE (v0-63) ne sont pas
+sauvegardées : elles se réinitialisent au chargement de scène (spec §2).
+
+---
+
 ## 5. Audit "constantes de jeu" — état semaine 5
 
 Aucune donnée de jeu en dur dans le moteur : positions, maps, collision,
@@ -361,6 +390,9 @@ deviendront des paramètres générés quand les outils Rust existeront) :
 
 - vitesse joueur 1 px/frame et cadence de pseudo-anim (8 frames) — kit S2 ;
 - géométrie de la textbox (rangées 20-27, 28 colonnes) ;
+- vocabulaire du menu Système (« Sauvegarder », « Charger », « Slot n »…) —
+  chaînes moteur v0.7, comme le menu intégré de RM2003 (configurable par
+  projet en v1+) ;
 - marge de fenêtre de streaming (8 metatiles) ;
 - layout VRAM (`vram.h`) et constantes hardware (écran 256x224, tiles 16 px,
   wrap BG 64 chars).

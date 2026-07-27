@@ -26,6 +26,7 @@ typedef struct
                     gfx compilés par scène — v0.4) */
   u8 sprite_set_id; /* index dans les tables sprite_* (sprites compilés par
                        scène — v0.5, header octet 27) */
+  u8 scene_id; /* index dans la Scene Table (sauvegardes, spec §4 v0.7) */
   u8 player_start_x, player_start_y;
 } SceneCtx;
 

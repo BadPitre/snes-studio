@@ -19,6 +19,10 @@ void textbox_load_pal(void);
    avec retour à la ligne par mot. Affichée au prochain VBlank. */
 void textbox_open(u16 text_id);
 
+/* Variantes « chaîne C » pour le vocabulaire moteur (menu Système) */
+void textbox_open_raw(const char *s);
+void textbox_choices_raw(const char *const *options, u8 count, u8 sel);
+
 /* CHOICE (spec §2 v0.6) : affiche 2-4 options (une par ligne) avec le
    curseur '>' sur l'option sel. */
 void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel);

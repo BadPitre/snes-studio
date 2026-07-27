@@ -12,6 +12,8 @@
 #include "actors.h"
 #include "textbox.h"
 #include "vm.h"
+#include "save.h"
+#include "sysmenu.h"
 #include "audio.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
@@ -65,6 +67,7 @@ int main(void)
   audio_play_music(scene_ctx.music_id);
   textbox_init();
   vm_init();
+  sysmenu_init();
   player_init();
   actors_init();
   auto_ofs = actors_autorun(); /* déclencheur AUTO de la scène de boot */
@@ -85,6 +88,15 @@ int main(void)
   {
     if (vm_active())
       vm_update(); /* script en cours : inputs routés vers la textbox */
+    else if (sysmenu_active())
+    {
+      sysmenu_update(); /* menu Système (START) : sauvegarder / charger */
+      if (sysmenu_take_load())
+      {
+        do_warp(save_info.scene, save_info.x, save_info.y);
+        player.dir = save_info.dir; /* direction sauvegardée */
+      }
+    }
     else
     {
       u8 wd, wx, wy;
@@ -92,6 +104,8 @@ int main(void)
       player_update(); /* inputs + mouvement + collision + interaction */
       if (player_take_warp(&wd, &wx, &wy))
         do_warp(wd, wx, wy);
+      else if (padsDown(0) & KEY_START)
+        sysmenu_open();
     }
 
     camera_update();

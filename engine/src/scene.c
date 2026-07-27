@@ -26,9 +26,14 @@ extern const u16 *const gfx_pals[];
 
 SceneCtx scene_ctx;
 
-/* Halt debug : on ne doit jamais arriver ici avec des données valides. */
+/* Halt debug : on ne doit jamais arriver ici avec des données valides.
+   Écran ROUGE plein : identifiable immédiatement au harnais. */
 static void scene_halt(void)
 {
+  u16 red = 0x001F;
+
+  setBrightness(15);
+  dmaCopyCGram((u8 *)&red, 0, 2);
   while (1)
   {
   }
@@ -82,6 +87,7 @@ void scene_load(u8 scene_id)
   scene_ctx.warp_count = h[23];
   scene_ctx.tilemap_upper = read_far(h + 24); /* v0.3 : couche sup */
   scene_ctx.sprite_set_id = h[27]; /* v0.5 : sprites compilés par scène */
+  scene_ctx.scene_id = scene_id; /* sauvegardes (spec §4 v0.7) */
 
   /* Tileset de la scène (chars + palette + table de metatiles) — écran
      éteint, donc transferts DMA sûrs (forced blank). Le remplissage du
