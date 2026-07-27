@@ -34,10 +34,12 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
    Attention : ne pas nommer un symbole « metatiles » — il entre en
    collision silencieuse avec un symbole interne de PVSnesLib (maps.asm).
 2. **Contrainte de taille : minimum 20x15** (un écran, comme RM2003),
-   maximum 255 (u8). Les maps plus grandes que la fenêtre VRAM 32x32 sont
-   streamées (voir §4) ; les plus petites tiennent entièrement dans la
-   fenêtre (pas de streaming sur l'axe concerné, zone hors map remplie de
-   char 0 — jamais visible, la caméra est clampée aux bords).
+   maximum 255 (u8) par axe et **8192 tiles au total** (v0.7 : les grilles
+   voyagent compressées et sont décompressées vers des buffers WRAM de
+   8192 octets — ex. 90x90, 64x128). Les maps plus grandes que la fenêtre
+   VRAM 32x32 sont streamées (voir §4) ; les plus petites tiennent
+   entièrement dans la fenêtre (pas de streaming sur l'axe concerné, zone
+   hors map remplie de char 0 — jamais visible, la caméra est clampée).
 3. **GFX compilés par scène (v0.4, Phase 5d)** : l'octet 1 du Scene Header
    est le `gfx_set_id` — index dans les tables générées `gfx_chars[]` /
    `gfx_chars_sizes[]` / `gfx_metas[]` / `gfx_prios[]` / `gfx_pals[]`
@@ -189,6 +191,17 @@ transition v0 est fondu sortant → chargement de la scène cible (vars VM
 remises à zéro, gvars conservées) → fondu entrant. Pas de re-déclenchement
 tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
 
+### 1.6 Compression des grilles — RLE (v0.7)
+
+Les trois grilles d'une scène (`ptr_tilemap`, `ptr_tilemap_upper`,
+`ptr_collision`) sont stockées en **RLE** : suites de paires
+`[count (u8, 1-255)][valeur (u8)]`, décodées au chargement de scène vers
+les buffers WRAM du moteur (3 × 8192 octets, écran éteint) jusqu'à
+`w*h` octets exactement. datagen valide `w*h <= 8192`. Sur des maps
+typées RM2003 le gain est massif (~85 % sur la demo) — c'est ce qui rend
+des jeux de la taille d'un RM2003 possibles dans 4 Mo, avec le découpage
+multi-bank à venir.
+
 ---
 
 ## 2. Spec VM v0 — le bytecode
@@ -257,17 +270,23 @@ arrive avec le chantier « PNJ mobiles ». En complément, hors bytecode :
 `wait_mode` 3 = VM_WAIT_CHOICE, et le PNJ à qui l'on parle se tourne vers
 le héros (réflexe RM2003, moteur).*
 
-**Textes :** bank $86, à $86:8000 :
+**Textes (v0.7) :** bank $86, à $86:8000, chaînes compressées par
+**dictionnaire de bigrammes (DTE)** :
 
 ```
 Offset      Taille  Champ
 0           2       text_count (u16)
 2           2×N     offsets (u16) — relatifs au début de bank ($8000)
-(offsets)   ...     chaînes terminées par 0x00
+2+2N        256     table de paires : 128 × 2 caractères ASCII
+(offsets)   ...     chaînes encodées terminées par 0x00
 ```
 
-`text_id` indexe la table d'offsets. Encodage v0 : ASCII simple (32-126,
-accents en v1 avec la fonte définitive).
+`text_id` indexe la table d'offsets. Dans une chaîne, un octet 0x80-0xFF
+désigne la paire `(code & 0x7F)` de la table (2 caractères BRUTS — le
+décodeur n'est pas récursif) ; la textbox décode vers un buffer WRAM
+avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
+projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
+(32-126, accents en v1 avec la fonte définitive).
 
 ---
 

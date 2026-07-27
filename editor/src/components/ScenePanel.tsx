@@ -31,7 +31,10 @@ export default function ScenePanel(props: Props) {
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
 
-  const sizeOk = width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255;
+  // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
+  const cellsOk = width * height <= 8192;
+  const sizeOk =
+    width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 && cellsOk;
   const changed = width !== scene.width || height !== scene.height;
   const shrinks = width < scene.width || height < scene.height;
 
@@ -118,7 +121,12 @@ export default function ScenePanel(props: Props) {
             />
           </label>
         </div>
-        {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255.</p>}
+        {!sizeOk && (
+          <p className="hint">
+            Dimensions : {MIN_W}x{MIN_H} à 255x255, et {8192} tiles max
+            (ex. 90x90, 64x128){!cellsOk ? ` — ${width * height} demandées` : ""}.
+          </p>
+        )}
         {shrinks && sizeOk && (
           <p className="hint">Rognage : les acteurs et warps hors limites seront supprimés.</p>
         )}

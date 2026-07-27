@@ -26,6 +26,29 @@ extern const u16 *const gfx_pals[];
 
 SceneCtx scene_ctx;
 
+/* Grilles décompressées en WRAM (v0.7) : les scènes voyagent en RLE dans
+   la ROM (spec §1.6) et sont dépliées ici au chargement — budget 8192
+   cellules par grille (validé par datagen). */
+#define MAP_BUF_CELLS 8192
+static u8 scn_lower[MAP_BUF_CELLS];
+static u8 scn_upper[MAP_BUF_CELLS];
+static u8 scn_col[MAP_BUF_CELLS];
+
+/* RLE (spec §1.6) : paires [count 1-255][valeur] jusqu'à cells octets */
+static void rle_decode(u8 *dst, const u8 *src, u16 cells)
+{
+  u16 i = 0;
+  u8 n, v;
+
+  while (i < cells)
+  {
+    n = *src++;
+    v = *src++;
+    while (n--)
+      dst[i++] = v;
+  }
+}
+
 /* Halt debug : on ne doit jamais arriver ici avec des données valides.
    Écran ROUGE plein : identifiable immédiatement au harnais. */
 static void scene_halt(void)
@@ -74,8 +97,6 @@ void scene_load(u8 scene_id)
   scene_ctx.scene_type = h[0];
   scene_ctx.map_w = h[2];
   scene_ctx.map_h = h[3];
-  scene_ctx.tilemap = read_far(h + 4);
-  scene_ctx.collision = read_far(h + 7);
   scene_ctx.actors = (const ActorDef *)read_far(h + 10);
   scene_ctx.scripts = read_far(h + 13);
   scene_ctx.actor_count = h[16];
@@ -85,9 +106,22 @@ void scene_load(u8 scene_id)
   scene_ctx.music_id = h[19];
   scene_ctx.warps = (const WarpDef *)read_far(h + 20);
   scene_ctx.warp_count = h[23];
-  scene_ctx.tilemap_upper = read_far(h + 24); /* v0.3 : couche sup */
   scene_ctx.sprite_set_id = h[27]; /* v0.5 : sprites compilés par scène */
-  scene_ctx.scene_id = scene_id; /* sauvegardes (spec §4 v0.7) */
+  scene_ctx.scene_id = scene_id; /* sauvegardes (spec §4bis v0.7) */
+
+  /* Grilles RLE → WRAM (spec §1.6 v0.7) : inf, collision, sup */
+  {
+    u16 cells = (u16)scene_ctx.map_w * scene_ctx.map_h;
+
+    if (cells > MAP_BUF_CELLS)
+      scene_halt(); /* datagen valide la limite : données corrompues */
+    rle_decode(scn_lower, read_far(h + 4), cells);
+    rle_decode(scn_col, read_far(h + 7), cells);
+    rle_decode(scn_upper, read_far(h + 24), cells);
+    scene_ctx.tilemap = scn_lower;
+    scene_ctx.collision = scn_col;
+    scene_ctx.tilemap_upper = scn_upper;
+  }
 
   /* Tileset de la scène (chars + palette + table de metatiles) — écran
      éteint, donc transferts DMA sûrs (forced blank). Le remplissage du

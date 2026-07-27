@@ -18,19 +18,43 @@ extern const u8 font_gfx[];
 extern const u16 font_gfx_size;
 extern const u16 textbox_pal[];
 
-/* Textes : bank $86 (spec §2) — [u16 count][u16 offsets][chaînes \0].
-   Retourne 0 si text_id hors table. */
-static const char *text_ptr(u16 text_id)
+/* Textes : bank $86 (spec §2 v0.7) — [u16 count][u16 offsets]
+   [table de paires DTE 256 o][chaînes encodées \0]. Les codes 0x80-0xFF
+   désignent une paire de caractères de la table : on décode dans un
+   buffer WRAM avant le rendu (le wrap par mot lit en avant). */
+static void text_decode(u16 text_id, char *dst, u8 max)
 {
   const u8 *tbl = make_far(BANK_TEXTS, BANK_BASE_ADDR);
   u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
-  u16 ofs;
+  const u8 *pairs;
+  const u8 *s;
+  u16 ofs, k;
+  u8 n = 0, c;
 
+  dst[0] = 0;
   if (text_id >= count)
-    return 0;
+    return;
+  pairs = tbl + 2 + (count << 1);
   ofs = (u16)tbl[2 + (text_id << 1)] | ((u16)tbl[3 + (text_id << 1)] << 8);
-  return (const char *)make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  s = make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  while (*s && n < (u8)(max - 2))
+  {
+    c = *s++;
+    if (c & 0x80)
+    {
+      k = (u16)(c & 0x7F) << 1;
+      dst[n++] = pairs[k];
+      dst[n++] = pairs[k + 1];
+    }
+    else
+      dst[n++] = c;
+  }
+  dst[n] = 0;
 }
+
+/* Buffers de décodage (WRAM) : un message plein écran, 4 options */
+static char tb_text[176];
+static char tb_opts[4][28];
 
 /* Géométrie de la boîte (rangées de la map BG3 32x32) */
 #define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
@@ -86,7 +110,8 @@ void textbox_init(void)
 
 void textbox_open(u16 text_id)
 {
-  textbox_open_raw(text_ptr(text_id));
+  text_decode(text_id, tb_text, sizeof(tb_text));
+  textbox_open_raw(tb_text);
 }
 
 /* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
@@ -145,7 +170,10 @@ void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
   u8 i;
 
   for (i = 0; i < count; i++)
-    opts[i & 3] = text_ptr(text_ids[i]);
+  {
+    text_decode(text_ids[i], tb_opts[i & 3], sizeof(tb_opts[0]));
+    opts[i & 3] = tb_opts[i & 3];
+  }
   textbox_choices_raw(opts, count, sel);
 }
 
