@@ -49,6 +49,39 @@ const OP_JSW: u8 = 0x0D;
 const OP_SET16: u8 = 0x0E;
 const OP_ADD16: u8 = 0x0F;
 const OP_JCMP16: u8 = 0x10;
+const OP_ROUTE: u8 = 0x11;
+const OP_WAITROUTE: u8 = 0x12;
+const OP_WAIT: u8 = 0x13;
+
+/// Encode un pas d'itinéraire (spec §2 v0.12)
+fn route_step(tok: &str) -> Result<u8> {
+    Ok(match tok {
+        "down" => 0x00,
+        "up" => 0x01,
+        "left" => 0x02,
+        "right" => 0x03,
+        "tdown" => 0x10,
+        "tup" => 0x11,
+        "tleft" => 0x12,
+        "tright" => 0x13,
+        "fwd" => 0x20,
+        "face" => 0x21,
+        w if w.starts_with('w') => {
+            let n: u8 = w[1..]
+                .parse()
+                .with_context(|| format!("pas d'attente invalide : '{}'", w))?;
+            if n == 0 || n > 15 {
+                bail!("attente w<n> : n entre 1 et 15 (x8 frames), recu {}", n);
+            }
+            0x40 | n
+        }
+        other => bail!(
+            "pas d'itineraire inconnu : '{}' (down/up/left/right, tdown/tup/\
+             tleft/tright, fwd, face, w1-w15)",
+            other
+        ),
+    })
+}
 
 /// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
 const VAR_GLOBAL: u8 = 0x80;
@@ -90,6 +123,15 @@ fn op_size(op: &str, argc: usize) -> Result<u16> {
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
         "JCMP16" => 7,
+        "WAITROUTE" => 1,
+        "WAIT" => 2,
+        // ROUTE <acteur> <r0|1> <s0|1> <pas...> : 4 octets + 1 par pas
+        "ROUTE" => {
+            if argc < 4 {
+                bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <pas...>");
+            }
+            (4 + (argc as u16 - 3)) as u16
+        }
         // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
         "CHOICE" => {
             if argc < 3 || argc > 5 {
@@ -285,6 +327,38 @@ pub fn assemble(
                 code.push(opb);
                 code.extend_from_slice(&val.to_le_bytes());
                 code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
+            }
+            "WAITROUTE" => {
+                if argc != 0 { bail!("WAITROUTE ne prend pas d'argument"); }
+                code.push(OP_WAITROUTE);
+            }
+            "WAIT" => {
+                if argc != 1 { bail!("WAIT <frames 1-255>"); }
+                code.push(OP_WAIT);
+                code.push(parse_u8(args[0])?);
+            }
+            "ROUTE" => {
+                if argc < 4 { bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <pas...>"); }
+                let actor: u8 = if args[0] == "self" {
+                    255
+                } else {
+                    parse_u8(args[0])?
+                };
+                let mut flags = 0u8;
+                if args[1] == "1" { flags |= 1; }
+                if args[2] == "1" { flags |= 2; }
+                let steps: Vec<u8> = args[3..]
+                    .iter()
+                    .map(|t| route_step(t))
+                    .collect::<Result<_>>()?;
+                if steps.len() > 255 {
+                    bail!("ROUTE : 255 pas maximum");
+                }
+                code.push(OP_ROUTE);
+                code.push(actor);
+                code.push(flags);
+                code.push(steps.len() as u8);
+                code.extend_from_slice(&steps);
             }
             "CHOICE" => {
                 op_size(op, argc)?; // valide 2-4 choix

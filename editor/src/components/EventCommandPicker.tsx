@@ -21,14 +21,15 @@ const PAGE1: { c: Command["c"]; label: string }[] = [
   { c: "if_var", label: "Condition : variable" },
   { c: "warp", label: "Téléporter le héros" },
   { c: "face", label: "Tourner un event" },
+  { c: "route", label: "Déplacer un event…" },
+  { c: "wait_route", label: "Attendre la fin des déplacements" },
+  { c: "wait", label: "Attendre" },
 ];
 
 // Cases annoncées mais pas encore compilables — affichées grisées pour que
 // la fenêtre dise la vérité sur ce qui existe (jamais de bouton qui ment).
 const PAGE1_SOON = [
-  "Attendre",
   "Jouer un son",
-  "Déplacer un event",
   "Changer l'apparence",
   "Appeler un event",
 ];

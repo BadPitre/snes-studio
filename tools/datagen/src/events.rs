@@ -236,6 +236,49 @@ impl<'a> EventCompiler<'a> {
                     )?;
                     out.push(format!("{}:", end));
                 }
+                "wait" => {
+                    let n = Self::u8_field(cmd, "frames")?;
+                    out.push(format!("  WAIT {}", n));
+                }
+                "wait_route" => {
+                    out.push("  WAITROUTE".to_string());
+                }
+                "route" => {
+                    // {"c":"route","event":-1|n,"repeat":b,"skip":b,
+                    //  "steps":[{"s":"up"}|{"s":"wait","n":2}...]}
+                    // event -1 = « cet event » — résolu par compile_scene
+                    // via self_actor (index d'entrée de la page en cours).
+                    let target = match cmd["event"].as_i64() {
+                        None | Some(-1) => "self".to_string(),
+                        Some(n) if (0..24).contains(&n) => n.to_string(),
+                        Some(n) => bail!("route : event {} hors limite (0-23)", n),
+                    };
+                    let steps = cmd["steps"].as_array().context("route sans steps")?;
+                    if steps.is_empty() || steps.len() > 255 {
+                        bail!("route : 1 a 255 pas (recu {})", steps.len());
+                    }
+                    let mut toks = Vec::new();
+                    for st in steps {
+                        let sname = st["s"].as_str().context("pas sans champ s")?;
+                        toks.push(match sname {
+                            "down" | "up" | "left" | "right" | "tdown" | "tup"
+                            | "tleft" | "tright" | "fwd" | "face" => sname.to_string(),
+                            "wait" => {
+                                let n = st["n"].as_u64().filter(|&n| (1..=15).contains(&n))
+                                    .context("pas wait : n entre 1 et 15 (x8 frames)")?;
+                                format!("w{}", n)
+                            }
+                            other => bail!("pas d'itineraire inconnu : « {} »", other),
+                        });
+                    }
+                    out.push(format!(
+                        "  ROUTE {} {} {} {}",
+                        target,
+                        if cmd["repeat"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        if cmd["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        toks.join(" ")
+                    ));
+                }
                 "warp" => {
                     let to = cmd["to"].as_str().context("warp sans scene cible")?;
                     out.push(format!(
@@ -332,10 +375,19 @@ impl<'a> EventCompiler<'a> {
                 let entry = if !commands.is_empty() {
                     let label = format!("__ev{}p{}_{}", i, k, scene_name);
                     asm.push(format!("{}:", label));
+                    let first = asm.len();
                     self.compile_list(commands, 0, &mut asm).with_context(|| {
                         format!("event « {} » page {} de la scene '{}'",
                                 ev.name, k + 1, scene_name)
                     })?;
+                    // ROUTE self -> index d'entrée de CETTE page (le n° de
+                    // slot acteur, pas le n° d'event : les pages comptent)
+                    let self_idx = actors.len().to_string();
+                    for line in asm.iter_mut().skip(first) {
+                        if line.starts_with("  ROUTE self ") {
+                            *line = line.replacen("self", &self_idx, 1);
+                        }
+                    }
                     asm.push("  END".to_string());
                     Some(label)
                 } else {

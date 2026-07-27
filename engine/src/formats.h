@@ -80,6 +80,25 @@
 #define VM_OP_JCMP16  0x10 /* var (u8), op (u8 : 0 ==, 1 !=, 2 >=),
                               val (u16), offset (u16) */
 
+/* v0.12 (Move Route) : itinéraires de PNJ + attentes bloquantes */
+#define VM_OP_ROUTE     0x11 /* acteur (u8, 0xFF = event du script), flags
+                                (u8 : bit0 repeat, bit1 skip si bloque),
+                                len (u8), puis len PAS INLINE — la route
+                                vit dans le bloc scripts, l'acteur pointe
+                                dessus. Non bloquant (cinematiques). */
+#define VM_OP_WAITROUTE 0x12 /* bloquant : attend la fin de toutes les
+                                routes non-repeat */
+#define VM_OP_WAIT      0x13 /* frames (u8) — pause bloquante */
+
+/* Pas d'itinéraire (1 octet chacun, spec §2 v0.12) */
+#define ROUTE_STEP_MOVE   0x00 /* 0x00-0x03 : marcher down/up/left/right */
+#define ROUTE_STEP_TURN   0x10 /* 0x10-0x13 : se tourner (sans bouger) */
+#define ROUTE_STEP_FWD    0x20 /* un pas dans la direction courante */
+#define ROUTE_STEP_FACEP  0x21 /* se tourner vers le heros */
+#define ROUTE_STEP_WAITN  0x40 /* 0x40|n : attendre n*8 frames (n 1-15) */
+#define ROUTE_FLAG_REPEAT 0x01
+#define ROUTE_FLAG_SKIP   0x02
+
 /* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
    Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
 #define VM_SWITCH_COUNT 512

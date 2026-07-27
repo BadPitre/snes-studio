@@ -34,6 +34,8 @@ void vm_init(void)
   vm.active = 0;
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = 0;
+  vm.wait_timer = 0;
+  vm.script_actor = 0xFF;
   for (i = 0; i < 64; i++)
   {
     vm.vars[i] = 0;
@@ -79,6 +81,7 @@ void vm_start(u16 offset)
   vm.active = 1;
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = offset;
+  vm.script_actor = 0xFF; /* renseigné après coup par l'appelant (v0.12) */
 }
 
 u8 vm_active(void)
@@ -231,6 +234,26 @@ static void vm_step(void)
       vm.vars16[var] += fetch16();
       break;
 
+    case VM_OP_ROUTE: /* itinéraire (v0.12) — NON bloquant : la route
+                         part en tâche de fond (cinématiques) */
+      var = fetch8(); /* acteur, 0xFF = event du script */
+      val = fetch8(); /* flags */
+      idx16 = fetch8(); /* len */
+      if (var == 0xFF)
+        var = vm.script_actor;
+      actors_set_route(var, vm.pc, val, (u8)idx16);
+      vm.pc += idx16; /* les pas sont inline : les sauter */
+      break;
+
+    case VM_OP_WAITROUTE: /* bloquant : fin de toutes les routes */
+      vm.wait_mode = VM_WAIT_ROUTE;
+      break;
+
+    case VM_OP_WAIT: /* bloquant : n frames */
+      vm.wait_timer = fetch8();
+      vm.wait_mode = VM_WAIT_TIMER;
+      break;
+
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
       var = fetch8();
       val = fetch8(); /* 0 ==, 1 !=, 2 >= */
@@ -260,6 +283,22 @@ void vm_update(void)
       vm.wait_mode = VM_WAIT_NONE;
     }
     return; /* la VM reprend à la frame suivante */
+  }
+  if (vm.wait_mode == VM_WAIT_ROUTE)
+  {
+    if (!actors_routes_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_TIMER)
+  {
+    if (vm.wait_timer)
+    {
+      vm.wait_timer--;
+      return;
+    }
+    vm.wait_mode = VM_WAIT_NONE;
   }
   if (vm.wait_mode == VM_WAIT_CHOICE)
   {

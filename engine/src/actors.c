@@ -49,6 +49,14 @@ static u8 actor_timer[ACTOR_SLOTS]; /* frames avant la prochaine décision */
 static u16 mv_seed;                 /* xorshift 16-bit (aléatoire) */
 static u8 mv_phase;                 /* vitesse PNJ : 1 px 1 frame sur 2 */
 
+/* Itinéraires (v0.12) — la route vit dans le bloc scripts de la scène,
+   le slot ne garde qu'un curseur. 0xFFFF = pas de route. */
+static u16 route_ofs[ACTOR_SLOTS];
+static u8 route_pos[ACTOR_SLOTS];
+static u8 route_len[ACTOR_SLOTS];
+static u8 route_flags[ACTOR_SLOTS];
+static u8 route_wait[ACTOR_SLOTS];
+
 static u16 mv_rand(void)
 {
   mv_seed ^= mv_seed << 7;
@@ -131,6 +139,11 @@ void actors_init(void)
     actor_step[i] = 0;
     actor_anim[i] = 0;
     actor_timer[i] = (u8)(20 + i * 13); /* décale les décisions */
+    route_ofs[i] = 0xFFFF;
+    route_pos[i] = 0;
+    route_len[i] = 0;
+    route_flags[i] = 0;
+    route_wait[i] = 0;
   }
   mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
   mv_phase = 0;
@@ -238,13 +251,120 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
 static const s8 mv_dx[4] = {0, 0, -1, 1};
 static const s8 mv_dy[4] = {1, -1, 0, 0};
 
-/* Mouvement des PNJ (v0.11) — appelé chaque frame par la boucle
-   principale SAUF pendant un script ou le menu Système (gel RM2003).
+/* Lance un itinéraire (opcode ROUTE, v0.12). ofs pointe les PAS dans le
+   bloc scripts. Remplace la route en cours du slot s'il y en a une. */
+void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
+{
+  if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count || len == 0)
+    return;
+  route_ofs[index] = ofs;
+  route_pos[index] = 0;
+  route_len[index] = len;
+  route_flags[index] = flags;
+  route_wait[index] = 0;
+}
+
+/* 1 si une route NON-repeat est encore en cours (WAITROUTE) — les routes
+   répétées tournent pour toujours, on ne les attend pas. */
+u8 actors_routes_busy(void)
+{
+  u8 i;
+
+  for (i = 0; i < ACTOR_SLOTS; i++)
+  {
+    if (route_ofs[i] != 0xFFFF && !(route_flags[i] & ROUTE_FLAG_REPEAT))
+      return 1;
+  }
+  return 0;
+}
+
+/* Se tourner vers le héros (pas FACEP + interactions) */
+static u8 dir_toward_player(u8 i)
+{
+  u16 dx = player.x > actor_px[i] ? player.x - actor_px[i]
+                                  : actor_px[i] - player.x;
+  u16 dy = player.y > actor_py[i] ? player.y - actor_py[i]
+                                  : actor_py[i] - player.y;
+
+  if (dx > dy)
+    return player.x > actor_px[i] ? DIR_RIGHT : DIR_LEFT;
+  return player.y > actor_py[i] ? DIR_DOWN : DIR_UP;
+}
+
+/* Avance la route du slot i d'un cran (un pas par appel au plus).
+   Appelé au rythme du mouvement (1 frame sur 2). */
+static void route_tick(u8 i)
+{
+  u8 step, d, tx, ty;
+
+  if (actor_step[i])
+    return; /* pas de marche en cours : on le laisse finir */
+  if (route_wait[i])
+  {
+    route_wait[i]--;
+    return;
+  }
+  if (route_pos[i] >= route_len[i])
+  {
+    if (route_flags[i] & ROUTE_FLAG_REPEAT)
+      route_pos[i] = 0;
+    else
+    {
+      route_ofs[i] = 0xFFFF; /* terminé */
+      return;
+    }
+  }
+  step = scene_ctx.scripts[route_ofs[i] + route_pos[i]];
+
+  if ((step & 0xF0) == ROUTE_STEP_WAITN)
+  {
+    route_wait[i] = (u8)((step & 0x0F) << 3);
+    route_pos[i]++;
+    return;
+  }
+  switch (step & 0xF0)
+  {
+  case ROUTE_STEP_MOVE: /* 0x00-0x03 */
+    d = step & 3;
+    break;
+  case ROUTE_STEP_TURN: /* 0x10-0x13 : tourner sans bouger */
+    actor_dirs[i] = step & 3;
+    route_pos[i]++;
+    return;
+  default: /* 0x20 fwd, 0x21 face heros */
+    if (step == ROUTE_STEP_FACEP)
+    {
+      actor_dirs[i] = dir_toward_player(i);
+      route_pos[i]++;
+      return;
+    }
+    d = actor_dirs[i]; /* un pas en avant */
+    break;
+  }
+  tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
+  ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
+  if (mv_blocked(i, tx, ty))
+  {
+    actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
+    if (route_flags[i] & ROUTE_FLAG_SKIP)
+      route_pos[i]++; /* « ignorer si bloqué » : pas suivant */
+    return; /* sinon : réessaie tant que c'est bloqué */
+  }
+  actor_dirs[i] = d;
+  actor_step[i] = 16;
+  route_pos[i]++;
+}
+
+/* Mouvement des PNJ (v0.11/v0.12) — appelé chaque frame par la boucle
+   principale. Les ITINÉRAIRES avancent aussi pendant les scripts (c'est
+   le moteur des cinématiques) ; l'errance (move_type) reste gelée
+   pendant les scripts, et tout s'arrête dans le menu Système.
    Vitesse : 1 px une frame sur deux (moitié du héros). */
 void actors_update(void)
 {
   u8 i, d, tx, ty, mt;
   const ActorDef *a = scene_ctx.actors;
+  u8 frozen = vm_active();
 
   mv_phase ^= 1;
   if (!mv_phase)
@@ -252,10 +372,53 @@ void actors_update(void)
 
   for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
   {
-    mt = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
-    if (mt == ACTOR_MOVE_STATIC || !actor_active[i] ||
-        a->actor_type != ACTOR_TYPE_NPC_STATIC)
+    if (!actor_active[i] || a->actor_type != ACTOR_TYPE_NPC_STATIC)
       continue;
+
+    /* itinéraire prioritaire sur l'errance */
+    if (route_ofs[i] != 0xFFFF)
+      route_tick(i);
+
+    mt = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
+    if (route_ofs[i] == 0xFFFF && (mt == ACTOR_MOVE_STATIC || frozen))
+    {
+      /* ni route ni errance : finir le pas en cours s'il y en a un */
+      if (!actor_step[i])
+        continue;
+    }
+    else if (route_ofs[i] == 0xFFFF && !actor_step[i])
+    {
+      /* errance (v0.11) : décision */
+      if (actor_timer[i])
+      {
+        actor_timer[i]--;
+        continue;
+      }
+      if (mt == ACTOR_MOVE_RANDOM)
+      {
+        d = (u8)(mv_rand() & 3);
+        actor_timer[i] = (u8)(32 + (mv_rand() & 63));
+      }
+      else
+      {
+        d = actor_dirs[i];
+        if (mt == ACTOR_MOVE_VERT && d != DIR_DOWN && d != DIR_UP)
+          d = DIR_DOWN;
+        if (mt == ACTOR_MOVE_HORIZ && d != DIR_LEFT && d != DIR_RIGHT)
+          d = DIR_RIGHT;
+        actor_timer[i] = 8;
+      }
+      tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
+      ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
+      if (mv_blocked(i, tx, ty))
+      {
+        if (mt != ACTOR_MOVE_RANDOM)
+          actor_dirs[i] = d ^ 1; /* demi-tour */
+        continue;
+      }
+      actor_dirs[i] = d;
+      actor_step[i] = 16;
+    }
 
     if (actor_step[i])
     {
@@ -266,41 +429,7 @@ void actors_update(void)
       actor_step[i]--;
       if ((actor_step[i] & 7) == 0)
         actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
-      continue;
     }
-
-    if (actor_timer[i])
-    {
-      actor_timer[i]--;
-      continue;
-    }
-
-    /* décision : direction du prochain pas */
-    if (mt == ACTOR_MOVE_RANDOM)
-    {
-      d = (u8)(mv_rand() & 3);
-      actor_timer[i] = (u8)(32 + (mv_rand() & 63));
-    }
-    else
-    {
-      /* va-et-vient : continuer, demi-tour si bloqué */
-      d = actor_dirs[i];
-      if (mt == ACTOR_MOVE_VERT && d != DIR_DOWN && d != DIR_UP)
-        d = DIR_DOWN;
-      if (mt == ACTOR_MOVE_HORIZ && d != DIR_LEFT && d != DIR_RIGHT)
-        d = DIR_RIGHT;
-      actor_timer[i] = 8;
-    }
-    tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
-    ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
-    if (mv_blocked(i, tx, ty))
-    {
-      if (mt != ACTOR_MOVE_RANDOM)
-        actor_dirs[i] = d ^ 1; /* demi-tour (DOWN<->UP, LEFT<->RIGHT) */
-      continue;
-    }
-    actor_dirs[i] = d;
-    actor_step[i] = 16;
   }
 }
 
@@ -369,5 +498,8 @@ void actor_interact(u8 index)
   actor_face(index, player.dir ^ 1);
 
   if (ofs != SCRIPT_NONE)
+  {
     vm_start(ofs);
+    vm.script_actor = index; /* cible du ROUTE « cet event » (v0.12) */
+  }
 }

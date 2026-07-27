@@ -337,7 +337,23 @@ projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 | 0x10 | JCMP16 | var u8, op u8, val u16, ofs u16 | pc = ofs si vrai — op : 0 `==`, 1 `!=`, 2 `>=` |
 
 Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
-**globaux et persistants** (sauvegardés, §4bis v2). Les v/g 8-bit
+**globaux et persistants** (sauvegardés, §4bis v2).
+
+**v0.12 (Move Route — cinématiques) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x11 | ROUTE | acteur u8, flags u8, len u8, len × pas u8 | lance l'itinéraire (NON bloquant) — acteur 0xFF = l'event du script ; flags : bit0 répéter, bit1 ignorer si bloqué |
+| 0x12 | WAITROUTE | — | bloquant : attend la fin de tous les itinéraires non répétés |
+| 0x13 | WAIT | frames u8 | pause bloquante |
+
+Pas d'itinéraire (1 octet) : `0x00-0x03` marcher bas/haut/gauche/droite,
+`0x10-0x13` se tourner, `0x20` un pas en avant, `0x21` se tourner vers le
+héros, `0x40|n` attendre n×8 frames (n 1-15). La route vit INLINE dans le
+bloc scripts (l'acteur pointe dessus) ; les itinéraires avancent AUSSI
+pendant les scripts — c'est le moteur des cinématiques — tandis que
+l'errance (`move_type`) reste gelée. Un pas bloqué tourne le PNJ et est
+retenté (ou abandonné avec « ignorer si bloqué »). Les v/g 8-bit
 d'origine restent valides (héritage + variable de travail des CHOICE).
 
 ## 3. Structures WRAM du moteur

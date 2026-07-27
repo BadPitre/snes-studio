@@ -21,6 +21,13 @@ void actors_resolve_pages(void);
    hors script/menu (les events gèlent le monde, comme RM2003). */
 void actors_update(void);
 
+/* Itinéraires (v0.12, opcode ROUTE) : lance/écrase la route du slot —
+   ofs = offset des PAS dans le bloc scripts. */
+void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len);
+
+/* 1 si une route non-repeat court encore (opcode WAITROUTE). */
+u8 actors_routes_busy(void);
+
 /* Écrit les metasprites des acteurs dans le shadow OAM (chaque frame).
    Les acteurs hors écran sont cachés. */
 void actors_draw(void);

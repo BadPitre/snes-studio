@@ -193,6 +193,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Horizontal. En jeu : vitesse moitié du héros, demi-tour quand bloqué,
   jamais sur la tile du héros ni d'un autre event, gel pendant les
   dialogues et le menu.
+- **Move Route (v0.12)** : commande « Déplacer un event… » → fenêtre
+  **Itinéraire** façon RM2003 (liste `$>`, grille de pas : marcher/tourner
+  ×4, un pas en avant, vers le héros, attendre ; options Répéter / Ignorer
+  si bloqué ; cible « Cet event » ou un event de la scène). L'itinéraire
+  part en tâche de fond — le séquencer avec « Attendre la fin des
+  déplacements » ; « Attendre » (frames) complète la panoplie cinématique.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

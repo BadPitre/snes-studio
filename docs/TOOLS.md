@@ -149,6 +149,15 @@ déclencheurs « touche action » ; le PNJ se déplace d'une tile à la fois à
 la moitié de la vitesse du héros, sans jamais marcher sur lui ni sur un
 autre event, et gèle pendant les dialogues.
 
+**Move Route (v0.12)** : `{"c":"route","event":-1,"repeat":false,
+"skip":false,"steps":[{"s":"right"},{"s":"wait","n":4},{"s":"face"}]}` —
+`event` : -1 = cet event, sinon n° d'ENTRÉE (les pages comptent) ; pas :
+`down/up/left/right`, `tdown/tup/tleft/tright` (tourner), `fwd`, `face`,
+`{"s":"wait","n":1-15}` (n×8 frames). L'itinéraire part en tâche de fond ;
+`{"c":"wait_route"}` bloque jusqu'à la fin des itinéraires non répétés,
+`{"c":"wait","frames":n}` fait une pause. Assembleur : `ROUTE <acteur|self>
+<r> <s> <pas...>`, `WAITROUTE`, `WAIT <frames>`.
+
 **Pages (v0.10)** : un event peut remplacer ses champs plats par
 `"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
 ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,

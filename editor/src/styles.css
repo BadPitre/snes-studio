@@ -190,6 +190,12 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cmdpick-grid button { text-align: left; }
+/* Fenêtre Itinéraire (Move Route RM2003) */
+.modal.moveroute { width: 620px; }
+.moveroute-body { display: flex; gap: 8px; height: 300px; }
+.moveroute-body .evedit-cmds { overflow-y: auto; }
+.moveroute-grid { width: 250px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; align-content: start; }
+.moveroute-grid button { font-size: 12px; padding: 5px 4px; }
 /* Fenêtre Switches / Variables (façon RM2003) */
 .modal.varlist { width: 520px; }
 .varlist-body { display: flex; gap: 8px; height: 380px; }

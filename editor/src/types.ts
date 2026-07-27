@@ -74,7 +74,31 @@ export type Command =
   | { c: "switch"; n: number; on: boolean }
   | { c: "var"; n: number; op: "=" | "+"; value: number }
   | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
-  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] };
+  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
+  // v0.12 — Move Route (cinématiques) : itinéraire en tâche de fond,
+  // attente de fin, pause bloquante
+  | { c: "route"; event: number; repeat: boolean; skip: boolean; steps: RouteStep[] }
+  | { c: "wait_route" }
+  | { c: "wait"; frames: number };
+
+// Un pas d'itinéraire. wait : n × 8 frames (1-15).
+export type RouteStep =
+  | { s: "down" | "up" | "left" | "right" | "tdown" | "tup" | "tleft" | "tright" | "fwd" | "face" }
+  | { s: "wait"; n: number };
+
+export const ROUTE_STEP_LABELS: Record<string, string> = {
+  down: "Marcher bas",
+  up: "Marcher haut",
+  left: "Marcher gauche",
+  right: "Marcher droite",
+  tdown: "Tourner bas",
+  tup: "Tourner haut",
+  tleft: "Tourner gauche",
+  tright: "Tourner droite",
+  fwd: "Un pas en avant",
+  face: "Vers le héros",
+  wait: "Attendre",
+};
 
 export const SWITCH_COUNT = 512;
 export const VAR16_COUNT = 256;

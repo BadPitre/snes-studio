@@ -113,12 +113,15 @@ int main(void)
       u8 wd, wx, wy;
 
       player_update(); /* inputs + mouvement + collision + interaction */
-      actors_update(); /* PNJ mobiles (gelés pendant scripts/menu) */
       if (player_take_warp(&wd, &wx, &wy))
         do_warp(wd, wx, wy);
       else if (padsDown(0) & KEY_START)
         sysmenu_open();
     }
+
+    if (!sysmenu_active())
+      actors_update(); /* routes (même pendant un script — cinématiques) +
+                          errance des PNJ (gelée pendant les scripts) */
 
     camera_update();
     map_update();  /* prépare le streaming de la fenêtre tilemap */

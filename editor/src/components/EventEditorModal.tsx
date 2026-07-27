@@ -8,6 +8,7 @@ import type { Command, Direction, EventPage, GameEvent, MoveType, Scene } from "
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
+import MoveRouteModal from "./MoveRouteModal";
 
 interface Props {
   event: GameEvent;
@@ -22,6 +23,9 @@ interface Props {
   labels: string[]; // labels du script manuel (champ avancé)
   switchNames: string[]; // noms des switches (project.json)
   varNames: string[]; // noms des variables 16-bit
+  // libellés des ENTRÉES acteur de la scène (une par page d'event) —
+  // cibles de « Déplacer un event » et « Tourner un event »
+  entryNames: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -61,6 +65,12 @@ function labelOf(c: Command): string {
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
     case "if_var":
       return `Condition : si variable [${c.n}] ${c.op} ${c.value}`;
+    case "route":
+      return `Déplacer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${c.steps.length} pas${c.repeat ? " (répété)" : ""}`;
+    case "wait_route":
+      return "Attendre la fin des déplacements";
+    case "wait":
+      return `Attendre ${c.frames} frames`;
   }
 }
 
@@ -264,6 +274,12 @@ export default function EventEditorModal(props: Props) {
         return { c: "if_sw", n: 0, on: true, then: [], else: [] };
       case "if_var":
         return { c: "if_var", n: 0, op: "==", value: 1, then: [], else: [] };
+      case "route":
+        return { c: "route", event: -1, repeat: false, skip: false, steps: [] };
+      case "wait_route":
+        return { c: "wait_route" };
+      case "wait":
+        return { c: "wait", frames: 60 };
     }
   }
 
@@ -522,6 +538,7 @@ export default function EventEditorModal(props: Props) {
                 scenes={props.scenes}
                 switchNames={props.switchNames}
                 varNames={props.varNames}
+                entryNames={props.entryNames}
                 onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
                 onChange={setForm}
                 onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -624,12 +641,15 @@ function CommandForm(props: {
   scenes: Record<string, Scene>;
   switchNames: string[];
   varNames: string[];
+  entryNames: string[];
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
   onCancel: () => void;
 }) {
   const { cmd, onChange } = props;
+  // fenêtre Itinéraire (commande « Déplacer un event »)
+  const [routeOpen, setRouteOpen] = useState(false);
   const varField = (v: string, set: (s: string) => void) => (
     <label>
       Variable (v0-v63 scène, g0-g63 globale)
@@ -876,6 +896,52 @@ function CommandForm(props: {
             />
           </label>
         </div>
+      );
+      break;
+    case "route":
+      valid = cmd.steps.length > 0;
+      body = (
+        <>
+          <span className="hint">
+            {cmd.event < 0 ? "Cet event" : props.entryNames[cmd.event] ?? `event ${cmd.event}`} —{" "}
+            {cmd.steps.length} pas{cmd.repeat ? ", répété" : ""}
+            {cmd.skip ? ", ignore si bloqué" : ""}. L'itinéraire part en
+            tâche de fond : le séquencer avec « Attendre la fin des
+            déplacements ».
+          </span>
+          <button onClick={() => setRouteOpen(true)}>Modifier l'itinéraire…</button>
+          {routeOpen && (
+            <MoveRouteModal
+              cmd={cmd}
+              eventNames={props.entryNames}
+              onClose={() => setRouteOpen(false)}
+              onOk={(c) => {
+                onChange(c);
+                setRouteOpen(false);
+              }}
+            />
+          )}
+        </>
+      );
+      break;
+    case "wait_route":
+      body = (
+        <span className="hint">
+          Bloque le script jusqu'à la fin de tous les itinéraires (les
+          itinéraires « répétés » ne sont pas attendus).
+        </span>
+      );
+      break;
+    case "wait":
+      valid = cmd.frames >= 1 && cmd.frames <= 255;
+      body = (
+        <label>
+          Durée (frames, 60 = 1 seconde)
+          <input
+            type="number" min={1} max={255} value={cmd.frames} autoFocus
+            onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+          />
+        </label>
       );
       break;
     case "warp": {

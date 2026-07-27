@@ -81,7 +81,10 @@ static void check_warp(void)
   /* Déclencheur de contact ? (le script gèle le joueur dès cette frame) */
   i = actor_trigger_at(ctx, cty);
   if (i != ACTOR_NONE)
+  {
     vm_start(scene_ctx.actors[i].script_offset);
+    vm.script_actor = i; /* cible du ROUTE « cet event » (v0.12) */
+  }
 }
 
 /* Warp scripté (opcode WARP, spec §2 v0.6) — même chemin que les tiles de
