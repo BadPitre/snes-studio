@@ -43,7 +43,7 @@ pub fn build_scene_bank(
     let (mut grids_raw, mut grids_rle) = (0usize, 0usize);
 
     for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids, &scene_ids)
+        let asm = script::assemble(&sc.script, text_ids, &scene_ids, &sprite_remaps[i])
             .with_context(|| format!("script de la scene '{}'", sc.name))?;
 
         let w = sc.width as usize;

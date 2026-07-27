@@ -36,6 +36,9 @@ pub struct EventCompiler<'a> {
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
+    /// blocs de personnage référencés par des pas gfx: (Move Route) — à
+    /// compter dans le sprite set de la scène en cours
+    gfx_blocks: Vec<u8>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -44,7 +47,7 @@ impl<'a> EventCompiler<'a> {
             .iter()
             .map(|t| (t.text.clone(), t.name.clone()))
             .collect();
-        EventCompiler { texts, text_of, label_seq: 0 }
+        EventCompiler { texts, text_of, label_seq: 0, gfx_blocks: Vec::new() }
     }
 
     /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
@@ -292,28 +295,44 @@ impl<'a> EventCompiler<'a> {
                         Some(n) => bail!("route : event {} hors limite (0-23)", n),
                     };
                     let steps = cmd["steps"].as_array().context("route sans steps")?;
-                    if steps.is_empty() || steps.len() > 255 {
-                        bail!("route : 1 a 255 pas (recu {})", steps.len());
+                    if steps.is_empty() || steps.len() > 200 {
+                        bail!("route : 1 a 200 pas (recu {})", steps.len());
                     }
+                    let freq = cmd["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
                     let mut toks = Vec::new();
                     for st in steps {
                         let sname = st["s"].as_str().context("pas sans champ s")?;
                         toks.push(match sname {
-                            "down" | "up" | "left" | "right" | "tdown" | "tup"
-                            | "tleft" | "tright" | "fwd" | "face" => sname.to_string(),
+                            "down" | "up" | "left" | "right" | "mrand" | "mhero"
+                            | "mflee" | "fwd" | "tdown" | "tup" | "tleft" | "tright"
+                            | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face"
+                            | "tflee" | "spd+" | "spd-" | "frq+" | "frq-" | "fixon"
+                            | "fixoff" | "thruon" | "thruoff" => sname.to_string(),
                             "wait" => {
                                 let n = st["n"].as_u64().filter(|&n| (1..=15).contains(&n))
                                     .context("pas wait : n entre 1 et 15 (x8 frames)")?;
                                 format!("w{}", n)
                             }
+                            "swon" | "swoff" => {
+                                let n = st["n"].as_u64().filter(|&n| n < 512)
+                                    .context("pas switch : n entre 0 et 511")?;
+                                format!("{}:{}", sname, n)
+                            }
+                            "gfx" => {
+                                let b = st["block"].as_u64().filter(|&b| b < 64)
+                                    .context("pas gfx : block entre 0 et 63")?;
+                                self.gfx_blocks.push(b as u8);
+                                format!("gfx:{}", b)
+                            }
                             other => bail!("pas d'itineraire inconnu : « {} »", other),
                         });
                     }
                     out.push(format!(
-                        "  ROUTE {} {} {} {}",
+                        "  ROUTE {} {} {} {} {}",
                         target,
                         if cmd["repeat"].as_bool().unwrap_or(false) { 1 } else { 0 },
                         if cmd["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        freq,
                         toks.join(" ")
                     ));
                 }
@@ -346,9 +365,10 @@ impl<'a> EventCompiler<'a> {
         &mut self,
         scene_name: &str,
         events: &[Event],
-    ) -> Result<(Vec<String>, Vec<Actor>)> {
+    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
+        self.gfx_blocks.clear();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
@@ -466,6 +486,6 @@ impl<'a> EventCompiler<'a> {
                 });
             }
         }
-        Ok((asm, actors))
+        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks)))
     }
 }

@@ -90,12 +90,33 @@
                                 routes non-repeat */
 #define VM_OP_WAIT      0x13 /* frames (u8) — pause bloquante */
 
-/* Pas d'itinéraire (1 octet chacun, spec §2 v0.12) */
+/* Pas d'itinéraire (spec §2 v0.13 — dialogue Move Route complet).
+   1 octet par pas, sauf 0x50-0x52 qui portent un paramètre. */
 #define ROUTE_STEP_MOVE   0x00 /* 0x00-0x03 : marcher down/up/left/right */
+#define ROUTE_STEP_MRAND  0x04 /* marcher dans une direction au hasard */
+#define ROUTE_STEP_MHERO  0x05 /* marcher vers le heros */
+#define ROUTE_STEP_MFLEE  0x06 /* fuir le heros */
+#define ROUTE_STEP_FWD    0x07 /* un pas dans la direction courante */
 #define ROUTE_STEP_TURN   0x10 /* 0x10-0x13 : se tourner (sans bouger) */
-#define ROUTE_STEP_FWD    0x20 /* un pas dans la direction courante */
-#define ROUTE_STEP_FACEP  0x21 /* se tourner vers le heros */
+#define ROUTE_STEP_T90R   0x14 /* tourner 90 degres a droite */
+#define ROUTE_STEP_T90L   0x15 /* tourner 90 degres a gauche */
+#define ROUTE_STEP_T180   0x16 /* demi-tour */
+#define ROUTE_STEP_T90X   0x17 /* 90 degres gauche OU droite (hasard) */
+#define ROUTE_STEP_TRAND  0x18 /* direction au hasard */
+#define ROUTE_STEP_FACEP  0x19 /* se tourner vers le heros */
+#define ROUTE_STEP_TFLEE  0x1A /* tourner dos au heros */
+#define ROUTE_STEP_SPDUP  0x20 /* vitesse + (1-4) */
+#define ROUTE_STEP_SPDDN  0x21 /* vitesse - */
+#define ROUTE_STEP_FRQUP  0x22 /* frequence + (1-8) */
+#define ROUTE_STEP_FRQDN  0x23 /* frequence - */
+#define ROUTE_STEP_FIXON  0x28 /* direction fix ON (fige l'orientation) */
+#define ROUTE_STEP_FIXOFF 0x29
+#define ROUTE_STEP_THRUON 0x2A /* through ON (traverse tout) */
+#define ROUTE_STEP_THRUOFF 0x2B
 #define ROUTE_STEP_WAITN  0x40 /* 0x40|n : attendre n*8 frames (n 1-15) */
+#define ROUTE_STEP_SWON   0x50 /* + u16 : switch ON */
+#define ROUTE_STEP_SWOFF  0x51 /* + u16 : switch OFF */
+#define ROUTE_STEP_GFX    0x52 /* + u8 : changer le graphisme (slot local) */
 #define ROUTE_FLAG_REPEAT 0x01
 #define ROUTE_FLAG_SKIP   0x02
 

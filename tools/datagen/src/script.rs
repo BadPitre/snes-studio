@@ -58,19 +58,65 @@ const OP_CAMPAN: u8 = 0x16;
 const OP_CAMRET: u8 = 0x17;
 const OP_WAITCAM: u8 = 0x18;
 
-/// Encode un pas d'itinéraire (spec §2 v0.12)
-fn route_step(tok: &str) -> Result<u8> {
+/// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
+/// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
+/// remap bloc projet → sprite set de la scène).
+fn route_step(tok: &str, remap: &HashMap<u8, u8>) -> Result<Vec<u8>> {
     Ok(match tok {
-        "down" => 0x00,
-        "up" => 0x01,
-        "left" => 0x02,
-        "right" => 0x03,
-        "tdown" => 0x10,
-        "tup" => 0x11,
-        "tleft" => 0x12,
-        "tright" => 0x13,
-        "fwd" => 0x20,
-        "face" => 0x21,
+        "down" => vec![0x00],
+        "up" => vec![0x01],
+        "left" => vec![0x02],
+        "right" => vec![0x03],
+        "mrand" => vec![0x04],
+        "mhero" => vec![0x05],
+        "mflee" => vec![0x06],
+        "fwd" => vec![0x07],
+        "tdown" => vec![0x10],
+        "tup" => vec![0x11],
+        "tleft" => vec![0x12],
+        "tright" => vec![0x13],
+        "t90r" => vec![0x14],
+        "t90l" => vec![0x15],
+        "t180" => vec![0x16],
+        "t90x" => vec![0x17],
+        "trand" => vec![0x18],
+        "face" => vec![0x19],
+        "tflee" => vec![0x1A],
+        "spd+" => vec![0x20],
+        "spd-" => vec![0x21],
+        "frq+" => vec![0x22],
+        "frq-" => vec![0x23],
+        "fixon" => vec![0x28],
+        "fixoff" => vec![0x29],
+        "thruon" => vec![0x2A],
+        "thruoff" => vec![0x2B],
+        w if w.starts_with("swon:") || w.starts_with("swoff:") => {
+            let (op, num) = if let Some(n) = w.strip_prefix("swon:") {
+                (0x50u8, n)
+            } else {
+                (0x51u8, w.strip_prefix("swoff:").unwrap())
+            };
+            let idx: u16 = num
+                .parse()
+                .ok()
+                .filter(|&n| n < 512)
+                .with_context(|| format!("switch invalide : '{}'", w))?;
+            vec![op, idx as u8, (idx >> 8) as u8]
+        }
+        g if g.starts_with("gfx:") => {
+            let block: u8 = g[4..]
+                .parse()
+                .with_context(|| format!("bloc invalide : '{}'", g))?;
+            let slot = *remap.get(&block).with_context(|| {
+                format!(
+                    "gfx:{} — bloc absent du sprite set de la scene (il doit \
+                     etre porte par un event de la scene ou compte via les \
+                     pas gfx)",
+                    block
+                )
+            })?;
+            vec![0x52, slot]
+        }
         w if w.starts_with('w') => {
             let n: u8 = w[1..]
                 .parse()
@@ -78,14 +124,21 @@ fn route_step(tok: &str) -> Result<u8> {
             if n == 0 || n > 15 {
                 bail!("attente w<n> : n entre 1 et 15 (x8 frames), recu {}", n);
             }
-            0x40 | n
+            vec![0x40 | n]
         }
-        other => bail!(
-            "pas d'itineraire inconnu : '{}' (down/up/left/right, tdown/tup/\
-             tleft/tright, fwd, face, w1-w15)",
-            other
-        ),
+        other => bail!("pas d'itineraire inconnu : '{}'", other),
     })
+}
+
+/// Taille en octets d'un token de pas (passe 1)
+fn route_step_size(tok: &str) -> u16 {
+    if tok.starts_with("swon:") || tok.starts_with("swoff:") {
+        3
+    } else if tok.starts_with("gfx:") {
+        2
+    } else {
+        1
+    }
 }
 
 /// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
@@ -118,7 +171,8 @@ fn parse_lines(source: &[String]) -> Result<Vec<Line<'_>>> {
     Ok(out)
 }
 
-fn op_size(op: &str, argc: usize) -> Result<u16> {
+fn op_size(op: &str, args: &[&str]) -> Result<u16> {
+    let argc = args.len();
     Ok(match op {
         "END" => 1,
         "MSG" | "SETVAR" | "ADDVAR" | "SETGVAR" | "JMP" => 3,
@@ -135,12 +189,12 @@ fn op_size(op: &str, argc: usize) -> Result<u16> {
         "CAMPAN" => 4,
         "CAMRET" => 2,
         "WAITCAM" => 1,
-        // ROUTE <acteur> <r0|1> <s0|1> <pas...> : 4 octets + 1 par pas
+        // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
         "ROUTE" => {
-            if argc < 4 {
-                bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <pas...>");
+            if argc < 5 {
+                bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
             }
-            (4 + (argc as u16 - 3)) as u16
+            5 + args[4..].iter().map(|t| route_step_size(t)).sum::<u16>()
         }
         // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
         "CHOICE" => {
@@ -183,6 +237,7 @@ pub fn assemble(
     source: &[String],
     text_ids: &HashMap<String, u16>,
     scene_ids: &HashMap<&str, u8>,
+    sprite_remap: &HashMap<u8, u8>,
 ) -> Result<Assembled> {
     let lines = parse_lines(source)?;
 
@@ -196,7 +251,7 @@ pub fn assemble(
                     bail!("label en double : '{}'", name);
                 }
             }
-            Line::Op(op, args) => pc += op_size(op, args.len())?,
+            Line::Op(op, args) => pc += op_size(op, args)?,
         }
     }
 
@@ -401,7 +456,7 @@ pub fn assemble(
                 code.push(parse_u8(args[0])?);
             }
             "ROUTE" => {
-                if argc < 4 { bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <pas...>"); }
+                if argc < 5 { bail!("ROUTE <acteur> <r> <s> <freq> <pas...>"); }
                 let actor: u8 = if args[0] == "self" {
                     255
                 } else {
@@ -410,21 +465,27 @@ pub fn assemble(
                 let mut flags = 0u8;
                 if args[1] == "1" { flags |= 1; }
                 if args[2] == "1" { flags |= 2; }
-                let steps: Vec<u8> = args[3..]
-                    .iter()
-                    .map(|t| route_step(t))
-                    .collect::<Result<_>>()?;
-                if steps.len() > 255 {
-                    bail!("ROUTE : 255 pas maximum");
+                let freq: u8 = args[3]
+                    .parse()
+                    .ok()
+                    .filter(|&f| (1..=8).contains(&f))
+                    .with_context(|| format!("frequence invalide : '{}' (1-8)", args[3]))?;
+                let mut steps: Vec<u8> = Vec::new();
+                for t in &args[4..] {
+                    steps.extend(route_step(t, sprite_remap)?);
+                }
+                if steps.is_empty() || steps.len() > 255 {
+                    bail!("ROUTE : 1 a 255 octets de pas");
                 }
                 code.push(OP_ROUTE);
                 code.push(actor);
                 code.push(flags);
+                code.push(freq);
                 code.push(steps.len() as u8);
                 code.extend_from_slice(&steps);
             }
             "CHOICE" => {
-                op_size(op, argc)?; // valide 2-4 choix
+                op_size(op, args)?; // valide 2-4 choix
                 code.push(OP_CHOICE);
                 code.push(parse_any_var(args[0])?);
                 code.push((argc - 1) as u8);

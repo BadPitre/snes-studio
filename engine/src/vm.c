@@ -269,13 +269,15 @@ static void vm_step(void)
       vm.vars16[var] += fetch16();
       break;
 
-    case VM_OP_ROUTE: /* itinéraire (v0.12) — NON bloquant : la route
-                         part en tâche de fond (cinématiques) */
+    case VM_OP_ROUTE: /* itinéraire (v0.12/v0.13) — NON bloquant : la
+                         route part en tâche de fond (cinématiques) */
       var = fetch8(); /* acteur, 0xFF = event du script */
       val = fetch8(); /* flags */
-      idx16 = fetch8(); /* len */
+      actors_route_freq(fetch8()); /* fréquence 1-8 */
+      idx16 = fetch8(); /* len (octets) */
       if (var == 0xFF)
         var = vm.script_actor;
+      actors_route_bind_freq(var);
       actors_set_route(var, vm.pc, val, (u8)idx16);
       vm.pc += idx16; /* les pas sont inline : les sauter */
       break;

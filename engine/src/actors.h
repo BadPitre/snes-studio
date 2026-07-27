@@ -25,6 +25,12 @@ void actors_update(void);
    ofs = offset des PAS dans le bloc scripts. */
 void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len);
 
+/* Fréquence 1-8 de la prochaine route (opcode ROUTE) : à poser via
+   actors_route_freq PUIS lier avec actors_route_bind_freq(index) —
+   deux appels à un argument (piège tcc des paramètres multiples). */
+void actors_route_freq(u8 freq);
+void actors_route_bind_freq(u8 index);
+
 /* 1 si une route non-repeat court encore (opcode WAITROUTE). */
 u8 actors_routes_busy(void);
 

@@ -57,6 +57,16 @@ static u8 route_len[ACTOR_SLOTS];
 static u8 route_flags[ACTOR_SLOTS];
 static u8 route_wait[ACTOR_SLOTS];
 
+/* Attributs Move Route (v0.13) : vitesse 1-4 (0.5/1/2/4 px par frame),
+   fréquence 1-8 (pause entre pas de route), direction figée, passe-
+   muraille, graphisme changé (0xFF = celui de la page). */
+static u8 actor_speed[ACTOR_SLOTS];
+static u8 actor_freq[ACTOR_SLOTS];
+static u8 actor_dirfix[ACTOR_SLOTS];
+static u8 actor_mvdir[ACTOR_SLOTS]; /* direction du pas en cours (dirfix) */
+static u8 actor_thru[ACTOR_SLOTS];
+static u8 actor_gfx[ACTOR_SLOTS];
+
 static u16 mv_rand(void)
 {
   mv_seed ^= mv_seed << 7;
@@ -144,6 +154,12 @@ void actors_init(void)
     route_len[i] = 0;
     route_flags[i] = 0;
     route_wait[i] = 0;
+    actor_speed[i] = 1;  /* 0.5 px/frame — la vitesse v0.11 */
+    actor_freq[i] = 3;   /* défaut RM2003 */
+    actor_dirfix[i] = 0;
+    actor_thru[i] = 0;
+    actor_gfx[i] = 0xFF;
+    actor_mvdir[i] = DIR_DOWN;
   }
   mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
   mv_phase = 0;
@@ -203,7 +219,13 @@ void actors_draw(void)
         ay + 16 > camera.y && ay < camera.y + 224 + SPRITE_Y_OVERLAP)
     {
       u8 d = (i < ACTOR_SLOTS) ? actor_dirs[i] : a->direction;
-      u8 f = ACTOR_FRAME(a, d);
+      u8 f;
+
+      /* graphisme changé par la route (Change Graphic) ? */
+      if (i < ACTOR_SLOTS && actor_gfx[i] != 0xFF)
+        f = (u8)(actor_gfx[i] * 12 + d * 3);
+      else
+        f = ACTOR_FRAME(a, d);
 
       /* anim de marche (même motif que le joueur : pas A, repos, pas B,
          repos) pendant un pas */
@@ -233,6 +255,8 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
 
   if (tx >= scene_ctx.map_w || ty >= scene_ctx.map_h)
     return 1;
+  if (actor_thru[i])
+    return 0; /* passe-muraille (Through ON) : seul le bord de map bloque */
   if (scene_collision(tx, ty) == COL_SOLID)
     return 1;
   /* la tile du héros (boîte 16x16 : sa tile centrale suffit ici) */
@@ -257,11 +281,26 @@ void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
 {
   if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count || len == 0)
     return;
+  actor_step[index] = 0; /* coupe le pas d'errance en cours */
   route_ofs[index] = ofs;
   route_pos[index] = 0;
   route_len[index] = len;
   route_flags[index] = flags;
   route_wait[index] = 0;
+}
+
+/* Fréquence 1-8 du slot (posée par l'opcode ROUTE avant set_route) */
+static u8 route_freq_pending;
+
+void actors_route_freq(u8 freq)
+{
+  route_freq_pending = (freq >= 1 && freq <= 8) ? freq : 3;
+}
+
+void actors_route_bind_freq(u8 index)
+{
+  if (index < ACTOR_SLOTS)
+    actor_freq[index] = route_freq_pending;
 }
 
 /* 1 si une route NON-repeat est encore en cours (WAITROUTE) — les routes
@@ -291,11 +330,15 @@ static u8 dir_toward_player(u8 i)
   return player.y > actor_py[i] ? DIR_DOWN : DIR_UP;
 }
 
-/* Avance la route du slot i d'un cran (un pas par appel au plus).
-   Appelé au rythme du mouvement (1 frame sur 2). */
+/* Rotations 90 degres (indices DIR_DOWN=0 UP=1 LEFT=2 RIGHT=3) :
+   horaire 0→2→1→3→0, anti-horaire l'inverse. */
+static const u8 dir_cw[4] = {2, 3, 1, 0};
+static const u8 dir_ccw[4] = {3, 2, 0, 1};
+
+/* Avance la route du slot i d'un cran (un pas par appel au plus). */
 static void route_tick(u8 i)
 {
-  u8 step, d, tx, ty;
+  u8 step, d, tx, ty, adv;
 
   if (actor_step[i])
     return; /* pas de marche en cours : on le laisse finir */
@@ -315,6 +358,8 @@ static void route_tick(u8 i)
     }
   }
   step = scene_ctx.scripts[route_ofs[i] + route_pos[i]];
+  adv = 1;
+  d = actor_dirs[i];
 
   if ((step & 0xF0) == ROUTE_STEP_WAITN)
   {
@@ -322,37 +367,117 @@ static void route_tick(u8 i)
     route_pos[i]++;
     return;
   }
-  switch (step & 0xF0)
+  switch (step)
   {
-  case ROUTE_STEP_MOVE: /* 0x00-0x03 */
-    d = step & 3;
-    break;
-  case ROUTE_STEP_TURN: /* 0x10-0x13 : tourner sans bouger */
-    actor_dirs[i] = step & 3;
-    route_pos[i]++;
-    return;
-  default: /* 0x20 fwd, 0x21 face heros */
-    if (step == ROUTE_STEP_FACEP)
+  case ROUTE_STEP_MRAND:
+    d = (u8)(mv_rand() & 3);
+    goto marche;
+  case ROUTE_STEP_MHERO:
+    d = dir_toward_player(i);
+    goto marche;
+  case ROUTE_STEP_MFLEE:
+    d = dir_toward_player(i) ^ 1;
+    goto marche;
+  case ROUTE_STEP_FWD:
+    goto marche;
+  case ROUTE_STEP_T90R:
+    d = dir_cw[d];
+    goto tourne;
+  case ROUTE_STEP_T90L:
+    d = dir_ccw[d];
+    goto tourne;
+  case ROUTE_STEP_T180:
+    d = d ^ 1;
+    goto tourne;
+  case ROUTE_STEP_T90X:
+    d = (mv_rand() & 1) ? dir_cw[d] : dir_ccw[d];
+    goto tourne;
+  case ROUTE_STEP_TRAND:
+    d = (u8)(mv_rand() & 3);
+    goto tourne;
+  case ROUTE_STEP_FACEP:
+    d = dir_toward_player(i);
+    goto tourne;
+  case ROUTE_STEP_TFLEE:
+    d = dir_toward_player(i) ^ 1;
+    goto tourne;
+  case ROUTE_STEP_SPDUP:
+    if (actor_speed[i] < 4)
+      actor_speed[i]++;
+    goto fini;
+  case ROUTE_STEP_SPDDN:
+    if (actor_speed[i] > 1)
+      actor_speed[i]--;
+    goto fini;
+  case ROUTE_STEP_FRQUP:
+    if (actor_freq[i] < 8)
+      actor_freq[i]++;
+    goto fini;
+  case ROUTE_STEP_FRQDN:
+    if (actor_freq[i] > 1)
+      actor_freq[i]--;
+    goto fini;
+  case ROUTE_STEP_FIXON:
+    actor_dirfix[i] = 1;
+    goto fini;
+  case ROUTE_STEP_FIXOFF:
+    actor_dirfix[i] = 0;
+    goto fini;
+  case ROUTE_STEP_THRUON:
+    actor_thru[i] = 1;
+    goto fini;
+  case ROUTE_STEP_THRUOFF:
+    actor_thru[i] = 0;
+    goto fini;
+  case ROUTE_STEP_SWON:
+  case ROUTE_STEP_SWOFF:
+    vm_switch_set((u16)scene_ctx.scripts[route_ofs[i] + route_pos[i] + 1] |
+                      ((u16)scene_ctx.scripts[route_ofs[i] + route_pos[i] + 2]
+                       << 8),
+                  step == ROUTE_STEP_SWON);
+    adv = 3;
+    goto fini;
+  case ROUTE_STEP_GFX:
+    actor_gfx[i] = scene_ctx.scripts[route_ofs[i] + route_pos[i] + 1];
+    adv = 2;
+    goto fini;
+  default:
+    if ((step & 0xF0) == ROUTE_STEP_TURN)
     {
-      actor_dirs[i] = dir_toward_player(i);
-      route_pos[i]++;
-      return;
+      d = step & 3;
+      goto tourne;
     }
-    d = actor_dirs[i]; /* un pas en avant */
-    break;
+    d = step & 3; /* 0x00-0x03 : marcher */
+    goto marche;
   }
+
+tourne:
+  if (!actor_dirfix[i])
+    actor_dirs[i] = d;
+  goto fini;
+
+marche:
   tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
   ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
   if (mv_blocked(i, tx, ty))
   {
-    actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
+    if (!actor_dirfix[i])
+      actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
     if (route_flags[i] & ROUTE_FLAG_SKIP)
-      route_pos[i]++; /* « ignorer si bloqué » : pas suivant */
+      route_pos[i] += adv; /* « ignorer si bloqué » : pas suivant */
     return; /* sinon : réessaie tant que c'est bloqué */
   }
-  actor_dirs[i] = d;
+  if (!actor_dirfix[i])
+    actor_dirs[i] = d;
+  actor_mvdir[i] = d; /* direction RÉELLE du déplacement (dirfix) */
   actor_step[i] = 16;
-  route_pos[i]++;
+  route_pos[i] += adv;
+  /* pause de fréquence APRÈS un pas de marche (1 = lent, 8 = enchaîné) */
+  route_wait[i] = (u8)((8 - actor_freq[i]) << 2);
+  return;
+
+fini:
+  route_pos[i] += adv;
 }
 
 /* Mouvement des PNJ (v0.11/v0.12) — appelé chaque frame par la boucle
@@ -367,8 +492,6 @@ void actors_update(void)
   u8 frozen = vm_active();
 
   mv_phase ^= 1;
-  if (!mv_phase)
-    return;
 
   for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
   {
@@ -397,7 +520,7 @@ void actors_update(void)
       if (mt == ACTOR_MOVE_RANDOM)
       {
         d = (u8)(mv_rand() & 3);
-        actor_timer[i] = (u8)(32 + (mv_rand() & 63));
+        actor_timer[i] = (u8)(64 + (mv_rand() & 127));
       }
       else
       {
@@ -406,29 +529,38 @@ void actors_update(void)
           d = DIR_DOWN;
         if (mt == ACTOR_MOVE_HORIZ && d != DIR_LEFT && d != DIR_RIGHT)
           d = DIR_RIGHT;
-        actor_timer[i] = 8;
+        actor_timer[i] = 16;
       }
       tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
       ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
       if (mv_blocked(i, tx, ty))
       {
-        if (mt != ACTOR_MOVE_RANDOM)
+        if (mt != ACTOR_MOVE_RANDOM && !actor_dirfix[i])
           actor_dirs[i] = d ^ 1; /* demi-tour */
         continue;
       }
-      actor_dirs[i] = d;
+      if (!actor_dirfix[i])
+        actor_dirs[i] = d;
+      actor_mvdir[i] = d;
       actor_step[i] = 16;
     }
 
     if (actor_step[i])
     {
-      /* pas en cours : avancer d'1 px */
-      d = actor_dirs[i];
-      actor_px[i] += mv_dx[d];
-      actor_py[i] += mv_dy[d];
-      actor_step[i]--;
-      if ((actor_step[i] & 7) == 0)
-        actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
+      /* pas en cours — vitesse 1-4 : 0.5 / 1 / 2 / 4 px par frame */
+      u8 px = actor_speed[i] == 1 ? (mv_phase ? 1 : 0)
+              : actor_speed[i] == 2 ? 1
+              : actor_speed[i] == 3 ? 2 : 4;
+      d = actor_mvdir[i];
+      while (px && actor_step[i])
+      {
+        actor_px[i] += mv_dx[d];
+        actor_py[i] += mv_dy[d];
+        actor_step[i]--;
+        px--;
+        if ((actor_step[i] & 7) == 0)
+          actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
+      }
     }
   }
 }
@@ -485,8 +617,9 @@ u16 actors_autorun(void)
 
 void actor_face(u8 index, u8 dir)
 {
-  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count)
-    actor_dirs[index] = dir & 3;
+  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count &&
+      !actor_dirfix[index])
+    actor_dirs[index] = dir & 3; /* Direction Fix : orientation figée */
 }
 
 void actor_interact(u8 index)

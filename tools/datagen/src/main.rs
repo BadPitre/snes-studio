@@ -57,6 +57,8 @@ fn main() -> Result<()> {
         read_json(&proj_dir.join("project.json")).context("project.json")?;
     let mut texts: Vec<project::TextEntry> =
         read_json(&proj_dir.join("texts.json")).context("texts.json")?;
+    // blocs référencés par des pas gfx: (Move Route), par scène
+    let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
     let mut scenes = Vec::new();
     for name in &project.scenes {
@@ -77,9 +79,12 @@ fn main() -> Result<()> {
         // textes inline rejoignent la bank de textes (dédupliqués)
         if !scene.events.is_empty() {
             let mut ec = events::EventCompiler::new(&mut texts);
-            let (asm, actors) = ec.compile_scene(name, &scene.events)?;
+            let (asm, actors, gfx_blocks) = ec.compile_scene(name, &scene.events)?;
             scene.script.extend(asm);
             scene.actors.extend(actors);
+            scene_gfx_blocks.push(gfx_blocks);
+        } else {
+            scene_gfx_blocks.push(Vec::new());
         }
         scenes.push(scene);
     }
@@ -237,8 +242,17 @@ fn main() -> Result<()> {
     let mut sprite_sets: Vec<(Vec<u8>, Vec<u16>)> = Vec::new();
     let mut sprite_set_ids: Vec<u8> = Vec::new();
     let mut sprite_remaps: Vec<HashMap<u8, u8>> = Vec::new();
-    for sc in &scenes {
+    for (sci, sc) in scenes.iter().enumerate() {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
+        for &b in &scene_gfx_blocks[sci] {
+            if (b as usize) >= sprite_blocks {
+                bail!(
+                    "scene '{}' : pas gfx:{} — bloc hors feuille de sprites ({} bloc(s))",
+                    sc.name, b, sprite_blocks
+                );
+            }
+            used.insert(b as usize);
+        }
         for a in &sc.actors {
             if a.sprite == 255 {
                 continue; // invisible : pas de sprite (spec §1.3 v0.8)
