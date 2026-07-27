@@ -93,7 +93,8 @@
     {"type": "npc", "x": 23, "y": 14, "sprite": 8, "dir": "down", "entry": "salut"}
   ],
   "warps": [
-    {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2}
+    {"x": 12, "y": 1, "to": "clairiere", "tx": 16, "ty": 2},
+    {"x": 20, "y": 1, "to": "bourg", "tx": 16, "ty": 29}
   ],
   "script": [
     "compteur:",
