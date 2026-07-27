@@ -615,13 +615,27 @@ impl SourceTileset {
                     best = Some(unions);
                 }
             }
+            // Faisable : <= 8 palettes ET, si 8, la plus petite doit tenir
+            // en 12 couleurs (slots CGRAM 16-19 réservés à la textbox)
+            let feasible = |c: &Vec<BTreeSet<u16>>| {
+                c.len() <= 7
+                    || (c.len() == 8
+                        && c.iter().map(|s| s.len()).min().unwrap_or(0) <= 12)
+            };
             let mut c = best.unwrap_or_default();
-            if c.len() > 8 {
-                if let Some(e) = pack_exact(&max_sets, 8) {
+            if !feasible(&c) {
+                if let Some(e) = pack_exact(&max_sets, 7) {
                     c = e;
                 }
             }
-            if c.len() <= 8 {
+            if !feasible(&c) {
+                if let Some(e) = pack_exact(&max_sets, 8) {
+                    if feasible(&e) {
+                        c = e;
+                    }
+                }
+            }
+            if feasible(&c) {
                 clusters = c;
                 break;
             }
