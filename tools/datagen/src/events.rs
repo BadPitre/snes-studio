@@ -15,6 +15,12 @@
 //!    "then":[...],"else":[...]}
 //!   {"c":"warp","to":"scene","x":1,"y":2}
 //!   {"c":"face","event":0,"dir":"down"}
+//!   v0.9 (switches + variables 16-bit, façon RM2003) :
+//!   {"c":"switch","n":0-511,"on":true|false}
+//!   {"c":"var","n":0-255,"op":"="|"+","value":-32768..65535}
+//!   {"c":"if_sw","n":..,"on":true|false,"then":[...],"else":[...]}
+//!   {"c":"if_var","n":..,"op":"=="|"!="|">=","value":..,
+//!    "then":[...],"else":[...]}
 
 use crate::project::{Actor, Event, TextEntry};
 use anyhow::{bail, Context, Result};
@@ -72,6 +78,14 @@ impl<'a> EventCompiler<'a> {
             bail!("variable invalide : « {} » (v0-v63 ou g0-g63)", s);
         }
         Ok(s)
+    }
+
+    fn idx_field(cmd: &Value, key: &str, max: u64) -> Result<u16> {
+        cmd[key]
+            .as_u64()
+            .filter(|&n| n < max)
+            .map(|n| n as u16)
+            .with_context(|| format!("champ « {} » invalide (0-{}) : {}", key, max - 1, cmd))
     }
 
     fn u8_field(cmd: &Value, key: &str) -> Result<u8> {
@@ -155,6 +169,59 @@ impl<'a> EventCompiler<'a> {
                     let then_l = self.label("alors");
                     let end = self.label("finsi");
                     out.push(format!("  {} {} {} {}", opc, var, val, then_l));
+                    self.compile_list(
+                        cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                        depth + 1,
+                        out,
+                    )?;
+                    out.push(format!("  JMP {}", end));
+                    out.push(format!("{}:", then_l));
+                    self.compile_list(
+                        cmd["then"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                        depth + 1,
+                        out,
+                    )?;
+                    out.push(format!("{}:", end));
+                }
+                "switch" => {
+                    let n = Self::idx_field(cmd, "n", 512)?;
+                    let on = cmd["on"].as_bool().context("switch sans champ on")?;
+                    out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
+                }
+                "var" => {
+                    let n = Self::idx_field(cmd, "n", 256)?;
+                    let val = cmd["value"]
+                        .as_i64()
+                        .filter(|v| (-32768..=65535).contains(v))
+                        .with_context(|| format!("var : valeur 16-bit invalide : {}", cmd))?;
+                    let mnem = match cmd["op"].as_str().unwrap_or("=") {
+                        "=" => "SET16",
+                        "+" => "ADD16",
+                        o => bail!("var : operation inconnue « {} » (=, +)", o),
+                    };
+                    out.push(format!("  {} {} {}", mnem, n, val));
+                }
+                "if_sw" | "if_var" => {
+                    let then_l = self.label("alors");
+                    let end = self.label("finsi");
+                    if c == "if_sw" {
+                        let n = Self::idx_field(cmd, "n", 512)?;
+                        let on = cmd["on"].as_bool().unwrap_or(true);
+                        out.push(format!("  JSW {} {} {}", n, if on { 1 } else { 0 }, then_l));
+                    } else {
+                        let n = Self::idx_field(cmd, "n", 256)?;
+                        let val = cmd["value"]
+                            .as_u64()
+                            .filter(|&v| v <= 65535)
+                            .with_context(|| format!("if_var : valeur invalide : {}", cmd))?;
+                        let ops = match cmd["op"].as_str().unwrap_or("==") {
+                            "==" => "==",
+                            "!=" => "!=",
+                            ">=" => ">=",
+                            o => bail!("if_var : operateur inconnu « {} » (==, !=, >=)", o),
+                        };
+                        out.push(format!("  JCMP16 {} {} {} {}", n, ops, val, then_l));
+                    }
                     self.compile_list(
                         cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
                         depth + 1,

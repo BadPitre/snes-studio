@@ -1,7 +1,8 @@
 /*
- * save.h — sauvegardes SRAM (spec §4 v0.7) : 4 slots de 128 octets,
+ * save.h — sauvegardes SRAM (spec §4bis v2) : 4 slots de 2048 octets,
  * magie + version + checksum. Une sauvegarde = l'état du jeu : scène
- * courante, position/direction du héros, variables globales.
+ * courante, position/direction du héros, gvars, switches et
+ * variables 16-bit (v0.9).
  */
 #ifndef SAVE_H
 #define SAVE_H

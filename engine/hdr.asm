@@ -31,7 +31,8 @@
 
   CARTRIDGETYPE $02             ; $02=ROM+RAM+batterie (sauvegardes SRAM)
   ROMSIZE $08                   ; $08=2 Megabits
-  SRAMSIZE $01                  ; 16 Kbit (2 Ko) : 4 slots de sauvegarde
+  SRAMSIZE $03                  ; 64 Kbit (8 Ko) : 4 slots de 2 Ko (v2 —
+                                ; gvars + 512 switches + 256 vars 16-bit)
   COUNTRY $01                   ; $01=USA (NTSC 60 Hz — le moteur suppose
                                 ; NTSC ; $02=Europe ferait tourner les
                                 ; émulateurs fidèles en PAL 50 Hz)

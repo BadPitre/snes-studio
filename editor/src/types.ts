@@ -65,7 +65,17 @@ export type Command =
   | { c: "add"; var: string; value: number }
   | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
   | { c: "warp"; to: string; x: number; y: number }
-  | { c: "face"; event: number; dir: Direction };
+  | { c: "face"; event: number; dir: Direction }
+  // v0.9 — switches (512) et variables 16-bit (256), façon RM2003.
+  // set/add/if sur v/g 8-bit restent lisibles (héritage) mais la fenêtre
+  // de commandes ne propose plus que les versions modernes.
+  | { c: "switch"; n: number; on: boolean }
+  | { c: "var"; n: number; op: "=" | "+"; value: number }
+  | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
+  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] };
+
+export const SWITCH_COUNT = 512;
+export const VAR16_COUNT = 256;
 
 export interface GameEvent {
   name: string;

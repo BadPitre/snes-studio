@@ -29,7 +29,7 @@ static void vm_halt(void)
 
 void vm_init(void)
 {
-  u8 i;
+  u16 i;
 
   vm.active = 0;
   vm.wait_mode = VM_WAIT_NONE;
@@ -38,7 +38,30 @@ void vm_init(void)
   {
     vm.vars[i] = 0;
     vm.gvars[i] = 0;
+    vm.switches[i] = 0;
   }
+  for (i = 0; i < VM_VAR16_COUNT; i++)
+    vm.vars16[i] = 0;
+}
+
+u8 vm_switch_get(u16 idx)
+{
+  if (idx >= VM_SWITCH_COUNT)
+    return 0;
+  return (vm.switches[idx >> 3] >> (idx & 7)) & 1;
+}
+
+void vm_switch_set(u16 idx, u8 on)
+{
+  u8 mask;
+
+  if (idx >= VM_SWITCH_COUNT)
+    return;
+  mask = (u8)(1 << (idx & 7));
+  if (on)
+    vm.switches[idx >> 3] |= mask;
+  else
+    vm.switches[idx >> 3] &= (u8)~mask;
 }
 
 void vm_scene_reset(void)
@@ -97,7 +120,7 @@ static void vm_step(void)
 {
   u8 budget = VM_OPS_PER_FRAME;
   u8 op, var, val;
-  u16 ofs;
+  u16 ofs, idx16, val16;
 
   while (vm.active && vm.wait_mode == VM_WAIT_NONE)
   {
@@ -182,6 +205,41 @@ static void vm_step(void)
     case VM_OP_FACE: /* tourne l'acteur n (invisible si hors scene) */
       var = fetch8();
       actor_face(var, fetch8());
+      break;
+
+    case VM_OP_SW: /* switch OFF/ON (v0.9) */
+      idx16 = fetch16();
+      vm_switch_set(idx16, fetch8());
+      break;
+
+    case VM_OP_JSW: /* saute si switch == attendu */
+      idx16 = fetch16();
+      val = fetch8();
+      ofs = fetch16();
+      if (vm_switch_get(idx16) == val)
+        vm.pc = ofs;
+      break;
+
+    case VM_OP_SET16: /* variable 16-bit = val */
+      var = fetch8();
+      vm.vars16[var] = fetch16();
+      break;
+
+    case VM_OP_ADD16: /* variable 16-bit += val (wrap, negatifs en
+                         complement a deux) */
+      var = fetch8();
+      vm.vars16[var] += fetch16();
+      break;
+
+    case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
+      var = fetch8();
+      val = fetch8(); /* 0 ==, 1 !=, 2 >= */
+      val16 = fetch16();
+      ofs = fetch16();
+      idx16 = vm.vars16[var];
+      if ((val == 0 && idx16 == val16) || (val == 1 && idx16 != val16) ||
+          (val == 2 && idx16 >= val16))
+        vm.pc = ofs;
       break;
 
     default:

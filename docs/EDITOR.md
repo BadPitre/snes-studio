@@ -177,6 +177,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   ou *Auto* peut afficher un personnage (coffre, panneau, PNJ qui aborde
   le héros) tout en restant traversable ; « (invisible) » dans la liste
   des personnages le rend transparent.
+- **Switches et variables (v0.9, P4)** : 512 switches ON/OFF et 256
+  variables 16 bits, globaux, persistants et sauvegardés. Commandes :
+  *Modifier un switch*, *Modifier une variable* (= ou +, négatif accepté),
+  *Condition : switch*, *Condition : variable* (=, ≠, ≥) avec branches
+  Si vrai/Sinon. C'est la mécanique give/has de RM2003 : un coffre =
+  condition sur un switch + le switch passé à ON.
 - **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
   une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
   accueilleront les commandes P4) et une grille de boutons, un par

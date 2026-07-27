@@ -69,8 +69,24 @@
                               change de scène) */
 #define VM_OP_FACE    0x0B /* acteur (u8), dir (u8) — tourne l'acteur */
 
-/* Octet variable des opcodes : bit 7 = variable GLOBALE (gvar, persiste
-   entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
+/* v0.9 (A2-P4) : switches + variables 16-bit, façon RM2003 */
+#define VM_OP_SW      0x0C /* idx (u16), val (u8 0/1) — switch OFF/ON */
+#define VM_OP_JSW     0x0D /* idx (u16), attendu (u8), offset (u16) —
+                              saute si switch == attendu */
+#define VM_OP_SET16   0x0E /* var (u8), val (u16) — variable 16-bit */
+#define VM_OP_ADD16   0x0F /* var (u8), val (u16, addition avec wrap —
+                              une valeur negative s'encode en
+                              complement a deux) */
+#define VM_OP_JCMP16  0x10 /* var (u8), op (u8 : 0 ==, 1 !=, 2 >=),
+                              val (u16), offset (u16) */
+
+/* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
+   Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
+#define VM_SWITCH_COUNT 512
+#define VM_VAR16_COUNT  256
+
+/* Octet variable des opcodes 8-bit : bit 7 = variable GLOBALE (gvar,
+   persiste entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
 #define VM_VAR_GLOBAL 0x80
 
 /* Entrée acteur — spec §1.3. Layout C = layout binaire (8 octets, tcc-816

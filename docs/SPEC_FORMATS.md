@@ -297,6 +297,21 @@ projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 
 ---
 
+
+**v0.9 (A2-P4) — switches et variables 16-bit, façon RM2003 :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x0C | SW | idx u16, val u8 | switch idx (0-511) := val (0/1) |
+| 0x0D | JSW | idx u16, attendu u8, ofs u16 | pc = ofs si switch == attendu |
+| 0x0E | SET16 | var u8, val u16 | variable 16-bit var (0-255) := val |
+| 0x0F | ADD16 | var u8, val u16 | var += val (wrap ; négatif = complément à deux) |
+| 0x10 | JCMP16 | var u8, op u8, val u16, ofs u16 | pc = ofs si vrai — op : 0 `==`, 1 `!=`, 2 `>=` |
+
+Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
+**globaux et persistants** (sauvegardés, §4bis v2). Les v/g 8-bit
+d'origine restent valides (héritage + variable de travail des CHOICE).
+
 ## 3. Structures WRAM du moteur
 
 ```c
@@ -410,34 +425,26 @@ en C array (`data_font.c`).
 
 ---
 
-## 4bis. Sauvegardes SRAM (v0.7)
+## 4bis. Sauvegardes SRAM (v2 — v0.9)
 
-Cartouche à batterie (hdr.asm : `CARTRIDGETYPE $02`, `SRAMSIZE $01` =
-2 Ko, mappée en bank $70). **4 slots de 128 octets** :
+SRAM LoROM bank `$70`, **8 Ko** (`SRAMSIZE $03`, cartouche à batterie).
+**4 slots de 2048 octets** :
 
-```
-Offset  Taille  Champ
-0       2       magie "SG"
-2       1       version (1) — un slot d'une autre version est « vide »
-3       1       scene (index Scene Table)
-4       1       x du héros (en tiles)
-5       1       y
-6       1       dir (0=bas 1=haut 2=gauche 3=droite)
-7       1       réservé
-8       64      gvars[64] (variables globales)
-72      54      réservé (0)
-126     2       checksum (somme 16-bit des octets 0-125, little-endian)
-```
+| Offset | Taille | Champ |
+|---|---|---|
+| 0-1 | 2 | magie `"SG"` |
+| 2 | 1 | version = **2** |
+| 3-6 | 4 | scène, x, y, direction du héros |
+| 7 | 1 | réservé |
+| 8-71 | 64 | gvars (variables globales 8-bit, héritage) |
+| 72-135 | 64 | switches (512 bits — v0.9) |
+| 136-647 | 512 | variables 16-bit [256], little-endian (v0.9) |
+| 648-649 | 2 | checksum : somme 16-bit des octets 0-647 (LE) |
+| 650+ | — | réservé (hors checksum) |
 
-Un slot est valide si magie + version + checksum concordent (sinon il est
-présenté « vide »). Interface : **menu Système sur START** (Sauvegarder /
-Charger / Fermer, puis choix du slot — B revient/ferme), construit sur la
-textbox et son curseur de choix. Charger applique les gvars puis recharge
-la scène sauvegardée (même chemin que les warps) et repose position et
-direction du héros. Les variables de SCÈNE (v0-63) ne sont pas
-sauvegardées : elles se réinitialisent au chargement de scène (spec §2).
-
----
+Un slot est valide si magie, version ET checksum concordent — sinon il
+est traité comme vide. Les sauvegardes v1 (slots de 128 octets) ne sont
+pas migrées (version ≠ 2 ⇒ vides).
 
 ## 5. Audit "constantes de jeu" — état semaine 5
 

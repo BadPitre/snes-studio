@@ -10,6 +10,11 @@
 //!     CHOICE v<n> <texte1> <texte2> [<texte3>] [<texte4>]
 //!     WARP <scene> <x> <y>   ; téléporte le héros — termine le script
 //!     FACE <acteur> <dir>    ; tourne l'acteur n (down/up/left/right)
+//!     SW <n> 0|1             ; switch n (0-511) OFF/ON — v0.9
+//!     JSW <n> 0|1 <label>    ; saute si le switch n vaut 0|1
+//!     SET16 <n> <val>        ; variable 16-bit n (0-255) = val
+//!     ADD16 <n> <val>        ; += val (négatif accepté, wrap 16-bit)
+//!     JCMP16 <n> ==|!=|>= <val> <label> ; saute si comparaison vraie
 //!
 //! Variables (v0.6) : v<n> = variable de scène, g<n> = variable globale
 //! (persistante entre scènes) — acceptées partout où une variable est
@@ -39,6 +44,11 @@ const OP_JGEQ: u8 = 0x08;
 const OP_CHOICE: u8 = 0x09;
 const OP_WARP: u8 = 0x0A;
 const OP_FACE: u8 = 0x0B;
+const OP_SW: u8 = 0x0C;
+const OP_JSW: u8 = 0x0D;
+const OP_SET16: u8 = 0x0E;
+const OP_ADD16: u8 = 0x0F;
+const OP_JCMP16: u8 = 0x10;
 
 /// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
 const VAR_GLOBAL: u8 = 0x80;
@@ -77,6 +87,9 @@ fn op_size(op: &str, argc: usize) -> Result<u16> {
         "JEQ" | "JNE" | "JGEQ" => 5,
         "WARP" => 4,
         "FACE" => 3,
+        "SW" | "SET16" | "ADD16" => 4,
+        "JSW" => 6,
+        "JCMP16" => 7,
         // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
         "CHOICE" => {
             if argc < 3 || argc > 5 {
@@ -212,6 +225,66 @@ pub fn assemble(
                     "right" => 3,
                     d => bail!("direction inconnue : '{}'", d),
                 });
+            }
+            "SW" | "JSW" => {
+                let idx: u16 = args
+                    .first()
+                    .and_then(|t| t.parse().ok())
+                    .filter(|&n| n < 512)
+                    .with_context(|| format!("{} <n 0-511> ...", op))?;
+                let want = match args.get(1) {
+                    Some(&"0") => 0u8,
+                    Some(&"1") => 1u8,
+                    _ => bail!("{} {} 0|1 ...", op, idx),
+                };
+                if op == "SW" {
+                    if argc != 2 { bail!("SW <n> 0|1"); }
+                    code.push(OP_SW);
+                    code.extend_from_slice(&idx.to_le_bytes());
+                    code.push(want);
+                } else {
+                    if argc != 3 { bail!("JSW <n> 0|1 <label>"); }
+                    code.push(OP_JSW);
+                    code.extend_from_slice(&idx.to_le_bytes());
+                    code.push(want);
+                    code.extend_from_slice(&label_of(args[2])?.to_le_bytes());
+                }
+            }
+            "SET16" | "ADD16" => {
+                if argc != 2 { bail!("{} <n 0-255> <val>", op); }
+                let n: u8 = args[0]
+                    .parse()
+                    .with_context(|| format!("variable 16-bit invalide : '{}'", args[0]))?;
+                // négatif accepté (complément à deux, wrap 16-bit)
+                let val: i32 = args[1]
+                    .parse()
+                    .with_context(|| format!("valeur invalide : '{}'", args[1]))?;
+                if !(-32768..=65535).contains(&val) {
+                    bail!("valeur 16-bit hors limite : {}", val);
+                }
+                code.push(if op == "SET16" { OP_SET16 } else { OP_ADD16 });
+                code.push(n);
+                code.extend_from_slice(&(val as u16).to_le_bytes());
+            }
+            "JCMP16" => {
+                if argc != 4 { bail!("JCMP16 <n> ==|!=|>= <val> <label>"); }
+                let n: u8 = args[0]
+                    .parse()
+                    .with_context(|| format!("variable 16-bit invalide : '{}'", args[0]))?;
+                let opb = match args[1] {
+                    "==" => 0u8,
+                    "!=" => 1u8,
+                    ">=" => 2u8,
+                    o => bail!("JCMP16 : opérateur inconnu '{}' (==, !=, >=)", o),
+                };
+                let val: u16 = args[2]
+                    .parse()
+                    .with_context(|| format!("valeur 16-bit invalide : '{}'", args[2]))?;
+                code.push(OP_JCMP16);
+                code.push(n);
+                code.push(opb);
+                code.extend_from_slice(&val.to_le_bytes());
+                code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
             }
             "CHOICE" => {
                 op_size(op, argc)?; // valide 2-4 choix

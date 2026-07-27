@@ -49,6 +49,14 @@ function labelOf(c: Command): string {
       return `Téléporter le héros : ${c.to} (${c.x},${c.y})`;
     case "face":
       return `Tourner l'event ${c.event} vers ${c.dir}`;
+    case "switch":
+      return `Switch [${c.n}] ${c.on ? "ON" : "OFF"}`;
+    case "var":
+      return `Variable [${c.n}] ${c.op === "=" ? "=" : "+="} ${c.value}`;
+    case "if_sw":
+      return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
+    case "if_var":
+      return `Condition : si variable [${c.n}] ${c.op} ${c.value}`;
   }
 }
 
@@ -61,7 +69,7 @@ function flatten(cmds: Command[], base: string, depth: number, out: Line[]) {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
         flatten(o.do, `${path}.o${k}.`, depth + 2, out);
       });
-    } else if (c.c === "if") {
+    } else if (c.c === "if" || c.c === "if_sw" || c.c === "if_var") {
       out.push({ path: `${path}.t.-1`, depth: depth + 1, label: ": Si vrai", branch: true });
       flatten(c.then, `${path}.t.`, depth + 2, out);
       out.push({ path: `${path}.e.-1`, depth: depth + 1, label: ": Sinon", branch: true });
@@ -88,7 +96,10 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
       if (c.c === "choice" && sel.startsWith("o")) {
         list = c.options[parseInt(sel.slice(1), 10)].do;
         i++; // consomme le sélecteur de branche
-      } else if (c.c === "if" && (sel === "t" || sel === "e")) {
+      } else if (
+        (c.c === "if" || c.c === "if_sw" || c.c === "if_var") &&
+        (sel === "t" || sel === "e")
+      ) {
         list = sel === "t" ? c.then : c.else;
         i++;
       }
@@ -208,13 +219,21 @@ export default function EventEditorModal(props: Props) {
         return { c: "add", var: "v0", value: 1 };
       case "if":
         return { c: "if", var: "g0", op: "==", value: 1, then: [], else: [] };
-      case "warp": {
+    case "warp": {
         const to = props.sceneNames[0] ?? "";
         const d = props.scenes[to];
         return { c: "warp", to, x: d?.player_start[0] ?? 3, y: d?.player_start[1] ?? 3 };
       }
       case "face":
         return { c: "face", event: 0, dir: "down" };
+      case "switch":
+        return { c: "switch", n: 0, on: true };
+      case "var":
+        return { c: "var", n: 0, op: "=", value: 1 };
+      case "if_sw":
+        return { c: "if_sw", n: 0, on: true, then: [], else: [] };
+      case "if_var":
+        return { c: "if_var", n: 0, op: "==", value: 1, then: [], else: [] };
     }
   }
 
@@ -582,6 +601,117 @@ function CommandForm(props: {
               min={0}
               max={255}
               value={cmd.value}
+              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      );
+      break;
+    case "switch":
+      valid = cmd.n >= 0 && cmd.n < 512;
+      body = (
+        <div className="row">
+          <label>
+            Switch (0-511)
+            <input
+              type="number" min={0} max={511} value={cmd.n} autoFocus
+              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            État
+            <select
+              value={cmd.on ? "on" : "off"}
+              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
+            >
+              <option value="on">ON</option>
+              <option value="off">OFF</option>
+            </select>
+          </label>
+        </div>
+      );
+      break;
+    case "var":
+      valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
+      body = (
+        <div className="row">
+          <label>
+            Variable (0-255)
+            <input
+              type="number" min={0} max={255} value={cmd.n} autoFocus
+              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Opération
+            <select
+              value={cmd.op}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as "=" | "+" })}
+            >
+              <option value="=">= (affecter)</option>
+              <option value="+">+ (ajouter)</option>
+            </select>
+          </label>
+          <label>
+            Valeur (16 bits{cmd.op === "+" ? ", négatif accepté" : ""})
+            <input
+              type="number" min={-32768} max={65535} value={cmd.value}
+              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      );
+      break;
+    case "if_sw":
+      valid = cmd.n >= 0 && cmd.n < 512;
+      body = (
+        <div className="row">
+          <label>
+            Switch (0-511)
+            <input
+              type="number" min={0} max={511} value={cmd.n} autoFocus
+              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Est
+            <select
+              value={cmd.on ? "on" : "off"}
+              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
+            >
+              <option value="on">ON</option>
+              <option value="off">OFF</option>
+            </select>
+          </label>
+        </div>
+      );
+      break;
+    case "if_var":
+      valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= 0 && cmd.value <= 65535;
+      body = (
+        <div className="row">
+          <label>
+            Variable (0-255)
+            <input
+              type="number" min={0} max={255} value={cmd.n} autoFocus
+              onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Opérateur
+            <select
+              value={cmd.op}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })}
+            >
+              <option value="==">=</option>
+              <option value="!=">≠</option>
+              <option value=">=">≥</option>
+            </select>
+          </label>
+          <label>
+            Valeur
+            <input
+              type="number" min={0} max={65535} value={cmd.value}
               onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
             />
           </label>

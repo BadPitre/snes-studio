@@ -8,13 +8,17 @@
 
 import type { Command } from "../types";
 
-// Les commandes réellement compilées vers la VM (docs/TOOLS.md)
+// Les commandes réellement compilées vers la VM (docs/TOOLS.md).
+// v0.9 : switches (512) et variables 16-bit (256) façon RM2003 — les
+// anciennes commandes v/g 8-bit restent lisibles mais ne sont plus
+// proposées ici.
 const PAGE1: { c: Command["c"]; label: string }[] = [
   { c: "msg", label: "Afficher un message" },
   { c: "choice", label: "Afficher un choix" },
-  { c: "set", label: "Modifier une variable (=)" },
-  { c: "add", label: "Modifier une variable (+)" },
-  { c: "if", label: "Condition" },
+  { c: "switch", label: "Modifier un switch" },
+  { c: "var", label: "Modifier une variable" },
+  { c: "if_sw", label: "Condition : switch" },
+  { c: "if_var", label: "Condition : variable" },
   { c: "warp", label: "Téléporter le héros" },
   { c: "face", label: "Tourner un event" },
 ];
@@ -22,7 +26,6 @@ const PAGE1: { c: Command["c"]; label: string }[] = [
 // Cases annoncées mais pas encore compilables — affichées grisées pour que
 // la fenêtre dise la vérité sur ce qui existe (jamais de bouton qui ment).
 const PAGE1_SOON = [
-  "Modifier un switch",
   "Attendre",
   "Jouer un son",
   "Déplacer un event",

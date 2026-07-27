@@ -22,6 +22,8 @@ typedef struct
   u16 pc;       /* offset dans le bloc scripts de la scène */
   u8 vars[64];  /* variables de scène (reset au chargement de scène) */
   u8 gvars[64]; /* variables globales (persistent entre scènes) */
+  u8 switches[64];  /* 512 switches (bits), persistants — v0.9 */
+  u16 vars16[256];  /* 256 variables 16-bit, persistantes — v0.9 */
   u8 choice_var;   /* variable destination du CHOICE en cours */
   u8 choice_count; /* nombre d'options (2-4) */
   u8 choice_sel;   /* option sous le curseur */
@@ -40,6 +42,11 @@ void vm_start(u16 offset);
 
 /* 1 si un script a le contrôle (le joueur est gelé). */
 u8 vm_active(void);
+
+/* Switches v0.9 (0-511) — exposés pour la sauvegarde et, plus tard, les
+   pages d'events conditionnelles. */
+u8 vm_switch_get(u16 idx);
+void vm_switch_set(u16 idx, u8 on);
 
 /* À appeler chaque frame quand la VM est active : route les inputs vers la
    textbox si un opcode bloquant attend, sinon exécute les opcodes immédiats

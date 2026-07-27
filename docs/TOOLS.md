@@ -127,7 +127,11 @@ leurs textes INLINE rejoignent automatiquement la bank de textes
      {"c": "if", "var": "g1", "op": "==", "value": 1,
       "then": [ ... ], "else": [ ... ]},   // op : == != >=
      {"c": "warp", "to": "bourg", "x": 16, "y": 28},
-     {"c": "face", "event": 0, "dir": "down"}
+     {"c": "face", "event": 0, "dir": "down"},
+     {"c": "switch", "n": 12, "on": true},          // v0.9 : 512 switches
+     {"c": "var", "n": 3, "op": "+", "value": -2},  // 256 variables 16-bit
+     {"c": "if_sw", "n": 12, "on": true, "then": [], "else": []},
+     {"c": "if_var", "n": 3, "op": ">=", "value": 10, "then": [], "else": []}
    ]}
 ]
 ```
@@ -138,6 +142,12 @@ action » **exige** une apparence — sans sprite, le héros n'aurait rien à
 aborder. `entry` (label du script assembleur de la scène) reste possible pour les
 events sans `commands` — les deux mondes cohabitent. La variable de
 travail des `choice` sans `"var"` est **v63** (réservée par convention).
+
+**v0.9** : les `switch` (0-511) et `var` 16-bit (0-255) sont globaux,
+persistants et sauvegardés (spec §4bis v2) — c'est le modèle RM2003. Les
+commandes 8-bit `set`/`add`/`if` sur `v<n>`/`g<n>` restent compilées
+(héritage), mais l'Event Editor ne propose plus que les versions
+modernes. Assembleur : `SW`, `JSW`, `SET16`, `ADD16`, `JCMP16` (spec §2).
 Imbrication maximale : 6 niveaux.
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
