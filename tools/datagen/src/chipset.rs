@@ -188,8 +188,8 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         };
         let cells: [[u8; 256]; 12] = [
             island,                        // (0,0) îlot
-            cell(&[], true),               // (1,0) coins internes
-            center,                        // (2,0) inutilisé
+            center,                        // (1,0) inutilisé
+            cell(&[], true),               // (2,0) coins internes
             cell(&["top", "left"], false), cell(&["top"], false), cell(&["top", "right"], false),
             cell(&["left"], false),        center,                cell(&["right"], false),
             cell(&["bottom", "left"], false), cell(&["bottom"], false), cell(&["bottom", "right"], false),

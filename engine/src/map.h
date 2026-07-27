@@ -12,7 +12,8 @@
  * fenêtre suit la caméra ; les colonnes/lignes entrantes sont préparées
  * pendant la frame active et transférées par DMA au VBlank.
  *
- * Contrainte v0 : map_w et map_h >= 32 (taille de la fenêtre).
+ * Contrainte : map_w et map_h >= 20x15 (un écran). Une map plus petite
+ * que la fenêtre 32x32 y tient entièrement (pas de streaming sur cet axe).
  */
 #ifndef MAP_H
 #define MAP_H

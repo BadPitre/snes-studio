@@ -87,9 +87,9 @@ impl Scene {
     /// Vérifications de cohérence avec la spec (§1.2, §1.4, contrainte >= 32)
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
-        if self.width < 32 || self.height < 32 {
+        if self.width < 20 || self.height < 15 {
             bail!(
-                "scene '{}' : map {}x{} — la spec v0 impose >= 32x32",
+                "scene '{}' : map {}x{} — minimum 20x15 (un ecran, comme RM2003)",
                 self.name,
                 self.width,
                 self.height

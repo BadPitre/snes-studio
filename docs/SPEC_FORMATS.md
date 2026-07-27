@@ -33,9 +33,11 @@ des sections 1-2 ci-dessous, tel quel, en ROM.
    (le tilemap indexe en u8).
    Attention : ne pas nommer un symbole « metatiles » — il entre en
    collision silencieuse avec un symbole interne de PVSnesLib (maps.asm).
-2. **Contrainte de taille v0 : `map_width` et `map_height` >= 32** (la taille de
-   la fenêtre VRAM du moteur). Maximum : 255 (u8). Les maps plus grandes que
-   32x32 sont streamées (voir §4).
+2. **Contrainte de taille : minimum 20x15** (un écran, comme RM2003),
+   maximum 255 (u8). Les maps plus grandes que la fenêtre VRAM 32x32 sont
+   streamées (voir §4) ; les plus petites tiennent entièrement dans la
+   fenêtre (pas de streaming sur l'axe concerné, zone hors map remplie de
+   char 0 — jamais visible, la caméra est clampée aux bords).
 3. **GFX compilés par scène (v0.4, Phase 5d)** : l'octet 1 du Scene Header
    est le `gfx_set_id` — index dans les tables générées `gfx_chars[]` /
    `gfx_chars_sizes[]` / `gfx_metas[]` / `gfx_prios[]` / `gfx_pals[]`

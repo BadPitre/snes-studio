@@ -55,10 +55,16 @@ static u16 col_vram_x; /* colonne char VRAM (paire, 0..62) */
 static u16 row_vram_y; /* ligne char VRAM (paire, 0..62) */
 
 /* Position cible de la fenêtre pour une caméra donnée (caméra déjà clampée
-   aux bords de map par camera_update — piège kit §8) */
+   aux bords de map par camera_update — piège kit §8). Une map plus petite
+   que la fenêtre (min 20x15 depuis la v0.4) tient entièrement dedans :
+   fenêtre fixe à 0, pas de streaming sur cet axe. */
 static u16 map_win_target(u16 cam, u8 map_size)
 {
-  u16 t = cam >> 4;
+  u16 t;
+
+  if ((u16)map_size <= WIN_W)
+    return 0;
+  t = cam >> 4;
   if (t > WIN_MARGIN)
     t -= WIN_MARGIN;
   else
@@ -88,6 +94,21 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
     for (mx = 0; mx < WIN_W; mx++)
     {
       amx = win_x + mx;
+      /* hors map (map plus petite que la fenêtre) : char 0 transparent —
+         jamais visible, la caméra est clampée aux bords de map */
+      if (amy >= scene_ctx.map_h || amx >= scene_ctx.map_w)
+      {
+        for (by = (amy << 1) & 63; by <= ((amy << 1) & 63) + 1; by++)
+        {
+          for (bx = (amx << 1) & 63; bx <= ((amx << 1) & 63) + 1; bx++)
+          {
+            screen = (bx >> 5) + ((by >> 5) << 1);
+            ofs = (screen << 10) + ((by & 31) << 5) + (bx & 31);
+            bg_map_buffer[ofs] = 0;
+          }
+        }
+        continue;
+      }
       entry = (u16)(*src) << 2; /* base dans la table de metatiles */
       pr = 0;
       if (with_prio && prio_table[*src])
@@ -128,11 +149,26 @@ static void map_queue_col(u16 mx)
 
   for (my = 0; my < WIN_H; my++)
   {
-    const u16 *mt = mt_table + ((u16)(*src) << 2);
-    const u16 *um = mt_table + ((u16)(*usrc) << 2);
+    const u16 *mt;
+    const u16 *um;
 
-    pr = prio_table[*usrc] ? BG_PRIO : 0;
     y = ((win_y + my) << 1) & 63; /* paire : y+1 <= 63 */
+    if (win_y + my >= scene_ctx.map_h)
+    {
+      /* hors map (hauteur < fenêtre) : char 0, jamais visible */
+      col_lo[0][y] = 0;
+      col_lo[0][y + 1] = 0;
+      col_lo[1][y] = 0;
+      col_lo[1][y + 1] = 0;
+      col_up[0][y] = 0;
+      col_up[0][y + 1] = 0;
+      col_up[1][y] = 0;
+      col_up[1][y + 1] = 0;
+      continue;
+    }
+    mt = mt_table + ((u16)(*src) << 2);
+    um = mt_table + ((u16)(*usrc) << 2);
+    pr = prio_table[*usrc] ? BG_PRIO : 0;
     col_lo[0][y] = mt[0];     /* TL */
     col_lo[0][y + 1] = mt[2]; /* BL */
     col_lo[1][y] = mt[1];     /* TR */
@@ -157,11 +193,26 @@ static void map_queue_row(u16 my)
 
   for (mx = 0; mx < WIN_W; mx++)
   {
-    const u16 *mt = mt_table + ((u16)(*src) << 2);
-    const u16 *um = mt_table + ((u16)(*usrc) << 2);
+    const u16 *mt;
+    const u16 *um;
 
-    pr = prio_table[*usrc] ? BG_PRIO : 0;
     x = ((win_x + mx) << 1) & 63;
+    if (win_x + mx >= scene_ctx.map_w)
+    {
+      /* hors map (largeur < fenêtre) : char 0, jamais visible */
+      row_lo[0][x] = 0;
+      row_lo[0][x + 1] = 0;
+      row_lo[1][x] = 0;
+      row_lo[1][x + 1] = 0;
+      row_up[0][x] = 0;
+      row_up[0][x + 1] = 0;
+      row_up[1][x] = 0;
+      row_up[1][x + 1] = 0;
+      continue;
+    }
+    mt = mt_table + ((u16)(*src) << 2);
+    um = mt_table + ((u16)(*usrc) << 2);
+    pr = prio_table[*usrc] ? BG_PRIO : 0;
     row_lo[0][x] = mt[0];     /* TL */
     row_lo[0][x + 1] = mt[1]; /* TR */
     row_lo[1][x] = mt[2];     /* BL */

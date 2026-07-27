@@ -43,7 +43,7 @@ troncature à 5 bits. Index 0 = transparent.
 ```json
 {
   "name": "plaine",
-  "width": 48, "height": 40,            // en tiles 16x16, min 32x32 (spec)
+  "width": 48, "height": 40,            // en tiles 16x16, min 20x15 (spec)
   "player_start": [3, 3],               // en tiles
   "tileset": "tileset_automne",         // stem d'un tileset (optionnel, Phase 5b)
   "tilemap": [[...], ...],              // couche INFÉRIEURE : ids logiques
@@ -108,7 +108,7 @@ base). Les tiles destinées à la couche sup doivent avoir un **fond index 0**
 ```
 
 - **`autotiles`** : PNG 48x64 au format autotile RM2003 (3x4 tiles 16x16 :
-  îlot d'aperçu, coins internes, case inutilisée, puis bloc 9-slice).
+  îlot d'aperçu, case inutilisée, coins internes, puis bloc 9-slice).
   datagen calcule les bordures par quarts 8x8 selon les voisins de même
   autotile (bord de map = même) et n'émet que les variantes utilisées.
   Id logique de l'autotile k : `1000+k`. Pas encore : animation (eau).
@@ -159,7 +159,7 @@ La table est contractuelle (spec §2) — l'outil refuse tout le reste.
 ## Garanties
 
 - Sortie déterministe : mêmes sources → mêmes fichiers.
-- Validations : dimensions de map (>= 32, cohérence tilemap/collision),
+- Validations : dimensions de map (min 20x15, cohérence des couches),
   labels/textes inconnus, variables hors 0-63, textes non-ASCII, types
   d'acteur inconnus → erreur explicite, rien n'est écrit de corrompu.
 - Vérifié en régression : le projet `demo/` régénère à l'identique les

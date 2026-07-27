@@ -22,7 +22,7 @@ consomme** : aucun format intermédiaire.
 
 - **Undo/redo** (Ctrl+Z / Ctrl+Y ou Ctrl+Shift+Z) sur toutes les éditions
 - **Gestion des scènes** : création (nom + dimensions, contrainte spec
-  >= 32x32, bordure de murs par défaut), choix de la **scène de boot** (★),
+  >= 20x15, bordure de murs par défaut), choix de la **scène de boot** (★),
   suppression (la scène de boot est protégée)
 - **« Générer les données »** : sauvegarde puis lance `datagen` directement
   depuis l'éditeur (cargo doit être dans le PATH Windows). Reste ensuite

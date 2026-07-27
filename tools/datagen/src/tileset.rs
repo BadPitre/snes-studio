@@ -165,7 +165,8 @@ impl SourceTileset {
  * Chaque quart 8x8 d'une tile choisit sa pièce selon ses voisins de MÊME
  * autotile (bord de map = même). Pièces : 0 coin externe, 1 bord
  * horizontal, 2 bord vertical, 3 coin interne, 4 centre. Le gabarit 3x4 :
- * (0,0) îlot d'aperçu, (1,0) coins internes, rangées 1-3 = bloc 9-slice. */
+ * (0,0) îlot d'aperçu, (1,0) inutilisé, (2,0) coins internes, rangées 1-3 =
+ * bloc 9-slice. */
 
 fn quarter_piece(v: bool, h: bool, d: bool) -> u16 {
     match (v, h) {
@@ -182,7 +183,9 @@ fn quarter_piece(v: bool, h: bool, d: bool) -> u16 {
     }
 }
 
-/// Position (col,row) de la pièce p dans le gabarit, pour le quart (qx,qy)
+/// Position (col,row) de la pièce p dans le gabarit, pour le quart (qx,qy).
+/// Gabarit RM2003 : (0,0) îlot, (1,0) inutilisé, (2,0) coins internes,
+/// rangées 1-3 = bloc 9-slice.
 fn piece_pos(p: u16, qx: usize, qy: usize) -> (usize, usize) {
     let cx = if qx == 1 { 2 } else { 0 };
     let ry = if qy == 1 { 3 } else { 1 };
@@ -190,7 +193,7 @@ fn piece_pos(p: u16, qx: usize, qy: usize) -> (usize, usize) {
         0 => (cx, ry),
         1 => (1, ry),
         2 => (cx, 2),
-        3 => (1, 0),
+        3 => (2, 0),
         4 => (1, 2),
         _ => unreachable!(),
     }

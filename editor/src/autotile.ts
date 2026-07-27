@@ -1,5 +1,5 @@
 // Autotiles RPG Maker 2003 : PNG 48x64 = 12 tiles 16x16.
-// (0,0) îlot d'aperçu, (1,0) coins internes, (2,0) inutilisé,
+// (0,0) îlot d'aperçu, (1,0) inutilisé, (2,0) coins internes,
 // rangées 1-3 = bloc 9-slice. Chaque quart 8x8 d'une cellule choisit sa
 // pièce selon ses voisins de MÊME autotile (bord de map = même).
 // MÊME ALGORITHME que tools/datagen/src/tileset.rs — toute évolution ici
@@ -22,7 +22,7 @@ function piecePos(p: number, qx: number, qy: number): [number, number] {
     case 0: return [cx, ry];
     case 1: return [1, ry];
     case 2: return [cx, 2];
-    case 3: return [1, 0];
+    case 3: return [2, 0];
     default: return [1, 2];
   }
 }

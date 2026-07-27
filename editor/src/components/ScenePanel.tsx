@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import type { Scene } from "../types";
-import { MIN_MAP } from "../types";
+import { MIN_H, MIN_W } from "../types";
 
 interface Props {
   scene: Scene;
@@ -29,7 +29,7 @@ export default function ScenePanel(props: Props) {
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
 
-  const sizeOk = width >= MIN_MAP && height >= MIN_MAP && width <= 255 && height <= 255;
+  const sizeOk = width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255;
   const changed = width !== scene.width || height !== scene.height;
   const shrinks = width < scene.width || height < scene.height;
 
@@ -81,7 +81,7 @@ export default function ScenePanel(props: Props) {
             Largeur (tiles)
             <input
               type="number"
-              min={MIN_MAP}
+              min={MIN_W}
               max={255}
               value={width}
               onChange={(e) => setWidth(Number(e.target.value))}
@@ -91,14 +91,14 @@ export default function ScenePanel(props: Props) {
             Hauteur (tiles)
             <input
               type="number"
-              min={MIN_MAP}
+              min={MIN_H}
               max={255}
               value={height}
               onChange={(e) => setHeight(Number(e.target.value))}
             />
           </label>
         </div>
-        {!sizeOk && <p className="hint">Dimensions : {MIN_MAP} à 255 (spec v0).</p>}
+        {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255.</p>}
         {shrinks && sizeOk && (
           <p className="hint">Rognage : les acteurs et warps hors limites seront supprimés.</p>
         )}

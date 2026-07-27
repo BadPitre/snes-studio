@@ -96,7 +96,8 @@ export interface ProjectData {
 }
 
 export const TILE_SIZE = 16;
-export const MIN_MAP = 32; // contrainte spec v0
+export const MIN_W = 20; // taille minimum d'une scène (un écran, comme RM2003)
+export const MIN_H = 15;
 export const DIRECTIONS: Direction[] = ["down", "up", "left", "right"];
 
 // index de frame dans la feuille de sprites : sprite + direction
