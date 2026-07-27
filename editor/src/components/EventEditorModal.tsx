@@ -40,6 +40,7 @@ interface Line {
   depth: number;
   label: string;
   branch?: boolean; // ligne de branche ( : Quand [Oui] ) — non éditable
+  comment?: boolean; // commande « Commentaire » — style vert RM2003
 }
 
 function labelOf(c: Command): string {
@@ -89,6 +90,12 @@ function labelOf(c: Command): string {
       return `Caméra : retour au héros (vitesse ${c.speed})`;
     case "wait_cam":
       return "Attendre la caméra";
+    case "loop":
+      return "Boucle";
+    case "break":
+      return "Sortir de la boucle";
+    case "rem":
+      return `Commentaire : ${c.text}`;
   }
 }
 
@@ -114,6 +121,9 @@ function cmdTitle(c: Command["c"]): string {
     campan: "Déplacer la caméra",
     cam_return: "Caméra : retour au héros",
     wait_cam: "Attendre la caméra",
+    loop: "Boucle",
+    break: "Sortir de la boucle",
+    rem: "Commentaire",
   };
   return titles[c] ?? "Options de la commande";
 }
@@ -121,8 +131,11 @@ function cmdTitle(c: Command["c"]): string {
 function flatten(cmds: Command[], base: string, depth: number, out: Line[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
-    out.push({ path, depth, label: labelOf(c) });
-    if (c.c === "choice") {
+    out.push({ path, depth, label: labelOf(c), comment: c.c === "rem" });
+    if (c.c === "loop") {
+      flatten(c.do, `${path}.d.`, depth + 1, out);
+      out.push({ path: `${path}.d.-1`, depth: depth + 1, label: ": Fin de boucle", branch: true });
+    } else if (c.c === "choice") {
       c.options.forEach((o, k) => {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
         flatten(o.do, `${path}.o${k}.`, depth + 2, out);
@@ -159,6 +172,9 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
         (sel === "t" || sel === "e")
       ) {
         list = sel === "t" ? c.then : c.else;
+        i++;
+      } else if (c.c === "loop" && sel === "d") {
+        list = c.do;
         i++;
       }
     }
@@ -366,6 +382,12 @@ export default function EventEditorModal(props: Props) {
         return { c: "cam_return", speed: 2 };
       case "wait_cam":
         return { c: "wait_cam" };
+      case "loop":
+        return { c: "loop", do: [] };
+      case "break":
+        return { c: "break" };
+      case "rem":
+        return { c: "rem", text: "" };
     }
   }
 
@@ -611,7 +633,8 @@ export default function EventEditorModal(props: Props) {
                 <div
                   key={l.path}
                   className={
-                    "evedit-line" + (l.path === sel ? " active" : "") + (l.branch ? " branch" : "")
+                    "evedit-line" + (l.path === sel ? " active" : "") +
+                    (l.branch ? " branch" : "") + (l.comment ? " comment" : "")
                   }
                   style={{ paddingLeft: 6 + l.depth * 16 }}
                   onClick={() => {
@@ -1189,6 +1212,36 @@ function CommandForm(props: {
       break;
     case "wait_cam":
       body = <span className="hint">Bloque le script jusqu'à la fin du pan caméra.</span>;
+      break;
+    case "loop":
+      body = (
+        <span className="hint">
+          Les commandes ajoutées entre « Boucle » et « : Fin de boucle »
+          se répètent pour toujours — en sortir avec « Sortir de la
+          boucle » (ou Téléporter le héros).
+        </span>
+      );
+      break;
+    case "break":
+      body = (
+        <span className="hint">
+          Saute à la fin de la boucle la plus proche. Hors d'une boucle,
+          datagen refusera la scène.
+        </span>
+      );
+      break;
+    case "rem":
+      body = (
+        <label>
+          Commentaire (jamais affiché en jeu)
+          <textarea
+            rows={3}
+            value={cmd.text}
+            autoFocus
+            onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+          />
+        </label>
+      );
       break;
     case "warp": {
       const dest = props.scenes[cmd.to];

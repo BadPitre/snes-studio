@@ -222,7 +222,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   (titre = nom de la commande, OK/Annuler) au lieu du formulaire inline
   sous la liste Contenu ; la rangée de boutons Ajouter/Modifier/…/↑/↓ a
   disparu — tout passe par le double-clic, le clic droit (Insérer /
-  Éditer / ↑ Monter / ↓ Descendre / Supprimer) et le clavier.
+  Éditer / ↑ Monter / ↓ Descendre / Supprimer) et le clavier. Nouvelles
+  commandes Logique : **Boucle** (le corps entre « Boucle » et « : Fin
+  de boucle » se répète), **Sortir de la boucle** et **Commentaire**
+  (ligne verte italique, jamais compilée).
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

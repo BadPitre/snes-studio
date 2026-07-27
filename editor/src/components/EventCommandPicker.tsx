@@ -31,6 +31,9 @@ const TABS: Tab[] = [
       { c: "var", label: "Modifier une variable" },
       { c: "if_sw", label: "Condition : switch" },
       { c: "if_var", label: "Condition : variable" },
+      { c: "loop", label: "Boucle" },
+      { c: "break", label: "Sortir de la boucle" },
+      { c: "rem", label: "Commentaire" },
     ],
   },
   {

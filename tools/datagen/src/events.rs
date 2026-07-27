@@ -21,6 +21,8 @@
 //!   {"c":"if_sw","n":..,"on":true|false,"then":[...],"else":[...]}
 //!   {"c":"if_var","n":..,"op":"=="|"!="|">=","value":..,
 //!    "then":[...],"else":[...]}
+//!   v0.15 (boucles + commentaires) :
+//!   {"c":"loop","do":[...]}   {"c":"break"}   {"c":"rem","text":"..."}
 
 use crate::project::{Actor, Event, TextEntry};
 use anyhow::{bail, Context, Result};
@@ -39,6 +41,8 @@ pub struct EventCompiler<'a> {
     /// blocs de personnage référencés par des pas gfx: (Move Route) — à
     /// compter dans le sprite set de la scène en cours
     gfx_blocks: Vec<u8>,
+    /// pile des labels de fin de boucle (v0.15) — cible des « break »
+    loop_ends: Vec<String>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -47,7 +51,13 @@ impl<'a> EventCompiler<'a> {
             .iter()
             .map(|t| (t.text.clone(), t.name.clone()))
             .collect();
-        EventCompiler { texts, text_of, label_seq: 0, gfx_blocks: Vec::new() }
+        EventCompiler {
+            texts,
+            text_of,
+            label_seq: 0,
+            gfx_blocks: Vec::new(),
+            loop_ends: Vec::new(),
+        }
     }
 
     /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
@@ -319,6 +329,35 @@ impl<'a> EventCompiler<'a> {
                     let n = Self::u8_field(cmd, "frames")?;
                     out.push(format!("  WAIT {}", n));
                 }
+                // v0.15 — boucle RM2003 : label de tête, corps, saut de
+                // reprise ; « break » saute au label de fin de la boucle
+                // la plus proche. Une boucle sans commande bloquante tourne
+                // 32 ops/frame (la VM rend la main, spec §2).
+                "loop" => {
+                    let start = self.label("boucle");
+                    let end = self.label("finboucle");
+                    out.push(format!("{}:", start));
+                    self.loop_ends.push(end.clone());
+                    let r = self.compile_list(
+                        cmd["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                        depth + 1,
+                        out,
+                    );
+                    self.loop_ends.pop();
+                    r?;
+                    out.push(format!("  JMP {}", start));
+                    out.push(format!("{}:", end));
+                }
+                "break" => {
+                    let end = self
+                        .loop_ends
+                        .last()
+                        .context("« Sortir de la boucle » hors d'une boucle")?;
+                    out.push(format!("  JMP {}", end));
+                }
+                // v0.15 — commentaire : décoratif dans l'éditeur, aucun
+                // bytecode émis
+                "rem" => {}
                 "wait_route" => {
                     out.push("  WAITROUTE".to_string());
                 }

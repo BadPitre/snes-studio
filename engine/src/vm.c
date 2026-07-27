@@ -163,7 +163,9 @@ static void vm_step(void)
   while (vm.active && vm.wait_mode == VM_WAIT_NONE)
   {
     if (budget == 0)
-      vm_halt(); /* garde-fou anti boucle infinie */
+      return; /* budget épuisé : la VM rend la main et reprend à la frame
+                 suivante — une boucle LOOP sans commande bloquante est
+                 légale (v0.15), elle tourne 32 ops/frame comme RM2003 */
     budget--;
 
     op = fetch8();

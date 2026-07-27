@@ -262,8 +262,11 @@ multi-bank à venir.
 - Deux catégories : opcodes **immédiats** (exécutés en chaîne dans la frame)
   et opcodes **bloquants** (rendent la main à la boucle principale jusqu'à
   un événement — input, fin de frame).
-- Budget : ne jamais exécuter plus de ~32 opcodes immédiats par frame (garde-fou
-  anti-boucle infinie : compteur + arrêt d'urgence en debug).
+- Budget : ne jamais exécuter plus de ~32 opcodes immédiats par frame.
+  v0.15 : budget épuisé = la VM **rend la main** et reprend à la frame
+  suivante (les boucles LOOP de l'éditeur sans commande bloquante sont
+  légales et tournent 32 ops/frame, comme RM2003 — plus de halt debug ici ;
+  l'opcode inconnu, lui, halte toujours).
 
 ### État de la VM (en WRAM)
 
@@ -287,7 +290,8 @@ scripts de la scène est déjà résolu en pointeur far (`scene_ctx.scripts`),
 `pc` est l'offset dans ce bloc (même sémantique que le format binaire : les
 offsets des opcodes de saut et les `script_offset` d'acteurs sont absolus
 dans le bloc scripts de la scène). Garde-fou : 32 opcodes immédiats max par
-frame, halt debug au-delà (idem opcode inconnu).
+frame, puis la VM rend la main jusqu'à la frame suivante (v0.15) ; halt
+debug sur opcode inconnu uniquement.
 
 ### Table des opcodes — v0.6
 

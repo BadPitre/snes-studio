@@ -183,6 +183,7 @@ input, select, textarea {
 .evedit-line:hover { background: #2d3138; }
 .evedit-line.active { background: #31547a; }
 .evedit-line.branch { color: #8fd48f; cursor: default; }
+.evedit-line.comment { color: #6fae6f; font-style: italic; }
 /* Fenêtre « Commande d'événement » (façon Event Command de RM2003) —
    ONGLETS par catégorie, extensible quand la liste des commandes grossit */
 .modal.cmdpick { width: 560px; min-height: 300px; }

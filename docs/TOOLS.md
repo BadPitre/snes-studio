@@ -174,6 +174,15 @@ coin haut-droit) ; `{"c":"campan","x","y","speed":1-8}` (non bloquant),
 <dst> <op> <const|var|hx|hy|timer> <src>`, `TIMER <op> <val>`, `CAMPAN`,
 `CAMRET`, `WAITCAM`.
 
+**v0.15** : `{"c":"loop","do":[...]}` — boucle RM2003 : le corps se
+répète pour toujours ; `{"c":"break"}` saute à la fin de la boucle la
+plus proche (hors d'une boucle : erreur datagen). Compilation pure
+(label de tête + `JMP`, aucun opcode nouveau). Une boucle sans commande
+bloquante est légale : la VM exécute 32 opcodes par frame puis rend la
+main (plus de halt debug sur budget épuisé). `{"c":"rem","text":"..."}` —
+commentaire décoratif de l'éditeur, aucun bytecode émis (le texte n'a
+pas la contrainte ASCII des messages).
+
 **v0.14** : par event ou par page — `"move": "custom"` +
 `"move_route": {"freq":1-8,"repeat":bool,"skip":bool,"steps":[...]}`
 (mêmes pas que la commande route) ; `"priority": "below"|"same"|"above"`

@@ -84,7 +84,12 @@ export type Command =
   | { c: "timer"; op: "start" | "stop" | "show" | "hide"; secs?: number }
   | { c: "campan"; x: number; y: number; speed: number }
   | { c: "cam_return"; speed: number }
-  | { c: "wait_cam" };
+  | { c: "wait_cam" }
+  // v0.15 — boucles RM2003 et commentaires (datagen pur : loop = label +
+  // JMP, break = JMP fin de boucle, rem = rien)
+  | { c: "loop"; do: Command[] }
+  | { c: "break" }
+  | { c: "rem"; text: string };
 
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer";
