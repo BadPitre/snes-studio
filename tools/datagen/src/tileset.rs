@@ -113,6 +113,35 @@ pub fn load_source(proj_dir: &Path, png_rel: &str) -> Result<SourceTileset> {
             bail!("tileset {} : id logique {} inconnu dans le sidecar", png_rel, id);
         }
     }
+
+    // Avertissement (une fois par tileset) : tiles dont un bloc 8x8 dépasse
+    // 15 couleurs — elles seront quantifiées (fusion des plus proches)
+    let mut over: BTreeSet<u16> = BTreeSet::new();
+    let cols_grid = src.img.width / 16;
+    for by in 0..src.img.height / 8 {
+        for bx in 0..src.img.width / 8 {
+            let mut cols: BTreeSet<u16> = BTreeSet::new();
+            for y in 0..8 {
+                for x in 0..8 {
+                    let i = src.img.pixels[(by * 8 + y) * src.img.width + bx * 8 + x];
+                    if i != 0 {
+                        cols.insert(src.img.palette[i as usize]);
+                    }
+                }
+            }
+            if cols.len() > 15 {
+                over.insert(((by / 2) * cols_grid + bx / 2) as u16);
+            }
+        }
+    }
+    if !over.is_empty() {
+        println!(
+            "  attention : {} — tiles {:?} ont un bloc 8x8 a plus de 15 \
+             couleurs (limite SNES), fusion automatique des plus proches",
+            png_rel,
+            over.iter().collect::<Vec<_>>()
+        );
+    }
     Ok(src)
 }
 
@@ -221,7 +250,59 @@ fn extract_quarter(img: &IndexedImage, ox: usize, oy: usize) -> Quarter {
             }
         }
     }
+    quantize_quarter(&mut q);
     q
+}
+
+/// Distance entre deux couleurs BGR555 (carrés des écarts par canal)
+fn dist555(a: u16, b: u16) -> u32 {
+    let d = |x: u16, y: u16| {
+        let v = (x as i32) - (y as i32);
+        (v * v) as u32
+    };
+    d(a & 31, b & 31) + d((a >> 5) & 31, (b >> 5) & 31) + d((a >> 10) & 31, (b >> 10) & 31)
+}
+
+/// Un bloc 8x8 SNES a 15 couleurs max : au-delà (chipsets RM2003), on
+/// fusionne les deux couleurs les plus proches (la moins fréquente prend
+/// la valeur de l'autre), déterministe, jusqu'à passer sous la limite.
+/// Appliqué à l'EXTRACTION : compilation et auto-contrôle voient le même
+/// bloc quantifié.
+fn quantize_quarter(q: &mut Quarter) {
+    loop {
+        let mut counts: BTreeMap<u16, u32> = BTreeMap::new();
+        for c in q.iter().flatten().flatten() {
+            *counts.entry(*c).or_insert(0) += 1;
+        }
+        if counts.len() <= 15 {
+            return;
+        }
+        let cols: Vec<u16> = counts.keys().copied().collect();
+        let mut best: Option<(u32, u16, u16)> = None; // (dist, victime, cible)
+        for i in 0..cols.len() {
+            for j in i + 1..cols.len() {
+                let (a, b) = (cols[i], cols[j]);
+                // victime = la moins fréquente (à égalité : la plus grande)
+                let (from, to) = if (counts[&a], b) < (counts[&b], a) {
+                    (a, b)
+                } else {
+                    (b, a)
+                };
+                let cand = (dist555(a, b), from, to);
+                if best.map_or(true, |v| cand < v) {
+                    best = Some(cand);
+                }
+            }
+        }
+        let (_, from, to) = best.unwrap();
+        for row in q.iter_mut() {
+            for px in row.iter_mut() {
+                if *px == Some(from) {
+                    *px = Some(to);
+                }
+            }
+        }
+    }
 }
 
 /// Les 4 quarts (TL,TR,BL,BR) d'une tile référencée
@@ -289,22 +370,8 @@ impl SourceTileset {
         };
         let mut quarters: Vec<Quarter> = Vec::with_capacity(locals.len() * 4);
         for &key in &locals {
-            let qs = tile_quarters(self, key)?;
-            for q in &qs {
-                let n = colorset(q).len();
-                if n > 15 {
-                    let id = match key {
-                        TileKey::Grid(t) => t as i32,
-                        TileKey::Var(k, _) => AUTO_BASE + k as i32,
-                    };
-                    bail!(
-                        "scene '{}' : la tile {} a un bloc 8x8 de {} couleurs > 15 \
-                         (limite SNES — simplifier cette tile dans le PNG)",
-                        name, id, n
-                    );
-                }
-            }
-            quarters.extend_from_slice(&qs);
+            // les blocs > 15 couleurs sont quantifiés à l'extraction
+            quarters.extend_from_slice(&tile_quarters(self, key)?);
         }
 
         // 3. répartition en palettes : jeux uniques triés (taille desc puis
