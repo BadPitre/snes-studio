@@ -12,6 +12,10 @@ export type Tool =
   | { kind: "warp" }
   | { kind: "player_start" };
 
+// Mode de dessin du tampon (barre d'outils RM2003) : crayon, rectangle,
+// ellipse, pot de peinture
+export type DrawMode = "pen" | "rect" | "circle" | "fill";
+
 // Tampon façon RPG Maker : le bloc de la palette se répète en motif aligné
 // sur la première tile posée (ox,oy = origine du drag sur la map).
 export function paintStamp(
@@ -43,6 +47,37 @@ export function paintStamp(
         grid[y][x] = v;
         changed = true;
       }
+    }
+  }
+  if (!changed) return sc;
+  return layer === "lower" ? { ...sc, tilemap: grid } : { ...sc, upper: grid };
+}
+
+// Applique le motif du tampon sur une liste de cellules (rectangle, ellipse,
+// remplissage), motif ancré en (ax,ay) — même règle d'alignement que le
+// crayon. Une seule entrée d'historique par geste (appelé au relâchement).
+export function paintCells(
+  sc: Scene,
+  layer: Layer,
+  cells: Array<[number, number]>,
+  ax: number,
+  ay: number,
+  tiles: number[][]
+): Scene {
+  const h = tiles.length;
+  const w = tiles[0]?.length ?? 0;
+  if (!w) return sc;
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+  const src = layer === "lower" ? sc.tilemap : sc.upper;
+  let changed = false;
+  const grid = src.map((row) => row.slice());
+  for (const [x, y] of cells) {
+    if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
+    const v = tiles[mod(y - ay, h)][mod(x - ax, w)];
+    if (v === EMPTY_TILE && layer === "lower") continue; // pas de gomme au sol
+    if (grid[y][x] !== v) {
+      grid[y][x] = v;
+      changed = true;
     }
   }
   if (!changed) return sc;

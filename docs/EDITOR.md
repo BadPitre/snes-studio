@@ -73,7 +73,23 @@ consomme** : aucun format intermédiaire.
   **filtrée par couche** comme dans RPG Maker (tiles basses sur la couche
   inf., objets sur la couche sup.).
 
-Pas encore : animation des autotiles (eau), édition des gfx, `make` intégré.
+## Fonctionnalités (5e) — boucle de création
+
+- **▶ Jouer** : sauvegarde → datagen → `make` (via le bash MSYS2) →
+  lancement de l'émulateur sur le ROM compilé. Chemins du bash et de
+  l'émulateur dans les réglages ⚙ (stockés sur la machine, pas dans le
+  projet). PVSNESLIB_HOME doit être défini dans le profil MSYS2.
+- **Modes de dessin** (comme RPG Maker 2003) : ✏ crayon, ▭ rectangle,
+  ◯ ellipse, ▨ pot de peinture (zone connexe de même tile) — le motif du
+  tampon se répète dans la forme, ancré au début du geste. Un geste = une
+  entrée d'undo.
+- **Survol façon RM2003** : la zone visée est encadrée à la taille du
+  tampon, curseur crayon/pot ; aperçu de la forme pendant le glisser.
+- **Pipette / copie de bloc** : clic droit = prendre la tile sous le
+  curseur ; glisser-droit = copier un bloc de la map dans le tampon
+  (fonctionne aussi comme copier/coller).
+
+Pas encore : animation des autotiles (eau), édition des gfx.
 
 ## Lancer
 

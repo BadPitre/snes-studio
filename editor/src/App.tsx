@@ -18,10 +18,11 @@ import {
   saveProject,
 } from "./io";
 import { runImportChipset } from "./build";
-import type { Tool } from "./state";
+import type { DrawMode, Tool } from "./state";
 import {
   cyclePassability,
   newScene,
+  paintCells,
   paintStamp,
   placeActor,
   placeWarp,
@@ -33,7 +34,9 @@ import {
   updateWarp,
 } from "./state";
 import { useHistory } from "./history";
-import { canBuild, runDatagen } from "./build";
+import { canBuild, launchEmulator, runDatagen, runMake } from "./build";
+import SettingsModal from "./components/SettingsModal";
+import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ResizeSceneModal from "./components/ResizeSceneModal";
@@ -52,8 +55,15 @@ export default function App() {
   const [autoImgs, setAutoImgs] = useState<Record<string, ImageBitmap[]>>({});
   const [sprites, setSprites] = useState<ImageBitmap | null>(null);
   const [tool, setTool] = useState<Tool>({ kind: "tile", tiles: [[0]] });
+  const [drawMode, setDrawMode] = useState<DrawMode>("pen");
   const [layer, setLayer] = useState<Layer>("lower");
   const [passMode, setPassMode] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [playCfg, setPlayCfg] = useState<PlayConfig>(() => ({
+    bash: localStorage.getItem("snesstudio.bash") ?? "C:\\msys64\\usr\\bin\\bash.exe",
+    emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
+  }));
+  const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("actors");
   const [selActor, setSelActor] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(true);
@@ -195,14 +205,15 @@ export default function App() {
     }
   }
 
-  // mutation avec enregistrement dans l'historique
+  // mutation avec enregistrement dans l'historique — record=false pour les
+  // pas suivants d'un même geste (un tracé au crayon = une entrée d'undo)
   const mutate = useCallback(
-    (updater: (d: ProjectData) => ProjectData) => {
+    (updater: (d: ProjectData) => ProjectData, record = true) => {
       setData((d) => {
         if (!d) return d;
         const next = updater(d);
         if (next === d) return d;
-        history.record(d);
+        if (record) history.record(d);
         return next;
       });
       setDirty(true);
@@ -211,25 +222,25 @@ export default function App() {
   );
 
   const setScene = useCallback(
-    (updater: (sc: Scene) => Scene) => {
+    (updater: (sc: Scene) => Scene, record = true) => {
       mutate((d) => {
         if (!sceneName) return d;
         const sc = d.scenes[sceneName];
         const next = updater(sc);
         if (next === sc) return d;
         return { ...d, scenes: { ...d.scenes, [sceneName]: next } };
-      });
+      }, record);
     },
     [mutate, sceneName]
   );
 
-  function handlePaint(tx: number, ty: number, ox: number, oy: number) {
+  function handlePaint(tx: number, ty: number, ox: number, oy: number, first: boolean) {
     switch (tool.kind) {
       case "tile":
-        setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles));
+        setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
         break;
       case "actor":
-        setScene((sc) => placeActor(sc, tx, ty));
+        setScene((sc) => placeActor(sc, tx, ty), first);
         setTab("actors");
         break;
       case "warp": {
@@ -238,16 +249,63 @@ export default function App() {
           setStatus("Il faut au moins deux scènes pour poser un warp.");
           break;
         }
-        setScene((sc) => placeWarp(sc, meta, tx, ty, other));
+        setScene((sc) => placeWarp(sc, meta, tx, ty, other), first);
         setTab("warps");
         break;
       }
       case "player_start":
-        setScene((sc) => setPlayerStart(sc, tx, ty));
+        setScene((sc) => setPlayerStart(sc, tx, ty), first);
         break;
       case "select":
         break;
     }
+  }
+
+  // rectangle / ellipse / pot de peinture : un geste = une entrée d'undo
+  function applyPattern(cells: Array<[number, number]>, ax: number, ay: number) {
+    if (tool.kind !== "tile") return;
+    setScene((sc) => paintCells(sc, layer, cells, ax, ay, tool.tiles));
+  }
+
+  // pipette (clic droit) : le bloc copié depuis la map devient le tampon
+  function pickBlock(tiles: number[][]) {
+    if (tiles.length === 0 || tiles[0].length === 0) return;
+    setTool({ kind: "tile", tiles });
+  }
+
+  // Jouer : sauvegarde → datagen → make (MSYS2) → émulateur
+  async function play() {
+    if (!data || playing) return;
+    setPlaying(true);
+    try {
+      await save();
+      setStatus("datagen…");
+      const gen = await runDatagen(data.root);
+      if (!gen.ok) {
+        setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
+        return;
+      }
+      setStatus("Compilation du ROM (make)…");
+      const mk = await runMake(data.root, playCfg.bash);
+      if (!mk.ok) {
+        setStatus(`make a échoué : ${mk.output.slice(-400)}`);
+        return;
+      }
+      setStatus("Lancement de l'émulateur…");
+      const em = await launchEmulator(data.root, playCfg.emulator);
+      setStatus(em.ok ? "ROM compilé et lancé dans l'émulateur." : `Émulateur : ${em.output.slice(-200)}`);
+    } catch (e) {
+      setStatus(`Jouer : ${e}`);
+    } finally {
+      setPlaying(false);
+    }
+  }
+
+  function savePlayCfg(c: PlayConfig) {
+    setPlayCfg(c);
+    localStorage.setItem("snesstudio.bash", c.bash);
+    localStorage.setItem("snesstudio.emulator", c.emulator);
+    setShowSettings(false);
   }
 
   // cycle O → X → ☆ du sidecar du tileset courant (undo/redo comme le reste)
@@ -356,8 +414,22 @@ export default function App() {
           Sauvegarder{dirty ? " *" : ""}
         </button>
         {data && canBuild() && (
-          <button onClick={generate} disabled={building}>
+          <button onClick={generate} disabled={building || playing}>
             {building ? "Génération…" : "Générer les données"}
+          </button>
+        )}
+        {data && canBuild() && (
+          <button
+            onClick={play}
+            disabled={playing || building}
+            title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : ⚙)"
+          >
+            {playing ? "…" : "▶ Jouer"}
+          </button>
+        )}
+        {canBuild() && (
+          <button onClick={() => setShowSettings(true)} title="Réglages (bash MSYS2, émulateur)">
+            ⚙
           </button>
         )}
         {data && (
@@ -465,7 +537,9 @@ export default function App() {
             tool={tool}
             layer={layer}
             passMode={passMode}
+            drawMode={drawMode}
             onTool={setTool}
+            onDrawMode={setDrawMode}
             onSelectTileset={setSceneTileset}
             onImport={importTileset}
             onImportChipset={importChipset}
@@ -481,9 +555,12 @@ export default function App() {
               sprites={sprites}
               tool={tool}
               layer={layer}
+              drawMode={drawMode}
               showCollision={showCollision}
               showGrid={showGrid}
               onPaint={handlePaint}
+              onApplyPattern={applyPattern}
+              onPickBlock={pickBlock}
               onSelectActor={(i) => {
                 setSelActor(i);
                 setTab("actors");
@@ -551,6 +628,13 @@ export default function App() {
           existing={data.project.scenes}
           onCreate={createScene}
           onClose={() => setShowNewScene(false)}
+        />
+      )}
+      {showSettings && (
+        <SettingsModal
+          config={playCfg}
+          onSave={savePlayCfg}
+          onClose={() => setShowSettings(false)}
         />
       )}
       {showResize && scene && (

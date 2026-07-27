@@ -7,9 +7,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { Layer, TilesetMeta } from "../types";
 import { AUTOTILE_BASE, EMPTY_TILE } from "../types";
-import type { Tool } from "../state";
+import type { DrawMode, Tool } from "../state";
 import { isAboveId, isSolidId } from "../state";
 import { drawAutotilePreview } from "../autotile";
+
+const DRAW_MODES: Array<{ mode: DrawMode; label: string; hint: string }> = [
+  { mode: "pen", label: "✏ Crayon", hint: "Dessin libre (glisser)" },
+  { mode: "rect", label: "▭ Rectangle", hint: "Rectangle plein (glisser)" },
+  { mode: "circle", label: "◯ Cercle", hint: "Ellipse pleine (glisser)" },
+  { mode: "fill", label: "▨ Remplir", hint: "Pot de peinture (zone de même tile)" },
+];
 
 interface Props {
   tileset: ImageBitmap | null;
@@ -21,7 +28,9 @@ interface Props {
   tool: Tool;
   layer: Layer;
   passMode: boolean;
+  drawMode: DrawMode;
   onTool: (t: Tool) => void;
+  onDrawMode: (m: DrawMode) => void;
   onSelectTileset: (stem: string) => void;
   onImport: () => void;
   onImportChipset: () => void;
@@ -234,6 +243,20 @@ export default function TilePalette(props: Props) {
           onTool({ kind: "tile", tiles: rectTiles(r) });
         }}
       />
+      <div className="palette-title">Dessin</div>
+      <div className="draw-modes">
+        {DRAW_MODES.map((d) => (
+          <button
+            key={d.mode}
+            className={props.drawMode === d.mode ? "active" : ""}
+            onClick={() => props.onDrawMode(d.mode)}
+            title={d.hint}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">Clic droit sur la map : pipette (glisser = copier un bloc)</p>
       <div className="palette-title">Outils</div>
       <div className="tools">
         <button
