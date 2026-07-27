@@ -291,6 +291,62 @@ fn pack_bfd(sets: &[BTreeSet<u16>]) -> Vec<BTreeSet<u16>> {
     clusters
 }
 
+/// Solveur exact (backtracking borné) : trouve une répartition en
+/// `max_pal` palettes si elle existe. Jeux triés du plus contraint au
+/// moins contraint ; élagage par symétrie (clusters identiques) et budget
+/// de nœuds pour rester instantané.
+fn pack_exact(sets: &[BTreeSet<u16>], max_pal: usize) -> Option<Vec<BTreeSet<u16>>> {
+    let mut sorted = sets.to_vec();
+    sorted.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+
+    fn rec(
+        idx: usize,
+        clusters: &mut Vec<BTreeSet<u16>>,
+        sets: &[BTreeSet<u16>],
+        max_pal: usize,
+        nodes: &mut u32,
+    ) -> bool {
+        if idx == sets.len() {
+            return true;
+        }
+        if *nodes == 0 {
+            return false;
+        }
+        *nodes -= 1;
+        let s = sets[idx].clone();
+        let mut tried: Vec<BTreeSet<u16>> = Vec::new();
+        for i in 0..clusters.len() {
+            let grow = s.difference(&clusters[i]).count();
+            if clusters[i].len() + grow > 15 || tried.contains(&clusters[i]) {
+                continue;
+            }
+            tried.push(clusters[i].clone());
+            let saved = clusters[i].clone();
+            clusters[i].extend(s.iter().copied());
+            if rec(idx + 1, clusters, sets, max_pal, nodes) {
+                return true;
+            }
+            clusters[i] = saved;
+        }
+        if clusters.len() < max_pal {
+            clusters.push(s.clone());
+            if rec(idx + 1, clusters, sets, max_pal, nodes) {
+                return true;
+            }
+            clusters.pop();
+        }
+        false
+    }
+
+    let mut clusters: Vec<BTreeSet<u16>> = Vec::new();
+    let mut nodes: u32 = 2_000_000;
+    if rec(0, &mut clusters, &sorted, max_pal, &mut nodes) {
+        Some(clusters)
+    } else {
+        None
+    }
+}
+
 /// Regroupe les jeux maximaux par cluster d'accueil (premier sur-ensemble)
 /// et recalcule les unions effectives.
 fn regroup(
@@ -544,14 +600,46 @@ impl SourceTileset {
         }
         let mut clusters = clusters.unwrap_or_default();
         if clusters.len() > 8 {
-            let total: BTreeSet<u16> = uniq.iter().flatten().copied().collect();
-            bail!(
-                "scene '{}' : {} palettes de 15 couleurs necessaires > 8 \
-                 ({} couleurs uniques au total)",
-                name,
-                clusters.len(),
-                total.len()
-            );
+            // dernier recours : recherche exacte (si une répartition en 8
+            // palettes existe, elle est trouvée)
+            match pack_exact(&max_sets, 8) {
+                Some(c) => clusters = c,
+                None => {
+                    // infaisable (ou budget épuisé) : nommer les tiles les
+                    // plus gourmandes pour guider l'auteur
+                    let mut heavy: Vec<(usize, i32)> = Vec::new();
+                    for (i, &key) in locals.iter().enumerate() {
+                        let m = quarters[i * 4..i * 4 + 4]
+                            .iter()
+                            .map(|q| colorset(q).len())
+                            .max()
+                            .unwrap_or(0);
+                        if m >= 13 {
+                            let id = match key {
+                                TileKey::Grid(t) => t as i32,
+                                TileKey::Var(k, _) => AUTO_BASE + k as i32,
+                            };
+                            heavy.push((m, id));
+                        }
+                    }
+                    heavy.sort_by(|a, b| b.cmp(a));
+                    heavy.truncate(8);
+                    let total: BTreeSet<u16> = uniq.iter().flatten().copied().collect();
+                    bail!(
+                        "scene '{}' : impossible de tenir en 8 palettes de 15 \
+                         couleurs ({} couleurs uniques). Tiles les plus \
+                         gourmandes (couleurs max par bloc 8x8) : {} — en \
+                         retirer ou en simplifier quelques-unes",
+                        name,
+                        total.len(),
+                        heavy
+                            .iter()
+                            .map(|(m, id)| format!("{} ({})", id, m))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+            }
         }
         clusters.sort(); // ordre stable
         // Palettes hardware : la CGRAM 16-19 (palette 1, indices 0-3) est
