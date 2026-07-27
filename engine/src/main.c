@@ -57,6 +57,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
 int main(void)
 {
   u16 auto_ofs;
+  u8 vm_was_active = 0;
 
   /* consoleInit() est déjà appelé par le crt0 PVSnesLib avant main(). */
 
@@ -87,7 +88,17 @@ int main(void)
   while (1)
   {
     if (vm_active())
+    {
       vm_update(); /* script en cours : inputs routés vers la textbox */
+      vm_was_active = 1;
+    }
+    else if (vm_was_active)
+    {
+      /* Le script vient de se terminer : les switches/variables ont pu
+         changer — recalcule les pages actives des events (v0.10). */
+      vm_was_active = 0;
+      actors_resolve_pages();
+    }
     else if (sysmenu_active())
     {
       sysmenu_update(); /* menu Système (START) : sauvegarder / charger */
@@ -102,6 +113,7 @@ int main(void)
       u8 wd, wx, wy;
 
       player_update(); /* inputs + mouvement + collision + interaction */
+      actors_update(); /* PNJ mobiles (gelés pendant scripts/menu) */
       if (player_take_warp(&wd, &wx, &wy))
         do_warp(wd, wx, wy);
       else if (padsDown(0) & KEY_START)

@@ -15,6 +15,9 @@ export interface Project {
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
+  prefabs?: EventPrefab[]; // prefabs d'events (éditeur seulement)
+  switches?: string[]; // noms des switches (éditeur seulement, index = n)
+  variables?: string[]; // noms des variables 16-bit (éditeur seulement)
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -38,6 +41,8 @@ export type Direction = "down" | "up" | "left" | "right";
 // Types d'acteurs (déclencheurs RM2003, v0.6) : npc = PNJ visible (parle
 // avec A), trigger = script au contact (marcher sur la tile), auto =
 // script au chargement de la scène. trigger/auto : invisibles, sans sprite.
+// HÉRITAGE : les vieux fichiers de scènes portent des "actors" — convertis
+// en ÉVÉNEMENTS au chargement (io.ts), sauvegardés en events.
 export type ActorKind = "npc" | "trigger" | "auto";
 
 export interface Actor {
@@ -47,6 +52,85 @@ export interface Actor {
   sprite: number;
   dir: Direction;
   entry?: string;
+}
+
+// ---- Événements (Event Editor, modèle RM2003) -----------------------------
+// Un event = position + déclencheur + apparence + COMMANDES structurées,
+// compilées par datagen vers la VM (acteur + bytecode). Voir docs/TOOLS.md.
+
+export type EventTrigger = "action" | "touch" | "auto";
+
+export type Command =
+  | { c: "msg"; text: string }
+  | { c: "choice"; var?: string; options: { text: string; do: Command[] }[] }
+  | { c: "set"; var: string; value: number }
+  | { c: "add"; var: string; value: number }
+  | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
+  | { c: "warp"; to: string; x: number; y: number }
+  | { c: "face"; event: number; dir: Direction }
+  // v0.9 — switches (512) et variables 16-bit (256), façon RM2003.
+  // set/add/if sur v/g 8-bit restent lisibles (héritage) mais la fenêtre
+  // de commandes ne propose plus que les versions modernes.
+  | { c: "switch"; n: number; on: boolean }
+  | { c: "var"; n: number; op: "=" | "+"; value: number }
+  | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
+  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] };
+
+export const SWITCH_COUNT = 512;
+export const VAR16_COUNT = 256;
+
+// Condition d'activation d'une page (v0.10) : switch ON/OFF ou var >= min
+export type PageCondition =
+  | { switch: number; on: boolean }
+  | { var: number; min: number };
+
+// Page supplémentaire d'un event (v0.10). Les champs plats de GameEvent
+// SONT la page 1 — extraPages porte les pages 2+ (la DERNIÈRE page dont
+// la condition passe est active en jeu, modèle RM2003).
+export type MoveType = "static" | "random" | "vertical" | "horizontal";
+
+export interface EventPage {
+  condition?: PageCondition;
+  trigger: EventTrigger;
+  sprite: number;
+  dir: Direction;
+  entry?: string;
+  commands: Command[];
+  move?: MoveType; // v0.11 — PNJ mobiles (défaut : static)
+}
+
+export interface GameEvent {
+  name: string;
+  x: number;
+  y: number;
+  trigger: EventTrigger;
+  sprite: number; // bloc de personnage ; -1 = invisible
+  dir: Direction;
+  entry?: string; // label d'un script écrit à la main (avancé)
+  commands: Command[];
+  condition?: PageCondition; // condition de la page 1 (rare mais permise)
+  extraPages?: EventPage[]; // pages 2+ (v0.10)
+  move?: MoveType; // v0.11 — type de mouvement de la page 1
+}
+
+// Prefab : un event réutilisable, sans position (project.json "prefabs")
+export interface EventPrefab {
+  name: string;
+  event: Omit<GameEvent, "x" | "y">;
+}
+
+// conversion des vieux acteurs (io.ts)
+export function actorToEvent(a: Actor, index: number): GameEvent {
+  return {
+    name: `EV${String(index + 1).padStart(3, "0")}`,
+    x: a.x,
+    y: a.y,
+    trigger: a.type === "npc" ? "action" : a.type === "trigger" ? "touch" : "auto",
+    sprite: a.type === "npc" ? a.sprite : -1,
+    dir: a.dir,
+    entry: a.entry,
+    commands: [],
+  };
 }
 
 export interface Warp {
@@ -65,7 +149,7 @@ export interface Scene {
   // ids logiques : 0.. = tile de la grille, AUTOTILE_BASE+k = autotile k
   tilemap: number[][]; // couche inférieure
   upper: number[][]; // couche supérieure, EMPTY_TILE = vide
-  actors: Actor[];
+  events: GameEvent[]; // la couche Événements (les vieux actors y migrent)
   script: string[];
   warps: Warp[];
   music?: string; // stem d'un module de project.musics — absent = silence
@@ -89,7 +173,7 @@ export interface TilesetMeta {
 export const AUTOTILE_BASE = 1000;
 export const EMPTY_TILE = -1;
 
-export type Layer = "lower" | "upper";
+export type Layer = "lower" | "upper" | "events";
 
 export interface TextEntry {
   name: string;
@@ -133,9 +217,24 @@ export function charsetName(p: Project, b: number): string {
 }
 
 // blocs de personnage utilisés par une scène (joueur = bloc 0 inclus) —
-// les déclencheurs (trigger/auto) sont invisibles, sans sprite
+// tout event avec une apparence compte, quel que soit son déclencheur
 export function sceneSpriteBlocks(sc: Scene): number[] {
   const used = new Set<number>([0]);
-  for (const a of sc.actors) if (a.type === "npc") used.add(a.sprite);
+  for (const e of sc.events) {
+    if (e.sprite >= 0) used.add(e.sprite);
+    for (const p of e.extraPages ?? []) {
+      if (p.sprite >= 0) used.add(p.sprite);
+    }
+  }
   return [...used].sort((x, y) => x - y);
+}
+
+// frame de repos affichée pour un event visible
+export function eventFrame(e: GameEvent): number {
+  return e.sprite * 12 + DIRECTIONS.indexOf(e.dir) * 3;
+}
+
+// événement à cette tile (le premier trouvé), ou -1
+export function eventAt(sc: Scene, tx: number, ty: number): number {
+  return sc.events.findIndex((e) => e.x === tx && e.y === ty);
 }

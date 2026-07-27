@@ -16,6 +16,11 @@ pub struct Project {
     /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
     #[serde(default)]
     pub tilesets: Vec<String>,
+    /// Noms des blocs de personnage (écrits par l'éditeur) — purement
+    /// cosmétique côté datagen : sert à nommer les charsets dans les
+    /// messages d'erreur (« PNJ vert » plutôt que « bloc 3 »)
+    #[serde(default)]
+    pub charsets: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -41,7 +46,11 @@ pub struct Scene {
     #[serde(default)]
     #[allow(dead_code)]
     pub collision: Option<Vec<Vec<u8>>>,
+    #[serde(default)]
     pub actors: Vec<Actor>,
+    /// Événements (Event Editor) — compilés vers actors + script (events.rs)
+    #[serde(default)]
+    pub events: Vec<Event>,
     #[serde(default)]
     pub script: Vec<String>,
     #[serde(default)]
@@ -81,6 +90,20 @@ pub struct Actor {
     /// Label d'entrée dans le script de la scène (absent = pas de script)
     #[serde(default)]
     pub entry: Option<String>,
+    /// v0.10 — pages d'events : page 2+ du même event (entrées consécutives)
+    #[serde(default)]
+    pub cont: bool,
+    /// v0.10 — condition d'activation : 0 aucune, 1 switch ON, 2 switch OFF,
+    /// 3 variable >= valeur (spec §1.3)
+    #[serde(default)]
+    pub cond_type: u8,
+    #[serde(default)]
+    pub cond_idx: u16,
+    #[serde(default)]
+    pub cond_val: u16,
+    /// v0.11 — 0 statique, 1 aléatoire, 2 vertical, 3 horizontal
+    #[serde(default)]
+    pub move_type: u8,
 }
 
 fn dir_down() -> String {
@@ -91,6 +114,67 @@ fn dir_down() -> String {
 pub struct TextEntry {
     pub name: String,
     pub text: String,
+}
+
+/// Événement (Event Editor, modèle RM2003) — sucre du format SOURCE :
+/// compilé par events.rs vers un acteur + du bytecode VM (TOOLS.md).
+#[derive(Deserialize)]
+pub struct Event {
+    #[serde(default)]
+    pub name: String,
+    pub x: u8,
+    pub y: u8,
+    /// "action" (touche A), "touch" (contact), "auto" (chargement)
+    #[serde(default = "trigger_action")]
+    pub trigger: String,
+    /// Bloc de personnage ; -1 = invisible (touch/auto)
+    #[serde(default = "minus_one")]
+    pub sprite: i16,
+    #[serde(default = "dir_down")]
+    pub dir: String,
+    /// Label d'un script écrit à la main (avancé) — ignoré si commands
+    #[serde(default)]
+    pub entry: Option<String>,
+    /// Commandes structurées (Event Editor)
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+    /// v0.11 — type de mouvement : "static" (défaut), "random",
+    /// "vertical", "horizontal"
+    #[serde(default)]
+    pub r#move: Option<String>,
+    /// v0.10 — pages conditionnelles (absent = 1 page implicite formée des
+    /// champs ci-dessus). Chaque page a sa condition, son apparence, son
+    /// déclencheur et ses commandes ; la DERNIÈRE page dont la condition
+    /// passe est active (modèle RM2003).
+    #[serde(default)]
+    pub pages: Vec<EventPage>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct EventPage {
+    /// {"switch": n, "on": bool} ou {"var": n, "min": v} — absent = toujours
+    #[serde(default)]
+    pub condition: Option<serde_json::Value>,
+    #[serde(default = "trigger_action")]
+    pub trigger: String,
+    #[serde(default = "minus_one")]
+    pub sprite: i16,
+    #[serde(default = "dir_down")]
+    pub dir: String,
+    #[serde(default)]
+    pub entry: Option<String>,
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub r#move: Option<String>,
+}
+
+fn trigger_action() -> String {
+    "action".into()
+}
+
+fn minus_one() -> i16 {
+    -1
 }
 
 impl Scene {

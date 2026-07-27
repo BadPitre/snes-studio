@@ -8,8 +8,15 @@ indexés) en données moteur. **La source de vérité est le dossier projet
   format binaire byte-exact de la spec §1 (far 24-bit)
 - `engine/src/data/texts.bin` — bank $86 : table d'offsets + chaînes
 - `engine/databanks.asm` — épingle les blobs dans leurs banks
-- `engine/src/data/data_assets.c` + `data_font.c` — assets gfx (C arrays,
-  pas de format binaire en spec pour eux)
+- `engine/src/data/data_gfx{i}.c` / `data_sprites{i}.c` — UN FICHIER PAR
+  SET : le `.rodata` d'un .c est une section WLA insécable (32 Ko max, une
+  bank LoROM) ; en éclatant par set, wlalink répartit les assets sur les
+  banks libres et le total n'est plus plafonné à 32 Ko. datagen purge les
+  fichiers d'une génération précédente avant d'écrire.
+- `engine/src/data/data_assets.c` — uniquement les tables de pointeurs
+  (`gfx_chars[]`, `sprite_chars[]`…) indexées par set_id, résolues au link
+  (pointeurs far 24-bit, la bank de chaque set n'importe pas)
+- `engine/src/data/data_font.c` — fonte de la textbox
 
 ## Usage
 
@@ -88,12 +95,75 @@ personnage** dans la feuille de sprites du projet (12 frames par bloc,
 modèle RM2003). En binaire, datagen le remappe vers le slot local du
 sprite set de la scène (5 blocs max par scène, spec §5).
 
-**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ visible qui
-parle avec A (et se tourne vers le héros) ; `trigger` = invisible et
-traversable, son script part quand le héros **marche sur sa tile** (Player
-Touch) ; `auto` = invisible, son script part **au chargement de la scène**
-(Autorun — boot ou arrivée par warp). `trigger`/`auto` exigent `entry`
-(sprite/dir ignorés).
+**Types d'acteurs (v0.6, déclencheurs RM2003)** : `npc` = PNJ qui parle
+avec A (et se tourne vers le héros) ; `trigger` = traversable, son script
+part quand le héros **marche sur sa tile** (Player Touch) ; `auto` = son
+script part **au chargement de la scène** (Autorun — boot ou arrivée par
+warp). `trigger`/`auto` exigent `entry`.
+
+Depuis la v0.8, **l'apparence est indépendante du déclencheur** : un acteur
+de contact ou auto peut porter un `sprite` (coffre, panneau, PNJ qui aborde
+le héros) et reste traversable ; `sprite: -1` le rend invisible (compilé en
+`sprite_id = 0xFF`, spec §1.3).
+
+## Événements (Event Editor — A2)
+
+**`events`** est la forme moderne des acteurs (l'Event Editor de l'éditeur
+les produit) : datagen les compile vers des acteurs + du bytecode VM, et
+leurs textes INLINE rejoignent automatiquement la bank de textes
+(dédupliqués). Le format binaire ne change pas.
+
+```json
+"events": [
+  {"name": "Fleuriste", "x": 23, "y": 14,
+   "trigger": "action",              // action (A) | touch (contact) | auto
+   "sprite": 1, "dir": "down",       // apparence : bloc ; -1 = invisible
+   "commands": [
+     {"c": "msg", "text": "Bonjour !"},
+     {"c": "choice", "options": [       // 2-4 options, branches "do"
+        {"text": "Oui", "do": [ {"c": "set", "var": "g1", "value": 1} ]},
+        {"text": "Non", "do": []} ]},
+     {"c": "add", "var": "v0", "value": 1},
+     {"c": "if", "var": "g1", "op": "==", "value": 1,
+      "then": [ ... ], "else": [ ... ]},   // op : == != >=
+     {"c": "warp", "to": "bourg", "x": 16, "y": 28},
+     {"c": "face", "event": 0, "dir": "down"},
+     {"c": "switch", "n": 12, "on": true},          // v0.9 : 512 switches
+     {"c": "var", "n": 3, "op": "+", "value": -2},  // 256 variables 16-bit
+     {"c": "if_sw", "n": 12, "on": true, "then": [], "else": []},
+     {"c": "if_var", "n": 3, "op": ">=", "value": 10, "then": [], "else": []}
+   ]}
+]
+```
+
+L'apparence est libre quel que soit le déclencheur (v0.8) : `sprite >= 0`
+affiche le personnage, `-1` rend l'event invisible. Seul un event « touche
+action » **exige** une apparence — sans sprite, le héros n'aurait rien à
+aborder. `entry` (label du script assembleur de la scène) reste possible pour les
+events sans `commands` — les deux mondes cohabitent. La variable de
+travail des `choice` sans `"var"` est **v63** (réservée par convention).
+
+**PNJ mobiles (v0.11)** : `"move"` sur un event ou une page —
+`"static"` (défaut), `"random"`, `"vertical"`, `"horizontal"`. Réservé aux
+déclencheurs « touche action » ; le PNJ se déplace d'une tile à la fois à
+la moitié de la vitesse du héros, sans jamais marcher sur lui ni sur un
+autre event, et gèle pendant les dialogues.
+
+**Pages (v0.10)** : un event peut remplacer ses champs plats par
+`"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
+ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,
+`dir`, `commands`. datagen compile chaque page en une entrée acteur
+consécutive (12 octets, spec §1.3) ; en jeu, la dernière page dont la
+condition passe est active. Exemple coffre : page 1 sans condition
+(donne l'objet puis `switch 12 ON`), page 2 `{"switch":12,"on":true}`
+(apparence ouverte, « déjà vide »).
+
+**v0.9** : les `switch` (0-511) et `var` 16-bit (0-255) sont globaux,
+persistants et sauvegardés (spec §4bis v2) — c'est le modèle RM2003. Les
+commandes 8-bit `set`/`add`/`if` sur `v<n>`/`g<n>` restent compilées
+(héritage), mais l'Event Editor ne propose plus que les versions
+modernes. Assembleur : `SW`, `JSW`, `SET16`, `ADD16`, `JCMP16` (spec §2).
+Imbrication maximale : 6 niveaux.
 
 **Tilesets (Phase 5)** : PNG en grille de tiles 16x16 (dimensions multiples
 de 16, max 999 tiles), indices **rangée par rangée** comme la palette

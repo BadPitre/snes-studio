@@ -44,7 +44,7 @@ export default function DiagnosticsModal({ data, diags, report, onClose }: Props
                 <th>Taille</th>
                 <th>Tiles</th>
                 <th>Charsets</th>
-                <th>Acteurs</th>
+                <th>Events</th>
                 <th>Warps</th>
               </tr>
             </thead>
@@ -67,7 +67,7 @@ export default function DiagnosticsModal({ data, diags, report, onClose }: Props
                     <td className={used > SCENE_SPRITE_BLOCKS_MAX ? "diag-bad" : ""}>
                       {used}/{SCENE_SPRITE_BLOCKS_MAX}
                     </td>
-                    <td>{sc.actors.length}</td>
+                    <td>{sc.events.length}</td>
                     <td>{sc.warps.length}</td>
                   </tr>
                 );

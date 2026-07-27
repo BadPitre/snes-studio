@@ -5,10 +5,11 @@
 // sauvegarde, génération des données moteur.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Actor, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
+import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
 import {
   assetStem,
   charsetName,
+  eventAt,
   musicStem,
   projectTilesets,
   spriteBlockCount,
@@ -32,19 +33,21 @@ import {
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
+  addEvent,
   cyclePassability,
   newScene,
+  nextEventName,
   paintCells,
   paintStamp,
-  placeActor,
   placeWarp,
-  removeActor,
+  removeEvent,
   removeWarp,
   resizeScene,
   setPlayerStart,
-  updateActor,
+  updateEvent,
   updateWarp,
 } from "./state";
+import { scriptLabels } from "./state";
 import { useHistory } from "./history";
 import { canBuild, launchEmulator, runDatagen, runMake } from "./build";
 import SettingsModal from "./components/SettingsModal";
@@ -53,7 +56,9 @@ import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ScenePanel from "./components/ScenePanel";
 import SceneTree from "./components/SceneTree";
-import ActorPanel from "./components/ActorPanel";
+import EventsPanel from "./components/EventsPanel";
+import EventEditorModal from "./components/EventEditorModal";
+import VarListModal from "./components/VarListModal";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -87,7 +92,11 @@ export default function App() {
   }));
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("scene");
-  const [selActor, setSelActor] = useState<number | null>(null);
+  const [selEvent, setSelEvent] = useState<number | null>(null);
+  // menu contextuel de la couche Événements + Event Editor + mini-modal warp
+  const [evMenu, setEvMenu] = useState<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const [evEdit, setEvEdit] = useState<{ index: number; ev: GameEvent } | null>(null);
+  const [warpEdit, setWarpEdit] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [hoverPos, setHoverPos] = useState<[number, number] | null>(null);
@@ -107,9 +116,10 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   // fenêtre de diagnostic (Tools → Vérifier le projet)
   const [diags, setDiags] = useState<Diag[] | null>(null);
+  const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
-  // presse-papier du menu Edit (PNJ sélectionné)
-  const [actorClipboard, setActorClipboard] = useState<Actor | null>(null);
+  // presse-papier d'événement (menu Edit + clic droit)
+  const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
   // hauteur de la palette (séparateur palette / arborescence, persisté)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
@@ -143,9 +153,9 @@ export default function App() {
   const usedChipsets: Record<string, string[]> = {};
   if (data) {
     for (const [n, sc] of Object.entries(data.scenes)) {
-      for (const a of sc.actors) {
-        if (a.type !== "npc") continue; // déclencheurs : pas de sprite
-        (usedCharsets[a.sprite] ??= []).includes(n) || usedCharsets[a.sprite].push(n);
+      for (const e of sc.events) {
+        if (e.sprite < 0) continue; // invisibles
+        (usedCharsets[e.sprite] ??= []).includes(n) || usedCharsets[e.sprite].push(n);
       }
       const stem = sc.tileset ?? tilesetNames[0];
       (usedChipsets[stem] ??= []).push(n);
@@ -167,7 +177,7 @@ export default function App() {
     setTilesets(bitmaps);
     setAutoImgs(autos);
     setSprites(await loadAssetPng(root, d.project.assets.sprites));
-    setSelActor(null);
+    setSelEvent(null);
     setLayer("lower");
     setPassMode(false);
     setDirty(false);
@@ -221,7 +231,7 @@ export default function App() {
     setTilesets({});
     setAutoImgs({});
     setSprites(null);
-    setSelActor(null);
+    setSelEvent(null);
     setDirty(false);
     history.reset();
     setStatus("Ouvre un dossier projet (ex. demo/)");
@@ -284,50 +294,93 @@ export default function App() {
     }
   }
 
-  // ---- Menu Edit : presse-papier du PNJ sélectionné ------------------------
+  // ---- Menu Edit + clic droit : presse-papier d'événement -------------------
 
-  const selectedActor = scene && selActor !== null ? scene.actors[selActor] ?? null : null;
+  const selectedEvent = scene && selEvent !== null ? scene.events[selEvent] ?? null : null;
 
-  function copyActor() {
-    if (selectedActor) setActorClipboard({ ...selectedActor });
+  function copyEvent() {
+    if (selectedEvent) setEvClipboard(structuredClone(selectedEvent));
   }
 
-  function deleteSelActor() {
-    if (selActor === null) return;
-    setScene((sc) => removeActor(sc, selActor));
-    setSelActor(null);
+  function deleteSelEvent() {
+    if (selEvent === null) return;
+    setScene((sc) => removeEvent(sc, selEvent));
+    setSelEvent(null);
   }
 
-  function cutActor() {
-    copyActor();
-    deleteSelActor();
+  function cutEvent() {
+    copyEvent();
+    deleteSelEvent();
   }
 
-  function pasteActor() {
-    if (!scene || !actorClipboard) return;
-    // première tile libre en partant de la position d'origine
-    const free = (tx: number, ty: number) =>
-      !scene.actors.some((a) => a.x === tx && a.y === ty);
-    let placed: [number, number] | null = null;
-    outer: for (let r = 0; r < Math.max(scene.width, scene.height); r++) {
-      for (let dy = -r; dy <= r && !placed; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const tx = actorClipboard.x + dx;
-          const ty = actorClipboard.y + dy;
-          if (tx < 0 || ty < 0 || tx >= scene.width || ty >= scene.height) continue;
-          if (free(tx, ty)) {
-            placed = [tx, ty];
-            break outer;
+  // colle sur (tx,ty) si fourni, sinon première tile libre autour de l'origine
+  function pasteEvent(tx?: number, ty?: number) {
+    if (!scene || !evClipboard) return;
+    const free = (x: number, y: number) => eventAt(scene, x, y) < 0;
+    let placed: [number, number] | null =
+      tx !== undefined && ty !== undefined && free(tx, ty) ? [tx, ty] : null;
+    if (!placed) {
+      outer: for (let r = 0; r < Math.max(scene.width, scene.height); r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = evClipboard.x + dx;
+            const y = evClipboard.y + dy;
+            if (x < 0 || y < 0 || x >= scene.width || y >= scene.height) continue;
+            if (free(x, y)) {
+              placed = [x, y];
+              break outer;
+            }
           }
         }
       }
     }
     if (!placed) return;
-    const [tx, ty] = placed;
-    setScene((sc) => ({ ...sc, actors: [...sc.actors, { ...actorClipboard, x: tx, y: ty }] }));
-    setSelActor(scene.actors.length);
-    setTab("actors");
+    const [px, py] = placed;
+    const count = scene.events.length;
+    setScene((sc) => addEvent(sc, { ...structuredClone(evClipboard), x: px, y: py }));
+    setSelEvent(count);
+  }
+
+  // ---- couche Événements : création / édition / prefabs --------------------
+
+  function newEventAt(tx: number, ty: number, base?: Omit<GameEvent, "x" | "y">) {
+    if (!scene) return;
+    const ev: GameEvent = base
+      ? { ...structuredClone(base), x: tx, y: ty }
+      : {
+          name: nextEventName(scene),
+          x: tx,
+          y: ty,
+          trigger: "action",
+          sprite: Math.min(1, spriteBlocks - 1),
+          dir: "down",
+          commands: [],
+        };
+    const index = scene.events.length;
+    setScene((sc) => addEvent(sc, ev));
+    setSelEvent(index);
+    setEvEdit({ index, ev });
+  }
+
+  function saveEventAsPrefab(ev: GameEvent) {
+    if (!data) return;
+    const name = prompt("Nom du prefab :", ev.name);
+    if (!name) return;
+    const cp = structuredClone(ev) as Partial<GameEvent>;
+    delete cp.x;
+    delete cp.y;
+    mutate((d) => ({
+      ...d,
+      project: {
+        ...d.project,
+        prefabs: [
+          ...(d.project.prefabs ?? []).filter((pf) => pf.name !== name),
+          { name, event: cp as Omit<GameEvent, "x" | "y"> },
+        ],
+      },
+    }));
+    setStatus(`Prefab « ${name} » enregistré.`);
   }
 
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
@@ -548,7 +601,7 @@ export default function App() {
           n,
           {
             ...sc,
-            actors: sc.actors.map((a) => (a.sprite > b ? { ...a, sprite: a.sprite - 1 } : a)),
+            events: sc.events.map((e) => (e.sprite > b ? { ...e, sprite: e.sprite - 1 } : e)),
           },
         ])
       );
@@ -704,35 +757,13 @@ export default function App() {
   );
 
   function handlePaint(tx: number, ty: number, ox: number, oy: number, first: boolean) {
-    switch (tool.kind) {
-      case "tile":
-        setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
-        break;
-      case "actor":
-        setScene((sc) => placeActor(sc, tx, ty), first);
-        setTab("actors");
-        break;
-      case "warp": {
-        const other = data?.project.scenes.find((s) => s !== sceneName);
-        if (!other) {
-          setStatus("Il faut au moins deux scènes pour poser un warp.");
-          break;
-        }
-        setScene((sc) => placeWarp(sc, meta, tx, ty, other), first);
-        setTab("warps");
-        break;
-      }
-      case "player_start":
-        setScene((sc) => setPlayerStart(sc, tx, ty), first);
-        break;
-      case "select":
-        break;
-    }
+    if (layer === "events") return; // la couche Événements ne se peint pas
+    setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
   }
 
   // rectangle / ellipse / pot de peinture : un geste = une entrée d'undo
   function applyPattern(cells: Array<[number, number]>, ax: number, ay: number) {
-    if (tool.kind !== "tile") return;
+    if (layer === "events") return;
     setScene((sc) => paintCells(sc, layer, cells, ax, ay, tool.tiles));
   }
 
@@ -820,7 +851,7 @@ export default function App() {
       scenes: { ...d.scenes, [name]: { ...newScene(name, width, height), parent } },
     }));
     setSceneName(name);
-    setSelActor(null);
+    setSelEvent(null);
     setShowNewScene(false);
   }
 
@@ -854,7 +885,7 @@ export default function App() {
       return { ...d, project: { ...d.project, scenes: remaining }, scenes };
     });
     if (sceneName === name) setSceneName(remaining[0]);
-    setSelActor(null);
+    setSelEvent(null);
   }
 
   function setBootScene(name: string) {
@@ -929,7 +960,7 @@ export default function App() {
   useEffect(() => {
     if (data && !data.scenes[sceneName]) {
       setSceneName(data.project.boot_scene);
-      setSelActor(null);
+      setSelEvent(null);
     }
   }, [data, sceneName]);
 
@@ -959,10 +990,10 @@ export default function App() {
         { label: "Annuler", hint: "Ctrl+Z", action: doUndo, disabled: !data },
         { label: "Rétablir", hint: "Ctrl+Y", action: doRedo, disabled: !data },
         { sep: true },
-        { label: "Couper le PNJ sélectionné", action: cutActor, disabled: !selectedActor },
-        { label: "Copier le PNJ sélectionné", action: copyActor, disabled: !selectedActor },
-        { label: "Coller le PNJ", action: pasteActor, disabled: !data || !actorClipboard },
-        { label: "Supprimer le PNJ sélectionné", action: deleteSelActor, disabled: !selectedActor },
+        { label: "Couper l'événement sélectionné", action: cutEvent, disabled: !selectedEvent },
+        { label: "Copier l'événement sélectionné", action: copyEvent, disabled: !selectedEvent },
+        { label: "Coller l'événement", action: () => pasteEvent(), disabled: !data || !evClipboard },
+        { label: "Supprimer l'événement sélectionné", action: deleteSelEvent, disabled: !selectedEvent },
         { sep: true },
         {
           label: "Réglages du projet…",
@@ -974,6 +1005,11 @@ export default function App() {
     {
       label: "Tools",
       items: [
+        {
+          label: "Switches et variables…",
+          action: () => setVarMgr(true),
+          disabled: !data,
+        },
         {
           label: "Vérifier le projet…",
           action: () => void openDiagnostics(),
@@ -1033,6 +1069,13 @@ export default function App() {
               onClick={() => setLayer("upper")}
             >
               Couche sup.
+            </button>
+            <button
+              className={layer === "events" ? "active" : ""}
+              onClick={() => setLayer("events")}
+              title="Couche des événements (RM2003) : events, warps, départ du joueur — clic droit pour créer"
+            >
+              Événements
             </button>
           </span>
         )}
@@ -1112,7 +1155,7 @@ export default function App() {
               current={sceneName}
               onSelect={(n) => {
                 setSceneName(n);
-                setSelActor(null);
+                setSelEvent(null);
               }}
               onCreate={(parent) => {
                 setNewSceneParent(parent);
@@ -1141,9 +1184,16 @@ export default function App() {
                 onApplyPattern={applyPattern}
                 onPickBlock={pickBlock}
                 onHover={setHoverPos}
-                onSelectActor={(i) => {
-                  setSelActor(i);
-                  setTab("actors");
+                selectedEvent={selEvent}
+                onSelectEvent={setSelEvent}
+                onOpenEvent={(i) => {
+                  setSelEvent(i);
+                  setEvEdit({ index: i, ev: scene.events[i] });
+                }}
+                onEventMenu={(tx, ty, cx, cy) => {
+                  const hit = eventAt(scene, tx, ty);
+                  setSelEvent(hit >= 0 ? hit : null);
+                  setEvMenu({ x: cx, y: cy, tx, ty });
                 }}
               />
             </div>
@@ -1197,18 +1247,17 @@ export default function App() {
               />
             )}
             {tab === "actors" && (
-              <ActorPanel
+              <EventsPanel
                 scene={scene}
-                selected={selActor}
+                selected={selEvent}
                 canImport={canWriteFiles()}
-                blockCount={spriteBlocks}
                 blockNames={blockNames}
                 onImportCharset={importCharset}
-                onSelect={setSelActor}
-                onUpdate={(i, patch: Partial<Actor>) => setScene((sc) => updateActor(sc, i, patch))}
+                onSelect={setSelEvent}
+                onOpen={(i) => setEvEdit({ index: i, ev: scene.events[i] })}
                 onRemove={(i) => {
-                  setScene((sc) => removeActor(sc, i));
-                  setSelActor(null);
+                  setScene((sc) => removeEvent(sc, i));
+                  setSelEvent(null);
                 }}
               />
             )}
@@ -1287,6 +1336,243 @@ export default function App() {
             setDiagReport(null);
           }}
         />
+      )}
+      {evMenu && scene && (
+        <div
+          className="ctx-backdrop"
+          onClick={() => setEvMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setEvMenu(null);
+          }}
+        >
+          <div className="ctx-menu" style={{ left: evMenu.x, top: evMenu.y }} onClick={(e) => e.stopPropagation()}>
+            {(() => {
+              const hit = eventAt(scene, evMenu.tx, evMenu.ty);
+              const warpHit = scene.warps.findIndex((w) => w.x === evMenu.tx && w.y === evMenu.ty);
+              const close = () => setEvMenu(null);
+              if (hit >= 0) {
+                const ev = scene.events[hit];
+                return (
+                  <>
+                    <button
+                      onClick={() => {
+                        close();
+                        setSelEvent(hit);
+                        setEvEdit({ index: hit, ev });
+                      }}
+                    >
+                      Éditer « {ev.name} »…
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        setSelEvent(hit);
+                        setEvClipboard(structuredClone(ev));
+                        setScene((sc) => removeEvent(sc, hit));
+                        setSelEvent(null);
+                      }}
+                    >
+                      Couper
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        setEvClipboard(structuredClone(ev));
+                      }}
+                    >
+                      Copier
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        saveEventAsPrefab(ev);
+                      }}
+                    >
+                      Enregistrer comme prefab…
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        close();
+                        setScene((sc) => removeEvent(sc, hit));
+                        setSelEvent(null);
+                      }}
+                    >
+                      Supprimer
+                    </button>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <button
+                    onClick={() => {
+                      close();
+                      newEventAt(evMenu.tx, evMenu.ty);
+                    }}
+                  >
+                    ＋ Nouvel événement…
+                  </button>
+                  {(data?.project.prefabs ?? []).map((pf) => (
+                    <button
+                      key={pf.name}
+                      onClick={() => {
+                        close();
+                        newEventAt(evMenu.tx, evMenu.ty, pf.event);
+                      }}
+                    >
+                      ＋ Prefab : {pf.name}
+                    </button>
+                  ))}
+                  {evClipboard && (
+                    <button
+                      onClick={() => {
+                        close();
+                        pasteEvent(evMenu.tx, evMenu.ty);
+                      }}
+                    >
+                      Coller l'événement ici
+                    </button>
+                  )}
+                  {warpHit >= 0 ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          close();
+                          setWarpEdit(warpHit);
+                        }}
+                      >
+                        Éditer le warp…
+                      </button>
+                      <button
+                        className="danger"
+                        onClick={() => {
+                          close();
+                          setScene((sc) => removeWarp(sc, warpHit));
+                        }}
+                      >
+                        Supprimer le warp
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      disabled={(data?.project.scenes.length ?? 0) < 2}
+                      onClick={() => {
+                        close();
+                        const other = data!.project.scenes.find((n) => n !== sceneName)!;
+                        const count = scene.warps.length;
+                        setScene((sc) => placeWarp(sc, meta, evMenu.tx, evMenu.ty, other));
+                        setWarpEdit(count);
+                      }}
+                    >
+                      ＋ Nouveau warp…
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      close();
+                      setScene((sc) => setPlayerStart(sc, evMenu.tx, evMenu.ty));
+                    }}
+                  >
+                    ★ Départ du joueur ici
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+      {varMgr && data && (
+        <VarListModal
+          kind="var"
+          switches={data.project.switches ?? []}
+          variables={data.project.variables ?? []}
+          onClose={() => setVarMgr(false)}
+          onOk={(r) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, switches: r.switches, variables: r.variables },
+            }));
+            setVarMgr(false);
+          }}
+        />
+      )}
+      {evEdit && scene && data && (
+        <EventEditorModal
+          event={evEdit.ev}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          blockCount={spriteBlocks}
+          blockNames={blockNames}
+          usedBlocks={[...new Set([0, ...scene.events.filter((_, i) => i !== evEdit.index).map((e) => e.sprite).filter((b) => b >= 0)])]}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          sprites={sprites}
+          labels={scriptLabels(scene.script)}
+          onSave={(ev) => {
+            setScene((sc) => updateEvent(sc, evEdit.index, ev));
+            setEvEdit(null);
+          }}
+          onClose={() => setEvEdit(null)}
+        />
+      )}
+      {warpEdit !== null && scene && data && scene.warps[warpEdit] && (
+        <div className="modal-backdrop" onClick={() => setWarpEdit(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">
+              Warp en ({scene.warps[warpEdit].x},{scene.warps[warpEdit].y})
+            </div>
+            <label>
+              Scène cible
+              <select
+                value={scene.warps[warpEdit].to}
+                onChange={(e) => {
+                  const d = data.scenes[e.target.value];
+                  setScene((sc) =>
+                    updateWarp(sc, warpEdit, {
+                      to: e.target.value,
+                      tx: d?.player_start[0] ?? 3,
+                      ty: d?.player_start[1] ?? 3,
+                    })
+                  );
+                }}
+              >
+                {data.project.scenes
+                  .filter((n) => n !== sceneName)
+                  .map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className="row">
+              <label>
+                Arrivée x
+                <input
+                  type="number"
+                  min={0}
+                  value={scene.warps[warpEdit].tx}
+                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { tx: Number(e.target.value) }))}
+                />
+              </label>
+              <label>
+                Arrivée y
+                <input
+                  type="number"
+                  min={0}
+                  value={scene.warps[warpEdit].ty}
+                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { ty: Number(e.target.value) }))}
+                />
+              </label>
+            </div>
+            <button onClick={() => setWarpEdit(null)}>Fermer</button>
+          </div>
+        </div>
       )}
       {showAbout && (
         <div className="modal-backdrop" onClick={() => setShowAbout(false)}>

@@ -87,7 +87,7 @@ pub fn build_scene_bank(
         let upper_ofs = tilemap_ofs + rle_lower.len();
         let collision_ofs = upper_ofs + rle_upper.len();
         let actors_ofs = collision_ofs + rle_col.len();
-        let warps_ofs = actors_ofs + sc.actors.len() * 8;
+        let warps_ofs = actors_ofs + sc.actors.len() * 12;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
         // Entrée de la Scene Table
@@ -125,7 +125,7 @@ pub fn build_scene_bank(
         blob.extend_from_slice(&rle_upper);
         blob.extend_from_slice(&rle_col);
 
-        // Entrées acteurs (spec §1.3, 8 octets)
+        // Entrées acteurs (spec §1.3 v0.10, 12 octets)
         for a in &sc.actors {
             let ofs = match &a.entry {
                 None => 0xFFFFu16,
@@ -143,15 +143,19 @@ pub fn build_scene_bank(
             blob.push(a.y);
             // sprite_id binaire = SLOT LOCAL dans le sprite set de la
             // scène (v0.5) — le bloc global du JSON est remappé ici.
-            // Déclencheurs : invisibles, pas de sprite (0).
-            blob.push(if a.kind == "npc" {
-                sprite_remaps[i][&a.sprite]
+            // 255 = invisible (spec §1.3 v0.8), quel que soit le type.
+            blob.push(if a.sprite == 255 {
+                255
             } else {
-                0
+                sprite_remaps[i][&a.sprite]
             });
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
-            blob.push(0);
+            // v0.10 : flags (bit 7 = page de continuation, bits 0-2 =
+            // type de condition) + condition (spec §1.3)
+            blob.push(if a.cont { 0x80 } else { 0 } | a.cond_type | (a.move_type << 3));
+            blob.extend_from_slice(&a.cond_idx.to_le_bytes());
+            blob.extend_from_slice(&a.cond_val.to_le_bytes());
         }
 
         // Entrées warps (spec §1.5, 8 octets)

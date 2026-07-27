@@ -163,6 +163,45 @@ input, select, textarea {
 .resmgr-rename input { width: 0; flex: 1; }
 .resmgr-preview { border: 1px solid #000; border-radius: 4px; background: #16181c; }
 
+/* Event Editor (façon RM2003) */
+.modal.evedit { width: 900px; max-height: 92vh; overflow-y: auto; }
+.evedit-top { display: flex; gap: 12px; align-items: flex-end; }
+.evedit-top > label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
+.evedit-body { display: flex; gap: 10px; }
+.evedit-left { width: 290px; display: flex; flex-direction: column; gap: 8px; }
+.evedit-box { border: 1px solid #000; border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.evedit-box legend { font-size: 11px; color: #9aa0a8; text-transform: uppercase; padding: 0 4px; }
+.evedit-box[disabled] { opacity: 0.45; }
+.evedit-box canvas { border: 1px solid #000; background: #16181c; }
+.evedit-right { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.evedit-cmds {
+  flex: 1; min-height: 240px; max-height: 340px; overflow-y: auto;
+  background: #16181c; border: 1px solid #000; border-radius: 4px;
+  font-family: ui-monospace, monospace; font-size: 12px; padding: 4px;
+}
+.evedit-line { padding: 2px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evedit-line:hover { background: #2d3138; }
+.evedit-line.active { background: #31547a; }
+.evedit-line.branch { color: #8fd48f; cursor: default; }
+/* Fenêtre « Commande d'événement » (façon Event Command de RM2003) */
+.modal.cmdpick { width: 460px; }
+.cmdpick-tabs { display: flex; gap: 3px; border-bottom: 1px solid #000; padding-bottom: 6px; }
+.cmdpick-tabs button { width: 34px; padding: 3px 0; }
+.cmdpick-tabs button.active { background: #31547a; }
+.cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cmdpick-grid button { text-align: left; }
+/* Fenêtre Switches / Variables (façon RM2003) */
+.modal.varlist { width: 520px; }
+.varlist-body { display: flex; gap: 8px; height: 380px; }
+.varlist-groups { width: 170px; overflow-y: auto; border: 1px solid #000; border-radius: 4px; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+.varlist-groups button { text-align: left; font-family: monospace; padding: 2px 6px; }
+.varlist-groups button.active { background: #31547a; }
+.varlist-items { flex: 1; overflow-y: auto; border: 1px solid #000; border-radius: 4px; padding: 4px; font-family: monospace; font-size: 13px; }
+.varlist-name { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa0a8; }
+.varlist-name input { flex: 1; }
+.evedit-form { border: 1px solid #000; border-radius: 5px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: #22252a; }
+.evedit-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
+
 /* Fenêtre de diagnostic (Tools → Vérifier le projet) */
 .diag-body { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .diag-body p { margin: 0; }

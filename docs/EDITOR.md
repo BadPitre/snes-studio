@@ -157,6 +157,62 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   des banks (scènes/textes sur 32 Ko), gains de compression, warnings de
   génération (fusions de couleurs…), taille du dernier ROM.
 
+## Fonctionnalités (A2) — système d'events façon RM2003
+
+- **Couche Événements** (3e bouton de couche) : les events (boîte blanche),
+  les warps (W), le départ du joueur (S). **Clic droit sur une tile** :
+  nouvel événement, nouvel événement depuis un prefab, coller, nouveau
+  warp, départ du joueur ici — ou, sur un event : éditer, couper/copier,
+  prefab, supprimer. Double-clic = Event Editor. La palette d'outils
+  (« Sélection / +PNJ / +Warp / Départ ») a disparu : tout se fait ici.
+- **Event Editor** (calqué sur RM2003) : nom + pages (P4), conditions
+  (P4), apparence (personnage + direction + aperçu), type de mouvement
+  (PNJ mobiles à venir), déclencheur (Touche action / Contact /
+  Auto-start), et la liste **Contenu** (`@>`) : Message, Choix (2-4, avec
+  branches « : Quand […] »), Variables (= et +), Condition (si variable,
+  branches Si vrai/Sinon), Téléporter le héros, Tourner un event. Les
+  textes se tapent directement dans les commandes — datagen les collecte
+  dans la bank de textes et compile le tout vers la VM.
+- **L'apparence est indépendante du déclencheur** : un event de *Contact*
+  ou *Auto* peut afficher un personnage (coffre, panneau, PNJ qui aborde
+  le héros) tout en restant traversable ; « (invisible) » dans la liste
+  des personnages le rend transparent.
+- **Switches et variables (v0.9, P4)** : 512 switches ON/OFF et 256
+  variables 16 bits, globaux, persistants et sauvegardés. Commandes :
+  *Modifier un switch*, *Modifier une variable* (= ou +, négatif accepté),
+  *Condition : switch*, *Condition : variable* (=, ≠, ≥) avec branches
+  Si vrai/Sinon. C'est la mécanique give/has de RM2003 : un coffre =
+  condition sur un switch + le switch passé à ON.
+- **Pages d'events (v0.10)** : boutons 1..N / ＋ page / 🗑 page en haut de
+  l'Event Editor — chaque page a sa **condition d'activation** (switch
+  ON/OFF ou variable ≥, avec le bouton « … » vers la liste), son
+  apparence, son déclencheur et ses commandes. En jeu, la dernière page
+  dont la condition passe est active (coffre ouvert/fermé, PNJ à états).
+- **PNJ mobiles (v0.11)** : le fieldset « Type de mouvement » de l'Event
+  Editor est actif (par page) — Statique / Aléatoire / Vertical /
+  Horizontal. En jeu : vitesse moitié du héros, demi-tour quand bloqué,
+  jamais sur la tile du héros ni d'un autre event, gel pendant les
+  dialogues et le menu.
+- **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
+  calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
+  gauche, liste numérotée à droite, champ Nom sous la liste — les noms
+  sont stockés dans project.json. Chaque formulaire de commande (switch,
+  variable, conditions) a un bouton « … » qui ouvre cette liste en mode
+  sélection (double-clic = choisir) et affiche le nom sous le numéro.
+- **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
+  une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
+  accueilleront les commandes P4) et une grille de boutons, un par
+  commande. Elle s'ouvre de trois façons : bouton « Ajouter… »,
+  **double-clic sur une ligne vide** `@>`, ou **clic droit → Insérer…**.
+  Le clic droit sur une ligne de commande donne aussi **Éditer…** et
+  **Supprimer** ; le double-clic sur une ligne pleine ouvre directement
+  ses paramètres.
+- **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
+  prefab » (stocké dans project.json) ; clic droit sur une tile vide →
+  « Prefab : <nom> » pour l'instancier.
+- L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
+  warps s'éditent aussi au clic droit (mini-fenêtre scène cible/arrivée).
+
 ## Lancer
 
 Prérequis : Node.js, Rust (déjà requis pour datagen). Sous Windows,

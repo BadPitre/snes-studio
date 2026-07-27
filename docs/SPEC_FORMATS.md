@@ -133,27 +133,62 @@ tilesets : seuls les blocs de personnage utilisés par la scène (joueur
 inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
 vers le slot local (§1.3, §5).*
 
-### 1.3 Entrée acteur (8 octets par acteur)
+### 1.3 Entrée acteur (v0.10 — 12 octets par PAGE)
 
 ```
 Offset  Taille  Champ
 0       1       actor_type    (u8)  — 0x01 = PNJ statique (parle avec A)
                                       0x02 = déclencheur de CONTACT (v0.6) :
-                                      invisible, traversable — script lancé
-                                      quand le héros marche sur la tile
+                                      traversable — script lancé quand le
+                                      héros marche sur la tile
                                       0x03 = déclencheur AUTO (v0.6) :
-                                      invisible — script lancé au chargement
-                                      de la scène (boot ou warp)
+                                      script lancé au chargement de la
+                                      scène (boot ou warp)
 1       1       x             (u8)  — en tiles
 2       1       y             (u8)
 3       1       sprite_id     (u8)  — SLOT de bloc de personnage dans le
                                       sprite set de la scène (§5, v0.5 —
                                       datagen remappe le bloc projet du
                                       JSON vers le slot local, joueur = 0)
+                                      0xFF = INVISIBLE (v0.8) : l'acteur ne
+                                      consomme aucun slot OAM.
+                                      L'APPARENCE EST INDÉPENDANTE DU
+                                      DÉCLENCHEUR (v0.8) : un acteur de
+                                      CONTACT ou AUTO peut porter un sprite
+                                      (coffre, panneau, PNJ qui accoste le
+                                      héros) et reste traversable
 4       2       script_offset (u16) — offset dans le bloc scripts (0xFFFF = aucun)
 6       1       direction     (u8)  — 0=bas 1=haut 2=gauche 3=droite
-7       1       reserved      (u8)
+7       1       flags         (u8)  — bit 7 = CONTINUATION (v0.10) : cette
+                                      entrée est une PAGE supplémentaire de
+                                      l'event précédent ; bits 0-2 = type de
+                                      condition : 0 aucune, 1 switch ON,
+                                      2 switch OFF, 3 variable >= valeur ;
+                                      bits 3-4 = MOUVEMENT (v0.11) :
+                                      0 statique, 1 aléatoire, 2 vertical,
+                                      3 horizontal (PNJ « touche action »
+                                      uniquement)
+8       2       cond_idx      (u16) — switch (0-511) ou variable (0-255)
+10      2       cond_val      (u16) — valeur comparée (type 3)
 ```
+
+**Pages (v0.10, modèle RM2003)** : un event = 1..N entrées consécutives
+(flag CONTINUATION sur les pages 2+). À tout instant, la **dernière page
+dont la condition passe** est active — les autres sont inertes (pas de
+sprite, pas d'interaction, pas de déclencheur). Le moteur réévalue les
+pages au chargement de scène et à la fin de chaque script
+(`actors_resolve_pages`). C'est le mécanisme coffre ouvert/fermé, PNJ à
+états.
+
+**PNJ mobiles (v0.11)** : la position ROM n'est que le point de départ —
+la position vraie vit en WRAM (pixels). Mouvement : 1 px une frame sur
+deux (moitié du héros) ; *aléatoire* = un pas dans une direction tirée au
+sort toutes les 32-95 frames ; *vertical*/*horizontal* = va-et-vient avec
+demi-tour quand bloqué. Un pas est refusé vers : tile solide, tile du
+héros, tile (runtime) d'un autre acteur actif, hors map. Interaction et
+collision joueur utilisent la tile RUNTIME. Le monde est GELÉ pendant les
+scripts et le menu Système (modèle RM2003). Les déclencheurs contact/auto
+restent fixes.
 
 ### 1.4 Collision (v0.2)
 
@@ -290,6 +325,21 @@ projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 
 ---
 
+
+**v0.9 (A2-P4) — switches et variables 16-bit, façon RM2003 :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x0C | SW | idx u16, val u8 | switch idx (0-511) := val (0/1) |
+| 0x0D | JSW | idx u16, attendu u8, ofs u16 | pc = ofs si switch == attendu |
+| 0x0E | SET16 | var u8, val u16 | variable 16-bit var (0-255) := val |
+| 0x0F | ADD16 | var u8, val u16 | var += val (wrap ; négatif = complément à deux) |
+| 0x10 | JCMP16 | var u8, op u8, val u16, ofs u16 | pc = ofs si vrai — op : 0 `==`, 1 `!=`, 2 `>=` |
+
+Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
+**globaux et persistants** (sauvegardés, §4bis v2). Les v/g 8-bit
+d'origine restent valides (héritage + variable de travail des CHOICE).
+
 ## 3. Structures WRAM du moteur
 
 ```c
@@ -315,6 +365,38 @@ struct SceneCtx {
   // pointeurs far résolus vers tilemap, collision, actors, scripts
 };
 ```
+
+### 3.1 Carte WRAM — où vivent les tampons (v0.8, contractuel)
+
+| Zone | Contenu | Contrainte |
+|---|---|---|
+| `$7E:0000-1FFF` | lowram PVSnesLib (registres tcc, pads, VBlank) | intouchable |
+| `$7E:2000-7FFF` | **`.bss` de tcc-816** (24 Ko utiles) | **plafond dur `$8000`** |
+| `$7E:8000-9AB4` | variables PVSnesLib, dont **`oamMemory` (`$7E:9094`)** | intouchable |
+| `$7F:8000-FFFF` | gros tampons du moteur (`wram7f.asm`) | 32 Ko |
+
+**PIÈGE DE TOOLCHAIN (coûteux, vécu) :** le `.bss` de tcc-816 est alloué dans
+le SLOT 2 (`$7E:2000-FFFF`) alors que PVSnesLib pose ses propres variables
+dans le SLOT 0 de la **même bank** (`$7E:8000+`). WLA alloue les deux slots
+**indépendamment et ne détecte pas le recouvrement** : un `.bss` qui dépasse
+`$7E:8000` écrase l'OAM shadow **sans le moindre message du linker**. Les
+symptômes ne ressemblent pas à une corruption mémoire : les entrées OAM
+inutilisées, remises à zéro, deviennent des sprites 16x16 *visibles* empilés
+en `(0,0)`, ce qui sature la limite matérielle de **32 sprites par ligne** sur
+les 16 premières lignes — le héros et les PNJ y sont alors purement et
+simplement **supprimés par le PPU**, comme si le moteur les découpait trop tôt
+en haut de l'écran.
+
+Conséquences contractuelles :
+- Les grilles décompressées `scn_lower` / `scn_upper` / `scn_col`
+  (3 x 8192 octets, §1.6) sont déclarées en **assembleur** dans
+  `engine/wram7f.asm`, RAMSECTION `BANK $7F ORGA $8000 FORCE`, et vues du C
+  via `extern` (les pointeurs tcc-816 sont far 24 bits, l'accès inter-bank est
+  transparent).
+- `make` **échoue** si un symbole `.bss` atterrit à `$7E:8000` ou au-delà
+  (cible `checkwram` du Makefile) — la borne ne peut pas être exprimée dans
+  `hdr.asm`, les libs PVSnesLib étant pré-compilées avec cette carte mémoire.
+- Tout nouveau tampon de plus de ~1 Ko va en bank `$7F`.
 
 **Budget VBlank :** par frame : max 1 colonne + 1 ligne de metatiles streamées
 (256 + 256 octets, cf. streaming ci-dessous) + shadow OAM (544 octets, DMA
@@ -371,34 +453,26 @@ en C array (`data_font.c`).
 
 ---
 
-## 4bis. Sauvegardes SRAM (v0.7)
+## 4bis. Sauvegardes SRAM (v2 — v0.9)
 
-Cartouche à batterie (hdr.asm : `CARTRIDGETYPE $02`, `SRAMSIZE $01` =
-2 Ko, mappée en bank $70). **4 slots de 128 octets** :
+SRAM LoROM bank `$70`, **8 Ko** (`SRAMSIZE $03`, cartouche à batterie).
+**4 slots de 2048 octets** :
 
-```
-Offset  Taille  Champ
-0       2       magie "SG"
-2       1       version (1) — un slot d'une autre version est « vide »
-3       1       scene (index Scene Table)
-4       1       x du héros (en tiles)
-5       1       y
-6       1       dir (0=bas 1=haut 2=gauche 3=droite)
-7       1       réservé
-8       64      gvars[64] (variables globales)
-72      54      réservé (0)
-126     2       checksum (somme 16-bit des octets 0-125, little-endian)
-```
+| Offset | Taille | Champ |
+|---|---|---|
+| 0-1 | 2 | magie `"SG"` |
+| 2 | 1 | version = **2** |
+| 3-6 | 4 | scène, x, y, direction du héros |
+| 7 | 1 | réservé |
+| 8-71 | 64 | gvars (variables globales 8-bit, héritage) |
+| 72-135 | 64 | switches (512 bits — v0.9) |
+| 136-647 | 512 | variables 16-bit [256], little-endian (v0.9) |
+| 648-649 | 2 | checksum : somme 16-bit des octets 0-647 (LE) |
+| 650+ | — | réservé (hors checksum) |
 
-Un slot est valide si magie + version + checksum concordent (sinon il est
-présenté « vide »). Interface : **menu Système sur START** (Sauvegarder /
-Charger / Fermer, puis choix du slot — B revient/ferme), construit sur la
-textbox et son curseur de choix. Charger applique les gvars puis recharge
-la scène sauvegardée (même chemin que les warps) et repose position et
-direction du héros. Les variables de SCÈNE (v0-63) ne sont pas
-sauvegardées : elles se réinitialisent au chargement de scène (spec §2).
-
----
+Un slot est valide si magie, version ET checksum concordent — sinon il
+est traité comme vide. Les sauvegardes v1 (slots de 128 octets) ne sont
+pas migrées (version ≠ 2 ⇒ vides).
 
 ## 5. Audit "constantes de jeu" — état semaine 5
 
@@ -426,7 +500,11 @@ blocs de ses acteurs (**5 blocs max par scène**, sinon erreur), dédupliqué
 entre scènes identiques. Tables générées `sprite_chars[]` /
 `sprite_chars_sizes[]` / `sprite_pals[]` (`data_assets.c`), indexées par
 `sprite_set_id` (header octet 27) ; chargées en VRAM/CGRAM au boot et à
-chaque warp, écran éteint.
+chaque warp, écran éteint. Les données de chaque set vivent dans leur
+propre fichier généré (`data_sprites{i}.c` / `data_gfx{i}.c`) : une
+section ROM est insécable (32 Ko), l'éclatement laisse wlalink répartir
+les sets sur les banks libres — le budget d'assets du projet devient la
+ROM entière, plus une seule bank.
 
 - **Metasprite** : une frame = 2 OBJs 16x16 empilés, ancrés sur la tile de
   l'entité avec **8 px de débord au-dessus** (la tête chevauche la tile du

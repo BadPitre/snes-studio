@@ -2,15 +2,12 @@
 // Depuis la Phase 5c (modèle RPG Maker 2003) : deux couches de tiles,
 // passabilité portée par le tileset (sidecar), collision dérivée.
 
-import type { Actor, Layer, Scene, TilesetMeta } from "./types";
+import type { GameEvent, Layer, Scene, TilesetMeta } from "./types";
 import { AUTOTILE_BASE, EMPTY_TILE } from "./types";
 
-export type Tool =
-  | { kind: "select" }
-  | { kind: "tile"; tiles: number[][] } // tampon : bloc sélectionné dans la palette
-  | { kind: "actor" }
-  | { kind: "warp" }
-  | { kind: "player_start" };
+// Un seul outil depuis la couche Événements (A2) : le tampon de tiles.
+// Les events/warps/départ se posent au clic droit sur la couche Événements.
+export type Tool = { kind: "tile"; tiles: number[][] };
 
 // Mode de dessin du tampon (barre d'outils RM2003) : crayon, rectangle,
 // ellipse, pot de peinture
@@ -114,20 +111,24 @@ export function cyclePassability(meta: TilesetMeta, id: number): TilesetMeta {
 
 // --- acteurs / warps / départ ---------------------------------------------
 
-export function placeActor(sc: Scene, tx: number, ty: number): Scene {
-  if (sc.actors.some((a) => a.x === tx && a.y === ty)) return sc;
-  // bloc de personnage 1 par défaut (0 = joueur)
-  const actor: Actor = { type: "npc", x: tx, y: ty, sprite: 1, dir: "down" };
-  return { ...sc, actors: [...sc.actors, actor] };
+// --- événements (couche Événements, Event Editor) --------------------------
+
+export function addEvent(sc: Scene, ev: GameEvent): Scene {
+  if (sc.events.some((e) => e.x === ev.x && e.y === ev.y)) return sc;
+  return { ...sc, events: [...sc.events, ev] };
 }
 
-export function updateActor(sc: Scene, index: number, patch: Partial<Actor>): Scene {
-  const actors = sc.actors.map((a, i) => (i === index ? { ...a, ...patch } : a));
-  return { ...sc, actors };
+export function updateEvent(sc: Scene, index: number, ev: GameEvent): Scene {
+  return { ...sc, events: sc.events.map((e, i) => (i === index ? ev : e)) };
 }
 
-export function removeActor(sc: Scene, index: number): Scene {
-  return { ...sc, actors: sc.actors.filter((_, i) => i !== index) };
+export function removeEvent(sc: Scene, index: number): Scene {
+  return { ...sc, events: sc.events.filter((_, i) => i !== index) };
+}
+
+// nom par défaut d'un nouvel event (EV001, EV002…)
+export function nextEventName(sc: Scene): string {
+  return `EV${String(sc.events.length + 1).padStart(3, "0")}`;
 }
 
 export function setPlayerStart(sc: Scene, tx: number, ty: number): Scene {
@@ -175,14 +176,14 @@ export function newScene(name: string, width: number, height: number): Scene {
     player_start: [3, 3],
     tilemap,
     upper,
-    actors: [],
+    events: [],
     script: [],
     warps: [],
   };
 }
 
 // Redimensionne : recadre ou étend (herbe libre, couche sup vide),
-// reconstruit la bordure de murs, écarte acteurs/warps hors limites.
+// reconstruit la bordure de murs, écarte events/warps hors limites.
 export function resizeScene(sc: Scene, width: number, height: number): Scene {
   const grid = (rows: number[][], fill: number) =>
     Array.from({ length: height }, (_, y) =>
@@ -209,7 +210,7 @@ export function resizeScene(sc: Scene, width: number, height: number): Scene {
       Math.min(sc.player_start[0], width - 2),
       Math.min(sc.player_start[1], height - 2),
     ],
-    actors: sc.actors.filter((a) => inside(a.x, a.y)),
+    events: sc.events.filter((e) => inside(e.x, e.y)),
     warps: sc.warps.filter((w) => inside(w.x, w.y)),
   };
 }

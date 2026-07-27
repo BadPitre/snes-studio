@@ -38,14 +38,33 @@ function checkScene(
     warn(`tileset « ${sc.tileset} » introuvable dans le projet`);
 
   const labels = new Set(scriptLabels(sc.script));
-  sc.actors.forEach((a, i) => {
-    if (a.x >= sc.width || a.y >= sc.height) err(`acteur #${i} hors map (${a.x},${a.y})`);
-    if (a.type === "npc" && a.sprite >= blockCount)
-      err(`acteur #${i} : personnage ${a.sprite} hors feuille de sprites (${blockCount} blocs)`);
-    if (a.type !== "npc" && !a.entry)
-      err(`acteur #${i} (${a.type === "trigger" ? "contact" : "auto"}) sans script — requis`);
-    if (a.entry && !labels.has(a.entry)) err(`acteur #${i} : label « ${a.entry} » absent du script`);
-    if (a.type === "npc" && !a.entry) warn(`PNJ #${i} sans script (il ne dira rien)`);
+  sc.events.forEach((e, i) => {
+    const who = e.name || `event #${i}`;
+    if (e.x >= sc.width || e.y >= sc.height) err(`${who} hors map (${e.x},${e.y})`);
+    if (e.trigger === "action" && e.sprite >= blockCount)
+      err(`${who} : personnage ${e.sprite} hors feuille de sprites (${blockCount} blocs)`);
+    if (e.trigger === "action" && e.sprite < 0)
+      err(`${who} : un event « touche action » doit avoir une apparence`);
+    if (e.trigger !== "action" && !e.commands.length && !e.entry)
+      err(`${who} (${e.trigger === "touch" ? "contact" : "auto"}) sans commandes — requis`);
+    if (!e.commands.length && e.entry && !labels.has(e.entry))
+      err(`${who} : label « ${e.entry} » absent du script`);
+    if (e.trigger === "action" && !e.commands.length && !e.entry)
+      warn(`${who} sans commandes (il ne dira rien)`);
+    // textes des commandes : non-ASCII refuse par datagen
+    const scan = (cmds: import("./types").Command[]) => {
+      for (const cmd of cmds) {
+        if (cmd.c === "msg" && ![...cmd.text].every((ch) => ch >= " " && ch <= "~"))
+          err(`${who} : message « ${cmd.text.slice(0, 24)}… » avec accents (non supportes en v0)`);
+        if (cmd.c === "choice") cmd.options.forEach((o) => scan(o.do));
+        if (cmd.c === "if") {
+          scan(cmd.then);
+          scan(cmd.else);
+        }
+        if (cmd.c === "warp" && !data.scenes[cmd.to]) err(`${who} : téléport vers une scène inconnue « ${cmd.to} »`);
+      }
+    };
+    scan(e.commands);
   });
 
   sc.warps.forEach((w, i) => {

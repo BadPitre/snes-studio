@@ -69,8 +69,24 @@
                               change de scène) */
 #define VM_OP_FACE    0x0B /* acteur (u8), dir (u8) — tourne l'acteur */
 
-/* Octet variable des opcodes : bit 7 = variable GLOBALE (gvar, persiste
-   entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
+/* v0.9 (A2-P4) : switches + variables 16-bit, façon RM2003 */
+#define VM_OP_SW      0x0C /* idx (u16), val (u8 0/1) — switch OFF/ON */
+#define VM_OP_JSW     0x0D /* idx (u16), attendu (u8), offset (u16) —
+                              saute si switch == attendu */
+#define VM_OP_SET16   0x0E /* var (u8), val (u16) — variable 16-bit */
+#define VM_OP_ADD16   0x0F /* var (u8), val (u16, addition avec wrap —
+                              une valeur negative s'encode en
+                              complement a deux) */
+#define VM_OP_JCMP16  0x10 /* var (u8), op (u8 : 0 ==, 1 !=, 2 >=),
+                              val (u16), offset (u16) */
+
+/* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
+   Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
+#define VM_SWITCH_COUNT 512
+#define VM_VAR16_COUNT  256
+
+/* Octet variable des opcodes 8-bit : bit 7 = variable GLOBALE (gvar,
+   persiste entre les scènes), bits 0-5 = numéro (spec §2 v0.6) */
 #define VM_VAR_GLOBAL 0x80
 
 /* Entrée acteur — spec §1.3. Layout C = layout binaire (8 octets, tcc-816
@@ -80,11 +96,31 @@ typedef struct
   u8 actor_type;    /* ACTOR_TYPE_* */
   u8 x;             /* en tiles 16x16 */
   u8 y;
-  u8 sprite_id;     /* index dans la table de metasprites */
+  u8 sprite_id;     /* slot de bloc de personnage ; 0xFF = invisible */
   u16 script_offset; /* offset dans le bloc scripts, SCRIPT_NONE = aucun */
   u8 direction;     /* DIR_* */
-  u8 reserved;
+  u8 flags;         /* v0.10 : bit 7 = CONTINUATION (page du même event que
+                       l'entrée précédente), bits 0-2 = type de condition */
+  u16 cond_idx;     /* switch (0-511) ou variable 16-bit (0-255) */
+  u16 cond_val;     /* valeur comparée (var >= val) */
 } ActorDef;
+
+/* Pages d'events conditionnelles (v0.10, modèle RM2003) : un event =
+   entrées acteur consécutives (flag CONTINUATION sur les pages 2+), la
+   DERNIÈRE page dont la condition passe est active, les autres inertes. */
+#define ACTOR_FLAG_CONT 0x80
+#define ACTOR_COND_MASK 0x07
+/* v0.11 : bits 3-4 des flags = type de mouvement du PNJ (RM2003) */
+#define ACTOR_MOVE_SHIFT 3
+#define ACTOR_MOVE_MASK 0x18
+#define ACTOR_MOVE_STATIC 0
+#define ACTOR_MOVE_RANDOM 1
+#define ACTOR_MOVE_VERT 2   /* va-et-vient haut-bas */
+#define ACTOR_MOVE_HORIZ 3  /* va-et-vient gauche-droite */
+#define ACTOR_COND_NONE 0x00
+#define ACTOR_COND_SW_ON 0x01  /* switch cond_idx == ON */
+#define ACTOR_COND_SW_OFF 0x02 /* switch cond_idx == OFF */
+#define ACTOR_COND_VAR_GEQ 0x03 /* vars16[cond_idx] >= cond_val */
 
 /* Entrée warp — spec §1.5. Layout C = layout binaire (8 octets). */
 typedef struct

@@ -13,6 +13,14 @@
    compter sur une mise à zéro implicite des statiques avec cette toolchain. */
 void actors_init(void);
 
+/* Recalcule la page active de chaque event (v0.10) — à appeler quand les
+   switches/variables ont pu changer (fin de script, chargement de partie). */
+void actors_resolve_pages(void);
+
+/* PNJ mobiles (v0.11) : un tick de mouvement — à appeler chaque frame
+   hors script/menu (les events gèlent le monde, comme RM2003). */
+void actors_update(void);
+
 /* Écrit les metasprites des acteurs dans le shadow OAM (chaque frame).
    Les acteurs hors écran sont cachés. */
 void actors_draw(void);
