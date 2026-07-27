@@ -11,11 +11,11 @@ import type { DrawMode, Tool } from "../state";
 import { isAboveId, isSolidId } from "../state";
 import { drawAutotilePreview } from "../autotile";
 
-const DRAW_MODES: Array<{ mode: DrawMode; label: string; hint: string }> = [
-  { mode: "pen", label: "✏ Crayon", hint: "Dessin libre (glisser)" },
-  { mode: "rect", label: "▭ Rectangle", hint: "Rectangle plein (glisser)" },
-  { mode: "circle", label: "◯ Cercle", hint: "Ellipse pleine (glisser)" },
-  { mode: "fill", label: "▨ Remplir", hint: "Pot de peinture (zone de même tile)" },
+const DRAW_MODES: Array<{ mode: DrawMode; icon: string; hint: string }> = [
+  { mode: "pen", icon: "✏", hint: "Crayon — dessin libre (glisser)" },
+  { mode: "rect", icon: "▭", hint: "Rectangle plein (glisser)" },
+  { mode: "circle", icon: "◯", hint: "Ellipse pleine (glisser)" },
+  { mode: "fill", icon: "▨", hint: "Pot de peinture — remplit la zone de même tile" },
 ];
 
 interface Props {
@@ -181,9 +181,23 @@ export default function TilePalette(props: Props) {
             onClick={() => props.onDrawMode(d.mode)}
             title={d.hint}
           >
-            {d.label}
+            {d.icon}
           </button>
         ))}
+        <button
+          className={
+            tool.kind === "tile" &&
+            tool.tiles.length === 1 &&
+            tool.tiles[0].length === 1 &&
+            tool.tiles[0][0] === EMPTY_TILE
+              ? "active"
+              : ""
+          }
+          onClick={() => onTool({ kind: "tile", tiles: [[EMPTY_TILE]] })}
+          title="Gomme — efface (couche sup. : case vide ; couche inf. : tile de base). Se combine avec les modes de dessin."
+        >
+          ⌫
+        </button>
       </div>
       <div className="palette-title">Tiles</div>
       <canvas

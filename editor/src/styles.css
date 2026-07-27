@@ -24,8 +24,8 @@ body {
 .scene-section select { width: 100%; }
 .scene-section label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
 .panel .palette-title { margin-top: 12px; }
-.draw-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.draw-modes button { padding: 6px 4px; font-size: 12px; }
+.draw-modes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.draw-modes button { padding: 5px 0; font-size: 16px; line-height: 1; }
 .layer-switch { display: flex; }
 .layer-switch button { border-radius: 0; }
 .layer-switch button:first-child { border-radius: 4px 0 0 4px; }
