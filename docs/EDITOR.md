@@ -213,10 +213,16 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   « Éditer la route… » vers la fenêtre Itinéraire, options
   Répéter/Ignorer/Fréquence incluses), **Priorité** (Sous le héros :
   traversable, s'active en se tenant dessus / Comme le héros / Au-dessus :
-  traversable, dessiné par-dessus tout) et **Vitesse 1-4**. La fenêtre
-  Commande d'événement est classée **par catégories** (Messages, Logique,
-  Déplacements, Temps, Caméra). Raccourcis dans la liste Contenu et
-  l'Itinéraire : **Ctrl+C / Ctrl+V / Suppr**.
+  traversable, dessiné par-dessus tout) et **Vitesse 1-4**. Raccourcis
+  dans la liste Contenu et l'Itinéraire : **Ctrl+C / Ctrl+V / Suppr**.
+- **v0.15** : la fenêtre Commande d'événement passe en **onglets** par
+  catégorie (Messages, Logique, Déplacements, Temps, Écran, Caméra,
+  Autres) — extensible quand la liste des commandes grossit. Les
+  paramètres d'une commande s'éditent dans une **fenêtre séparée**
+  (titre = nom de la commande, OK/Annuler) au lieu du formulaire inline
+  sous la liste Contenu ; la rangée de boutons Ajouter/Modifier/…/↑/↓ a
+  disparu — tout passe par le double-clic, le clic droit (Insérer /
+  Éditer / ↑ Monter / ↓ Descendre / Supprimer) et le clavier.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms
@@ -224,13 +230,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   variable, conditions) a un bouton « … » qui ouvre cette liste en mode
   sélection (double-clic = choisir) et affiche le nom sous le numéro.
 - **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
-  une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
-  accueilleront les commandes P4) et une grille de boutons, un par
-  commande. Elle s'ouvre de trois façons : bouton « Ajouter… »,
+  une boîte séparée avec des **onglets par catégorie** et une grille de
+  boutons, un par commande (les commandes annoncées mais pas encore
+  compilables restent grisées). Elle s'ouvre de deux façons :
   **double-clic sur une ligne vide** `@>`, ou **clic droit → Insérer…**.
-  Le clic droit sur une ligne de commande donne aussi **Éditer…** et
-  **Supprimer** ; le double-clic sur une ligne pleine ouvre directement
-  ses paramètres.
+  Le clic droit sur une ligne de commande donne aussi **Éditer…**,
+  **↑ Monter / ↓ Descendre** et **Supprimer** ; le double-clic sur une
+  ligne pleine ouvre la **fenêtre d'options** de la commande.
 - **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
   prefab » (stocké dans project.json) ; clic droit sur une tile vide →
   « Prefab : <nom> » pour l'instancier.

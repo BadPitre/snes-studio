@@ -92,6 +92,32 @@ function labelOf(c: Command): string {
   }
 }
 
+// Titre de la fenêtre d'options d'une commande (mêmes libellés que le
+// sélecteur par onglets)
+function cmdTitle(c: Command["c"]): string {
+  const titles: Partial<Record<Command["c"], string>> = {
+    msg: "Afficher un message",
+    choice: "Afficher un choix",
+    set: "Variable 8-bit (héritage)",
+    add: "Variable 8-bit (héritage)",
+    if: "Condition 8-bit (héritage)",
+    switch: "Modifier un switch",
+    var: "Modifier une variable",
+    if_sw: "Condition : switch",
+    if_var: "Condition : variable",
+    route: "Déplacer un event",
+    wait_route: "Attendre la fin des déplacements",
+    face: "Tourner un event",
+    warp: "Téléporter le héros",
+    wait: "Attendre",
+    timer: "Timer",
+    campan: "Déplacer la caméra",
+    cam_return: "Caméra : retour au héros",
+    wait_cam: "Attendre la caméra",
+  };
+  return titles[c] ?? "Options de la commande";
+}
+
 function flatten(cmds: Command[], base: string, depth: number, out: Line[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
@@ -194,8 +220,6 @@ export default function EventEditorModal(props: Props) {
     const { list, index } = resolve(cmds, path);
     return list[index] ?? null;
   }
-  const selCmd = cmdAt(sel);
-
   // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
   function openPicker(path: string) {
     setSel(path);
@@ -289,16 +313,16 @@ export default function EventEditorModal(props: Props) {
     setForm(null);
   }
 
-  function moveCmd(delta: number) {
-    if (!selCmd) return;
-    const { list, index } = resolve(cmds, sel);
+  function moveCmd(delta: number, path = sel) {
+    if (!cmdAt(path)) return;
+    const { list, index } = resolve(cmds, path);
     const j = index + delta;
     if (j < 0 || j >= list.length) return;
     commit(() => {
       const [c] = list.splice(index, 1);
       list.splice(j, 0, c);
     });
-    setSel(sel.replace(/\d+$/, String(j)));
+    setSel(path.replace(/\d+$/, String(j)));
   }
 
   function defaultCmd(t: Command["c"]): Command {
@@ -615,40 +639,6 @@ export default function EventEditorModal(props: Props) {
                 </div>
               ))}
             </div>
-            <p className="hint">
-              Double-clic sur une ligne vide : ajouter une commande. Clic droit :
-              insérer / éditer.
-            </p>
-            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-              <button onClick={() => openPicker(sel)}>Ajouter…</button>
-              <button disabled={!selCmd} onClick={() => openEditor(sel)}>
-                Modifier…
-              </button>
-              <button disabled={!selCmd} onClick={() => deleteCmd()}>
-                Supprimer
-              </button>
-              <button disabled={!selCmd} onClick={() => moveCmd(-1)}>
-                ↑
-              </button>
-              <button disabled={!selCmd} onClick={() => moveCmd(1)}>
-                ↓
-              </button>
-            </div>
-            {form && (
-              <CommandForm
-                cmd={form}
-                sceneNames={props.sceneNames}
-                scenes={props.scenes}
-                switchNames={props.switchNames}
-                varNames={props.varNames}
-                entryNames={props.entryNames}
-                charsetNames={props.charsetNames}
-                onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
-                onChange={setForm}
-                onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
-                onCancel={() => setForm(null)}
-              />
-            )}
           </div>
         </div>
         <div className="row">
@@ -661,6 +651,27 @@ export default function EventEditorModal(props: Props) {
         </div>
       </div>
       </div>
+
+      {form && (
+        <div className="modal-backdrop" onClick={() => setForm(null)}>
+          <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
+            <div className="palette-title">{cmdTitle(form.c)}</div>
+            <CommandForm
+              cmd={form}
+              sceneNames={props.sceneNames}
+              scenes={props.scenes}
+              switchNames={props.switchNames}
+              varNames={props.varNames}
+              entryNames={props.entryNames}
+              charsetNames={props.charsetNames}
+              onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
+              onChange={setForm}
+              onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
+              onCancel={() => setForm(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {picking && (
         <EventCommandPicker
@@ -741,6 +752,25 @@ export default function EventEditorModal(props: Props) {
               }}
             >
               Éditer…
+            </button>
+            <div className="menu-sep" />
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                moveCmd(-1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↑ Monter
+            </button>
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                moveCmd(1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↓ Descendre
             </button>
             <div className="menu-sep" />
             <button
