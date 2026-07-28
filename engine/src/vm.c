@@ -607,6 +607,10 @@ static void vm_step(void)
         vm.vars16[var] = keyin_scan(val16, padsCurrent(0));
       break;
 
+    case VM_OP_DLGSTYLE: /* style de la prochaine boîte (S1) */
+      textbox_set_style(fetch8());
+      break;
+
     case VM_OP_SYSMENU: /* menu Système (sauvegarde) — Phase 12 : le
                            mapping START en dur est retiré, l'auteur
                            ouvre le menu par cette commande */

@@ -73,6 +73,71 @@ fn main() -> Result<()> {
     };
     let (ui_layout, ui_prims, ui_widgets) = ui::load(&proj_dir, ui_icon_count)?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
+    let ui_style_ids: Vec<String> =
+        ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
+
+    // S1 — plan des ressources VRAM BG3 (bases de chars, budget 256) :
+    // fonte 0 (97 chars : transparent + 96 glyphes) | skins (9 chars
+    // chacun) | icones (2 x N : normales + variantes fond de panneau) |
+    // fontes supplementaires (96 chars, base sur ' ')
+    let theme_skin = project.ui.as_ref().and_then(|u| u.windowskin.clone());
+    let mut ui_fonts: Vec<String> = vec![project.assets.font.clone()];
+    let mut ui_skins: Vec<String> = Vec::new();
+    if let Some(skn) = &theme_skin {
+        ui_skins.push(skn.clone());
+    }
+    for st in &ui_layout.dialog_style {
+        if let Some(f) = &st.font {
+            if !ui_fonts.contains(f) {
+                ui_fonts.push(f.clone());
+            }
+        }
+        if let Some(k) = &st.windowskin {
+            if !ui_skins.contains(k) {
+                ui_skins.push(k.clone());
+            }
+        }
+    }
+    let ui_skin_base = |path: &Option<String>| -> usize {
+        // base char d'un skin (0 = boite pleine) — theme si absent
+        let p = path.as_ref().or(theme_skin.as_ref());
+        match p {
+            Some(p) => ui_skins.iter().position(|k| k == p).map(|i| 97 + 9 * i).unwrap_or(0),
+            None => 0,
+        }
+    };
+    let ui_icon_base = 97 + 9 * ui_skins.len();
+    let ui_font_base = |path: &Option<String>| -> usize {
+        match path {
+            None => 1,
+            Some(p) => {
+                let i = ui_fonts.iter().position(|f| f == p).unwrap_or(0);
+                if i == 0 { 1 } else { ui_icon_base + 2 * ui_icon_count + 96 * (i - 1) }
+            }
+        }
+    };
+    let ui_total_chars =
+        ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
+    if ui_total_chars > 256 {
+        bail!(
+            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96,              skin(s) {} x 9, {} icone(s) x 2. Retirer un style, une fonte ou des icones.",
+            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count
+        );
+    }
+    // tables des styles : style 0 (defaut) puis les dialog_style
+    let ui_msg = ui_layout.message.clone().unwrap();
+    let ui_chc = ui_layout.choice.clone().unwrap();
+    let mut ui_style_rows: Vec<(ui::Win, ui::Win, usize, usize)> = vec![(
+        ui_msg.clone(),
+        ui_chc.clone(),
+        1,
+        ui_skin_base(&None),
+    )];
+    for st in &ui_layout.dialog_style {
+        let m = st.message.clone().unwrap_or_else(|| ui_msg.clone());
+        let c = st.choice.clone().unwrap_or_else(|| m.clone());
+        ui_style_rows.push((m, c, ui_font_base(&st.font), ui_skin_base(&st.windowskin)));
+    }
 
     let mut scenes = Vec::new();
     for name in &project.scenes {
@@ -102,6 +167,7 @@ fn main() -> Result<()> {
                 &project.common_events,
                 database.as_ref(),
                 &ui_widget_ids,
+                &ui_style_ids,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -383,7 +449,7 @@ fn main() -> Result<()> {
     for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
         write_out(&out_dir, &name, content)?;
     }
-    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
+    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
     // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)
     {
@@ -394,21 +460,23 @@ fn main() -> Result<()> {
         // planche + layout déjà chargés/validés en amont (résolution des
         // widgets par les events) — on ne fait qu'émettre
         let icon_count = ui_icon_count;
-        let icon_base = 97 + if has_skin != 0 { 9 } else { 0 };
+        let icon_base = ui_icon_base;
         let (layout, prims) = (&ui_layout, &ui_prims);
         write_out(
             &out_dir,
             "ui_cfg.h",
             format!(
-                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n#define UI_ICON_BASE {}\n#define UI_ICON_COUNT {}\n{}",
+                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n#define UI_ICON_BASE {}\n#define UI_ICON_COUNT {}\n#define UI_STYLE_COUNT {}\n{}",
                 has_skin,
                 speed,
                 icon_base,
                 icon_count,
+                ui_style_rows.len(),
                 ui::cfg_defines(layout, prims, &ui_widgets)
             ),
         )?;
         write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(prims, &ui_widgets))?;
+        write_out(&out_dir, "ui_styles.c", ui::emit_styles(&ui_style_rows))?;
         if !prims.is_empty() {
             println!("  ui : {} primitive(s) de widgets (designer D1)", prims.len());
         }
@@ -614,28 +682,30 @@ fn gen_asset_tables(
     s
 }
 
-fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
+fn gen_font(
+    proj_dir: &Path,
+    project: &project::Project,
+    ui_skins: &[String],
+    ui_extra_fonts: &[String],
+) -> Result<String> {
     let font = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))?;
 
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
     let mut gfx_bytes = font.to_font()?;
 
-    // Windowskin 9-slice (Phase 11, docs/SPEC_SYSTEME_UI.md) : 9 tiles
-    // 8x8 APRÈS la fonte (chars 97-105 de BG3), même palette qu'elle —
-    // aucun slot CGRAM nouveau. Ordre : HG H HD / G C D / BG B BD.
+    // Ordre VRAM (S1, plan calculé en tête de main) : fonte 0 | skins
+    // (9 chars chacun, thème puis styles) | icônes (normales + variantes
+    // fond de panneau) | fontes supplémentaires des styles (96 chars).
+    // Toutes les fontes/skins partagent la PALETTE de la fonte 0.
+    for skin_path in ui_skins.iter() {
+        let skin = gfx::load_indexed_png(&proj_dir.join(skin_path))
+            .with_context(|| format!("windowskin {}", skin_path))?;
+        gfx_bytes.extend(skin.to_windowskin().with_context(|| {
+            format!("windowskin {}", skin_path)
+        })?);
+    }
     if let Some(ui) = &project.ui {
-        if let Some(skin_path) = &ui.windowskin {
-            let skin = gfx::load_indexed_png(&proj_dir.join(skin_path))
-                .with_context(|| format!("windowskin {}", skin_path))?;
-            gfx_bytes.extend(skin.to_windowskin().with_context(|| {
-                format!("windowskin {}", skin_path)
-            })?);
-        }
-        // Planche d'icônes des widgets (W1) : chars 2bpp APRÈS le
-        // windowskin (UI_ICON_BASE de ui_cfg.h), même palette — suivis
-        // des variantes « fond de panneau » (D1, transparence -> fond) :
-        // char UI_ICON_BASE + UI_ICON_COUNT + n
         if let Some(icons_path) = &ui.icons {
             let icons = gfx::load_indexed_png(&proj_dir.join(icons_path))
                 .with_context(|| format!("icones UI {}", icons_path))?;
@@ -646,6 +716,13 @@ fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
                 format!("icones UI {}", icons_path)
             })?);
         }
+    }
+    for extra in ui_extra_fonts.iter() {
+        let f = gfx::load_indexed_png(&proj_dir.join(extra))
+            .with_context(|| format!("fonte de style {}", extra))?;
+        gfx_bytes.extend(f.to_font_glyphs().with_context(|| {
+            format!("fonte de style {}", extra)
+        })?);
     }
     s.push_str(&emit::u8_array("font_gfx", &gfx_bytes, 16, false));
     s.push_str("\nconst u16 font_gfx_size = sizeof(font_gfx);\n\n");

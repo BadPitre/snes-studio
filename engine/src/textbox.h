@@ -30,6 +30,10 @@ void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel);
 /* Déplace le curseur du CHOICE en cours. */
 void textbox_choice_cursor(u8 sel);
 
+/* Style de dialogue courant (S1, opcode DLGSTYLE) : fenêtre, windowskin
+   et fonte du style n (0 = défaut, hors bornes = 0). */
+void textbox_set_style(u8 n);
+
 /* Machine à écrire (Phase 11, thème UI_TEXT_SPEED > 0) : un pas de
    révélation par frame (appelé pendant l'attente TEXTBOX de la VM),
    1 si la révélation court encore, tout révéler d'un coup (touche A). */

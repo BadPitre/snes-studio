@@ -27,6 +27,7 @@ export interface Project {
   // de ressources (éditeur seulement, ignoré par datagen) — le thème actif
   // (ui.windowskin) pointe l'un d'eux
   iconsets?: string[]; // planches d'icônes importées (même modèle)
+  fonts?: string[]; // fontes importées (S1) — assets.font est la défaut ★
 }
 
 // windowskins du projet — le thème actif y figure toujours (migration des
@@ -42,6 +43,14 @@ export function projectIconsets(p: Project): string[] {
   const list = p.iconsets ?? [];
   const cur = p.ui?.icons;
   return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// fontes du projet : assets.font (la défaut) toujours en tête
+export function projectFonts(p: Project): string[] {
+  const list = p.fonts ?? [];
+  return list.includes(p.assets.font)
+    ? [p.assets.font, ...list.filter((f) => f !== p.assets.font)]
+    : [p.assets.font, ...list];
 }
 
 // Layout uigen v1 (ui/layout.toml) — positions/tailles EN TILES
@@ -124,8 +133,8 @@ export interface Actor {
 export type EventTrigger = "action" | "touch" | "auto";
 
 export type Command =
-  | { c: "msg"; text: string }
-  | { c: "choice"; var?: string; options: { text: string; do: Command[] }[] }
+  | { c: "msg"; text: string; style?: string } // style : boîte S1 (absent = défaut)
+  | { c: "choice"; var?: string; style?: string; options: { text: string; do: Command[] }[] }
   | { c: "set"; var: string; value: number }
   | { c: "add"; var: string; value: number }
   | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }

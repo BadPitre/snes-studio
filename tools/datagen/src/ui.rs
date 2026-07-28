@@ -59,12 +59,33 @@ pub struct Layout {
     /// arbre du designer (D1)
     #[serde(default)]
     pub node: Vec<Node>,
+    /// styles de dialogue supplémentaires (S1) — style 0 = défaut
+    #[serde(default)]
+    pub dialog_style: Vec<DialogStyle>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct Win {
     pub pos: [i64; 2],
     pub size: [i64; 2],
+}
+
+/// Style de boîte de dialogue (S1, Phase 12) — chaque msg/choice peut
+/// choisir son style ; le style 0 (défaut) = thème + [message]/[choice]
+#[derive(Deserialize, Clone)]
+pub struct DialogStyle {
+    pub id: String,
+    /// windowskin PROPRE au style (défaut : celui du thème)
+    #[serde(default)]
+    pub windowskin: Option<String>,
+    /// fonte propre (PNG 768x8, défaut : assets.font) — v1 : toutes les
+    /// fontes partagent la PALETTE de la fonte du projet
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default)]
+    pub message: Option<Win>,
+    #[serde(default)]
+    pub choice: Option<Win>,
 }
 
 /// Ancien overlay plat (W1) — voir la doc du module
@@ -470,6 +491,22 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
     let hist = Win { pos: [0, 20], size: [32, 8] };
     let msg = lay.message.clone().unwrap_or_else(|| hist.clone());
     let chc = lay.choice.clone().unwrap_or_else(|| msg.clone());
+    // styles supplémentaires (S1) : 3 max (budget VRAM, 4 styles au total)
+    if lay.dialog_style.len() > 3 {
+        bail!("ui : {} dialog_style (max 3 en plus du défaut)", lay.dialog_style.len());
+    }
+    {
+        let mut ids: Vec<&str> = Vec::new();
+        for st in &lay.dialog_style {
+            if st.id.is_empty() || !ascii_ok(&st.id) {
+                bail!("ui : dialog_style sans id ASCII");
+            }
+            if ids.contains(&st.id.as_str()) {
+                bail!("ui : dialog_style « {} » en double", st.id);
+            }
+            ids.push(&st.id);
+        }
+    }
     for (name, w) in [("message", &msg), ("choice", &chc)] {
         let [x, y] = w.pos;
         let [ww, hh] = w.size;
@@ -480,6 +517,27 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
                 name, x, y, ww, hh
             );
         }
+    }
+
+    // toutes les fenêtres de dialogue (défaut + styles) : la bande
+    // shadow les couvre, les widgets ne doivent en chevaucher AUCUNE
+    let mut all_wins: Vec<(String, Win)> =
+        vec![("message".into(), msg.clone()), ("choice".into(), chc.clone())];
+    for st in &lay.dialog_style {
+        let m = st.message.clone().unwrap_or_else(|| msg.clone());
+        let c = st.choice.clone().unwrap_or_else(|| m.clone());
+        for (what, w) in [("message", &m), ("choice", &c)] {
+            let [x, y] = w.pos;
+            let [ww, hh] = w.size;
+            if x < 0 || y < 0 || ww < 8 || hh < 3 || x + ww > SCREEN_W || y + hh > SCREEN_H {
+                bail!(
+                    "ui : style « {} » : fenetre {} invalide (ecran 32x28, min 8x3)",
+                    st.id, what
+                );
+            }
+        }
+        all_wins.push((format!("message du style « {} »", st.id), m));
+        all_wins.push((format!("choice du style « {} »", st.id), c));
     }
 
     // arbre = [[node]] + les [[overlay]] W1 convertis en racines feuilles
@@ -533,7 +591,7 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
                 bail!("ui : « {} » et « {} » se chevauchent", pid, n.id);
             }
         }
-        for (name, w) in [("message", &msg), ("choice", &chc)] {
+        for (name, w) in &all_wins {
             if overlaps(rect, (w.pos[0], w.pos[1], w.size[0], w.size[1])) {
                 bail!(
                     "ui : « {} » chevauche la fenetre {} — les dialogues l'ecraseraient",
@@ -560,9 +618,16 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
 pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> String {
     let m = lay.message.as_ref().unwrap();
     let c = lay.choice.as_ref().unwrap();
-    // zone shadow de la textbox : l'UNION des rangées message + choix
-    let top = m.pos[1].min(c.pos[1]);
-    let bottom = (m.pos[1] + m.size[1]).max(c.pos[1] + c.size[1]);
+    // zone shadow de la textbox : l'UNION des rangées de TOUTES les
+    // fenêtres de dialogue (défaut + styles S1)
+    let mut top = m.pos[1].min(c.pos[1]);
+    let mut bottom = (m.pos[1] + m.size[1]).max(c.pos[1] + c.size[1]);
+    for st in &lay.dialog_style {
+        let sm = st.message.clone().unwrap_or_else(|| m.clone());
+        let sc = st.choice.clone().unwrap_or_else(|| sm.clone());
+        top = top.min(sm.pos[1]).min(sc.pos[1]);
+        bottom = bottom.max(sm.pos[1] + sm.size[1]).max(sc.pos[1] + sc.size[1]);
+    }
     format!(
         "#define UI_MSG_COL {}\n#define UI_MSG_ROW {}\n#define UI_MSG_W {}\n#define UI_MSG_H {}\n\
          #define UI_CHC_COL {}\n#define UI_CHC_ROW {}\n#define UI_CHC_W {}\n#define UI_CHC_H {}\n\
@@ -574,6 +639,35 @@ pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> 
         prims.len(),
         widgets.len()
     )
+}
+
+/// ui_styles.c : tables des styles de dialogue (S1) — une entrée par
+/// style, style 0 = défaut. (msg, chc, base fonte, base skin (0 = boîte
+/// pleine)). Tableaux u8 nus.
+pub fn emit_styles(rows: &[(Win, Win, usize, usize)]) -> String {
+    let mut s = String::from(crate::emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    let n = rows.len().max(1);
+    let field = |name: &str, f: &dyn Fn(&(Win, Win, usize, usize)) -> i64| {
+        let mut a = format!("const u8 ui_st_{}[{}] = {{ ", name, n);
+        for i in 0..n {
+            let v = rows.get(i).map(f).unwrap_or(0);
+            let _ = write!(a, "{}, ", v);
+        }
+        a.push_str("};\n");
+        a
+    };
+    s.push_str(&field("mx", &|r| r.0.pos[0]));
+    s.push_str(&field("my", &|r| r.0.pos[1]));
+    s.push_str(&field("mw", &|r| r.0.size[0]));
+    s.push_str(&field("mh", &|r| r.0.size[1]));
+    s.push_str(&field("cx", &|r| r.1.pos[0]));
+    s.push_str(&field("cy", &|r| r.1.pos[1]));
+    s.push_str(&field("cw", &|r| r.1.size[0]));
+    s.push_str(&field("ch", &|r| r.1.size[1]));
+    s.push_str(&field("font", &|r| r.2 as i64));
+    s.push_str(&field("skin", &|r| r.3 as i64));
+    s
 }
 
 /// ui_overlays.c : tables des primitives (u8 nus + max scindé lo/hi) +

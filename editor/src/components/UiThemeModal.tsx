@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../types";
 import { assetStem } from "../types";
-import type { NodeKind, UiLayout2, UiNode } from "../uilayout";
+import type { DialogStyle, NodeKind, UiLayout2, UiNode } from "../uilayout";
 import {
   childrenOf,
   flatten,
@@ -37,12 +37,13 @@ interface Props {
   project: Project;
   windowskins: string[];
   iconsets: string[];
+  fonts: string[]; // fontes du projet (S1) — la défaut (assets.font) en tête
   varNames: string[];
   switchNames: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
-  // ui du projet + widgets (racines) — ui/layout.toml est écrit AVANT
-  // l'appel, la liste alimente la commande « Afficher un widget UI »
-  onOk: (ui: Project["ui"], widgets: string[]) => void;
+  // ui du projet + widgets (racines) + styles de dialogue — ui/layout.toml
+  // est écrit AVANT l'appel, les listes alimentent les commandes d'event
+  onOk: (ui: Project["ui"], widgets: string[], styles: string[]) => void;
   onClose: () => void;
 }
 
@@ -78,7 +79,7 @@ export async function loadUiLayout2(root: string): Promise<UiLayout2> {
   try {
     return parseLayoutToml(await readProjectText(root, "ui/layout.toml"));
   } catch {
-    return { message: { pos: [0, 20], size: [32, 8] }, choice: { pos: [0, 20], size: [32, 8] }, nodes: [] };
+    return { message: { pos: [0, 20], size: [32, 8] }, choice: { pos: [0, 20], size: [32, 8] }, nodes: [], styles: [] };
   }
 }
 
@@ -89,6 +90,11 @@ export default function UiThemeModal(props: Props) {
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
+  // mode dialogues (S1) : boîte sélectionnée — 0 = défaut, i+1 = styles[i] ;
+  // skin/fonte PROPRES au style pour la preview
+  const [styleIdx, setStyleIdx] = useState(0);
+  const [stSkin, setStSkin] = useState<ImageBitmap | null>(null);
+  const [stFont, setStFont] = useState<ImageBitmap | null>(null);
   // widget (racine) en cours d'édition — les autres sont estompés sur le
   // canvas ; null = tout l'écran (demande Bertrand : « je crée un widget
   // et ça ouvre le designer dessus »)
@@ -118,6 +124,18 @@ export default function UiThemeModal(props: Props) {
       void loadAssetPng(props.root, ui.icons).then(setIcons).catch(() => setIcons(null));
     else setIcons(null);
   }, [ui.icons, props.root]);
+  // assets PROPRES au style sélectionné (S1) — absents = ceux du thème
+  const curStyle = styleIdx > 0 ? lay?.styles[styleIdx - 1] : undefined;
+  useEffect(() => {
+    if (curStyle?.windowskin)
+      void loadAssetPng(props.root, curStyle.windowskin).then(setStSkin).catch(() => setStSkin(null));
+    else setStSkin(null);
+  }, [curStyle?.windowskin, props.root]);
+  useEffect(() => {
+    if (curStyle?.font)
+      void loadAssetPng(props.root, curStyle.font).then(setStFont).catch(() => setStFont(null));
+    else setStFont(null);
+  }, [curStyle?.font, props.root]);
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
   const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount]);
@@ -149,13 +167,13 @@ export default function UiThemeModal(props: Props) {
     for (let y = 0; y < 28; y++)
       for (let x = 0; x < 32; x++) if ((x + y) % 2) ctx.fillRect(x * 8, y * 8, 8, 8);
 
-    const glyph = (c: string, dx: number, dy: number) => {
+    const glyph = (c: string, dx: number, dy: number, f = font) => {
       const k = c.charCodeAt(0);
-      if (k < 32 || k > 126 || !font) return;
-      ctx.drawImage(font, (k - 32) * 8, 0, 8, 8, dx, dy, 8, 8);
+      if (k < 32 || k > 126 || !f) return;
+      ctx.drawImage(f, (k - 32) * 8, 0, 8, 8, dx, dy, 8, 8);
     };
-    const text = (s: string, tx: number, ty: number, max: number) => {
-      for (let i = 0; i < s.length && i < max; i++) glyph(s[i], (tx + i) * 8, ty * 8);
+    const text = (s: string, tx: number, ty: number, max: number, f = font) => {
+      for (let i = 0; i < s.length && i < max; i++) glyph(s[i], (tx + i) * 8, ty * 8, f);
     };
     const icon = (n: number, dx: number, dy: number) => {
       if (!icons || n < 0 || n >= iconCount) return;
@@ -168,13 +186,13 @@ export default function UiThemeModal(props: Props) {
         ctx.fillRect(tx * 8, ty * 8, 8, 8);
       }
     };
-    const win = (x: number, y: number, w: number, h: number) => {
-      if (skin) {
+    const win = (x: number, y: number, w: number, h: number, sk = skin) => {
+      if (sk) {
         for (let ty = 0; ty < h; ty++)
           for (let tx = 0; tx < w; tx++) {
             const sx = tx === 0 ? 0 : tx === w - 1 ? 2 : 1;
             const sy = ty === 0 ? 0 : ty === h - 1 ? 2 : 1;
-            ctx.drawImage(skin, sx * 8, sy * 8, 8, 8, (x + tx) * 8, (y + ty) * 8, 8, 8);
+            ctx.drawImage(sk, sx * 8, sy * 8, 8, 8, (x + tx) * 8, (y + ty) * 8, 8, 8);
           }
       } else {
         ctx.fillStyle = "#10185a";
@@ -228,14 +246,18 @@ export default function UiThemeModal(props: Props) {
         }
       }
     }
-    // fenêtres du dialogue (zones interdites aux widgets)
-    const m = lay.message;
-    win(m.pos[0], m.pos[1], m.size[0], m.size[1]);
-    text("Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4);
-    const c = lay.choice;
+    // fenêtres du dialogue (zones interdites aux widgets) — en mode
+    // dialogues, celles du STYLE sélectionné, avec SON skin et SA fonte
+    const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
+    const dSkin = st?.windowskin ? stSkin : skin;
+    const dFont = st?.font ? stFont : font;
+    const m = st ? st.message ?? lay.message : lay.message;
+    win(m.pos[0], m.pos[1], m.size[0], m.size[1], dSkin);
+    text(st ? `Style ${st.id}` : "Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4, dFont);
+    const c = st ? st.choice ?? m : lay.choice;
     if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
-      win(c.pos[0], c.pos[1], c.size[0], c.size[1]);
-      text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4);
+      win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
+      text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
     }
     // mode widget : les AUTRES widgets sont estompés (contexte)
     if (scope) {
@@ -261,7 +283,7 @@ export default function UiThemeModal(props: Props) {
         ctx.strokeRect((r.x + r.w) * 8 - 4.5, (r.y + r.h) * 8 - 4.5, 5, 5);
       }
     }
-  }, [lay, flat, font, skin, icons, iconCount, selId, scope]);
+  }, [lay, flat, font, skin, icons, iconCount, selId, scope, styleIdx, stSkin, stFont, props.mode]);
 
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
@@ -276,6 +298,34 @@ export default function UiThemeModal(props: Props) {
     const w = { ...lay[key], [axis]: [...lay[key][axis]] as [number, number] };
     w[axis][i] = v;
     setLay({ ...lay, [key]: w });
+  };
+
+  // ---- styles de dialogue (S1, mode "dialogs") -------------------------
+  const patchStyle = (patch: Partial<DialogStyle>) => {
+    if (styleIdx === 0) return;
+    setLay({
+      ...lay,
+      styles: lay.styles.map((s, i) => (i === styleIdx - 1 ? { ...s, ...patch } : s)),
+    });
+  };
+  // fenêtre du style : lit l'EFFECTIVE (héritée du défaut si absente),
+  // écrit une fenêtre propre au style
+  const patchStyleWin = (key: "message" | "choice", i: number, axis: "pos" | "size", v: number) => {
+    if (!curStyle) return;
+    const eff = key === "message" ? curStyle.message ?? lay.message : curStyle.choice ?? curStyle.message ?? lay.message;
+    const w = { pos: [...eff.pos] as [number, number], size: [...eff.size] as [number, number] };
+    w[axis][i] = v;
+    patchStyle({ [key]: w });
+  };
+  const addStyle = () => {
+    let i = 1;
+    while (lay.styles.some((s) => s.id === `style${i}`)) i++;
+    const st: DialogStyle = {
+      id: `style${i}`,
+      message: { pos: [...lay.message.pos] as [number, number], size: [...lay.message.size] as [number, number] },
+    };
+    setLay({ ...lay, styles: [...lay.styles, st] });
+    setStyleIdx(lay.styles.length + 1);
   };
 
   // profondeur d'un nœud (hit-test : on prend le plus PROFOND)
@@ -512,6 +562,66 @@ export default function UiThemeModal(props: Props) {
           <div className="uitheme-listview">
             <div className="uitheme-listcol">
               <fieldset className="evedit-box">
+                <legend>Boîtes de dialogue ({1 + lay.styles.length})</legend>
+                <div className="uitheme-treelist">
+                  <div
+                    className={"tree-row" + (styleIdx === 0 ? " active" : "")}
+                    onClick={() => setStyleIdx(0)}
+                  >
+                    🗔 (défaut) ★
+                  </div>
+                  {lay.styles.map((st, i) => (
+                    <div
+                      key={st.id}
+                      className={"tree-row uitheme-widgetrow" + (styleIdx === i + 1 ? " active" : "")}
+                      onClick={() => setStyleIdx(i + 1)}
+                    >
+                      <span style={{ flex: 1 }}>🗔 {st.id}</span>
+                      <button title="Renommer le style"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newId = prompt(`Nouveau nom du style « ${st.id} »`, st.id)?.trim();
+                          if (!newId || newId === st.id) return;
+                          if (!/^[ -~]+$/.test(newId)) {
+                            alert("Nom ASCII uniquement (pas d'accents).");
+                            return;
+                          }
+                          if (lay.styles.some((s) => s.id === newId)) {
+                            alert(`Le style « ${newId} » existe déjà.`);
+                            return;
+                          }
+                          setLay({
+                            ...lay,
+                            styles: lay.styles.map((s) => (s.id === st.id ? { ...s, id: newId } : s)),
+                          });
+                        }}>
+                        ✎
+                      </button>
+                      <button className="danger" title="Supprimer le style"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!confirm(`Supprimer le style « ${st.id} » ? Les messages qui l'utilisent devront être corrigés.`)) return;
+                          setLay({ ...lay, styles: lay.styles.filter((s) => s.id !== st.id) });
+                          setStyleIdx(0);
+                        }}>
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button disabled={lay.styles.length >= 3} onClick={addStyle}
+                  title={lay.styles.length >= 3 ? "Max 3 styles en plus du défaut" : undefined}>
+                  ✧ Nouveau style
+                </button>
+                <span className="hint">
+                  Le style se choisit sur chaque commande Message / Choix
+                  (défaut si rien). Budget BG3 : 256 caractères — chaque
+                  windowskin en ajoute 9, chaque fonte 96.
+                </span>
+              </fieldset>
+              {styleIdx === 0 && (
+              <>
+              <fieldset className="evedit-box">
                 <legend>Thème des dialogues</legend>
                 <label>
                   Windowskin
@@ -555,6 +665,106 @@ export default function UiThemeModal(props: Props) {
                   chevauchement est une erreur.
                 </span>
               </fieldset>
+              </>
+              )}
+              {curStyle && (
+              <>
+              <fieldset className="evedit-box">
+                <legend>Style « {curStyle.id} »</legend>
+                <label>
+                  Windowskin
+                  <select
+                    value={curStyle.windowskin ?? ""}
+                    onChange={(e) => patchStyle({ windowskin: e.target.value || undefined })}
+                  >
+                    <option value="">(celui du thème)</option>
+                    {props.windowskins.map((rel) => (
+                      <option key={rel} value={rel}>{assetStem(rel)}</option>
+                    ))}
+                    {curStyle.windowskin && !props.windowskins.includes(curStyle.windowskin) && (
+                      <option value={curStyle.windowskin}>{assetStem(curStyle.windowskin)} (hors registre)</option>
+                    )}
+                  </select>
+                </label>
+                <label>
+                  Fonte
+                  <select
+                    value={curStyle.font ?? ""}
+                    onChange={(e) => patchStyle({ font: e.target.value || undefined })}
+                  >
+                    <option value="">(fonte du projet ★)</option>
+                    {props.fonts
+                      .filter((rel) => rel !== props.project.assets.font)
+                      .map((rel) => (
+                        <option key={rel} value={rel}>{assetStem(rel)}</option>
+                      ))}
+                    {curStyle.font &&
+                      curStyle.font !== props.project.assets.font &&
+                      !props.fonts.includes(curStyle.font) && (
+                        <option value={curStyle.font}>{assetStem(curStyle.font)} (hors registre)</option>
+                      )}
+                  </select>
+                </label>
+                <span className="hint">
+                  Import de fontes : Gestionnaire de ressources (FontSet,
+                  bande 768x8). Toutes les fontes partagent la palette de
+                  la fonte du projet.
+                </span>
+              </fieldset>
+              <fieldset className="evedit-box">
+                <legend>Fenêtres du style (en tiles)</legend>
+                <div className="row">
+                  <span style={{ width: 62, alignSelf: "flex-end", paddingBottom: 5 }} className="hint">
+                    message
+                  </span>
+                  {([0, 1] as const).map((i) =>
+                    num(i ? "y" : "x", (curStyle.message ?? lay.message).pos[i], (v) =>
+                      patchStyleWin("message", i, "pos", v ?? 0))
+                  )}
+                  {([0, 1] as const).map((i) =>
+                    num(i ? "hauteur" : "largeur", (curStyle.message ?? lay.message).size[i], (v) =>
+                      patchStyleWin("message", i, "size", v ?? 8))
+                  )}
+                </div>
+                <label className="checkline">
+                  <input
+                    type="checkbox"
+                    checked={!!curStyle.choice}
+                    onChange={(e) =>
+                      patchStyle({
+                        choice: e.target.checked
+                          ? {
+                              pos: [...(curStyle.message ?? lay.message).pos] as [number, number],
+                              size: [...(curStyle.message ?? lay.message).size] as [number, number],
+                            }
+                          : undefined,
+                      })
+                    }
+                  />
+                  Fenêtre de choix distincte (sinon : celle du message)
+                </label>
+                {curStyle.choice && (
+                  <div className="row">
+                    <span style={{ width: 62, alignSelf: "flex-end", paddingBottom: 5 }} className="hint">
+                      choice
+                    </span>
+                    {([0, 1] as const).map((i) =>
+                      num(i ? "y" : "x", curStyle.choice!.pos[i], (v) =>
+                        patchStyleWin("choice", i, "pos", v ?? 0))
+                    )}
+                    {([0, 1] as const).map((i) =>
+                      num(i ? "hauteur" : "largeur", curStyle.choice!.size[i], (v) =>
+                        patchStyleWin("choice", i, "size", v ?? 8))
+                    )}
+                  </div>
+                )}
+                <span className="hint">
+                  Min 8x3 dans l'écran 32x28. Les widgets ne doivent
+                  chevaucher AUCUNE fenêtre de dialogue (tous styles).
+                </span>
+              </fieldset>
+              </>
+              )}
             </div>
             <div className="uitheme-preview">
               <span className="hint">Preview (rendu tiles fidèle)</span>
@@ -953,7 +1163,8 @@ export default function UiThemeModal(props: Props) {
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
                 props.onOk(
                   ui.windowskin || ui.text_speed || ui.icons ? ui : undefined,
-                  rootsOf(lay.nodes).map((n) => n.id)
+                  rootsOf(lay.nodes).map((n) => n.id),
+                  lay.styles.map((s) => s.id)
                 );
               })();
             }}

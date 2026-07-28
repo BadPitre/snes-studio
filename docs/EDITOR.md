@@ -123,9 +123,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   réécrit `assets/sprites.png`.
 - **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
   catégories **CharSet** (personnages), **ChipSet** (tilesets),
-  **WindowSkin** (cadres 9-slice de la Phase 11) et **IconSet**
+  **WindowSkin** (cadres 9-slice de la Phase 11), **IconSet**
   (planches d'icônes des widgets, W1 — bande PNG Nx8 validée à
-  l'import, aperçu avec l'index sous chaque icône, ★ = planche active),
+  l'import, aperçu avec l'index sous chaque icône, ★ = planche active)
+  et **FontSet** (fontes S1 — bande PNG 768x8, 96 glyphes 8x8, validée
+  à l'import ; aperçu = texte d'exemple rendu avec la fonte + la bande
+  des glyphes ; ★ = fonte du projet `assets.font`, non supprimable ;
+  registre `fonts` de project.json ; renommer met à jour les styles de
+  dialogue qui la pointent, supprimer est refusé si un style l'utilise),
   liste avec aperçu, et actions **Importer / Exporter / Renommer /
   Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export
@@ -310,9 +315,18 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   valeurs/images. Les erreurs (mêmes règles que le compilateur —
   débordements, chevauchements avec les fenêtres de dialogue, icônes
   manquantes) s'affichent sous le canvas et bloquent OK. **« Dialogues
-  et choix »** regroupe le thème des dialogues (windowskin, vitesse du
-  texte), la géométrie des fenêtres message/choix et une preview fidèle
-  (les widgets affichés en contexte). **« Widgets »** s'ouvre sur la
+  et choix »** (S1) s'ouvre sur la liste **« Boîtes de dialogue »** :
+  la boîte **(défaut) ★** (toujours là — thème windowskin + vitesse du
+  texte + géométrie message/choix) et jusqu'à 3 **styles nommés**
+  (✧ Nouveau style, ✎ renommer — ASCII —, 🗑 supprimer avec
+  confirmation). Un style sélectionné édite SON windowskin (défaut :
+  celui du thème), SA fonte (liste des FontSets, défaut : la fonte du
+  projet ★) et SES fenêtres (message obligatoire, « fenêtre de choix
+  distincte » optionnelle) ; la preview dessine la boîte du style
+  sélectionné avec son skin ET sa fonte. Les formulaires des commandes
+  **Message** et **Afficher un choix** gagnent un select « Boîte de
+  dialogue » ((défaut) + styles — le libellé de la liste des commandes
+  affiche `[style]`). **« Widgets »** s'ouvre sur la
   page liste : la planche d'icônes et la LISTE des widgets — 👁 = visible au
   démarrage (par défaut un widget est CACHÉ et s'affiche par la
   commande d'event **« Afficher/cacher un widget UI »**, onglet

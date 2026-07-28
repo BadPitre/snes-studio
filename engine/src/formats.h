@@ -197,6 +197,11 @@
                               termine. Le mapping START en dur est
                               retiré (Ph. 12) : l'auteur mappe sa touche
                               via KEYIN + cette commande */
+#define VM_OP_DLGSTYLE 0x27 /* style (u8, 0 = défaut) — boîte de dialogue
+                               du prochain MSG/CHOICE (S1) : fenêtre,
+                               windowskin et fonte par style (tables
+                               ui_styles.c). Émis par datagen avant
+                               CHAQUE msg/choice (champ "style"). */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

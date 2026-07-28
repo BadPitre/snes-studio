@@ -21,6 +21,7 @@ interface Props {
   charsetNames: string[];
   db: Database | null; // commande db_read (v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
+  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
   onClose: () => void;
@@ -173,6 +174,7 @@ export default function CommonEventsModal(props: Props) {
                   commonNames={draft.map((ce, i) => ce.name || `CE ${i + 1}`)}
                   db={props.db}
                   uiWidgets={props.uiWidgets}
+                  uiStyles={props.uiStyles}
                   onRenameVars={props.onRenameVars}
                 />
               </>

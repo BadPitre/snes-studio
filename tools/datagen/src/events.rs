@@ -52,6 +52,8 @@ pub struct EventCompiler<'a> {
     db: Option<&'a Db>,
     /// widgets UI du layout (Phase 12) — noms résolus vers leurs index
     ui_widgets: Vec<String>,
+    /// styles de dialogue (S1) — index 0 = défaut, 1.. = dialog_style
+    ui_styles: Vec<String>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -77,6 +79,7 @@ impl<'a> EventCompiler<'a> {
             texts,
             db: None,
             ui_widgets: Vec::new(),
+            ui_styles: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -87,6 +90,30 @@ impl<'a> EventCompiler<'a> {
     }
 
     /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
+    /// S1 : résout le champ "style" d'un msg/choice vers l'index de
+    /// style (0 = défaut, absent ou "")
+    fn style_index(&self, cmd: &Value) -> Result<usize> {
+        let name = cmd["style"].as_str().unwrap_or("");
+        if name.is_empty() {
+            return Ok(0);
+        }
+        self.ui_styles
+            .iter()
+            .position(|st| st == name)
+            .map(|i| i + 1)
+            .with_context(|| {
+                format!(
+                    "style de dialogue « {} » introuvable dans ui/layout.toml (styles : {})",
+                    name,
+                    if self.ui_styles.is_empty() {
+                        "aucun — fenetre UI > Dialogues et choix".to_string()
+                    } else {
+                        self.ui_styles.join(", ")
+                    }
+                )
+            })
+    }
+
     fn text_name(&mut self, content: &str) -> Result<String> {
         if !content.chars().all(|c| (' '..='~').contains(&c)) {
             bail!("texte « {} » : caractere non-ASCII (accents en v1)", content);
@@ -227,11 +254,26 @@ impl<'a> EventCompiler<'a> {
             let c = cmd["c"].as_str().with_context(|| format!("commande sans champ c : {}", cmd))?;
             match c {
                 "msg" => {
+                    // S1 : chaque message choisit sa boîte (défaut = style
+                    // 0). SANS styles au projet, rien n'est émis — le
+                    // bytecode des projets existants reste byte-identique
+                    // (le +1 opcode décalait la machine à écrire d'une
+                    // frame). Avec styles, le reset à 0 est toujours émis.
+                    if !self.ui_styles.is_empty() {
+                        out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
+                    } else {
+                        self.style_index(cmd)?; /* valide quand même le champ */
+                    }
                     let t = cmd["text"].as_str().context("msg sans texte")?;
                     let name = self.text_name(t)?;
                     out.push(format!("  MSG {}", name));
                 }
                 "choice" => {
+                    if !self.ui_styles.is_empty() {
+                        out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
+                    } else {
+                        self.style_index(cmd)?;
+                    }
                     let var = Self::var_ref(&cmd["var"], CHOICE_VAR)?;
                     let opts = cmd["options"].as_array().context("choice sans options")?;
                     if opts.len() < 2 || opts.len() > 4 {
@@ -683,6 +725,7 @@ impl<'a> EventCompiler<'a> {
         commons: &[CommonEvent],
         db: Option<&'a Db>,
         ui_widgets: &[String],
+        ui_styles: &[String],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -692,6 +735,7 @@ impl<'a> EventCompiler<'a> {
         self.used_commons = vec![false; commons.len()];
         self.db = db;
         self.ui_widgets = ui_widgets.to_vec();
+        self.ui_styles = ui_styles.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

@@ -51,10 +51,20 @@ export interface UiNode {
   visible?: boolean;
 }
 
+// Style de boîte de dialogue (S1) — style 0 (défaut) = thème + [message]
+export interface DialogStyle {
+  id: string;
+  windowskin?: string; // défaut : celui du thème
+  font?: string; // défaut : assets.font
+  message?: UiWin; // défaut : [message]
+  choice?: UiWin; // défaut : le message du style
+}
+
 export interface UiLayout2 {
   message: UiWin;
   choice: UiWin;
   nodes: UiNode[];
+  styles: DialogStyle[];
 }
 
 // Primitive aplatie (ce que le moteur dessine) + le nœud d'origine
@@ -174,6 +184,22 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
   const rects: Flat["rects"] = {};
   const nodes = lay.nodes;
 
+  if (lay.styles.length > 3) errors.push(`${lay.styles.length} styles de dialogue (max 3)`);
+  {
+    const sids = new Set<string>();
+    for (const st of lay.styles) {
+      if (!st.id || !/^[ -~]+$/.test(st.id)) errors.push("style de dialogue sans id ASCII");
+      if (sids.has(st.id)) errors.push(`style « ${st.id} » en double`);
+      sids.add(st.id);
+      const m = st.message ?? lay.message;
+      const c = st.choice ?? m;
+      for (const [what, w] of [["message", m], ["choice", c]] as const) {
+        if (w.pos[0] < 0 || w.pos[1] < 0 || w.size[0] < 8 || w.size[1] < 3 ||
+            w.pos[0] + w.size[0] > SCREEN_W || w.pos[1] + w.size[1] > SCREEN_H)
+          errors.push(`style « ${st.id} » : fenêtre ${what} invalide (écran 32x28, min 8x3)`);
+      }
+    }
+  }
   const ids = new Set<string>();
   for (const n of nodes) {
     if (!n.id) errors.push("nœud sans id");
@@ -319,10 +345,16 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
     const rect = { id: r.id, x: r.pos[0], y: r.pos[1], w: size[0], h: size[1] };
     for (const prev of rootRects)
       if (rectsOverlap(rect, prev)) errors.push(`« ${prev.id} » et « ${r.id} » se chevauchent`);
-    for (const [name, w] of [
+    const allWins: [string, UiWin][] = [
       ["message", lay.message],
       ["choice", lay.choice],
-    ] as const) {
+    ];
+    for (const st of lay.styles) {
+      const m = st.message ?? lay.message;
+      allWins.push([`message du style « ${st.id} »`, m]);
+      allWins.push([`choice du style « ${st.id} »`, st.choice ?? m]);
+    }
+    for (const [name, w] of allWins) {
       if (rectsOverlap(rect, { x: w.pos[0], y: w.pos[1], w: w.size[0], h: w.size[1] }))
         errors.push(`« ${r.id} » : chevauche la fenêtre ${name} (les dialogues l'écraseraient)`);
     }
@@ -357,6 +389,7 @@ export function parseLayoutToml(src: string): UiLayout2 {
     choice?: UiWin;
     overlay?: RawOverlay[];
     node?: UiNode[];
+    dialog_style?: DialogStyle[];
   };
   const message = raw.message ?? { pos: [0, 20], size: [32, 8] };
   const choice = raw.choice ?? message;
@@ -379,11 +412,18 @@ export function parseLayoutToml(src: string): UiLayout2 {
       visible: true, // compat W1 : les overlays plats restent visibles
     });
   });
-  return { message: { ...message }, choice: { ...choice }, nodes };
+  return { message: { ...message }, choice: { ...choice }, nodes, styles: raw.dialog_style ?? [] };
 }
 
 export function layoutToToml(l: UiLayout2): string {
   let s = `# Layout UI du projet (designer D1 — docs/SPEC_SYSTEME_UI.md).\n# Positions et tailles EN TILES (unités de 8 px, écran 32x28).\n\n[message]\npos = [${l.message.pos}]\nsize = [${l.message.size}]\n\n[choice]\npos = [${l.choice.pos}]\nsize = [${l.choice.size}]\n`;
+  for (const st of l.styles) {
+    s += `\n[[dialog_style]]\nid = ${JSON.stringify(st.id)}\n`;
+    if (st.windowskin) s += `windowskin = ${JSON.stringify(st.windowskin)}\n`;
+    if (st.font) s += `font = ${JSON.stringify(st.font)}\n`;
+    if (st.message) s += `message = { pos = [${st.message.pos}], size = [${st.message.size}] }\n`;
+    if (st.choice) s += `choice = { pos = [${st.choice.pos}], size = [${st.choice.size}] }\n`;
+  }
   // préordre : racines puis descendants (les parents précèdent toujours)
   const emitNode = (n: UiNode) => {
     s += `\n[[node]]\nid = ${JSON.stringify(n.id)}\n`;

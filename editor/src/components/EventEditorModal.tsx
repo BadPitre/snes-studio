@@ -31,6 +31,7 @@ interface Props {
   commonNames: string[]; // noms des common events (v0.16)
   db: Database | null; // database du projet (commande db_read, v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
+  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -50,9 +51,9 @@ interface Line {
 function labelOf(c: Command, ceNames?: string[]): string {
   switch (c.c) {
     case "msg":
-      return `Message : ${c.text}`;
+      return `Message${c.style ? ` [${c.style}]` : ""} : ${c.text}`;
     case "choice":
-      return "Afficher un choix…";
+      return `Afficher un choix…${c.style ? ` [${c.style}]` : ""}`;
     case "set":
       return `Variable ${c.var} = ${c.value}`;
     case "add":
@@ -252,7 +253,8 @@ export function CommandListEditor(props: {
   charsetNames: string[];
   commonNames: string[];
   db: Database | null;
-  uiWidgets: string[]; // schémas + instances (commande db_read)
+  uiWidgets: string[];
+  uiStyles: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -492,6 +494,7 @@ export function CommandListEditor(props: {
               commonNames={props.commonNames}
               db={props.db}
               uiWidgets={props.uiWidgets}
+              uiStyles={props.uiStyles}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -898,6 +901,7 @@ export default function EventEditorModal(props: Props) {
               commonNames={props.commonNames}
               db={props.db}
               uiWidgets={props.uiWidgets}
+              uiStyles={props.uiStyles}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -967,6 +971,7 @@ function CommandForm(props: {
   charsetNames: string[];
   commonNames: string[];
   uiWidgets: string[];
+  uiStyles: string[];
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -990,6 +995,27 @@ function CommandForm(props: {
   const varOk = (v: string) =>
     /^[vg]\d{1,2}$/.test(v) && Number(v.slice(1)) <= 63;
 
+  // sélecteur de boîte de dialogue (S1) — affiché seulement si le projet
+  // a des styles ; absent = la boîte par défaut (toujours là)
+  const styleField = (c: { style?: string }, set: (s: string | undefined) => void) =>
+    props.uiStyles.length > 0 && (
+      <label>
+        Boîte de dialogue
+        <select value={c.style ?? ""} onChange={(e) => set(e.target.value || undefined)}>
+          <option value="">(défaut)</option>
+          {props.uiStyles.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+          {c.style && !props.uiStyles.includes(c.style) && (
+            <option value={c.style}>{c.style} (?)</option>
+          )}
+        </select>
+        {c.style && !props.uiStyles.includes(c.style) && (
+          <span className="hint">⚠ style « {c.style} » introuvable (Tools → UI → Dialogues et choix)</span>
+        )}
+      </label>
+    );
+
   let body = null;
   let valid = true;
   switch (cmd.c) {
@@ -1010,6 +1036,7 @@ function CommandForm(props: {
             \v[n] affiche la variable n au moment de l'affichage (ex. « Tu
             as \v[12] pièces d'or ») — marche aussi dans les choix.
           </span>
+          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
         </>
       );
       break;
@@ -1048,6 +1075,7 @@ function CommandForm(props: {
             + Ajouter un choix
           </button>
           <p className="hint">Les commandes de chaque branche s'ajoutent ensuite sous « : Quand […] ».</p>
+          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
         </>
       );
       break;

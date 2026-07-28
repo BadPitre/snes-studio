@@ -259,6 +259,24 @@ menu Système (sauvegarde) — **le mapping START en dur du moteur est
 retiré** : l'auteur choisit sa touche (key_input + condition, ou tout
 autre déclencheur).
 
+**Phase 12 S1 (styles de dialogue)** : `ui/layout.toml` accepte des
+blocs `[[dialog_style]]` (max 3 en plus du défaut) — `id` ASCII unique,
+`windowskin` (PNG 24x24, défaut : celui du thème), `font` (PNG 768x8 —
+96 glyphes 8x8, défaut : `assets.font`), `message = { pos, size }`
+(défaut : `[message]`), `choice = { pos, size }` (défaut : le message
+du style). Fenêtres min 8x3 dans 32x28 ; les overlays ne doivent
+chevaucher AUCUNE fenêtre d'AUCUN style. Les commandes msg/choice
+prennent un champ optionnel `"style": "<id>"` (absent = boîte par
+défaut, TOUJOURS présente) — events.rs résout le nom (erreur avec la
+liste sinon) et émet `DLGSTYLE <n>` (opcode 0x27) devant la boîte,
+UNIQUEMENT si le projet a des styles (sans styles le bytecode est
+byte-identique). Budget VRAM BG3 : 256 chars — fonte 0 en occupe 97,
+chaque windowskin 9, les icônes 2×N, chaque fonte supplémentaire 96
+(dédupliqués) ; dépassement = erreur datagen détaillée. v1 : toutes
+les fontes/skins partagent la palette de la fonte 0. `project.json`
+accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
+datagen — layout.toml fait foi).
+
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
 [...]}]` — des scripts globaux au projet, modèle RM2003.

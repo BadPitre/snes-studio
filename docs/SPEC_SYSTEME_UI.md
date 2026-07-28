@@ -315,6 +315,38 @@ TOML — la communauté pourra en partager.
   au boot, Éditer…, 🗑, ✧ Nouveau) puis le designer scopé sur le widget
   choisi (← Widgets pour revenir, « Vue d'ensemble » pour tout
   l'écran).
+- **Livré (Phase 12, S1 — styles de dialogue)** : plusieurs BOÎTES DE
+  DIALOGUE nommées, en plus de la boîte par défaut (toujours là).
+  - Layout : blocs `[[dialog_style]]` dans `ui/layout.toml` (max 3 en
+    plus du défaut) — `id` ASCII unique, `windowskin` (défaut : celui
+    du thème), `font` (PNG 768x8, défaut : `assets.font`), `message` /
+    `choice` (fenêtres propres, min 8x3 ; choice hérite du message du
+    style, message hérite de `[message]`). Les overlays ne doivent
+    chevaucher AUCUNE fenêtre d'AUCUN style (union = bande UI_SHADOW).
+  - Datagen : plan VRAM BG3 dédupliqué — fonte 0 (97 chars, base 1),
+    skins 9 chars chacun, icônes 2×N, fontes SUPPLÉMENTAIRES 96 chars
+    (base sur ' ') après les icônes ; budget 256 chars vérifié avec
+    erreur détaillée. v1 : toutes les fontes et skins partagent la
+    PALETTE de la fonte 0 (CGRAM 16-19). Tables `ui_styles.c`
+    (`ui_st_mx/my/mw/mh/cx/cy/cw/ch/font/skin`, ligne 0 = défaut) +
+    `UI_STYLE_COUNT` dans ui_cfg.h — TOUJOURS générées.
+  - VM : opcode 0x27 `DLGSTYLE [n]` arme le style de la PROCHAINE
+    boîte ; émis devant chaque msg/choice UNIQUEMENT si le projet a
+    des styles (sinon bytecode byte-identique). Champ `style` sur les
+    commandes msg/choice (absent = défaut) — nom résolu à la
+    compilation, erreur avec la liste des styles connus.
+  - Moteur : textbox à géométrie/fonte/skin RUNTIME
+    (`textbox_set_style`, copie des tables ; `TB_CHAR` = base fonte du
+    style). ATTENTION frame de lag : le test du skin est hissé HORS
+    des boucles de `tb_box_at` — l'ouverture de message frôle le
+    budget d'une frame, prudence sur ce chemin chaud.
+  - Éditeur : Tools → UI → Dialogues et choix = liste « Boîtes de
+    dialogue » ((défaut) ★ + styles : ✧ Nouveau, ✎ renommer, 🗑) ; par
+    style : windowskin, fonte, fenêtres propres ; preview avec le skin
+    ET la fonte du style sélectionné. Formulaires Message/Choix :
+    select « Boîte de dialogue ». Ressource FontSet (import 768x8,
+    EXPORT PNG, renommer — les styles suivent —, suppression bloquée
+    si fonte du projet ★ ou utilisée par un style).
 - **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
   écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4
   — l'objet liste deviendra NAVIGABLE, le designer le pose déjà),

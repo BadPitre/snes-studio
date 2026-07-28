@@ -360,6 +360,13 @@ impl IndexedImage {
         Ok(out)
     }
 
+    /// Fonte SUPPLÉMENTAIRE d'un style de dialogue (S1) : les 96 glyphes
+    /// seuls, SANS le char transparent de tête (la base pointe sur ' ').
+    pub fn to_font_glyphs(&self) -> Result<Vec<u8>> {
+        let full = self.to_font()?;
+        Ok(full[16..].to_vec())
+    }
+
     /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
     /// bande Nx8 (largeur multiple de 8, 64 icônes max), indexée sur la
     /// palette de la fonte (0 transparent, 1 fond, 2 bord, 3 accent).
