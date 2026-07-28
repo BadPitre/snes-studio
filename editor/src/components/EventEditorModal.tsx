@@ -27,6 +27,7 @@ interface Props {
   // cibles de « Déplacer un event » et « Tourner un event »
   entryNames: string[];
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
+  commonNames: string[]; // noms des common events (v0.16)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -43,7 +44,7 @@ interface Line {
   comment?: boolean; // commande « Commentaire » — style vert RM2003
 }
 
-function labelOf(c: Command): string {
+function labelOf(c: Command, ceNames?: string[]): string {
   switch (c.c) {
     case "msg":
       return `Message : ${c.text}`;
@@ -121,6 +122,9 @@ function labelOf(c: Command): string {
       return c.power === 0
         ? "Secousse : stop"
         : `Secouer l'écran (force ${c.power}, ${c.frames} frames)`;
+    case "call":
+      return `Appeler le common event [${String(c.n + 1).padStart(4, "0")}${
+        ceNames?.[c.n] ? ": " + ceNames[c.n] : ""}]`;
   }
 }
 
@@ -158,27 +162,28 @@ function cmdTitle(c: Command["c"]): string {
     tint: "Teinter l'écran",
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
+    call: "Appeler un common event",
   };
   return titles[c] ?? "Options de la commande";
 }
 
-function flatten(cmds: Command[], base: string, depth: number, out: Line[]) {
+function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNames?: string[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
-    out.push({ path, depth, label: labelOf(c), comment: c.c === "rem" });
+    out.push({ path, depth, label: labelOf(c, ceNames), comment: c.c === "rem" });
     if (c.c === "loop") {
-      flatten(c.do, `${path}.d.`, depth + 1, out);
+      flatten(c.do, `${path}.d.`, depth + 1, out, ceNames);
       out.push({ path: `${path}.d.-1`, depth: depth + 1, label: ": Fin de boucle", branch: true });
     } else if (c.c === "choice") {
       c.options.forEach((o, k) => {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
-        flatten(o.do, `${path}.o${k}.`, depth + 2, out);
+        flatten(o.do, `${path}.o${k}.`, depth + 2, out, ceNames);
       });
     } else if (c.c === "if" || c.c === "if_sw" || c.c === "if_var") {
       out.push({ path: `${path}.t.-1`, depth: depth + 1, label: ": Si vrai", branch: true });
-      flatten(c.then, `${path}.t.`, depth + 2, out);
+      flatten(c.then, `${path}.t.`, depth + 2, out, ceNames);
       out.push({ path: `${path}.e.-1`, depth: depth + 1, label: ": Sinon", branch: true });
-      flatten(c.else, `${path}.e.`, depth + 2, out);
+      flatten(c.else, `${path}.e.`, depth + 2, out, ceNames);
     }
   });
   out.push({ path: base + cmds.length, depth, label: "" }); // queue de liste
@@ -216,52 +221,36 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
   return { list, index: parseInt(parts[parts.length - 1], 10) };
 }
 
-export default function EventEditorModal(props: Props) {
-  const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
-  // page éditée : 0 = champs plats de l'event (page 1), k>0 = extraPages[k-1]
-  const [page, setPage] = useState(0);
-  const pageCount = 1 + (draft.extraPages?.length ?? 0);
-  const cur: EventPage =
-    page === 0
-      ? {
-          condition: draft.condition,
-          move: draft.move,
-          move_route: draft.move_route,
-          priority: draft.priority,
-          speed: draft.speed,
-          trigger: draft.trigger,
-          sprite: draft.sprite,
-          dir: draft.dir,
-          entry: draft.entry,
-          commands: draft.commands,
-        }
-      : draft.extraPages![page - 1];
-  function patchCur(p: Partial<EventPage>) {
-    if (page === 0) setDraft({ ...draft, ...p });
-    else {
-      const extra = [...(draft.extraPages ?? [])];
-      extra[page - 1] = { ...extra[page - 1], ...p };
-      setDraft({ ...draft, extraPages: extra });
-    }
-  }
-  const cmds = cur.commands;
-  const [sel, setSel] = useState<string>(String(props.event.commands.length));
+// Éditeur de liste de commandes — la colonne « Contenu » (@>) avec ses
+// fenêtres (sélecteur par onglets, options, listes de variables, menu
+// contextuel, Ctrl+C/V/Suppr). Partagé entre l'Event Editor et la fenêtre
+// Common events (v0.16). La liste reçue est MUTÉE EN PLACE ; commit()
+// prévient le parent après chaque changement. Remonter le composant
+// (key=) quand la liste affichée change d'identité.
+export function CommandListEditor(props: {
+  cmds: Command[];
+  commit: () => void;
+  shortcutsOff?: boolean; // sous-fenêtre du parent ouverte : couper le clavier
+  sceneNames: string[];
+  scenes: Record<string, Scene>;
+  switchNames: string[];
+  varNames: string[];
+  entryNames: string[];
+  charsetNames: string[];
+  commonNames: string[];
+  onRenameVars: (switches: string[], variables: string[]) => void;
+}) {
+  const { cmds } = props;
+  const [sel, setSel] = useState<string>(String(cmds.length));
   const [form, setForm] = useState<Command | null>(null); // en cours d'édition
   const [formIsNew, setFormIsNew] = useState(false);
   const [picking, setPicking] = useState(false);
-  // clic droit sur une ligne : menu contextuel Insérer / Éditer / Supprimer
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
-  // fenêtre Switches/Variables ouverte depuis un formulaire (bouton …)
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
-  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
-  const [pageRouteOpen, setPageRouteOpen] = useState(false);
-  const previewRef = useRef<HTMLCanvasElement>(null);
-
-  // presse-papiers de commandes (Ctrl+C / Ctrl+V dans la liste Contenu)
   const [clipCmd, setClipCmd] = useState<Command | null>(null);
 
   const lines: Line[] = [];
-  flatten(cmds, "", 0, lines);
+  flatten(cmds, "", 0, lines, props.commonNames);
 
   // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
   function cmdAt(path: string): Command | null {
@@ -270,6 +259,7 @@ export default function EventEditorModal(props: Props) {
     const { list, index } = resolve(cmds, path);
     return list[index] ?? null;
   }
+
   // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
   function openPicker(path: string) {
     setSel(path);
@@ -277,7 +267,7 @@ export default function EventEditorModal(props: Props) {
     setPicking(true);
   }
 
-  // Ouvre le formulaire de la commande de cette ligne
+  // Ouvre la fenêtre d'options de la commande de cette ligne
   function openEditor(path: string) {
     const c = cmdAt(path);
     if (!c) return;
@@ -292,7 +282,7 @@ export default function EventEditorModal(props: Props) {
   // qu'une sous-fenêtre est ouverte (demande utilisateur).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (form || picking || menu || varPick || pageRouteOpen) return;
+      if (props.shortcutsOff || form || picking || menu || varPick) return;
       const t = e.target as HTMLElement | null;
       if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
@@ -315,51 +305,26 @@ export default function EventEditorModal(props: Props) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  useEffect(() => {
-    const cv = previewRef.current;
-    if (!cv) return;
-    const ctx = cv.getContext("2d")!;
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = "#16181c";
-    ctx.fillRect(0, 0, cv.width, cv.height);
-    if (props.sprites && cur.sprite >= 0) {
-      const f = eventFrame({ sprite: cur.sprite, dir: cur.dir } as GameEvent);
-      ctx.drawImage(props.sprites, f * 16, 0, 16, 24, 8, 6, 48, 72);
-    } else {
-      ctx.fillStyle = "#9aa0a8";
-      ctx.font = "11px system-ui";
-      ctx.fillText("(invisible)", 6, 44);
-    }
-  }, [draft, page, props.sprites]);
-
-  const commit = (mut: () => void) => {
-    mut();
-    setDraft({ ...draft });
-  };
-
   function insertCmd(c: Command) {
-    commit(() => {
-      const { list, index } = resolve(cmds, sel);
-      list.splice(Math.min(index, list.length), 0, c);
-    });
+    const { list, index } = resolve(cmds, sel);
+    list.splice(Math.min(index, list.length), 0, c);
+    props.commit();
     setForm(null);
     setPicking(false);
   }
 
   function replaceCmd(c: Command) {
-    commit(() => {
-      const { list, index } = resolve(cmds, sel);
-      if (index < list.length) list[index] = c;
-    });
+    const { list, index } = resolve(cmds, sel);
+    if (index < list.length) list[index] = c;
+    props.commit();
     setForm(null);
   }
 
   function deleteCmd(path = sel) {
     if (!cmdAt(path)) return;
-    commit(() => {
-      const { list, index } = resolve(cmds, path);
-      list.splice(index, 1);
-    });
+    const { list, index } = resolve(cmds, path);
+    list.splice(index, 1);
+    props.commit();
     setForm(null);
   }
 
@@ -368,10 +333,9 @@ export default function EventEditorModal(props: Props) {
     const { list, index } = resolve(cmds, path);
     const j = index + delta;
     if (j < 0 || j >= list.length) return;
-    commit(() => {
-      const [c] = list.splice(index, 1);
-      list.splice(j, 0, c);
-    });
+    const [c] = list.splice(index, 1);
+    list.splice(j, 0, c);
+    props.commit();
     setSel(path.replace(/\d+$/, String(j)));
   }
 
@@ -387,7 +351,7 @@ export default function EventEditorModal(props: Props) {
         return { c: "add", var: "v0", value: 1 };
       case "if":
         return { c: "if", var: "g0", op: "==", value: 1, then: [], else: [] };
-    case "warp": {
+      case "warp": {
         const to = props.sceneNames[0] ?? "";
         const d = props.scenes[to];
         return { c: "warp", to, x: d?.player_start[0] ?? 3, y: d?.player_start[1] ?? 3 };
@@ -440,8 +404,216 @@ export default function EventEditorModal(props: Props) {
         return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
       case "shake":
         return { c: "shake", power: 4, speed: 2, frames: 30 };
+      case "call":
+        return { c: "call", n: 0 };
     }
   }
+
+  return (
+    <>
+      <div className="evedit-cmds">
+        {lines.map((l) => (
+          <div
+            key={l.path}
+            className={
+              "evedit-line" + (l.path === sel ? " active" : "") +
+              (l.branch ? " branch" : "") + (l.comment ? " comment" : "")
+            }
+            style={{ paddingLeft: 6 + l.depth * 16 }}
+            onClick={() => {
+              if (!l.branch) {
+                setSel(l.path);
+                setForm(null);
+                setPicking(false);
+              }
+            }}
+            onDoubleClick={() => {
+              if (l.branch) return;
+              // ligne pleine : on édite ; ligne vide : on choisit une
+              // commande à insérer (comme RM2003)
+              if (cmdAt(l.path)) openEditor(l.path);
+              else openPicker(l.path);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (l.branch) return;
+              setSel(l.path);
+              setMenu({ x: e.clientX, y: e.clientY, path: l.path });
+            }}
+          >
+            {l.branch ? l.label : `@> ${l.label}`}
+          </div>
+        ))}
+      </div>
+
+      {form && (
+        <div className="modal-backdrop" onClick={() => setForm(null)}>
+          <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
+            <div className="palette-title">{cmdTitle(form.c)}</div>
+            <CommandForm
+              cmd={form}
+              sceneNames={props.sceneNames}
+              scenes={props.scenes}
+              switchNames={props.switchNames}
+              varNames={props.varNames}
+              entryNames={props.entryNames}
+              charsetNames={props.charsetNames}
+              commonNames={props.commonNames}
+              onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
+              onChange={setForm}
+              onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
+              onCancel={() => setForm(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {picking && (
+        <EventCommandPicker
+          onClose={() => setPicking(false)}
+          onPick={(t) => {
+            setForm(defaultCmd(t));
+            setFormIsNew(true);
+            setPicking(false);
+          }}
+        />
+      )}
+
+      {varPick && (
+        <VarListModal
+          kind={varPick.kind}
+          pick
+          initial={varPick.current}
+          switches={props.switchNames}
+          variables={props.varNames}
+          onClose={() => setVarPick(null)}
+          onOk={(r) => {
+            props.onRenameVars(r.switches, r.variables);
+            if (r.picked !== undefined) varPick.cb(r.picked);
+            setVarPick(null);
+          }}
+        />
+      )}
+
+      {menu && (
+        <div
+          className="ctx-backdrop"
+          onClick={() => setMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+          }}
+        >
+          <div
+            className="ctx-menu"
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                openPicker(menu.path);
+                setMenu(null);
+              }}
+            >
+              Insérer…
+            </button>
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                openEditor(menu.path);
+                setMenu(null);
+              }}
+            >
+              Éditer…
+            </button>
+            <div className="menu-sep" />
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                moveCmd(-1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↑ Monter
+            </button>
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                moveCmd(1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↓ Descendre
+            </button>
+            <div className="menu-sep" />
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                setSel(menu.path);
+                deleteCmd(menu.path);
+                setMenu(null);
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function EventEditorModal(props: Props) {
+  const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
+  // page éditée : 0 = champs plats de l'event (page 1), k>0 = extraPages[k-1]
+  const [page, setPage] = useState(0);
+  const pageCount = 1 + (draft.extraPages?.length ?? 0);
+  const cur: EventPage =
+    page === 0
+      ? {
+          condition: draft.condition,
+          move: draft.move,
+          move_route: draft.move_route,
+          priority: draft.priority,
+          speed: draft.speed,
+          trigger: draft.trigger,
+          sprite: draft.sprite,
+          dir: draft.dir,
+          entry: draft.entry,
+          commands: draft.commands,
+        }
+      : draft.extraPages![page - 1];
+  function patchCur(p: Partial<EventPage>) {
+    if (page === 0) setDraft({ ...draft, ...p });
+    else {
+      const extra = [...(draft.extraPages ?? [])];
+      extra[page - 1] = { ...extra[page - 1], ...p };
+      setDraft({ ...draft, extraPages: extra });
+    }
+  }
+  const cmds = cur.commands;
+  // fenêtre Switches/Variables ouverte depuis les conditions de page (…)
+  const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
+  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
+  const [pageRouteOpen, setPageRouteOpen] = useState(false);
+  const previewRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cv = previewRef.current;
+    if (!cv) return;
+    const ctx = cv.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#16181c";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    if (props.sprites && cur.sprite >= 0) {
+      const f = eventFrame({ sprite: cur.sprite, dir: cur.dir } as GameEvent);
+      ctx.drawImage(props.sprites, f * 16, 0, 16, 24, 8, 6, 48, 72);
+    } else {
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      ctx.fillText("(invisible)", 6, 44);
+    }
+  }, [draft, page, props.sprites]);
 
   return (
     <>
@@ -458,7 +630,7 @@ export default function EventEditorModal(props: Props) {
                 key={k}
                 className={k === page ? "active-page" : ""}
                 style={k === page ? { background: "#31547a" } : undefined}
-                onClick={() => { setPage(k); setForm(null); setPicking(false); setSel("0"); }}
+                onClick={() => setPage(k)}
               >
                 {k + 1}
               </button>
@@ -485,7 +657,6 @@ export default function EventEditorModal(props: Props) {
                   setDraft({ ...draft, extraPages: extra.length ? extra : undefined });
                   setPage(Math.max(0, page - 1));
                 }
-                setForm(null);
               }}
             >
               🗑 page
@@ -680,40 +851,20 @@ export default function EventEditorModal(props: Props) {
           </div>
           <div className="evedit-right">
             <div className="palette-title">Contenu</div>
-            <div className="evedit-cmds">
-              {lines.map((l) => (
-                <div
-                  key={l.path}
-                  className={
-                    "evedit-line" + (l.path === sel ? " active" : "") +
-                    (l.branch ? " branch" : "") + (l.comment ? " comment" : "")
-                  }
-                  style={{ paddingLeft: 6 + l.depth * 16 }}
-                  onClick={() => {
-                    if (!l.branch) {
-                      setSel(l.path);
-                      setForm(null);
-                      setPicking(false);
-                    }
-                  }}
-                  onDoubleClick={() => {
-                    if (l.branch) return;
-                    // ligne pleine : on édite ; ligne vide : on choisit une
-                    // commande à insérer (comme RM2003)
-                    if (cmdAt(l.path)) openEditor(l.path);
-                    else openPicker(l.path);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    if (l.branch) return;
-                    setSel(l.path);
-                    setMenu({ x: e.clientX, y: e.clientY, path: l.path });
-                  }}
-                >
-                  {l.branch ? l.label : `@> ${l.label}`}
-                </div>
-              ))}
-            </div>
+            <CommandListEditor
+              key={page}
+              cmds={cmds}
+              commit={() => setDraft({ ...draft })}
+              shortcutsOff={pageRouteOpen || varPick !== null}
+              sceneNames={props.sceneNames}
+              scenes={props.scenes}
+              switchNames={props.switchNames}
+              varNames={props.varNames}
+              entryNames={props.entryNames}
+              charsetNames={props.charsetNames}
+              commonNames={props.commonNames}
+              onRenameVars={props.onRenameVars}
+            />
           </div>
         </div>
         <div className="row">
@@ -726,38 +877,6 @@ export default function EventEditorModal(props: Props) {
         </div>
       </div>
       </div>
-
-      {form && (
-        <div className="modal-backdrop" onClick={() => setForm(null)}>
-          <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
-            <div className="palette-title">{cmdTitle(form.c)}</div>
-            <CommandForm
-              cmd={form}
-              sceneNames={props.sceneNames}
-              scenes={props.scenes}
-              switchNames={props.switchNames}
-              varNames={props.varNames}
-              entryNames={props.entryNames}
-              charsetNames={props.charsetNames}
-              onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
-              onChange={setForm}
-              onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
-              onCancel={() => setForm(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {picking && (
-        <EventCommandPicker
-          onClose={() => setPicking(false)}
-          onPick={(t) => {
-            setForm(defaultCmd(t));
-            setFormIsNew(true);
-            setPicking(false);
-          }}
-        />
-      )}
 
       {pageRouteOpen && (
         <MoveRouteModal
@@ -797,70 +916,6 @@ export default function EventEditorModal(props: Props) {
           }}
         />
       )}
-      {menu && (
-        <div
-          className="ctx-backdrop"
-          onClick={() => setMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setMenu(null);
-          }}
-        >
-          <div
-            className="ctx-menu"
-            style={{ left: menu.x, top: menu.y }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => {
-                openPicker(menu.path);
-                setMenu(null);
-              }}
-            >
-              Insérer…
-            </button>
-            <button
-              disabled={!cmdAt(menu.path)}
-              onClick={() => {
-                openEditor(menu.path);
-                setMenu(null);
-              }}
-            >
-              Éditer…
-            </button>
-            <div className="menu-sep" />
-            <button
-              disabled={!cmdAt(menu.path)}
-              onClick={() => {
-                moveCmd(-1, menu.path);
-                setMenu(null);
-              }}
-            >
-              ↑ Monter
-            </button>
-            <button
-              disabled={!cmdAt(menu.path)}
-              onClick={() => {
-                moveCmd(1, menu.path);
-                setMenu(null);
-              }}
-            >
-              ↓ Descendre
-            </button>
-            <div className="menu-sep" />
-            <button
-              disabled={!cmdAt(menu.path)}
-              onClick={() => {
-                setSel(menu.path);
-                deleteCmd(menu.path);
-                setMenu(null);
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -875,6 +930,7 @@ function CommandForm(props: {
   varNames: string[];
   entryNames: string[];
   charsetNames: string[];
+  commonNames: string[];
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
@@ -1493,6 +1549,39 @@ function CommandForm(props: {
           <span className="hint">
             Éclair qui décroît sur la durée — non bloquant (enchaîner avec
             « Attendre »). Blanc plein : 31,31,31.
+          </span>
+        </>
+      );
+      break;
+    case "call":
+      valid = props.commonNames.length > 0 && cmd.n >= 0 && cmd.n < props.commonNames.length;
+      body = (
+        <>
+          {props.commonNames.length === 0 ? (
+            <span className="hint" style={{ color: "#ff7070" }}>
+              Aucun common event dans le projet — les créer via
+              Tools → Common events…
+            </span>
+          ) : (
+            <label>
+              Common event
+              <select
+                value={cmd.n}
+                autoFocus
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              >
+                {props.commonNames.map((n, i) => (
+                  <option key={i} value={i}>
+                    {String(i + 1).padStart(4, "0")}: {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <span className="hint">
+            Exécute les commandes du common event puis reprend ici (8
+            niveaux d'appels max). « Cet event » y désigne l'event
+            appelant.
           </span>
         </>
       );

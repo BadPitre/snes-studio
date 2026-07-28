@@ -185,7 +185,12 @@ pub fn build_scene_bank(
             blob.push(dest);
             blob.push(wp.tx);
             blob.push(wp.ty);
-            blob.push(0);
+            // flags (v0.16) : bits 0-2 = direction d'arrivée du héros
+            // (0 = conserver, 1-4 = DIR_* + 1)
+            blob.push(match &wp.dir {
+                None => 0,
+                Some(d) => crate::project::dir_code(d)? + 1,
+            });
             blob.push(0);
             blob.push(0);
         }

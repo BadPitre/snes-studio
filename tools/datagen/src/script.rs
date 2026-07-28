@@ -65,6 +65,8 @@ const OP_SCRSHOW: u8 = 0x1D;
 const OP_TINT: u8 = 0x1E;
 const OP_FLASH: u8 = 0x1F;
 const OP_SHAKE: u8 = 0x20;
+const OP_CALL: u8 = 0x21;
+const OP_RET: u8 = 0x22;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -211,6 +213,17 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SCRHIDE" | "SCRSHOW" => 2,
         "TINT" | "FLASH" => 5,
         "SHAKE" => 4,
+        "CALL" => 3,
+        "RET" => 1,
+        // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
+        // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
+        // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
+        "CETAB" => {
+            if argc % 3 != 0 {
+                bail!("CETAB <a|p> <switch> <label> ... (triplets)");
+            }
+            1 + 5 * (argc as u16 / 3)
+        }
         // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
         "ROUTE" => {
             if argc < 5 {
@@ -468,6 +481,43 @@ pub fn assemble(
             "WAITCAM" => {
                 if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
                 code.push(OP_WAITCAM);
+            }
+            // CALL <label> / RET : common events (v0.16)
+            "CALL" => {
+                if argc != 1 { bail!("CALL <label>"); }
+                code.push(OP_CALL);
+                code.extend_from_slice(&label_of(args[0])?.to_le_bytes());
+            }
+            "RET" => {
+                if argc != 0 { bail!("RET ne prend pas d'argument"); }
+                code.push(OP_RET);
+            }
+            "CETAB" => {
+                if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }
+                code.push((argc / 3) as u8);
+                let mut i = 0;
+                while i < argc {
+                    code.push(match args[i] {
+                        "a" => 0,
+                        "p" => 1,
+                        o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
+                    });
+                    // « - » = pas de condition (toujours actif) -> 0xFFFF
+                    let sw: u16 = if args[i + 1] == "-" {
+                        0xFFFF
+                    } else {
+                        args[i + 1]
+                            .parse()
+                            .ok()
+                            .filter(|&n| n < 512)
+                            .with_context(|| {
+                                format!("CETAB : switch invalide '{}'", args[i + 1])
+                            })?
+                    };
+                    code.extend_from_slice(&sw.to_le_bytes());
+                    code.extend_from_slice(&label_of(args[i + 2])?.to_le_bytes());
+                    i += 3;
+                }
             }
             // WARPV <vs> <vx> <vy> : téléport aux variables (v0.15)
             "WARPV" => {

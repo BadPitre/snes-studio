@@ -21,6 +21,31 @@ pub struct Project {
     /// messages d'erreur (« PNJ vert » plutôt que « bloc 3 »)
     #[serde(default)]
     pub charsets: Vec<String>,
+    /// Common events (v0.16, modèle RM2003) : scripts globaux appelables
+    /// depuis n'importe quel event ({"c":"call","n":k}) ou déclenchés en
+    /// auto par un switch. Compilés PAR SCÈNE (seuls les corps référencés
+    /// sont émis dans le bloc scripts de la scène).
+    #[serde(default)]
+    pub common_events: Vec<CommonEvent>,
+}
+
+#[derive(Deserialize)]
+pub struct CommonEvent {
+    #[serde(default)]
+    pub name: String,
+    /// "none" (appelable seulement) ou "auto" (relancé tant que son
+    /// switch est ON — RM2003 Autorun ; switch OBLIGATOIRE)
+    #[serde(default = "trigger_none")]
+    pub trigger: String,
+    /// Switch de condition (requis si trigger == "auto")
+    #[serde(default)]
+    pub switch: Option<u16>,
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+}
+
+fn trigger_none() -> String {
+    "none".into()
 }
 
 #[derive(Deserialize)]
@@ -71,6 +96,10 @@ pub struct Warp {
     pub to: String,
     pub tx: u8,
     pub ty: u8,
+    /// v0.16 — direction du héros à l'arrivée ("down"/"up"/"left"/
+    /// "right"), absente = conserver (WarpDef.flags, spec §1.5)
+    #[serde(default)]
+    pub dir: Option<String>,
 }
 
 #[derive(Deserialize)]

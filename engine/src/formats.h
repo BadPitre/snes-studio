@@ -165,6 +165,16 @@
                               1-8, frames par alternance), frames (u8) —
                               secousse horizontale, NON bloquant */
 
+/* v0.16 : common events (scripts globaux appelables, modèle RM2003) */
+#define VM_OP_CALL    0x21 /* offset (u16) — appelle un sous-script (corps
+                              de common event) ; pile de retours 8 niveaux,
+                              halt debug si pleine */
+#define VM_OP_RET     0x22 /* retour d'un CALL — pile vide : agit comme
+                              END (corps lancé directement) */
+
+/* Profondeur de la pile d'appels (CALL imbriqués / récursifs) */
+#define VM_CALL_DEPTH 8
+
 #define VAROP_SET 0
 #define VAROP_ADD 1
 #define VAROP_SUB 2

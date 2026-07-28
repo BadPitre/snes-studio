@@ -235,6 +235,19 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
   personnages et le texte gardent leurs couleurs), **Flash d'écran** et
   **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
+- **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
+  de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
+  à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou
+  **Parallel process** — avec la **case « Condition switch »** (décochée
+  = toujours actif, façon RM2003) et le Contenu, le même éditeur de
+  commandes que
+  l'Event Editor (double-clic, clic droit, Ctrl+C/V/Suppr, toutes les
+  commandes). Un common event s'appelle depuis n'importe quel event avec
+  **« Appeler un common event »** (onglet Autres). Autorun : relancé
+  tant que son switch est ON, joueur gelé (penser à l'éteindre).
+  Parallel process : tourne en tâche de fond, joueur libre — messages et
+  choix interdits, rythmer avec « Attendre ». « Cet event » y désigne
+  l'event appelant.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms
@@ -249,11 +262,27 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Le clic droit sur une ligne de commande donne aussi **Éditer…**,
   **↑ Monter / ↓ Descendre** et **Supprimer** ; le double-clic sur une
   ligne pleine ouvre la **fenêtre d'options** de la commande.
-- **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
-  prefab » (stocké dans project.json) ; clic droit sur une tile vide →
-  « Prefab : <nom> » pour l'instancier.
+- **Prefabs d'events** (v0.16) : clic droit sur un event → « Enregistrer
+  comme prefab… » ouvre une fenêtre **nom + catégorie** (libre — « PNJ »,
+  « Coffres », … — pour ranger la bibliothèque). Clic droit sur une tile
+  vide → **« Nouvel événement depuis un prefab… »** : la bibliothèque
+  s'ouvre groupée par catégorie, double-clic (ou « Créer ici ») instancie
+  l'event. **Tools → Prefabs…** gère la bibliothèque : renommer,
+  recatégoriser, supprimer. Stockés dans project.json.
+- Sur la couche Événements de la carte : **Ctrl+C / Ctrl+X / Ctrl+V /
+  Suppr** sur l'event sélectionné (v0.16 — en plus du menu Edit et du
+  clic droit). Un clic pose le **curseur de cellule** (cadre blanc/noir,
+  façon RM2003) : Ctrl+V colle sur cette cellule. Les boutons de couches
+  sont des **icônes RM2003 seules** (piles de tuiles, la couche éditée
+  en surbrillance, info-bulle au survol). « Vérifier le projet… » vit
+  désormais dans le menu **Game**.
 - L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
-  warps s'éditent aussi au clic droit (mini-fenêtre scène cible/arrivée).
+  warps s'éditent au clic droit via la fenêtre **« Téléporter »** (v0.16,
+  calquée sur Transfer Player de RM2003) : arbre des scènes à gauche,
+  **aperçu de la scène cible** à droite (clic = tile d'arrivée, carré
+  blanc), zoom 1/1-1/2-1/4, et **Direction à l'arrivée** (Conserver /
+  Haut / Droite / Bas / Gauche — écrite dans les flags du warp, le héros
+  la prend en sortant du fondu).
 
 ## Lancer
 

@@ -18,6 +18,7 @@ export interface Project {
   prefabs?: EventPrefab[]; // prefabs d'events (éditeur seulement)
   switches?: string[]; // noms des switches (éditeur seulement, index = n)
   variables?: string[]; // noms des variables 16-bit (éditeur seulement)
+  common_events?: CommonEvent[]; // scripts globaux (v0.16, compilés par datagen)
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -104,7 +105,21 @@ export type Command =
   | { c: "scr_show"; speed: number }
   | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
-  | { c: "shake"; power: number; speed: number; frames: number };
+  | { c: "shake"; power: number; speed: number; frames: number }
+  // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)
+  | { c: "call"; n: number };
+
+// Common event (v0.16, modèle RM2003 Database → Common Events) : script
+// global au projet — appelable ({"c":"call"}), Autorun (relancé tant que
+// son switch est ON, gèle le joueur) ou Parallel process (tourne en
+// tâche de fond sans geler le joueur ; messages/choix interdits). Le
+// switch de condition est requis pour auto ET parallel.
+export interface CommonEvent {
+  name: string;
+  trigger: "none" | "auto" | "parallel";
+  switch?: number; // condition optionnelle (absente = toujours actif)
+  commands: Command[];
+}
 
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";
@@ -212,9 +227,12 @@ export interface GameEvent {
   speed?: number; // v0.14
 }
 
-// Prefab : un event réutilisable, sans position (project.json "prefabs")
+// Prefab : un event réutilisable, sans position (project.json "prefabs").
+// v0.16 : une catégorie libre pour ranger la bibliothèque (« PNJ »,
+// « Coffres », … — absente = « Sans catégorie »).
 export interface EventPrefab {
   name: string;
+  category?: string;
   event: Omit<GameEvent, "x" | "y">;
 }
 
@@ -238,6 +256,8 @@ export interface Warp {
   to: string; // scène cible
   tx: number;
   ty: number;
+  dir?: Direction; // v0.16 — direction du héros à l'arrivée (absente =
+  // conservée, « Retain » RM2003) — WarpDef.flags côté moteur
 }
 
 export interface Scene {

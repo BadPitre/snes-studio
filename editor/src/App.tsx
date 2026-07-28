@@ -59,6 +59,9 @@ import SceneTree from "./components/SceneTree";
 import EventsPanel from "./components/EventsPanel";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
+import CommonEventsModal from "./components/CommonEventsModal";
+import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
+import TransferPlayerModal from "./components/TransferPlayerModal";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -117,6 +120,14 @@ export default function App() {
   // fenêtre de diagnostic (Tools → Vérifier le projet)
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
+  const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
+  // prefabs (v0.16) : enregistrement (event source), création (position
+  // cible) et gestionnaire (Tools)
+  const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
+  const [prefabPickAt, setPrefabPickAt] = useState<{ tx: number; ty: number } | null>(null);
+  const [prefabMgr, setPrefabMgr] = useState(false);
+  // curseur de CELLULE de la couche Événements (v0.16) : cible du Ctrl+V
+  const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -363,10 +374,9 @@ export default function App() {
     setEvEdit({ index, ev });
   }
 
-  function saveEventAsPrefab(ev: GameEvent) {
-    if (!data) return;
-    const name = prompt("Nom du prefab :", ev.name);
-    if (!name) return;
+  // Enregistre l'event comme prefab (nom + catégorie choisis dans la
+  // fenêtre SavePrefabModal — v0.16)
+  function doSavePrefab(ev: GameEvent, name: string, category: string | undefined) {
     const cp = structuredClone(ev) as Partial<GameEvent>;
     delete cp.x;
     delete cp.y;
@@ -376,12 +386,48 @@ export default function App() {
         ...d.project,
         prefabs: [
           ...(d.project.prefabs ?? []).filter((pf) => pf.name !== name),
-          { name, event: cp as Omit<GameEvent, "x" | "y"> },
+          { name, category, event: cp as Omit<GameEvent, "x" | "y"> },
         ],
       },
     }));
-    setStatus(`Prefab « ${name} » enregistré.`);
+    setStatus(`Prefab « ${name} » enregistré${category ? ` (${category})` : ""}.`);
   }
+
+  // Ctrl+C / Ctrl+X / Ctrl+V / Suppr sur la COUCHE ÉVÉNEMENTS de la carte
+  // (v0.16) — inactifs dès qu'une fenêtre ou un champ a le focus
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!data || !scene || layer !== "events") return;
+      if (document.querySelector(".modal-backdrop, .ctx-backdrop")) return;
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        if (selectedEvent) {
+          copyEvent();
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+        if (selectedEvent) {
+          cutEvent();
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (evClipboard) {
+          // colle sur la cellule sélectionnée (curseur), sinon près de
+          // l'origine de la copie
+          pasteEvent(evCursor?.[0], evCursor?.[1]);
+          e.preventDefault();
+        }
+      } else if (e.key === "Delete") {
+        if (selectedEvent) {
+          deleteSelEvent();
+          e.preventDefault();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
   // puis rechargement du projet (project.json et assets modifiés sur disque)
@@ -964,6 +1010,11 @@ export default function App() {
     }
   }, [data, sceneName]);
 
+  // changement de scène : le curseur de cellule ne survit pas
+  useEffect(() => {
+    setEvCursor(null);
+  }, [sceneName]);
+
   // Barre de menus (façon RM2003)
   const menus = [
     {
@@ -1011,8 +1062,13 @@ export default function App() {
           disabled: !data,
         },
         {
-          label: "Vérifier le projet…",
-          action: () => void openDiagnostics(),
+          label: "Common events…",
+          action: () => setCommonEvOpen(true),
+          disabled: !data,
+        },
+        {
+          label: "Prefabs…",
+          action: () => setPrefabMgr(true),
           disabled: !data,
         },
       ],
@@ -1024,6 +1080,11 @@ export default function App() {
           label: "▶ Lancer le jeu",
           action: play,
           disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Vérifier le projet…",
+          action: () => void openDiagnostics(),
+          disabled: !data,
         },
         {
           label: "Générer les données",
@@ -1061,21 +1122,23 @@ export default function App() {
             <button
               className={layer === "lower" ? "active" : ""}
               onClick={() => setLayer("lower")}
+              title="Couche inférieure"
             >
-              Couche inf.
+              <LayerIcon kind="lower" />
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
               onClick={() => setLayer("upper")}
+              title="Couche supérieure"
             >
-              Couche sup.
+              <LayerIcon kind="upper" />
             </button>
             <button
               className={layer === "events" ? "active" : ""}
               onClick={() => setLayer("events")}
-              title="Couche des événements (RM2003) : events, warps, départ du joueur — clic droit pour créer"
+              title="Couche des événements : events, warps, départ du joueur — clic droit pour créer, Ctrl+C/X/V et Suppr sur l'event sélectionné"
             >
-              Événements
+              <LayerIcon kind="events" />
             </button>
           </span>
         )}
@@ -1186,6 +1249,8 @@ export default function App() {
                 onHover={setHoverPos}
                 selectedEvent={selEvent}
                 onSelectEvent={setSelEvent}
+                cursor={layer === "events" ? evCursor : null}
+                onSelectCell={(tx, ty) => setEvCursor([tx, ty])}
                 onOpenEvent={(i) => {
                   setSelEvent(i);
                   setEvEdit({ index: i, ev: scene.events[i] });
@@ -1193,6 +1258,7 @@ export default function App() {
                 onEventMenu={(tx, ty, cx, cy) => {
                   const hit = eventAt(scene, tx, ty);
                   setSelEvent(hit >= 0 ? hit : null);
+                  setEvCursor([tx, ty]);
                   setEvMenu({ x: cx, y: cy, tx, ty });
                 }}
               />
@@ -1386,7 +1452,7 @@ export default function App() {
                     <button
                       onClick={() => {
                         close();
-                        saveEventAsPrefab(ev);
+                        setPrefabSave(structuredClone(ev));
                       }}
                     >
                       Enregistrer comme prefab…
@@ -1414,17 +1480,20 @@ export default function App() {
                   >
                     ＋ Nouvel événement…
                   </button>
-                  {(data?.project.prefabs ?? []).map((pf) => (
-                    <button
-                      key={pf.name}
-                      onClick={() => {
-                        close();
-                        newEventAt(evMenu.tx, evMenu.ty, pf.event);
-                      }}
-                    >
-                      ＋ Prefab : {pf.name}
-                    </button>
-                  ))}
+                  <button
+                    disabled={(data?.project.prefabs ?? []).length === 0}
+                    title={
+                      (data?.project.prefabs ?? []).length === 0
+                        ? "Aucun prefab — clic droit sur un event → Enregistrer comme prefab…"
+                        : undefined
+                    }
+                    onClick={() => {
+                      close();
+                      setPrefabPickAt({ tx: evMenu.tx, ty: evMenu.ty });
+                    }}
+                  >
+                    ＋ Nouvel événement depuis un prefab…
+                  </button>
                   {evClipboard && (
                     <button
                       onClick={() => {
@@ -1483,6 +1552,70 @@ export default function App() {
           </div>
         </div>
       )}
+      {prefabSave && data && (
+        <SavePrefabModal
+          defaultName={prefabSave.name}
+          existingCategories={[
+            ...new Set(
+              (data.project.prefabs ?? [])
+                .map((pf) => pf.category?.trim())
+                .filter((c): c is string => !!c)
+            ),
+          ]}
+          onOk={(name, category) => {
+            doSavePrefab(prefabSave, name, category);
+            setPrefabSave(null);
+          }}
+          onClose={() => setPrefabSave(null)}
+        />
+      )}
+      {(prefabPickAt || prefabMgr) && data && (
+        <PrefabsModal
+          prefabs={data.project.prefabs ?? []}
+          pick={!!prefabPickAt}
+          onPick={(pf) => {
+            if (prefabPickAt) newEventAt(prefabPickAt.tx, prefabPickAt.ty, pf.event);
+            setPrefabPickAt(null);
+          }}
+          onOk={(prefabs) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, prefabs: prefabs.length ? prefabs : undefined },
+            }));
+            if (prefabMgr) setPrefabMgr(false);
+          }}
+          onClose={() => {
+            setPrefabPickAt(null);
+            setPrefabMgr(false);
+          }}
+        />
+      )}
+      {commonEvOpen && data && (
+        <CommonEventsModal
+          commons={data.project.common_events ?? []}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(commons) => {
+            mutate((d) => ({
+              ...d,
+              project: {
+                ...d.project,
+                common_events: commons.length ? commons : undefined,
+              },
+            }));
+            setCommonEvOpen(false);
+          }}
+          onClose={() => setCommonEvOpen(false)}
+        />
+      )}
       {varMgr && data && (
         <VarListModal
           kind="var"
@@ -1515,6 +1648,9 @@ export default function App() {
               n > 1 ? `${ev.name} (page ${k + 1})` : ev.name
             );
           })}
+          commonNames={(data.project.common_events ?? []).map(
+            (ce, i) => ce.name || `CE ${i + 1}`
+          )}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -1528,58 +1664,20 @@ export default function App() {
         />
       )}
       {warpEdit !== null && scene && data && scene.warps[warpEdit] && (
-        <div className="modal-backdrop" onClick={() => setWarpEdit(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-title">
-              Warp en ({scene.warps[warpEdit].x},{scene.warps[warpEdit].y})
-            </div>
-            <label>
-              Scène cible
-              <select
-                value={scene.warps[warpEdit].to}
-                onChange={(e) => {
-                  const d = data.scenes[e.target.value];
-                  setScene((sc) =>
-                    updateWarp(sc, warpEdit, {
-                      to: e.target.value,
-                      tx: d?.player_start[0] ?? 3,
-                      ty: d?.player_start[1] ?? 3,
-                    })
-                  );
-                }}
-              >
-                {data.project.scenes
-                  .filter((n) => n !== sceneName)
-                  .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <div className="row">
-              <label>
-                Arrivée x
-                <input
-                  type="number"
-                  min={0}
-                  value={scene.warps[warpEdit].tx}
-                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { tx: Number(e.target.value) }))}
-                />
-              </label>
-              <label>
-                Arrivée y
-                <input
-                  type="number"
-                  min={0}
-                  value={scene.warps[warpEdit].ty}
-                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { ty: Number(e.target.value) }))}
-                />
-              </label>
-            </div>
-            <button onClick={() => setWarpEdit(null)}>Fermer</button>
-          </div>
-        </div>
+        <TransferPlayerModal
+          warp={scene.warps[warpEdit]}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          tilesets={tilesets}
+          autoImgs={autoImgs}
+          tilesetMeta={data.tilesetMeta}
+          defaultTileset={tilesetNames[0] ?? ""}
+          onOk={(patch) => {
+            setScene((sc) => updateWarp(sc, warpEdit, patch));
+            setWarpEdit(null);
+          }}
+          onClose={() => setWarpEdit(null)}
+        />
       )}
       {showAbout && (
         <div className="modal-backdrop" onClick={() => setShowAbout(false)}>
@@ -1607,5 +1705,27 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+// Icônes de couches façon RM2003 (deux tuiles empilées en perspective —
+// la couche éditée est surlignée ; la couche Événements porte un
+// petit personnage)
+function LayerIcon({ kind }: { kind: "lower" | "upper" | "events" }) {
+  const on = "#ffd76a"; // couche active (jaune RM2003)
+  const off = "#5a6472";
+  const top = kind === "upper" ? on : off;
+  const bottom = kind === "lower" ? on : kind === "events" ? "#7fb0e0" : off;
+  return (
+    <svg width="20" height="18" viewBox="0 0 15 14" style={{ verticalAlign: "-4px" }}>
+      <polygon points="4.5,1 13.5,1 10.5,5.5 1.5,5.5" fill={top} stroke="#14161a" strokeWidth="1" />
+      <polygon points="4.5,7.5 13.5,7.5 10.5,12 1.5,12" fill={bottom} stroke="#14161a" strokeWidth="1" />
+      {kind === "events" && (
+        <>
+          <rect x="6" y="6" width="3.6" height="4.4" rx="0.8" fill="#ffd76a" stroke="#14161a" strokeWidth="0.8" />
+          <rect x="6.6" y="4.6" width="2.4" height="2.2" rx="1" fill="#f7be94" stroke="#14161a" strokeWidth="0.8" />
+        </>
+      )}
+    </svg>
   );
 }

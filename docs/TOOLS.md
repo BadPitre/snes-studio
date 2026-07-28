@@ -184,6 +184,26 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**v0.16 (common events)** : `project.json` porte `"common_events":
+[{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
+[...]}]` — des scripts globaux au projet, modèle RM2003.
+`{"c":"call","n":k}` les appelle depuis n'importe quel event (assembleur
+`CALL <label>` / `RET`, pile de 8 niveaux — un common peut en appeler un
+autre). Le switch de condition est OPTIONNEL (absent = toujours actif,
+comme la case décochée de RM2003) : `"auto"` = Autorun RM2003, relancé
+tant que la condition passe dès que la VM est libre (gèle le joueur — le
+script doit éteindre son switch, ou tourner pour toujours si aucun) ;
+`"parallel"` = Parallel process, tourne en tâche de fond sans geler le
+joueur (messages et choix REFUSÉS par datagen, transitivement à travers
+les appels). datagen n'émet dans chaque scène que les corps
+référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
+<label>…` en tête du bloc scripts (spec §2). Dans un common event,
+« cet event » désigne l'acteur qui a lancé le script appelant.
+
+**v0.16 (warps)** : une entrée warp accepte `"dir":"down"|"up"|"left"|
+"right"` — direction du héros à l'arrivée ; absente = conservée
+(« Retain » RM2003). Écrite dans WarpDef.flags (spec §1.5).
+
 **v0.15 (écran)** : `{"c":"scr_hide","speed":1-15}` / `{"c":"scr_show",
 "speed"}` — fondu sortant/entrant bloquant (assembleur `SCRHIDE`/
 `SCRSHOW <vitesse>`) ; `{"c":"tint","mode":"off"|"add"|"sub","r","g",

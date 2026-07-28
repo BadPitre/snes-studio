@@ -230,7 +230,8 @@ Offset  Taille  Champ
 2       1       dest_scene   (u8) — index dans la Scene Table
 3       1       dest_x       (u8) — position d'arrivée du joueur (en tiles)
 4       1       dest_y       (u8)
-5       1       flags        (u8) — réservé (0)
+5       1       flags        (u8) — v0.16 : bits 0-2 = direction d'arrivée
+                             du héros (0 = conserver, 1-4 = DIR_* + 1)
 6       2       reserved
 ```
 
@@ -239,6 +240,9 @@ de collision 0x02, le warp correspondant est cherché dans la table ; la
 transition v0 est fondu sortant → chargement de la scène cible (vars VM
 remises à zéro, gvars conservées) → fondu entrant. Pas de re-déclenchement
 tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
+v0.16 : à l'arrivée, la direction du héros est celle des flags — ou
+CONSERVÉE (modèle « Retain » de RM2003) si les flags valent 0 ; les warps
+scriptés (WARP/WARPV) conservent toujours.
 
 ### 1.6 Compression des grilles — RLE (v0.7)
 
@@ -402,6 +406,40 @@ Toutes les écritures registres ($2100, $2130-$2132) partent au VBlank
 chevauchent jamais : SCRHIDE/SCRSHOW sont bloquants côté VM, et
 `screenfx_warp_reset()` resynchronise le fondu après chaque warp. Nouveau
 wait_mode : `VM_WAIT_SCREEN` (7).
+
+**v0.16 (common events — scripts globaux, modèle RM2003) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x21 | CALL | offset u16 | appelle un sous-script (corps de common event) — pile de retours de 8 niveaux, halt debug si pleine (récursion incontrôlée = bug de données) |
+| 0x22 | RET | — | retour du CALL ; pile vide : agit comme END |
+
+Le bloc scripts de CHAQUE scène commence désormais (offset 0) par la
+**table des common events AUTO/PARALLEL** : `[n u8]` puis n ×
+`[type u8][switch u16][offset u16]` (type 0 = Autorun, 1 = Parallel ;
+directive datagen `CETAB`, table vide = un octet 0x00). Switch `0xFFFF`
+= pas de condition (case décochée) : l'entrée est TOUJOURS active,
+comme RM2003 — un Autorun sans condition tourne pour toujours (écran
+titre, fin de jeu), un Parallel sans condition est permanent.
+
+- **Autorun** (type 0) : quand la VM est libre, le moteur lance le
+  premier dont le switch est ON — et le RELANCE tant que le switch reste
+  ON (sémantique RM2003 : c'est au script d'éteindre son switch ; le
+  joueur est gelé pendant ce temps).
+- **Parallel process** (type 1, v0.16) : tourne en TÂCHE DE FOND chaque
+  frame hors menu Système, sans geler le joueur — un second contexte
+  d'exécution (pc, attentes, pile d'appels) échangé avec le principal
+  autour de l'interpréteur (swap-in/swap-out) ; variables et switches
+  PARTAGÉS. Relancé du début tant que son switch est ON. Les opcodes
+  d'UI (MSG, CHOICE) y sont interdits — datagen refuse un parallel qui
+  en contient, transitivement à travers les CALL.
+
+Les corps des common events référencés par la scène (appels — transitifs
+— et déclencheurs auto/parallel) sont émis par datagen dans le bloc
+scripts de la scène, terminés par RET ; les offsets 16-bit restent
+locaux à la scène. Un common event peut cibler « cet event »
+(ROUTE/SETPOS/SWAPPOS 0xFF) : résolu à l'exécution via `script_actor`,
+l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 
 Pièges toolchain documentés au passage : un couple de paramètres
 `(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à

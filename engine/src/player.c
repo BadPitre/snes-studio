@@ -49,6 +49,9 @@ static u8 tile_blocked(u8 tx, u8 ty)
 static u8 prev_ctx, prev_cty;
 static u8 warp_pending;
 static u8 warp_dest_scene, warp_dest_x, warp_dest_y;
+/* Direction d'arrivée (v0.16, WarpDef.flags bits 0-2) : 0 = conserver,
+   1-4 = DIR_* + 1 — consommée par do_warp via player_take_warp_dir. */
+static u8 warp_dest_dir;
 
 static void check_warp(void)
 {
@@ -73,6 +76,7 @@ static void check_warp(void)
         warp_dest_scene = w->dest_scene;
         warp_dest_x = w->dest_x;
         warp_dest_y = w->dest_y;
+        warp_dest_dir = w->flags & 0x07;
         return;
       }
     }
@@ -95,6 +99,14 @@ void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   warp_dest_scene = dest_scene;
   warp_dest_x = dest_x;
   warp_dest_y = dest_y;
+  warp_dest_dir = 0; /* les warps scriptés conservent la direction */
+}
+
+/* Direction d'arrivée du warp consommé (0 = conserver, 1-4 = DIR_* + 1) —
+   à lire juste après player_take_warp(). */
+u8 player_take_warp_dir(void)
+{
+  return warp_dest_dir;
 }
 
 void player_set_pos(u8 tx, u8 ty)

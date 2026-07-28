@@ -41,4 +41,8 @@ u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y);
    la boucle principale comme un warp de tile. */
 void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y);
 
+/* Direction d'arrivée du dernier warp consommé (v0.16) : 0 = conserver la
+   direction du héros, 1-4 = DIR_* + 1 (WarpDef.flags bits 0-2). */
+u8 player_take_warp_dir(void);
+
 #endif /* PLAYER_H */

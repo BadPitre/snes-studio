@@ -237,7 +237,9 @@ function sceneToJson(sc: Scene): string {
         sc.warps
           .map(
             (w) =>
-              `    {"x": ${w.x}, "y": ${w.y}, "to": ${JSON.stringify(w.to)}, "tx": ${w.tx}, "ty": ${w.ty}}`
+              `    {"x": ${w.x}, "y": ${w.y}, "to": ${JSON.stringify(w.to)}, "tx": ${w.tx}, "ty": ${w.ty}${
+                w.dir ? `, "dir": ${JSON.stringify(w.dir)}` : ""
+              }}`
           )
           .join(",\n") +
         "\n  ]";

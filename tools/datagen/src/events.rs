@@ -33,7 +33,7 @@
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
-use crate::project::{Actor, Event, TextEntry};
+use crate::project::{Actor, CommonEvent, Event, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -52,6 +52,11 @@ pub struct EventCompiler<'a> {
     gfx_blocks: Vec<u8>,
     /// pile des labels de fin de boucle (v0.15) — cible des « break »
     loop_ends: Vec<String>,
+    /// v0.16 — scène en cours (suffixe des labels de common events)
+    cur_scene: String,
+    /// v0.16 — common events référencés par la scène en cours (calls +
+    /// déclencheurs auto) : leurs corps sont émis dans le bloc scripts
+    used_commons: Vec<bool>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -66,6 +71,8 @@ impl<'a> EventCompiler<'a> {
             label_seq: 0,
             gfx_blocks: Vec::new(),
             loop_ends: Vec::new(),
+            cur_scene: String::new(),
+            used_commons: Vec::new(),
         }
     }
 
@@ -154,6 +161,51 @@ impl<'a> EventCompiler<'a> {
             });
         }
         Ok(toks)
+    }
+
+    /// Un common event « parallel » tourne en tâche de fond : messages et
+    /// choix y sont interdits — transitivement, à travers les appels
+    /// (v0.16, pas d'UI hors du script principal).
+    fn check_no_ui(commons: &[CommonEvent], root: usize) -> Result<()> {
+        fn scan(
+            cmds: &[Value],
+            commons: &[CommonEvent],
+            seen: &mut Vec<bool>,
+            root_name: &str,
+        ) -> Result<()> {
+            for cmd in cmds {
+                let sub = |key: &str| -> &[Value] {
+                    cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
+                };
+                match cmd["c"].as_str().unwrap_or("") {
+                    "msg" | "choice" => bail!(
+                        "common event « {} » (parallel) : les messages et les \
+                         choix sont interdits dans un Parallel process (il \
+                         tourne en tache de fond, sans dialogue)",
+                        root_name
+                    ),
+                    "loop" => scan(sub("do"), commons, seen, root_name)?,
+                    "if" | "if_sw" | "if_var" => {
+                        scan(sub("then"), commons, seen, root_name)?;
+                        scan(sub("else"), commons, seen, root_name)?;
+                    }
+                    "call" => {
+                        if let Some(n) = cmd["n"].as_u64() {
+                            let n = n as usize;
+                            if n < commons.len() && !seen[n] {
+                                seen[n] = true;
+                                scan(&commons[n].commands, commons, seen, root_name)?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        let mut seen = vec![false; commons.len()];
+        seen[root] = true;
+        scan(&commons[root].commands, commons, &mut seen, &commons[root].name)
     }
 
     /// Compile une liste de commandes en lignes d'assembleur (spec §2)
@@ -408,6 +460,21 @@ impl<'a> EventCompiler<'a> {
                 // v0.15 — commentaire : décoratif dans l'éditeur, aucun
                 // bytecode émis
                 "rem" => {}
+                // v0.16 — appel d'un common event (CALL/RET, pile de 8)
+                "call" => {
+                    let n = cmd["n"]
+                        .as_u64()
+                        .filter(|&n| (n as usize) < self.used_commons.len())
+                        .with_context(|| {
+                            format!(
+                                "call : common event inexistant ({} definis) : {}",
+                                self.used_commons.len(),
+                                cmd
+                            )
+                        })? as usize;
+                    self.used_commons[n] = true;
+                    out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
+                }
                 "wait_route" => {
                     out.push("  WAITROUTE".to_string());
                 }
@@ -506,15 +573,21 @@ impl<'a> EventCompiler<'a> {
     /// consécutive (flag CONT sur les pages 2+) avec sa condition, son
     /// apparence, son déclencheur et son bytecode. Un event sans "pages"
     /// = une page implicite formée de ses champs directs.
+    /// v0.16 : renvoie AUSSI la ligne CETAB (table des common events auto)
+    /// que l'appelant doit placer en PREMIÈRE ligne du script assemblé —
+    /// le moteur lit cette table à l'offset 0 du bloc scripts.
     pub fn compile_scene(
         &mut self,
         scene_name: &str,
         events: &[Event],
-    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>)> {
+        commons: &[CommonEvent],
+    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
         let mut tail = Vec::new(); /* blobs de routes custom (v0.14) */
         self.gfx_blocks.clear();
+        self.cur_scene = scene_name.to_string();
+        self.used_commons = vec![false; commons.len()];
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
@@ -686,6 +759,64 @@ impl<'a> EventCompiler<'a> {
             }
         }
         asm.extend(tail);
-        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks)))
+
+        // Common events (v0.16) : les AUTO sont toujours inclus (entrée de
+        // table CETAB), puis les corps référencés — transitivement, un
+        // common peut en appeler un autre — sont émis une fois chacun.
+        let mut cetab = "CETAB".to_string();
+        for (k, ce) in commons.iter().enumerate() {
+            match ce.trigger.as_str() {
+                "none" => {}
+                "auto" | "parallel" => {
+                    // switch optionnel (case decochee = toujours actif,
+                    // comme RM2003) — un autorun sans switch gele le jeu
+                    // pour toujours : c'est un choix d'auteur (cinematique
+                    // finale), pas une erreur
+                    let sw = match ce.switch {
+                        None => "-".to_string(),
+                        Some(s) if s < 512 => s.to_string(),
+                        Some(s) => bail!(
+                            "common event {} « {} » : switch {} hors limite (0-511)",
+                            k + 1,
+                            ce.name,
+                            s
+                        ),
+                    };
+                    // un parallel tourne en tache de fond : pas d'UI dedans
+                    if ce.trigger == "parallel" {
+                        Self::check_no_ui(commons, k)?;
+                    }
+                    self.used_commons[k] = true;
+                    cetab.push_str(&format!(
+                        " {} {} __ce{}_{}",
+                        if ce.trigger == "auto" { "a" } else { "p" },
+                        sw,
+                        k,
+                        scene_name
+                    ));
+                }
+                other => bail!(
+                    "common event {} « {} » : declencheur inconnu « {} » \
+                     (none, auto, parallel)",
+                    k + 1,
+                    ce.name,
+                    other
+                ),
+            }
+        }
+        let mut emitted = vec![false; commons.len()];
+        while let Some(k) =
+            (0..commons.len()).find(|&k| self.used_commons[k] && !emitted[k])
+        {
+            emitted[k] = true;
+            asm.push(format!("__ce{}_{}:", k, scene_name));
+            self.compile_list(&commons[k].commands, 0, &mut asm)
+                .with_context(|| {
+                    format!("common event {} « {} »", k + 1, commons[k].name)
+                })?;
+            asm.push("  RET".to_string());
+        }
+
+        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks), cetab))
     }
 }
