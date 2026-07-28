@@ -44,6 +44,11 @@ pub struct UiConfig {
     /// frames par caractère du typewriter (0 = instantané, défaut)
     #[serde(default)]
     pub text_speed: u8,
+    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
+    /// PNG bande Nx8 (largeur multiple de 8, max 64 icônes), palette de
+    /// la fonte — chars BG3 appendus après le windowskin (UI_ICON_BASE).
+    #[serde(default)]
+    pub icons: Option<String>,
 }
 
 #[derive(Deserialize)]

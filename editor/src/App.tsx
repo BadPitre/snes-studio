@@ -11,6 +11,7 @@ import {
   charsetName,
   eventAt,
   musicStem,
+  projectIconsets,
   projectTilesets,
   projectWindowskins,
   spriteBlockCount,
@@ -856,6 +857,99 @@ export default function App() {
     }
   }
 
+  // Planches d'icônes des widgets (W1) : PNG bande Nx8 (largeur multiple
+  // de 8, max 64 icônes) — même modèle de registre que les windowskins.
+  async function importIconset() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une planche d'icônes (PNG Nx8, largeur multiple de 8)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (bmp.height !== 8 || bmp.width % 8 !== 0 || bmp.width === 0 || bmp.width > 512) {
+        setStatus(
+          `Planche d'icônes : attendu une bande Nx8 (largeur multiple de 8, max 64 icônes), reçu ${bmp.width}x${bmp.height}`
+        );
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectIconsets(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
+        }));
+      }
+      setStatus(`Planche d'icônes importée : ${name} (${bmp.width / 8} icônes)`);
+    } catch (e) {
+      setStatus(`Import planche d'icônes : ${e}`);
+    }
+  }
+
+  async function exportIconset(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter la planche d'icônes (PNG)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Planche d'icônes exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export planche d'icônes : ${e}`);
+    }
+  }
+
+  async function renameIconset(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectIconsets(data.project).includes(newRel)) {
+      setStatus(`Renommage : la planche « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const iconsets = projectIconsets(data.project).map((r) => (r === oldRel ? newRel : r));
+      const ui =
+        data.project.ui?.icons === oldRel
+          ? { ...data.project.ui, icons: newRel }
+          : data.project.ui;
+      const d2: ProjectData = { ...data, project: { ...data.project, iconsets, ui } };
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Planche d'icônes renommée : ${assetStem(oldRel)} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteIconset(rel: string) {
+    if (!data || data.project.ui?.icons === rel) return; // planche active
+    if (!confirm(`Supprimer la planche d'icônes « ${assetStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const iconsets = projectIconsets(data.project).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, iconsets: iconsets.length ? iconsets : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Planche d'icônes supprimée : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1545,21 +1639,27 @@ export default function App() {
           blockNames={blockNames}
           windowskins={projectWindowskins(data.project)}
           activeSkin={data.project.ui?.windowskin}
+          iconsets={projectIconsets(data.project)}
+          activeIcons={data.project.ui?.icons}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
           onImportCharset={importCharset}
           onImportChipset={importChipset}
           onImportWindowskin={() => void importWindowskin()}
+          onImportIconset={() => void importIconset()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
           onExportWindowskin={(rel) => void exportWindowskin(rel)}
+          onExportIconset={(rel) => void exportIconset(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
           onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
+          onRenameIconset={(rel, n) => void renameIconset(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
           onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
+          onDeleteIconset={(rel) => void deleteIconset(rel)}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -1780,6 +1880,7 @@ export default function App() {
           root={data.root}
           project={data.project}
           windowskins={projectWindowskins(data.project)}
+          iconsets={projectIconsets(data.project)}
           varNames={data.project.variables ?? []}
           onOk={(ui) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));

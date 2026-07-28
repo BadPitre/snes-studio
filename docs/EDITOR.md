@@ -122,9 +122,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   nom → `datagen import-charset` recadre les frames 24x32 en 16x24 et
   réécrit `assets/sprites.png`.
 - **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
-  catégories **CharSet** (personnages), **ChipSet** (tilesets) et
-  **WindowSkin** (cadres 9-slice de la Phase 11), liste avec aperçu, et
-  actions **Importer / Exporter / Renommer / Supprimer**.
+  catégories **CharSet** (personnages), **ChipSet** (tilesets),
+  **WindowSkin** (cadres 9-slice de la Phase 11) et **IconSet**
+  (planches d'icônes des widgets, W1 — bande PNG Nx8 validée à
+  l'import, aperçu avec l'index sous chaque icône, ★ = planche active),
+  liste avec aperçu, et actions **Importer / Exporter / Renommer /
+  Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export
   chipset = copie de la grille PNG. Renommer un tileset renomme ses
   fichiers et met à jour les scènes ; supprimer est bloqué si la
@@ -290,14 +293,18 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   `SPEC_SYSTEME_UI.md` §7) : tout l'habillage du jeu au même endroit,
   avec une **preview 256x224 fidèle tiles** (fonte et windowskin réels
   du projet, upscalée 2x pixelisée) qui se redessine à chaque frappe.
-  Thème : le **windowskin se choisit dans un menu** parmi les ressources
-  du projet (« (aucun) » = boîte pleine historique — l'IMPORT se fait
-  dans le **Gestionnaire de ressources**, catégorie WindowSkin) et
+  Thème : le **windowskin** et la **planche d'icônes** se choisissent
+  dans des menus parmi les ressources du projet (l'IMPORT se fait dans
+  le **Gestionnaire de ressources**, catégories WindowSkin/IconSet) et
   **vitesse du texte** (frames/caractère, 0 = instantané). Fenêtres :
   position et taille EN TILES du message et du choix, chaque champ
-  porte son libellé (x, y, largeur, hauteur — écran 32x28). HUD
-  permanent : jusqu'à 8 fenêtres `variable_display` sur les 4 rangées
-  du haut (id, libellé, variable, géométrie — mêmes libellés). La
+  porte son libellé (x, y, largeur, hauteur — écran 32x28). **Widgets
+  permanents** (W1) : jusqu'à 8, placés LIBREMENT sur l'écran — types
+  « Libellé + valeur », « Jauge » (barre h/v liée à une variable, max
+  constant ou variable), « Rangée d'icônes » (cœurs pleine/demie/vide)
+  et « Icône + compteur » (zéros de tête), avec case **Cadre** (fenêtre
+  ou widget nu façon Zelda). Le formulaire s'adapte au type ; la
+  preview dessine les icônes réelles de la planche. La
   fenêtre applique **les mêmes règles que uigen** (tailles minimales,
   zone HUD, chevauchements, libellés ASCII bornés) : les erreurs
   s'affichent en rouge et **OK reste bloqué** tant qu'il en reste — le

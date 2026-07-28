@@ -117,8 +117,14 @@ Extension du contexte overlay (uigen `[[overlay]]`) : nouveaux
 
 | Cran | Contenu | État |
 |------|---------|------|
-| M1 | tampon unifié ui_screen | fait (ce commit) |
-| W1 | widgets Zelda (gauge/icon_row/icon_value, frame, IconSet, placement libre) | à faire — PRIORITAIRE (demande explicite) |
+| M1 | tampon unifié ui_screen | fait |
+| W1 | widgets Zelda (gauge/icon_row/icon_value, frame, IconSet, placement libre) | fait — détail dans SPEC_SYSTEME_UI.md (appendice) |
 | M2 | écrans déclaratifs + ouverture | à faire |
 | M3 | listes + curseur + pile | à faire |
 | M4 | portraits, listes database, hp_bar | à faire |
+
+Écarts W1 vs le plan ci-dessus : `icon_row` est horizontal seulement
+(un `gauge` vertical couvre le cas colonne) ; les demi-unités suivent
+la règle « 2 unités par tile, troncature » (pas d'arrondi RM) ; le
+timer est refresh comme les widgets après effacement de la bande
+dialogue ; l'IconSet a aussi l'EXPORT PNG (demande utilisateur).

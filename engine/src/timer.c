@@ -87,6 +87,14 @@ void timer_display(u8 on)
   t_render();
 }
 
+/* Redessin inconditionnel — la bande du dialogue vient d'être effacée
+   et peut couvrir la rangée du timer (tb_clear_band, W1) */
+void timer_refresh(void)
+{
+  if (t_show)
+    t_render();
+}
+
 u16 timer_secs(void)
 {
   return t_secs;

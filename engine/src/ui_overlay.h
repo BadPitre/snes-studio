@@ -14,4 +14,8 @@ void overlay_init(void);
    dans ui_map, transfert centralisé par ui_screen_vblank (M1). */
 void overlay_update(void);
 
+/* Redessin inconditionnel de tous les widgets — appelé quand la bande
+   du dialogue vient d'être effacée (elle peut partager leurs rangées). */
+void overlay_refresh(void);
+
 #endif /* UI_OVERLAY_H */

@@ -235,9 +235,35 @@ TOML — la communauté pourra en partager.
   hors VBlank (ui_mark), un seul DMA du span sale au VBlank. Prérequis
   du placement libre des widgets et des écrans MENU. Réf
   `PLANNING_SYSTEME_MENUS.md` (plan contractuel Phase 12).
+- **Livré (Phase 12 W1) — widgets HUD à la Zelda.** Le contexte
+  `[[overlay]]` du layout devient un système de widgets :
+  - **Placement LIBRE** sur l'écran 32x28 (la zone « rangées 0-3 » de
+    v1 est abolie). Interdits : chevaucher un autre overlay, ou les
+    fenêtres message/choice (les dialogues l'écraseraient — uigen et
+    l'éditeur refusent). La bande du dialogue redessine les widgets
+    qu'elle borde à chaque ouverture (`overlay_refresh`, idem timer).
+  - `content` : `variable_display` (v1), `gauge` (barre pleine/demie/
+    vide, `dir = "h"|"v"` — verticale remplie de BAS en haut, ALttP),
+    `icon_row` (icônes répétées façon cœurs), `icon_value` (icône +
+    compteur, `pad` = zéros de tête 0-5).
+  - `frame = true|false` : cadre 9-slice/boîte ou widget NU posé sur le
+    jeu (défaut : true pour variable_display, false pour les widgets).
+    Minimums : cadré 3x3 (4x3 vardisp), nu 1x1 (2x1 icon_value, 3x1
+    vardisp).
+  - `var` = variable mesurée ; `max = n` constant OU `max_var = n`
+    (jauges/cœurs, 2 unités par tile, clamp au max) ; `icon = n` dans
+    la **planche d'icônes** : `project.json "ui" { "icons": png }`,
+    bande Nx8 (≤ 64), palette de la fonte, chars `UI_ICON_BASE`+
+    (après le windowskin) — gauge/icon_row consomment n, n+1, n+2 =
+    pleine, demie, vide.
+  - Moteur : `ui_ov_type/frame/icon/dir/pad/maxvar/maxlo+maxhi`
+    (u16 scindé — pas de u16 nu), redessin quand var OU max_var change.
+  - Éditeur : catégorie **IconSet** du Gestionnaire de ressources
+    (import bande Nx8 validé, EXPORT PNG, renommer, supprimer bloqué si
+    planche active ★, aperçu avec index sous chaque icône), sélection
+    de la planche dans UI / Thème, formulaires par type de widget et
+    preview fidèle (icônes réelles, jauge remplie à 58 %).
 - **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
-  widgets Zelda W1 (gauge/icon_row/icon_value, frame=false, planche
-  IconSet, placement libre), écrans de menu déclaratifs M2, listes +
-  curseur + pile M3 (menu FF4), portraits/listes database/hp_bar M4,
-  thèmes multiples en table database + SET_THEME, designer à grille
-  (§7).
+  écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4),
+  portraits/listes database/hp_bar M4, thèmes multiples en table
+  database + SET_THEME, designer à grille (§7).

@@ -16,6 +16,8 @@
 #include "vram.h"
 #include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
 #include "ui_screen.h" /* tampon BG3 partagé (Phase 12 M1) */
+#include "ui_overlay.h" /* refresh des widgets après effacement (W1) */
+#include "timer.h"
 #include "data/ui_cfg.h" /* theme UI v1 : windowskin + text_speed (Ph. 11) */
 
 /* Windowskin 9-slice (spec UI §1) : 9 chars 2bpp après la fonte —
@@ -108,7 +110,10 @@ static char tb_opts[4][28];
 #endif
 
 /* Efface la BANDE du dialogue (union des rangées message/choix) dans le
-   tampon partagé — les autres zones de ui_map (HUD, timer) survivent. */
+   tampon partagé, puis redessine ce qui peut partager ces rangées :
+   les widgets du HUD (placement libre depuis W1 — jamais SOUS les
+   fenêtres du dialogue, uigen le garantit, mais possiblement à côté)
+   et le timer. */
 static void tb_clear_band(void)
 {
   u16 i;
@@ -116,6 +121,8 @@ static void tb_clear_band(void)
   for (i = (u16)UI_SHADOW_ROW * 32; i < (u16)(UI_SHADOW_ROW + UI_SHADOW_H) * 32; i++)
     ui_map[i] = 0;
   ui_mark(UI_SHADOW_ROW, UI_SHADOW_H);
+  overlay_refresh();
+  timer_refresh();
 }
 
 /* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans ui_map :

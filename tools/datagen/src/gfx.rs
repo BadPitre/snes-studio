@@ -359,6 +359,31 @@ impl IndexedImage {
         Ok(out)
     }
 
+    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
+    /// bande Nx8 (largeur multiple de 8, 64 icônes max), indexée sur la
+    /// palette de la fonte (0 transparent, 1 fond, 2 bord, 3 accent).
+    /// Chaque icône devient un char 2bpp, appendu après le windowskin.
+    pub fn to_icons(&self) -> Result<Vec<u8>> {
+        if self.height != 8 || self.width == 0 || self.width % 8 != 0 {
+            bail!(
+                "icones UI : attendu une bande Nx8 (largeur multiple de 8), recu {}x{}",
+                self.width, self.height
+            );
+        }
+        let n = self.width / 8;
+        if n > 64 {
+            bail!("icones UI : {} icones (max 64)", n);
+        }
+        if self.pixels.iter().any(|&p| p > 3) {
+            bail!("icones UI : 4 couleurs max (indexes 0-3, palette de la fonte)");
+        }
+        let mut out = Vec::new();
+        for c in 0..n {
+            out.extend_from_slice(&self.char2bpp(c * 8, 0));
+        }
+        Ok(out)
+    }
+
     /// Palette complétée/tronquée à n entrées BGR555
     pub fn palette_n(&self, n: usize) -> Vec<u16> {
         let mut p = self.palette.clone();

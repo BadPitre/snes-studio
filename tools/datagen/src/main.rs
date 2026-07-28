@@ -381,14 +381,23 @@ fn main() -> Result<()> {
             Some(u) => (u.windowskin.is_some() as u8, u.text_speed),
             None => (0, 0),
         };
-        let layout = ui::load(&proj_dir)?;
+        // planche d'icônes (W1) : les widgets du layout la référencent —
+        // (déjà validée/convertie par gen_font, ici on ne fait que compter)
+        let icon_count = match project.ui.as_ref().and_then(|u| u.icons.as_ref()) {
+            Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
+            None => 0,
+        };
+        let icon_base = 97 + if has_skin != 0 { 9 } else { 0 };
+        let layout = ui::load(&proj_dir, icon_count)?;
         write_out(
             &out_dir,
             "ui_cfg.h",
             format!(
-                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n{}",
+                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n#define UI_ICON_BASE {}\n#define UI_ICON_COUNT {}\n{}",
                 has_skin,
                 speed,
+                icon_base,
+                icon_count,
                 ui::cfg_defines(&layout)
             ),
         )?;
@@ -614,6 +623,15 @@ fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
                 .with_context(|| format!("windowskin {}", skin_path))?;
             gfx_bytes.extend(skin.to_windowskin().with_context(|| {
                 format!("windowskin {}", skin_path)
+            })?);
+        }
+        // Planche d'icônes des widgets (W1) : chars 2bpp APRÈS le
+        // windowskin (UI_ICON_BASE de ui_cfg.h), même palette
+        if let Some(icons_path) = &ui.icons {
+            let icons = gfx::load_indexed_png(&proj_dir.join(icons_path))
+                .with_context(|| format!("icones UI {}", icons_path))?;
+            gfx_bytes.extend(icons.to_icons().with_context(|| {
+                format!("icones UI {}", icons_path)
             })?);
         }
     }

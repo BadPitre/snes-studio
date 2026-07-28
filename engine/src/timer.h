@@ -23,4 +23,8 @@ u16 timer_secs(void);
    est composé dans ui_map — transfert centralisé ui_screen_vblank (M1). */
 void timer_tick(void);
 
+/* Redessin inconditionnel si affiché (après effacement de la bande du
+   dialogue — tb_clear_band, W1). */
+void timer_refresh(void);
+
 #endif /* TIMER_H */

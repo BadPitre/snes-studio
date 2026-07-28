@@ -1,15 +1,26 @@
-//! ui.rs — « uigen » v1 (Phase 11, docs/SPEC_SYSTEME_UI.md).
+//! ui.rs — « uigen » (Phase 11 v1 + Phase 12 W1, docs/SPEC_SYSTEME_UI.md
+//! et docs/PLANNING_SYSTEME_MENUS.md).
 //!
-//! Lit `<projet>/ui/layout.toml` (positions/tailles EN TILES, §3) :
+//! Lit `<projet>/ui/layout.toml` (positions/tailles EN TILES) :
 //!   [message]  pos = [x, y]  size = [w, h]   — fenêtre du dialogue
 //!   [choice]   pos/size                       — fenêtre des choix
-//!   [[overlay]] id/pos/size/content/var/label — fenêtres permanentes
+//!   [[overlay]] — fenêtres/widgets PERMANENTS, placement LIBRE (W1) :
+//!     content = "variable_display" : libellé + valeur (var)
+//!     content = "gauge"      : barre pleine/demie/vide (var, max ou
+//!                              max_var, icon = 1er de 3, dir = h|v)
+//!     content = "icon_row"   : icônes répétées façon cœurs Zelda
+//!                              (var, max/max_var, icon = 1er de 3)
+//!     content = "icon_value" : icône + compteur (var, icon, pad 0-5)
+//!     frame = true|false : cadre 9-slice/boîte (défaut : true pour
+//!     variable_display, false pour les widgets — style Zelda)
 //!
-//! Valide tout À LA COMPILATION (bornes écran, zone overlay = 4 rangées
-//! du haut, chevauchements, budgets — le compilateur refuse l'invalide,
-//! règle §9.3) et émet :
+//! Valide tout À LA COMPILATION (bornes écran, chevauchements entre
+//! overlays ET contre les fenêtres message/choix, icônes existantes,
+//! bornes de contenu — le compilateur refuse l'invalide, règle §9.3)
+//! et émet :
 //!   - les defines de ui_cfg.h (UI_MSG_*, UI_CHC_*, UI_OV_COUNT)
-//!   - ui_overlays.c : tables des fenêtres permanentes + libellés
+//!   - ui_overlays.c : tables des widgets (u8 nus + max en 2 tableaux
+//!     lo/hi — pas de u16 nu, piège toolchain) + libellés
 //!
 //! Pas de fichier ui/layout.toml = layout historique (boîte en bas,
 //! pleine largeur) — aucun changement de rendu.
@@ -22,8 +33,6 @@ use std::path::Path;
 /// Écran SNES en tiles : 32 x 28 (256 x 224)
 const SCREEN_W: i64 = 32;
 const SCREEN_H: i64 = 28;
-/// Zone overlay (§2) : les 4 rangées du HAUT (le bas est aux popups)
-const OV_ROWS: i64 = 4;
 const OV_MAX: usize = 8;
 
 #[derive(Deserialize, Default)]
@@ -49,12 +58,54 @@ pub struct Overlay {
     pub pos: [i64; 2],
     pub size: [i64; 2],
     pub content: String,
-    /// variable_display : variable 16-bit affichée
+    /// variable 16-bit affichée / mesurée
     #[serde(default)]
     pub var: Option<u8>,
-    /// libellé court (ASCII) dessiné avant la valeur
+    /// libellé court (ASCII) — variable_display seulement
     #[serde(default)]
     pub label: String,
+    /// cadre 9-slice/boîte (défaut : selon le content, cf. framed())
+    #[serde(default)]
+    pub frame: Option<bool>,
+    /// gauge/icon_row : maximum constant (exclusif avec max_var)
+    #[serde(default)]
+    pub max: Option<u16>,
+    /// gauge/icon_row : n° de variable qui porte le maximum
+    #[serde(default)]
+    pub max_var: Option<u8>,
+    /// index dans la planche d'icônes (gauge/icon_row : 1er de 3
+    /// consécutives pleine/demie/vide ; icon_value : l'icône seule)
+    #[serde(default)]
+    pub icon: Option<u8>,
+    /// gauge : "h" (défaut) ou "v" (remplie de BAS en haut)
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// icon_value : zéros de tête (072) — 0 = aucun, max 5
+    #[serde(default)]
+    pub pad: Option<u8>,
+}
+
+impl Overlay {
+    /// Code du content pour le moteur (ui_ov_type)
+    pub fn type_code(&self) -> i64 {
+        match self.content.as_str() {
+            "gauge" => 1,
+            "icon_row" => 2,
+            "icon_value" => 3,
+            _ => 0, // variable_display
+        }
+    }
+
+    /// Cadre : explicite, sinon défaut par content (fenêtre pour
+    /// variable_display, nu façon Zelda pour les widgets)
+    pub fn framed(&self) -> bool {
+        self.frame.unwrap_or(self.content == "variable_display")
+    }
+
+    /// gauge verticale ?
+    pub fn vertical(&self) -> bool {
+        self.dir.as_deref() == Some("v")
+    }
 }
 
 fn check_win(name: &str, w: &Win, min_w: i64, min_h: i64) -> Result<()> {
@@ -72,8 +123,17 @@ fn check_win(name: &str, w: &Win, min_w: i64, min_h: i64) -> Result<()> {
     Ok(())
 }
 
-/// Charge et valide le layout (défauts historiques sans fichier)
-pub fn load(proj_dir: &Path) -> Result<Layout> {
+fn overlaps(a_pos: [i64; 2], a_size: [i64; 2], b_pos: [i64; 2], b_size: [i64; 2]) -> bool {
+    !(a_pos[0] + a_size[0] <= b_pos[0]
+        || b_pos[0] + b_size[0] <= a_pos[0]
+        || a_pos[1] + a_size[1] <= b_pos[1]
+        || b_pos[1] + b_size[1] <= a_pos[1])
+}
+
+/// Charge et valide le layout (défauts historiques sans fichier).
+/// `icon_count` = nombre d'icônes de la planche ui.icons (0 = pas de
+/// planche) — les widgets à icônes sont refusés sans elle.
+pub fn load(proj_dir: &Path, icon_count: usize) -> Result<Layout> {
     let p = proj_dir.join("ui").join("layout.toml");
     let mut lay: Layout = if p.is_file() {
         let src = std::fs::read_to_string(&p)
@@ -94,57 +154,113 @@ pub fn load(proj_dir: &Path) -> Result<Layout> {
     }
     for (i, ov) in lay.overlay.iter().enumerate() {
         let w = Win { pos: ov.pos, size: ov.size };
-        check_win(&format!("overlay {}", i + 1), &w, 4, 3)?;
-        if ov.pos[1] + ov.size[1] > OV_ROWS {
-            bail!(
-                "ui/layout.toml : overlay « {} » sort de la zone overlay \
-                 (rangées 0-{} du haut — le bas appartient aux dialogues)",
-                ov.id, OV_ROWS - 1
-            );
-        }
+        let f = ov.framed();
+        // bornes écran + minimums : cadre = 1 tile de marge tout autour
+        let (min_w, min_h) = match (ov.content.as_str(), f) {
+            ("variable_display", true) => (4, 3),
+            (_, true) => (3, 3),
+            ("variable_display", false) => (3, 1),
+            ("icon_value", false) => (2, 1),
+            _ => (1, 1),
+        };
+        check_win(&format!("overlay {}", i + 1), &w, min_w, min_h)?;
+        let inner_w = ov.size[0] - if f { 2 } else { 0 };
+        let need_icons = |base: Option<u8>, span: usize, what: &str| -> Result<()> {
+            let b = base.with_context(|| {
+                format!("overlay « {} » : {} demande icon = n (planche ui.icons)", ov.id, what)
+            })? as usize;
+            if icon_count == 0 {
+                bail!(
+                    "overlay « {} » : {} demande une planche d'icones — \
+                     ajouter \"icons\" dans le bloc \"ui\" de project.json \
+                     (Gestionnaire de ressources, categorie IconSet)",
+                    ov.id, what
+                );
+            }
+            if b + span > icon_count {
+                bail!(
+                    "overlay « {} » : icon {}..{} hors planche ({} icones)",
+                    ov.id, b, b + span - 1, icon_count
+                );
+            }
+            Ok(())
+        };
         match ov.content.as_str() {
             "variable_display" => {
                 ov.var.with_context(|| {
                     format!("overlay « {} » : variable_display demande var = n", ov.id)
                 })?;
+                if !ov.label.chars().all(|c| (' '..='~').contains(&c)) {
+                    bail!("overlay « {} » : label non-ASCII", ov.id);
+                }
+                if ov.label.len() as i64 > inner_w - 1 {
+                    bail!(
+                        "overlay « {} » : label « {} » trop long pour la fenetre \
+                         ({} tiles utiles)",
+                        ov.id, ov.label, inner_w - 1
+                    );
+                }
+            }
+            "gauge" | "icon_row" => {
+                ov.var.with_context(|| {
+                    format!("overlay « {} » : {} demande var = n", ov.id, ov.content)
+                })?;
+                match (ov.max, ov.max_var) {
+                    (Some(m), None) if m > 0 => {}
+                    (None, Some(_)) => {}
+                    _ => bail!(
+                        "overlay « {} » : {} demande max = n (> 0) OU max_var = n",
+                        ov.id, ov.content
+                    ),
+                }
+                // 3 icônes consécutives : pleine, demie, vide
+                need_icons(ov.icon, 3, &ov.content)?;
+                if ov.content == "icon_row" && ov.vertical() {
+                    bail!("overlay « {} » : icon_row est horizontal (dir = h)", ov.id);
+                }
+                if let Some(d) = &ov.dir {
+                    if d != "h" && d != "v" {
+                        bail!("overlay « {} » : dir = \"h\" ou \"v\"", ov.id);
+                    }
+                }
+            }
+            "icon_value" => {
+                ov.var.with_context(|| {
+                    format!("overlay « {} » : icon_value demande var = n", ov.id)
+                })?;
+                need_icons(ov.icon, 1, "icon_value")?;
+                let pad = ov.pad.unwrap_or(0) as i64;
+                if pad > 5 || pad > inner_w - 1 {
+                    bail!(
+                        "overlay « {} » : pad {} invalide (max 5, et {} chiffres \
+                         tiennent dans la fenetre)",
+                        ov.id, pad, inner_w - 1
+                    );
+                }
             }
             other => bail!(
-                "overlay « {} » : content inconnu « {} » (v1 : variable_display)",
+                "overlay « {} » : content inconnu « {} » (variable_display, \
+                 gauge, icon_row, icon_value)",
                 ov.id, other
             ),
         }
-        if !ov.label.chars().all(|c| (' '..='~').contains(&c)) {
-            bail!("overlay « {} » : label non-ASCII", ov.id);
-        }
-        if ov.label.len() as i64 > ov.size[0] - 2 {
-            bail!(
-                "overlay « {} » : label « {} » trop long pour la fenetre \
-                 ({} tiles utiles)",
-                ov.id, ov.label, ov.size[0] - 2
-            );
-        }
         for prev in &lay.overlay[..i] {
-            let no = ov.pos[0] + ov.size[0] <= prev.pos[0]
-                || prev.pos[0] + prev.size[0] <= ov.pos[0]
-                || ov.pos[1] + ov.size[1] <= prev.pos[1]
-                || prev.pos[1] + prev.size[1] <= ov.pos[1];
-            if !no {
+            if overlaps(ov.pos, ov.size, prev.pos, prev.size) {
                 bail!(
                     "ui/layout.toml : overlays « {} » et « {} » se chevauchent",
                     prev.id, ov.id
                 );
             }
         }
-    }
-    // la zone overlay (rangées 0-3) est réservée aux fenêtres permanentes :
-    // les popups ne doivent pas y mordre quand des overlays existent
-    if !lay.overlay.is_empty() {
+        // W1 : placement libre, MAIS jamais sous les fenêtres du dialogue
+        // (leur bande est effacée/redessinée — un widget dessous serait
+        // écrasé pendant chaque dialogue)
         for (name, w) in [("message", &msg), ("choice", &chc)] {
-            if w.pos[1] < OV_ROWS {
+            if overlaps(ov.pos, ov.size, w.pos, w.size) {
                 bail!(
-                    "ui/layout.toml : la fenetre {} (rangée {}) mord sur la zone \
-                     overlay (rangées 0-{}) — la descendre, ou retirer les overlays",
-                    name, w.pos[1], OV_ROWS - 1
+                    "ui/layout.toml : l'overlay « {} » chevauche la fenetre {} — \
+                     les dialogues l'ecraseraient, le deplacer",
+                    ov.id, name
                 );
             }
         }
@@ -159,7 +275,7 @@ pub fn cfg_defines(lay: &Layout) -> String {
     let m = lay.message.as_ref().unwrap();
     let c = lay.choice.as_ref().unwrap();
     // zone shadow de la textbox : l'UNION des rangées message + choix
-    // (un seul buffer WRAM, transfert VBlank d'un bloc)
+    // (bande effacée à l'ouverture/fermeture — ui_screen depuis M1)
     let top = m.pos[1].min(c.pos[1]);
     let bottom = (m.pos[1] + m.size[1]).max(c.pos[1] + c.size[1]);
     format!(
@@ -174,8 +290,8 @@ pub fn cfg_defines(lay: &Layout) -> String {
     )
 }
 
-/// ui_overlays.c : tables des fenêtres permanentes (tableaux u8 nus +
-/// table de pointeurs de libellés — pas de u16, piège toolchain)
+/// ui_overlays.c : tables des widgets (tableaux u8 nus + max scindé en
+/// lo/hi — pas de u16 nu, piège toolchain) + table de pointeurs libellés
 pub fn emit_overlays(lay: &Layout) -> String {
     let mut s = String::from(crate::emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
@@ -194,6 +310,16 @@ pub fn emit_overlays(lay: &Layout) -> String {
     s.push_str(&field("w", &|o| o.size[0]));
     s.push_str(&field("h", &|o| o.size[1]));
     s.push_str(&field("var", &|o| o.var.unwrap_or(0) as i64));
+    // W1 : type de content, cadre, icône, direction, pad, maximum
+    s.push_str(&field("type", &|o| o.type_code()));
+    s.push_str(&field("frame", &|o| o.framed() as i64));
+    s.push_str(&field("icon", &|o| o.icon.unwrap_or(0) as i64));
+    s.push_str(&field("dir", &|o| o.vertical() as i64));
+    s.push_str(&field("pad", &|o| o.pad.unwrap_or(0) as i64));
+    // max : 0xFF dans maxvar = constante (lue dans maxlo/maxhi)
+    s.push_str(&field("maxvar", &|o| o.max_var.map(|v| v as i64).unwrap_or(0xFF)));
+    s.push_str(&field("maxlo", &|o| (o.max.unwrap_or(0) & 0xFF) as i64));
+    s.push_str(&field("maxhi", &|o| (o.max.unwrap_or(0) >> 8) as i64));
     for (i, ov) in lay.overlay.iter().enumerate() {
         let _ = write!(s, "static const char ui_ov_l{}[] = {:?};\n", i, ov.label);
     }
