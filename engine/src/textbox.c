@@ -12,6 +12,7 @@
 #include "textbox.h"
 #include "rom_layout.h"
 #include "vram.h"
+#include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
 
 /* Fonte + palette (data_font.c) */
 extern const u8 font_gfx[];
@@ -22,14 +23,17 @@ extern const u16 textbox_pal[];
    [table de paires DTE 256 o][chaînes encodées \0]. Les codes 0x80-0xFF
    désignent une paire de caractères de la table : on décode dans un
    buffer WRAM avant le rendu (le wrap par mot lit en avant). */
+/* Tampon du formatage décimal de \v[n] (statique : prudence tcc) */
+static char tb_num[5];
+
 static void text_decode(u16 text_id, char *dst, u8 max)
 {
   const u8 *tbl = make_far(BANK_TEXTS, BANK_BASE_ADDR);
   u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
   const u8 *pairs;
   const u8 *s;
-  u16 ofs, k;
-  u8 n = 0, c;
+  u16 ofs, k, v;
+  u8 n = 0, c, d;
 
   dst[0] = 0;
   if (text_id >= count)
@@ -40,7 +44,21 @@ static void text_decode(u16 text_id, char *dst, u8 max)
   while (*s && n < (u8)(max - 2))
   {
     c = *s++;
-    if (c & 0x80)
+    if (c == 0x01)
+    {
+      /* \v[n] (v0.17, spec §2) : [0x01][n+1] — insère vars16[n] en
+         décimal (1 à 5 chiffres) AVANT le wrap, qui reste naturel */
+      v = vm.vars16[(u8)(*s++ - 1)];
+      d = 0;
+      do
+      {
+        tb_num[d++] = '0' + (v % 10);
+        v /= 10;
+      } while (v && d < 5);
+      while (d && n < (u8)(max - 2))
+        dst[n++] = tb_num[--d];
+    }
+    else if (c & 0x80)
     {
       k = (u16)(c & 0x7F) << 1;
       dst[n++] = pairs[k];

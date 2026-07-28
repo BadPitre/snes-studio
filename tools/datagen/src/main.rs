@@ -12,6 +12,7 @@
 mod binbank;
 mod charset;
 mod chipset;
+mod db;
 mod emit;
 mod events;
 mod gfx;
@@ -57,6 +58,9 @@ fn main() -> Result<()> {
         read_json(&proj_dir.join("project.json")).context("project.json")?;
     let mut texts: Vec<project::TextEntry> =
         read_json(&proj_dir.join("texts.json")).context("texts.json")?;
+    // Database (Phase 10) : chargée AVANT les events (la commande db_read
+    // résout tables/entrées/champs), encodée APRÈS (text_id → banque close)
+    let mut database = db::load(&proj_dir)?;
     // blocs référencés par des pas gfx: (Move Route), par scène
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
@@ -82,8 +86,12 @@ fn main() -> Result<()> {
         // même vide.
         {
             let mut ec = events::EventCompiler::new(&mut texts);
-            let (asm, actors, gfx_blocks, cetab) =
-                ec.compile_scene(name, &scene.events, &project.common_events)?;
+            let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
+                name,
+                &scene.events,
+                &project.common_events,
+                database.as_ref(),
+            )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
             scene.actors.extend(actors);
@@ -365,6 +373,40 @@ fn main() -> Result<()> {
         write_out(&out_dir, &name, content)?;
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
+
+    // Database (Phase 10, docs/PLANNING_SYSTEME_DATABASE.md) : schémas +
+    // instances TOML → tables C byte-packed. Purge d'abord les db_* d'une
+    // génération précédente (table supprimée = symbole fantôme sinon).
+    for entry in std::fs::read_dir(&out_dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.starts_with("db_") && !path.is_dir() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("purge de {}", path.display()))?;
+        }
+    }
+    match &mut database {
+        Some(d) => {
+            db::encode(d, &text_ids)?;
+            for (name, content) in db::emit_files(d) {
+                write_out(&out_dir, &name, content)?;
+            }
+            for (ti, sc) in d.schemas.iter().enumerate() {
+                println!(
+                    "  database : table {} — {} entree(s) x {} octets",
+                    sc.name,
+                    d.ids[ti].len(),
+                    db::entry_size(sc)
+                );
+            }
+        }
+        None => {
+            // registre vide : le moteur inclut db_tables.h sans condition
+            for (name, content) in db::emit_empty() {
+                write_out(&out_dir, &name, content)?;
+            }
+        }
+    }
 
     println!(
         "datagen : {} scenes, {} textes -> {}",

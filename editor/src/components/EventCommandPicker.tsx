@@ -34,6 +34,7 @@ const TABS: Tab[] = [
       { c: "loop", label: "Boucle" },
       { c: "break", label: "Sortir de la boucle" },
       { c: "rem", label: "Commentaire" },
+      { c: "db_read", label: "Lire la database" },
     ],
   },
   {

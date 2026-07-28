@@ -107,7 +107,10 @@ export type Command =
   | { c: "flash"; r: number; g: number; b: number; frames: number }
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)
-  | { c: "call"; n: number };
+  | { c: "call"; n: number }
+  // v0.17 — lire un champ de la Database dans une variable 16-bit.
+  // entry : id symbolique (from const) ou n° de variable (from var)
+  | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number };
 
 // Common event (v0.16, modèle RM2003 Database → Common Events) : script
 // global au projet — appelable ({"c":"call"}), Autorun (relancé tant que

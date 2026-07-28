@@ -9,6 +9,7 @@ import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
+import type { Database } from "../db";
 
 interface Props {
   event: GameEvent;
@@ -28,6 +29,7 @@ interface Props {
   entryNames: string[];
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   commonNames: string[]; // noms des common events (v0.16)
+  db: Database | null; // database du projet (commande db_read, v0.17)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -125,6 +127,9 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "call":
       return `Appeler le common event [${String(c.n + 1).padStart(4, "0")}${
         ceNames?.[c.n] ? ": " + ceNames[c.n] : ""}]`;
+    case "db_read":
+      return `Variable [${c.dst}] = ${c.table}[${
+        c.from === "var" ? `variable [${c.entry}]` : c.entry}].${c.field}`;
   }
 }
 
@@ -163,6 +168,7 @@ function cmdTitle(c: Command["c"]): string {
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
     call: "Appeler un common event",
+    db_read: "Lire la database",
   };
   return titles[c] ?? "Options de la commande";
 }
@@ -238,6 +244,7 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  db: Database | null; // schémas + instances (commande db_read)
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -406,6 +413,16 @@ export function CommandListEditor(props: {
         return { c: "shake", power: 4, speed: 2, frames: 30 };
       case "call":
         return { c: "call", n: 0 };
+      case "db_read": {
+        const sc = props.db?.schemas[0];
+        return {
+          c: "db_read",
+          table: sc?.name ?? "",
+          entry: props.db?.entries[sc?.name ?? ""]?.[0]?.id ?? "",
+          field: sc?.fields[0]?.name ?? "",
+          dst: 0,
+        };
+      }
     }
   }
 
@@ -459,6 +476,7 @@ export function CommandListEditor(props: {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
+              db={props.db}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -863,6 +881,7 @@ export default function EventEditorModal(props: Props) {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
+              db={props.db}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -931,6 +950,7 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
@@ -959,15 +979,21 @@ function CommandForm(props: {
     case "msg":
       valid = cmd.text.trim().length > 0;
       body = (
-        <label>
-          Texte du message
-          <textarea
-            rows={3}
-            value={cmd.text}
-            autoFocus
-            onChange={(e) => onChange({ ...cmd, text: e.target.value })}
-          />
-        </label>
+        <>
+          <label>
+            Texte du message
+            <textarea
+              rows={3}
+              value={cmd.text}
+              autoFocus
+              onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+            />
+          </label>
+          <span className="hint">
+            \v[n] affiche la variable n au moment de l'affichage (ex. « Tu
+            as \v[12] pièces d'or ») — marche aussi dans les choix.
+          </span>
+        </>
       );
       break;
     case "choice":
@@ -1586,6 +1612,127 @@ function CommandForm(props: {
         </>
       );
       break;
+    case "db_read": {
+      const sc = props.db?.schemas.find((s) => s.name === cmd.table);
+      const entries = props.db?.entries[cmd.table] ?? [];
+      valid =
+        !!sc &&
+        sc.fields.some((f) => f.name === cmd.field) &&
+        cmd.dst >= 0 && cmd.dst < 256 &&
+        (cmd.from === "var"
+          ? Number(cmd.entry) >= 0 && Number(cmd.entry) < 256
+          : entries.some((e) => e.id === cmd.entry));
+      body = !props.db ? (
+        <span className="hint" style={{ color: "#ff7070" }}>
+          Le projet n'a pas de database — créer une table via
+          Tools → Database…
+        </span>
+      ) : (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <label>
+              Table
+              <select
+                value={cmd.table}
+                autoFocus
+                onChange={(e) => {
+                  const ns = props.db!.schemas.find((s) => s.name === e.target.value)!;
+                  onChange({
+                    ...cmd,
+                    table: ns.name,
+                    entry: cmd.from === "var" ? cmd.entry
+                      : props.db!.entries[ns.name]?.[0]?.id ?? "",
+                    field: ns.fields[0]?.name ?? "",
+                  });
+                }}
+              >
+                {props.db.schemas.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.title || s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fiche
+              <select
+                value={cmd.from ?? "const"}
+                onChange={(e) => {
+                  const from = e.target.value as "const" | "var";
+                  onChange({
+                    ...cmd,
+                    from: from === "const" ? undefined : from,
+                    entry: from === "var" ? 0 : entries[0]?.id ?? "",
+                  });
+                }}
+              >
+                <option value="const">Fixe (choisir)</option>
+                <option value="var">Depuis une variable</option>
+              </select>
+            </label>
+            {cmd.from === "var" ? (
+              <label>
+                Variable (n° de fiche)
+                <span className="row" style={{ gap: 4 }}>
+                  <input
+                    type="number" min={0} max={255} value={Number(cmd.entry)}
+                    onChange={(e) => onChange({ ...cmd, entry: Number(e.target.value) })}
+                  />
+                  <button className="browse" title="Choisir dans la liste"
+                    onClick={() => props.onPickVar("var", Number(cmd.entry), (n) => onChange({ ...cmd, entry: n }))}>…</button>
+                </span>
+              </label>
+            ) : (
+              <label>
+                Entrée
+                <select
+                  value={String(cmd.entry)}
+                  onChange={(e) => onChange({ ...cmd, entry: e.target.value })}
+                >
+                  {entries.map((en) => (
+                    <option key={en.id} value={en.id}>
+                      {en.name || en.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              Champ
+              <select
+                value={cmd.field}
+                onChange={(e) => onChange({ ...cmd, field: e.target.value })}
+              >
+                {(sc?.fields ?? []).map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name} ({f.type})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              → Variable destination
+              <span className="row" style={{ gap: 4 }}>
+                <input
+                  type="number" min={0} max={255} value={cmd.dst}
+                  onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
+                />
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() => props.onPickVar("var", cmd.dst, (n) => onChange({ ...cmd, dst: n }))}>…</button>
+              </span>
+              <span className="hint">{props.varNames[cmd.dst] || ""}</span>
+            </label>
+          </div>
+          <span className="hint">
+            Copie la valeur du champ dans la variable (flags8 : l'octet des
+            bits ; ref : l'index de la fiche visée ; « depuis une
+            variable » : le n° de fiche est lu dans la variable, hors
+            table → 0).
+          </span>
+        </>
+      );
+      break;
+    }
     case "shake":
       valid = cmd.power >= 0 && cmd.power <= 8 && cmd.speed >= 1 && cmd.speed <= 8 &&
         cmd.frames >= 0 && cmd.frames <= 255;

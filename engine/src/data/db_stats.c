@@ -1,0 +1,9 @@
+/*
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
+ */
+#include <snes.h>
+
+const u8 db_stats[] = {
+  0x1E, 0x00, 0x05, 0x03, 0x04, 0x00, 0xFF, 0x0C, 0x00, 0x03, 0x01, 0xFE, 0x08, 0x00,
+};

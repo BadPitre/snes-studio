@@ -1,0 +1,37 @@
+/*
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
+ */
+#ifndef DB_TABLES_H
+#define DB_TABLES_H
+
+#define DB_TABLE_COUNT 2
+extern const u8 *const db_tables[];
+extern const u8 db_table_sizes[];
+extern const u8 db_table_counts[];
+
+/* table items — 2 entree(s) x 6 octet(s) */
+#define DB_ITEMS_COUNT 2
+#define DB_ITEMS_SIZE 6
+#define DB_ITEMS_PRICE 0
+#define DB_ITEMS_POWER 2
+#define DB_ITEMS_KIND 3
+#define DB_ITEMS_DESCR 4
+#define ITEMS_POTION 0
+#define ITEMS_EPEE_BOIS 1
+extern const u8 db_items[];
+
+/* table stats — 2 entree(s) x 7 octet(s) */
+#define DB_STATS_COUNT 2
+#define DB_STATS_SIZE 7
+#define DB_STATS_MAX_HP 0
+#define DB_STATS_ATTACK 2
+#define DB_STATS_DEFENSE 3
+#define DB_STATS_AGILITY 4
+#define DB_STATS_ELEM_RESIST 5
+#define DB_STATS_DROP_ITEM 6
+#define STATS_HEROS 0
+#define STATS_SLIME 1
+extern const u8 db_stats[];
+
+#endif /* DB_TABLES_H */

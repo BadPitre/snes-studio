@@ -67,6 +67,7 @@ const OP_FLASH: u8 = 0x1F;
 const OP_SHAKE: u8 = 0x20;
 const OP_CALL: u8 = 0x21;
 const OP_RET: u8 = 0x22;
+const OP_DBREAD: u8 = 0x23;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -215,6 +216,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
+        "DBREAD" => 7,
         // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
         // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
         // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
@@ -491,6 +493,16 @@ pub fn assemble(
             "RET" => {
                 if argc != 0 { bail!("RET ne prend pas d'argument"); }
                 code.push(OP_RET);
+            }
+            // DBREAD <table> <0|1> <entree> <ofs> <taille 1|2> <var dst> :
+            // vars16[dst] = champ de la database (v0.17) — les six
+            // opérandes sont déjà résolus par events.rs (ids symboliques)
+            "DBREAD" => {
+                if argc != 6 { bail!("DBREAD <table> <esrc> <entree> <ofs> <taille> <dst>"); }
+                code.push(OP_DBREAD);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
             }
             "CETAB" => {
                 if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }

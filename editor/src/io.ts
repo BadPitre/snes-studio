@@ -3,7 +3,7 @@
 // rangée par ligne, même mise en page que les sources historiques.
 
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove } from "@tauri-apps/plugin-fs";
+import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove, mkdir as tauriMkdir } from "@tauri-apps/plugin-fs";
 import type { Actor, EventPage, GameEvent, Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
 import { EMPTY_TILE, actorToEvent, assetStem, projectTilesets } from "./types";
 
@@ -28,6 +28,26 @@ async function readFile(path: string): Promise<Uint8Array> {
 async function writeTextFile(path: string, content: string): Promise<void> {
   if (hasTauri) return tauriWriteText(path, content);
   console.warn(`mode navigateur : écriture ignorée (${path})`, content.length);
+}
+
+// Fichiers texte du projet par chemin relatif (database : schémas TOML,
+// instances) — root vaut "/project" en mode navigateur (voir loadProject)
+export async function readProjectText(root: string, rel: string): Promise<string> {
+  return readTextFile(`${root}/${rel}`);
+}
+
+export async function writeProjectText(root: string, rel: string, content: string): Promise<void> {
+  return writeTextFile(`${root}/${rel}`, content);
+}
+
+// crée un dossier du projet s'il n'existe pas (schemas/, data/)
+export async function ensureProjectDir(root: string, rel: string): Promise<void> {
+  if (!hasTauri) return;
+  try {
+    await tauriMkdir(`${root}/${rel}`, { recursive: true });
+  } catch {
+    /* existe déjà */
+  }
 }
 
 // Fichiers binaires / gestion d'assets (Resource Manager) — Tauri seulement
