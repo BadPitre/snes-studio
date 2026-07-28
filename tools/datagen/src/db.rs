@@ -94,12 +94,41 @@ pub struct Db {
     pub schemas: Vec<Schema>,
     /// par table : les ids symboliques dans l'ordre des index
     pub ids: Vec<Vec<String>>,
-    /// par table : les octets encodés (N x taille d'entrée)
+    /// par table : les entrées brutes — encodées par `encode` (les
+    /// text_id demandent la banque de textes FINALE, close après les
+    /// events), et par table : les octets encodés
+    entries: Vec<Vec<toml::Table>>,
     pub blobs: Vec<Vec<u8>>,
 }
 
-/// Charge et valide schémas + instances. `Ok(None)` = pas de database.
-pub fn load(proj_dir: &Path, text_ids: &HashMap<String, u16>) -> Result<Option<Db>> {
+impl Db {
+    /// id de table (index du registre db_tables[], opcode DBREAD) par nom
+    pub fn table_id(&self, name: &str) -> Option<usize> {
+        self.schemas.iter().position(|s| s.name == name)
+    }
+
+    /// index d'une entrée par id symbolique
+    pub fn entry_index(&self, table: usize, id: &str) -> Option<usize> {
+        self.ids[table].iter().position(|s| s == id)
+    }
+
+    /// (offset, taille en octets) d'un champ d'une table
+    pub fn field_info(&self, table: usize, field: &str) -> Option<(usize, usize)> {
+        let mut ofs = 0usize;
+        for f in &self.schemas[table].fields {
+            let sz = field_size(&f.ty).ok()?;
+            if f.name == field {
+                return Some((ofs, sz));
+            }
+            ofs += sz;
+        }
+        None
+    }
+}
+
+/// Charge et valide schémas + instances (tout SAUF la résolution des
+/// text_id — voir `encode`). `Ok(None)` = pas de database.
+pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
     let schema_dir = proj_dir.join("schemas");
     if !schema_dir.is_dir() {
         return Ok(None);
@@ -218,13 +247,24 @@ pub fn load(proj_dir: &Path, text_ids: &HashMap<String, u16>) -> Result<Option<D
         ids.push(tids);
         entries.push(list);
     }
+
+    Ok(Some(Db { schemas, ids, entries, blobs: Vec::new() }))
+}
+
+/// Encodage byte-packed, champ par champ dans l'ordre du schéma — à
+/// appeler quand la banque de textes est CLOSE (text_id résolus ici).
+pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>) -> Result<()> {
+    let Db { schemas, ids, entries, blobs } = db;
+    let table_idx: HashMap<String, usize> = schemas
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.name.clone(), i))
+        .collect();
     let id_index: Vec<HashMap<&str, usize>> = ids
         .iter()
         .map(|t| t.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect())
         .collect();
 
-    // Encodage byte-packed, champ par champ dans l'ordre du schéma
-    let mut blobs = Vec::new();
     for (ti, sc) in schemas.iter().enumerate() {
         let mut blob = Vec::new();
         for (ei, e) in entries[ti].iter().enumerate() {
@@ -322,7 +362,7 @@ pub fn load(proj_dir: &Path, text_ids: &HashMap<String, u16>) -> Result<Option<D
         blobs.push(blob);
     }
 
-    Ok(Some(Db { schemas, ids, blobs }))
+    Ok(())
 }
 
 /// Taille d'une entrée d'un schéma, en octets
@@ -330,11 +370,25 @@ pub fn entry_size(sc: &Schema) -> usize {
     sc.fields.iter().map(|f| field_size(&f.ty).unwrap_or(0)).sum()
 }
 
-/// Émet db_<table>.c (un par table) + db_tables.h — (nom, contenu)
+/// db_index.c + db_tables.h d'un projet SANS database : le registre vide
+/// (le moteur les inclut inconditionnellement — opcode DBREAD, v0.17)
+pub fn emit_empty() -> Vec<(String, String)> {
+    let mut h = String::from(emit::HEADER);
+    h.push_str("#ifndef DB_TABLES_H\n#define DB_TABLES_H\n\n#define DB_TABLE_COUNT 0\n");
+    h.push_str("extern const u8 *const db_tables[];\nextern const u8 db_table_sizes[];\nextern const u8 db_table_counts[];\n\n#endif /* DB_TABLES_H */\n");
+    let mut c = String::from(emit::HEADER);
+    c.push_str("#include <snes.h>\n\nconst u8 *const db_tables[1] = { 0 };\nconst u8 db_table_sizes[1] = { 0 };\nconst u8 db_table_counts[1] = { 0 };\n");
+    vec![("db_index.c".to_string(), c), ("db_tables.h".to_string(), h)]
+}
+
+/// Émet db_<table>.c (un par table) + db_index.c (registre pour DBREAD)
+/// + db_tables.h — (nom, contenu)
 pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     let mut files = Vec::new();
     let mut h = String::from(emit::HEADER);
     h.push_str("#ifndef DB_TABLES_H\n#define DB_TABLES_H\n\n");
+    let _ = write!(h, "#define DB_TABLE_COUNT {}\n", db.schemas.len());
+    h.push_str("extern const u8 *const db_tables[];\nextern const u8 db_table_sizes[];\nextern const u8 db_table_counts[];\n\n");
     for (ti, sc) in db.schemas.iter().enumerate() {
         let up = sc.name.to_uppercase();
         let esz = entry_size(sc);
@@ -365,5 +419,24 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     }
     h.push_str("#endif /* DB_TABLES_H */\n");
     files.push(("db_tables.h".to_string(), h));
+
+    // registre des tables (opcode DBREAD, v0.17) : id de table = index
+    // dans l'ordre des schémas (alphabétique, stable)
+    let mut c = String::from(emit::HEADER);
+    c.push_str("#include <snes.h>\n#include \"db_tables.h\"\n\n");
+    c.push_str("const u8 *const db_tables[] = {\n");
+    for sc in &db.schemas {
+        let _ = write!(c, "  db_{},\n", sc.name);
+    }
+    c.push_str("};\nconst u8 db_table_sizes[] = {\n ");
+    for sc in &db.schemas {
+        let _ = write!(c, " {},", entry_size(sc));
+    }
+    c.push_str("\n};\nconst u8 db_table_counts[] = {\n ");
+    for (ti, _) in db.schemas.iter().enumerate() {
+        let _ = write!(c, " {},", db.ids[ti].len());
+    }
+    c.push_str("\n};\n");
+    files.push(("db_index.c".to_string(), c));
     files
 }

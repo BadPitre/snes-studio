@@ -441,6 +441,17 @@ locaux à la scène. Un common event peut cibler « cet event »
 (ROUTE/SETPOS/SWAPPOS 0xFF) : résolu à l'exécution via `script_actor`,
 l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 
+**v0.17 (Database — docs/PLANNING_SYSTEME_DATABASE.md) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x23 | DBREAD | table u8, src u8, entrée u8, offset u8, taille u8 (1-2), dst u8 | `vars16[dst]` = champ de la database — table = index du registre généré `db_tables[]` ; src : 0 = entrée constante, 1 = entrée lue dans `vars16[entrée]` ; une entrée dynamique hors table donne 0 (jamais de lecture sauvage). |
+
+Le registre (`db_index.c` : `db_tables[]`, `db_table_sizes[]`,
+`db_table_counts[]` + `DB_TABLE_COUNT` dans db_tables.h) est TOUJOURS
+généré par datagen — vide si le projet n'a pas de database — car le
+moteur l'inclut inconditionnellement.
+
 Pièges toolchain documentés au passage : un couple de paramètres
 `(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à
 paramètre unique) ; les glyphes BG3 commencent au char 1 (char 0

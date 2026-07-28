@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import type { CommonEvent, Scene } from "../types";
+import type { Database } from "../db";
 import { CommandListEditor } from "./EventEditorModal";
 import VarListModal from "./VarListModal";
 
@@ -18,6 +19,7 @@ interface Props {
   switchNames: string[];
   varNames: string[];
   charsetNames: string[];
+  db: Database | null; // commande db_read (v0.17)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
   onClose: () => void;
@@ -168,6 +170,7 @@ export default function CommonEventsModal(props: Props) {
                   entryNames={[]}
                   charsetNames={props.charsetNames}
                   commonNames={draft.map((ce, i) => ce.name || `CE ${i + 1}`)}
+                  db={props.db}
                   onRenameVars={props.onRenameVars}
                 />
               </>

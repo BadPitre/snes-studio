@@ -58,6 +58,9 @@ fn main() -> Result<()> {
         read_json(&proj_dir.join("project.json")).context("project.json")?;
     let mut texts: Vec<project::TextEntry> =
         read_json(&proj_dir.join("texts.json")).context("texts.json")?;
+    // Database (Phase 10) : chargée AVANT les events (la commande db_read
+    // résout tables/entrées/champs), encodée APRÈS (text_id → banque close)
+    let mut database = db::load(&proj_dir)?;
     // blocs référencés par des pas gfx: (Move Route), par scène
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
@@ -83,8 +86,12 @@ fn main() -> Result<()> {
         // même vide.
         {
             let mut ec = events::EventCompiler::new(&mut texts);
-            let (asm, actors, gfx_blocks, cetab) =
-                ec.compile_scene(name, &scene.events, &project.common_events)?;
+            let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
+                name,
+                &scene.events,
+                &project.common_events,
+                database.as_ref(),
+            )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
             scene.actors.extend(actors);
@@ -378,17 +385,26 @@ fn main() -> Result<()> {
                 .with_context(|| format!("purge de {}", path.display()))?;
         }
     }
-    if let Some(database) = db::load(&proj_dir, &text_ids)? {
-        for (name, content) in db::emit_files(&database) {
-            write_out(&out_dir, &name, content)?;
+    match &mut database {
+        Some(d) => {
+            db::encode(d, &text_ids)?;
+            for (name, content) in db::emit_files(d) {
+                write_out(&out_dir, &name, content)?;
+            }
+            for (ti, sc) in d.schemas.iter().enumerate() {
+                println!(
+                    "  database : table {} — {} entree(s) x {} octets",
+                    sc.name,
+                    d.ids[ti].len(),
+                    db::entry_size(sc)
+                );
+            }
         }
-        for (ti, sc) in database.schemas.iter().enumerate() {
-            println!(
-                "  database : table {} — {} entree(s) x {} octets",
-                sc.name,
-                database.ids[ti].len(),
-                db::entry_size(sc)
-            );
+        None => {
+            // registre vide : le moteur inclut db_tables.h sans condition
+            for (name, content) in db::emit_empty() {
+                write_out(&out_dir, &name, content)?;
+            }
         }
     }
 

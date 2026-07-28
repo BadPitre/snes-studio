@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "timer.h"
 #include "screenfx.h"
+#include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
@@ -517,6 +518,28 @@ static void vm_step(void)
         vm.pc = vm.call_stack[--vm.call_sp];
       else
         vm.active = 0;
+      break;
+
+    case VM_OP_DBREAD: /* vars16[dst] = champ de la database (v0.17) */
+      var = fetch8();   /* table (registre db_tables[]) */
+      val = fetch8();   /* source d'entrée : 0 constante, 1 variable */
+      idx16 = fetch8(); /* entrée (ou n° de variable) */
+      if (val)
+        idx16 = vm.vars16[idx16 & 255];
+      ofs = fetch8();   /* offset du champ */
+      val = fetch8();   /* taille : 1 ou 2 octets */
+      op = fetch8();    /* variable destination */
+      if (var >= DB_TABLE_COUNT || idx16 >= db_table_counts[var])
+        val16 = 0; /* entrée dynamique hors table : 0, jamais de lecture
+                      sauvage (les constantes sont validées par datagen) */
+      else
+      {
+        ofs += idx16 * db_table_sizes[var]; /* u16 : 255 x 255 max */
+        val16 = db_tables[var][ofs];
+        if (val == 2)
+          val16 |= (u16)db_tables[var][ofs + 1] << 8;
+      }
+      vm.vars16[op] = val16;
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */

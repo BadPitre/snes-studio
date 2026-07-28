@@ -263,6 +263,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   en bas. OK écrit `data/*.toml` (clés dans l'ordre du schéma — diffs
   Git stables) ; dbgen les compile au prochain build. Ajouter un onglet
   = ajouter un schéma, zéro code.
+  La commande d'event **« Lire la database »** (onglet Logique, v0.17)
+  copie un champ d'une fiche dans une variable 16-bit — table, fiche
+  (fixe, ou n° lu dans une variable) et champ choisis dans des menus
+  peuplés par les schémas, mêmes listes que la fenêtre Database.
   **Créer SES tables depuis l'éditeur** : « ＋ Table » (nom snake_case +
   titre, enchaîne sur la structure), « Structure… » ouvre l'éditeur de
   champs — nom, type (u8/u16/s8/s16, flags8 avec ses noms de bits, ref

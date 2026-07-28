@@ -1632,6 +1632,7 @@ export default function App() {
           charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
             charsetName(data.project, b)
           )}
+          db={db}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -1683,6 +1684,7 @@ export default function App() {
           commonNames={(data.project.common_events ?? []).map(
             (ce, i) => ce.name || `CE ${i + 1}`
           )}
+          db={db}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

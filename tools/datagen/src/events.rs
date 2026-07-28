@@ -33,6 +33,7 @@
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
+use crate::db::Db;
 use crate::project::{Actor, CommonEvent, Event, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
@@ -44,6 +45,8 @@ const MAX_DEPTH: usize = 6;
 
 pub struct EventCompiler<'a> {
     texts: &'a mut Vec<TextEntry>,
+    /// database du projet (commande db_read) — None si pas de schemas/
+    db: Option<&'a Db>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -67,6 +70,7 @@ impl<'a> EventCompiler<'a> {
             .collect();
         EventCompiler {
             texts,
+            db: None,
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -460,6 +464,48 @@ impl<'a> EventCompiler<'a> {
                 // v0.15 — commentaire : décoratif dans l'éditeur, aucun
                 // bytecode émis
                 "rem" => {}
+                // v0.17 — lire un champ de la database dans une variable :
+                // {"c":"db_read","table":"stats","from":"const"|"var",
+                //  "entry":"slime"|<n° de variable>,"field":"attack","dst":n}
+                "db_read" => {
+                    let dbr = self.db.with_context(|| {
+                        "db_read : le projet n'a pas de database (schemas/)".to_string()
+                    })?;
+                    let table = cmd["table"].as_str().context("db_read sans table")?;
+                    let ti = dbr.table_id(table).with_context(|| {
+                        format!("db_read : table inconnue « {} »", table)
+                    })?;
+                    let field = cmd["field"].as_str().context("db_read sans field")?;
+                    let (ofs, size) = dbr.field_info(ti, field).with_context(|| {
+                        format!("db_read : champ « {} » absent de {}", field, table)
+                    })?;
+                    if ofs > 255 {
+                        bail!("db_read : offset du champ « {} » > 255", field);
+                    }
+                    let dst = Self::idx_field(cmd, "dst", 256)?;
+                    let (esrc, entry) = match cmd["from"].as_str().unwrap_or("const") {
+                        "const" => {
+                            let id = cmd["entry"].as_str().with_context(|| {
+                                format!("db_read : entry (id symbolique de {})", table)
+                            })?;
+                            let idx = dbr.entry_index(ti, id).with_context(|| {
+                                format!("db_read : « {} » absent de la table {}", id, table)
+                            })?;
+                            (0, idx as u64)
+                        }
+                        "var" => (
+                            1,
+                            cmd["entry"].as_u64().filter(|&n| n < 256).with_context(|| {
+                                format!("db_read : entry = n° de variable (0-255) : {}", cmd)
+                            })?,
+                        ),
+                        o => bail!("db_read : source inconnue « {} » (const, var)", o),
+                    };
+                    out.push(format!(
+                        "  DBREAD {} {} {} {} {} {}",
+                        ti, esrc, entry, ofs, size, dst
+                    ));
+                }
                 // v0.16 — appel d'un common event (CALL/RET, pile de 8)
                 "call" => {
                     let n = cmd["n"]
@@ -581,6 +627,7 @@ impl<'a> EventCompiler<'a> {
         scene_name: &str,
         events: &[Event],
         commons: &[CommonEvent],
+        db: Option<&'a Db>,
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -588,6 +635,7 @@ impl<'a> EventCompiler<'a> {
         self.gfx_blocks.clear();
         self.cur_scene = scene_name.to_string();
         self.used_commons = vec![false; commons.len()];
+        self.db = db;
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

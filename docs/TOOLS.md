@@ -186,11 +186,20 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 
 **Database (Phase 10)** : datagen embarque « dbgen » (module `db.rs`) —
 `schemas/*.toml` + `data/*.toml` → `db_<table>.c` (tables byte-packed)
-+ `db_tables.h` (constantes `TABLE_ID`, tailles, offsets). Format et
-règles : `docs/PLANNING_SYSTEME_DATABASE.md` (contractuel). Un projet
-sans dossier `schemas/` n'a pas de database. Le fichier
-`schemas/_index.json` est un manifeste maintenu par l'éditeur pour son
-mode navigateur — ignoré par dbgen (le dossier fait foi).
++ `db_index.c` (registre pour l'opcode DBREAD, toujours émis — vide
+sans schémas) + `db_tables.h` (constantes `TABLE_ID`, tailles,
+offsets). Format et règles : `docs/PLANNING_SYSTEME_DATABASE.md`
+(contractuel). Le fichier `schemas/_index.json` est un manifeste
+maintenu par l'éditeur pour son mode navigateur — ignoré par dbgen (le
+dossier fait foi).
+
+**v0.17 (lire la database depuis les events)** :
+`{"c":"db_read","table":"stats","from":"const"|"var","entry":"slime"|
+<n° de variable>,"field":"attack","dst":n}` — `vars16[dst]` = champ de
+la fiche ; `from:"var"` lit le n° de fiche dans une variable (hors
+table → 0). events.rs résout table/entrée/champ symboliques vers
+l'assembleur `DBREAD <table> <src> <entrée> <ofs> <taille> <dst>`
+(spec §2). flags8 : l'octet des bits ; ref : l'index de la fiche visée.
 
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":

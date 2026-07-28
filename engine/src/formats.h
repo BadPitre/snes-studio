@@ -175,6 +175,14 @@
 /* Profondeur de la pile d'appels (CALL imbriqués / récursifs) */
 #define VM_CALL_DEPTH 8
 
+/* v0.17 : lecture de la Database (docs/PLANNING_SYSTEME_DATABASE.md) */
+#define VM_OP_DBREAD  0x23 /* table (u8, index du registre db_tables[]),
+                              src entrée (u8 : 0 constante, 1 variable),
+                              entrée (u8), offset du champ (u8), taille
+                              (u8 : 1 ou 2), var dst (u8) —
+                              vars16[dst] = champ ; hors bornes (entrée
+                              dynamique invalide) -> 0 */
+
 #define VAROP_SET 0
 #define VAROP_ADD 1
 #define VAROP_SUB 2

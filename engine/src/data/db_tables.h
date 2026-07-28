@@ -5,6 +5,11 @@
 #ifndef DB_TABLES_H
 #define DB_TABLES_H
 
+#define DB_TABLE_COUNT 2
+extern const u8 *const db_tables[];
+extern const u8 db_table_sizes[];
+extern const u8 db_table_counts[];
+
 /* table items — 2 entree(s) x 6 octet(s) */
 #define DB_ITEMS_COUNT 2
 #define DB_ITEMS_SIZE 6
