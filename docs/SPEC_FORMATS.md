@@ -345,6 +345,14 @@ avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
 projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 (32-126, accents en v1 avec la fonte définitive).
 
+**v0.17 — afficher une variable (`\v[n]`, modèle RM2003) :** dans le
+texte SOURCE, `\v[n]` (n = variable 16-bit, 0-254) est encodé par
+datagen en `[0x01][n+1]` (jamais d'octet nul dans une chaîne ; les
+octets < 0x20 sont opaques pour le DTE, aucune paire ne les couvre). Au
+décodage, la textbox insère `vars16[n]` en décimal (1 à 5 chiffres)
+dans le buffer AVANT le wrap par mot — la mise en page suit la valeur.
+Marche dans les messages ET les choix.
+
 ---
 
 

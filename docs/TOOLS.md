@@ -184,6 +184,11 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**\v[n] dans les textes (v0.17)** : `{"c":"msg"}` (et les options de
+choix) acceptent `\v[n]` — la valeur de la variable 16-bit n (0-254)
+est insérée en décimal au moment de l'affichage (spec §2). Exemple :
+`"Tu as \v[12] pieces d'or."`.
+
 **Database (Phase 10)** : datagen embarque « dbgen » (module `db.rs`) —
 `schemas/*.toml` + `data/*.toml` → `db_<table>.c` (tables byte-packed)
 + `db_index.c` (registre pour l'opcode DBREAD, toujours émis — vide

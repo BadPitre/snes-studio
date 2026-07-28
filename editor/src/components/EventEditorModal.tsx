@@ -979,15 +979,21 @@ function CommandForm(props: {
     case "msg":
       valid = cmd.text.trim().length > 0;
       body = (
-        <label>
-          Texte du message
-          <textarea
-            rows={3}
-            value={cmd.text}
-            autoFocus
-            onChange={(e) => onChange({ ...cmd, text: e.target.value })}
-          />
-        </label>
+        <>
+          <label>
+            Texte du message
+            <textarea
+              rows={3}
+              value={cmd.text}
+              autoFocus
+              onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+            />
+          </label>
+          <span className="hint">
+            \v[n] affiche la variable n au moment de l'affichage (ex. « Tu
+            as \v[12] pièces d'or ») — marche aussi dans les choix.
+          </span>
+        </>
       );
       break;
     case "choice":

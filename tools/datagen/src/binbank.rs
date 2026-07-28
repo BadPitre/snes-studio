@@ -241,6 +241,43 @@ fn rle_encode(data: &[u8]) -> Vec<u8> {
 /// Budget WRAM du moteur pour une grille décompressée (scene.c)
 pub const MAP_BUF_CELLS: usize = 8192;
 
+/// v0.17 — codes \v[n] des textes (afficher une variable, RM2003) :
+/// [0x01][n + 1] dans le flux (n+1 : jamais d'octet nul dans une chaîne).
+/// n 0-254 (vars16).
+fn escape_vars(name: &str, s: &str) -> Result<Vec<u8>> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && i + 1 < b.len() && b[i + 1] == b'v' {
+            if b.get(i + 2) != Some(&b'[') {
+                bail!("texte '{}' : \\v s'ecrit \\v[n] (n = numero de variable)", name);
+            }
+            let end = b[i + 3..]
+                .iter()
+                .position(|&c| c == b']')
+                .map(|p| p + i + 3)
+                .with_context(|| format!("texte '{}' : \\v[ sans ] fermant", name))?;
+            let n: u16 = std::str::from_utf8(&b[i + 3..end])
+                .unwrap_or("")
+                .trim()
+                .parse()
+                .ok()
+                .filter(|&n| n < 255)
+                .with_context(|| {
+                    format!("texte '{}' : \\v[n] attend un numero de variable 0-254", name)
+                })?;
+            out.push(0x01);
+            out.push((n + 1) as u8);
+            i = end + 1;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    Ok(out)
+}
+
 /// Bank textes (spec §2 v0.7) — chaînes compressées par dictionnaire de
 /// bigrammes (DTE) : les codes 0x80-0xFF désignent une PAIRE de caractères
 /// ASCII de la table (256 octets), décodée à la volée par la textbox.
@@ -253,14 +290,29 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
         }
     }
 
+    // v0.17 : \v[n] -> [0x01][n+1] AVANT le DTE (l'échappement est opaque
+    // pour le dictionnaire — le décodeur insère vars16[n] en décimal)
+    let encoded: Vec<Vec<u8>> = texts
+        .iter()
+        .map(|t| escape_vars(&t.name, &t.text))
+        .collect::<Result<_>>()?;
+
     // Dictionnaire : les 128 bigrammes ASCII les plus fréquents (une seule
     // passe, paires de caractères BRUTS — le décodeur moteur n'est pas
-    // récursif). Ordre déterministe : fréquence puis valeur.
+    // récursif). Ordre déterministe : fréquence puis valeur. Les octets
+    // d'échappement (< 0x20) ne forment jamais de paire.
     let mut freq: HashMap<[u8; 2], usize> = HashMap::new();
-    for t in texts {
-        let b = t.text.as_bytes();
-        for w in b.windows(2) {
-            *freq.entry([w[0], w[1]]).or_insert(0) += 1;
+    for b in &encoded {
+        let mut j = 0;
+        while j < b.len() {
+            if b[j] == 0x01 {
+                j += 2;
+                continue;
+            }
+            if j + 1 < b.len() && b[j + 1] != 0x01 {
+                *freq.entry([b[j], b[j + 1]]).or_insert(0) += 1;
+            }
+            j += 1;
         }
     }
     let mut pairs: Vec<([u8; 2], usize)> =
@@ -281,14 +333,19 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
     blob.extend_from_slice(&table);
 
     let mut raw = 0usize;
-    for (i, t) in texts.iter().enumerate() {
+    for (i, b) in encoded.iter().enumerate() {
         let ofs = blob.len() as u16;
         blob[2 + i * 2..4 + i * 2].copy_from_slice(&ofs.to_le_bytes());
-        let b = t.text.as_bytes();
         raw += b.len() + 1;
         let mut j = 0;
         while j < b.len() {
-            if j + 1 < b.len() {
+            if b[j] == 0x01 {
+                blob.push(b[j]);
+                blob.push(b[j + 1]);
+                j += 2;
+                continue;
+            }
+            if j + 1 < b.len() && b[j + 1] != 0x01 {
                 if let Some(&c) = code_of.get(&[b[j], b[j + 1]]) {
                     blob.push(c);
                     j += 2;
