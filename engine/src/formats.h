@@ -182,6 +182,9 @@
                               (u8 : 1 ou 2), var dst (u8) —
                               vars16[dst] = champ ; hors bornes (entrée
                               dynamique invalide) -> 0 */
+#define VM_OP_SHOWUI  0x24 /* widget (u8, index de racine du layout),
+                              on (u8 : 1 affiche, 0 cache) — visibilité
+                              d'un widget UI (Phase 12, caché par défaut) */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

@@ -241,6 +241,14 @@ table → 0). events.rs résout table/entrée/champ symboliques vers
 l'assembleur `DBREAD <table> <src> <entrée> <ofs> <taille> <dst>`
 (spec §2). flags8 : l'octet des bits ; ref : l'index de la fiche visée.
 
+**Phase 12 (visibilité des widgets UI)** :
+`{"c":"ui_show","widget":"<id de racine du layout>","on":true|false}` —
+affiche/cache un WIDGET du designer (ui/layout.toml). Les widgets sont
+CACHÉS au démarrage (sauf `visible = true` sur la racine) ; events.rs
+résout le nom vers son index de racine (`SHOWUI <widget> <0|1>`, opcode
+0x24). Nom introuvable = erreur de compilation avec la liste des
+widgets du projet.
+
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
 [...]}]` — des scripts globaux au projet, modèle RM2003.

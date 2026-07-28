@@ -163,6 +163,7 @@ export type Command =
   // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
   // persistante (décor seulement — hardware), flash et secousse non
   // bloquants (enchaîner avec « Attendre »)
+  | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }
   | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }

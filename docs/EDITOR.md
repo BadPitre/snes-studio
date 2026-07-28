@@ -289,7 +289,7 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
   database crée ses dossiers `schemas/`+`data/` à la première table.
-- **Fenêtre « UI / Thème » — le DESIGNER** (Tools →, Phase 12 D1, réf
+- **Fenêtre « UI »** (Tools → UI…, Phase 12, réf
   `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.
   **Palette** à gauche (clic = ajouter) : Fenêtre (cadre 9-slice,
   conteneur), Liste verticale et Boîte horizontale (empilent leurs
@@ -308,7 +308,15 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Trigger = Fenêtre > Liste verticale > Boîtes horizontales > labels/
   valeurs/images. Les erreurs (mêmes règles que le compilateur —
   débordements, chevauchements avec les fenêtres de dialogue, icônes
-  manquantes) s'affichent sous le canvas et bloquent OK. En tête :
+  manquantes) s'affichent sous le canvas et bloquent OK. La fenêtre
+  s'ouvre sur la page **« UI — Widgets »** : réglages du thème
+  (windowskin, planche d'icônes, vitesse du texte), géométrie des
+  fenêtres de dialogue, et la LISTE des widgets — 👁 = visible au
+  démarrage (par défaut un widget est CACHÉ et s'affiche par la
+  commande d'event **« Afficher/cacher un widget UI »**, onglet
+  Écran), Éditer…/double-clic ouvre le **designer scopé** sur le
+  widget (les autres estompés), ✧ Nouveau widget en crée un sur une
+  place libre, « ← Widgets » revient à la liste. En tête du designer :
   Thème repliable (windowskin, planche d'icônes, vitesse du texte) et,
   sous le canvas, la géométrie des fenêtres message/choix. OK écrit
   `ui/layout.toml` (arbre `[[node]]` — les anciens layouts plats sont

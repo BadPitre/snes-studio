@@ -41,6 +41,8 @@ extern const u8 ui_ov_icon[];
 extern const u8 ui_ov_dir[];
 extern const u8 ui_ov_pad[];
 extern const u8 ui_ov_bg[]; /* 1 = dans une window (fond du cadre) */
+extern const u8 ui_ov_widget[]; /* index de la RACINE (widget) de la prim */
+extern const u8 ui_widget_vis[]; /* visibilité INITIALE par widget */
 extern const u8 ui_ov_maxvar[]; /* 0xFF = max constant (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
 extern const u8 ui_ov_maxhi[];
@@ -64,6 +66,8 @@ extern const char *const ui_ov_label[];
 
 static u16 ov_last[UI_OV_COUNT];  /* dernière valeur dessinée */
 static u16 ov_lastm[UI_OV_COUNT]; /* dernier maximum (max_var) */
+static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibilité
+    runtime par widget (Phase 12) : caché par défaut, piloté par SHOWUI */
 static char ov_num[5];
 
 /* maximum courant d'un widget : constante compilée ou variable */
@@ -72,6 +76,21 @@ static u16 ov_max(u8 i)
   if (ui_ov_maxvar[i] != 0xFF)
     return vm.vars16[ui_ov_maxvar[i]];
   return (u16)ui_ov_maxlo[i] | ((u16)ui_ov_maxhi[i] << 8);
+}
+
+/* Efface le rect d'une primitive (widget caché) — transparent */
+static void ov_erase(u8 i)
+{
+  u8 cx, cy;
+  u16 base;
+
+  for (cy = 0; cy < ui_ov_h[i]; cy++)
+  {
+    base = (u16)(ui_ov_y[i] + cy) * 32 + ui_ov_x[i];
+    for (cx = 0; cx < ui_ov_w[i]; cx++)
+      ui_map[base + cx] = 0;
+  }
+  ui_mark(ui_ov_y[i], ui_ov_h[i]);
 }
 
 static void ov_draw(u8 i)
@@ -221,12 +240,15 @@ void overlay_init(void)
 {
   u8 i;
 
+  for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
+    ov_vis[i] = UI_WIDGET_COUNT ? ui_widget_vis[i] : 0;
   /* ui_map est déjà nettoyé par ui_screen_init (appelé avant) */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     ov_last[i] = vm.vars16[ui_ov_var[i]];
     ov_lastm[i] = ov_max(i);
-    ov_draw(i);
+    if (ov_vis[ui_ov_widget[i]])
+      ov_draw(i);
   }
 }
 
@@ -245,7 +267,8 @@ void overlay_update(void)
     {
       ov_last[i] = v;
       ov_lastm[i] = m;
-      ov_draw(i);
+      if (ov_vis[ui_ov_widget[i]])
+        ov_draw(i);
     }
   }
 }
@@ -256,9 +279,28 @@ void overlay_refresh(void)
 
   /* redessin inconditionnel : après l'effacement de la bande du
      dialogue (tb_clear_band), les widgets qui partagent ses rangées
-     doivent réapparaître */
+     doivent réapparaître — sauf ceux cachés par SHOWUI */
   for (i = 0; i < UI_OV_COUNT; i++)
-    ov_draw(i);
+    if (ov_vis[ui_ov_widget[i]])
+      ov_draw(i);
+}
+
+void overlay_show(u8 widget, u8 on)
+{
+  u8 i;
+
+  if (widget >= (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1))
+    return;
+  ov_vis[widget] = on;
+  for (i = 0; i < UI_OV_COUNT; i++)
+  {
+    if (ui_ov_widget[i] != widget)
+      continue;
+    if (on)
+      ov_draw(i); /* valeurs à jour : ov_last suivi même caché */
+    else
+      ov_erase(i);
+  }
 }
 
 #else /* pas d'overlay dans le layout : module inerte */
@@ -273,6 +315,12 @@ void overlay_update(void)
 
 void overlay_refresh(void)
 {
+}
+
+void overlay_show(u8 widget, u8 on)
+{
+  (void)widget;
+  (void)on;
 }
 
 #endif /* UI_OV_COUNT */

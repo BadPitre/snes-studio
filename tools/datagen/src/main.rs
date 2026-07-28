@@ -65,6 +65,15 @@ fn main() -> Result<()> {
     // blocs référencés par des pas gfx: (Move Route), par scène
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
+    // Layout UI chargé TÔT (Phase 12) : la commande d'event « Afficher
+    // un widget UI » résout les noms de widgets vers leurs index
+    let ui_icon_count = match project.ui.as_ref().and_then(|u| u.icons.as_ref()) {
+        Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
+        None => 0,
+    };
+    let (ui_layout, ui_prims, ui_widgets) = ui::load(&proj_dir, ui_icon_count)?;
+    let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
+
     let mut scenes = Vec::new();
     for name in &project.scenes {
         let mut scene: project::Scene =
@@ -92,6 +101,7 @@ fn main() -> Result<()> {
                 &scene.events,
                 &project.common_events,
                 database.as_ref(),
+                &ui_widget_ids,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -381,14 +391,11 @@ fn main() -> Result<()> {
             Some(u) => (u.windowskin.is_some() as u8, u.text_speed),
             None => (0, 0),
         };
-        // planche d'icônes (W1) : les widgets du layout la référencent —
-        // (déjà validée/convertie par gen_font, ici on ne fait que compter)
-        let icon_count = match project.ui.as_ref().and_then(|u| u.icons.as_ref()) {
-            Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
-            None => 0,
-        };
+        // planche + layout déjà chargés/validés en amont (résolution des
+        // widgets par les events) — on ne fait qu'émettre
+        let icon_count = ui_icon_count;
         let icon_base = 97 + if has_skin != 0 { 9 } else { 0 };
-        let (layout, prims) = ui::load(&proj_dir, icon_count)?;
+        let (layout, prims) = (&ui_layout, &ui_prims);
         write_out(
             &out_dir,
             "ui_cfg.h",
@@ -398,10 +405,10 @@ fn main() -> Result<()> {
                 speed,
                 icon_base,
                 icon_count,
-                ui::cfg_defines(&layout, &prims)
+                ui::cfg_defines(layout, prims, &ui_widgets)
             ),
         )?;
-        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(&prims))?;
+        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(prims, &ui_widgets))?;
         if !prims.is_empty() {
             println!("  ui : {} primitive(s) de widgets (designer D1)", prims.len());
         }

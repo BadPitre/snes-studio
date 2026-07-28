@@ -65,7 +65,8 @@ import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
-import UiThemeModal from "./components/UiThemeModal";
+import UiThemeModal, { loadUiLayout2 } from "./components/UiThemeModal";
+import { rootsOf } from "./uilayout";
 import { loadDatabase, saveDatabase } from "./db";
 import type { Database } from "./db";
 import TextsPanel from "./components/TextsPanel";
@@ -137,7 +138,9 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
-  const [uiOpen, setUiOpen] = useState(false); // fenêtre UI / Thème (Phase 11)
+  const [uiOpen, setUiOpen] = useState(false); // fenêtre UI (designer, Phase 12)
+  // widgets du layout (racines) — pour la commande « Afficher un widget UI »
+  const [uiWidgets, setUiWidgets] = useState<string[]>([]);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -204,6 +207,11 @@ export default function App() {
     } catch (e) {
       setDb(null);
       setStatus(`Database illisible : ${e}`);
+    }
+    try {
+      setUiWidgets(rootsOf((await loadUiLayout2(root)).nodes).map((n) => n.id));
+    } catch {
+      setUiWidgets([]);
     }
     setSelEvent(null);
     setLayer("lower");
@@ -1319,7 +1327,7 @@ export default function App() {
           disabled: !data,
         },
         {
-          label: "UI / Thème…",
+          label: "UI…",
           action: () => setUiOpen(true),
           disabled: !data,
         },
@@ -1889,7 +1897,10 @@ export default function App() {
           onOk={(ui) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));
             setUiOpen(false);
-            setStatus("UI / Thème sauvegardé (project.json + ui/layout.toml).");
+            setStatus("UI sauvegardée (project.json + ui/layout.toml).");
+            void loadUiLayout2(data.root).then((l) =>
+              setUiWidgets(rootsOf(l.nodes).map((n) => n.id))
+            );
           }}
           onClose={() => setUiOpen(false)}
         />
@@ -1905,6 +1916,7 @@ export default function App() {
             charsetName(data.project, b)
           )}
           db={db}
+          uiWidgets={uiWidgets}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -1957,6 +1969,7 @@ export default function App() {
             (ce, i) => ce.name || `CE ${i + 1}`
           )}
           db={db}
+          uiWidgets={uiWidgets}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

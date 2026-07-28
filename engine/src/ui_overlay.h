@@ -18,4 +18,8 @@ void overlay_update(void);
    du dialogue vient d'être effacée (elle peut partager leurs rangées). */
 void overlay_refresh(void);
 
+/* Visibilité d'un widget (racine du layout) — opcode SHOWUI (Ph. 12).
+   Les widgets sont CACHÉS par défaut (sauf « Visible au démarrage »). */
+void overlay_show(u8 widget, u8 on);
+
 #endif /* UI_OVERLAY_H */

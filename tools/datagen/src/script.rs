@@ -68,6 +68,7 @@ const OP_SHAKE: u8 = 0x20;
 const OP_CALL: u8 = 0x21;
 const OP_RET: u8 = 0x22;
 const OP_DBREAD: u8 = 0x23;
+const OP_SHOWUI: u8 = 0x24;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -217,6 +218,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "CALL" => 3,
         "RET" => 1,
         "DBREAD" => 7,
+        // SHOWUI <widget> <0|1> : visibilité d'un widget UI (Phase 12)
+        "SHOWUI" => 3,
         // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
         // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
         // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
@@ -503,6 +506,12 @@ pub fn assemble(
                 for t in args {
                     code.push(parse_u8(t)?);
                 }
+            }
+            "SHOWUI" => {
+                if argc != 2 { bail!("SHOWUI <widget> <0|1>"); }
+                code.push(OP_SHOWUI);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
             }
             "CETAB" => {
                 if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }

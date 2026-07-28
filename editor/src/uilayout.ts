@@ -46,6 +46,9 @@ export interface UiNode {
   dir?: string; // gauge : "h" | "v"
   pad?: number; // icon_value : zéros de tête
   align?: string; // value : "left" (défaut : valeur alignée à droite)
+  // racines : visible au démarrage (défaut FALSE — les widgets
+  // s'affichent via la commande d'event « Afficher un widget UI »)
+  visible?: boolean;
 }
 
 export interface UiLayout2 {
@@ -373,6 +376,7 @@ export function parseLayoutToml(src: string): UiLayout2 {
       icon: ov.icon,
       dir: ov.dir,
       pad: ov.pad,
+      visible: true, // compat W1 : les overlays plats restent visibles
     });
   });
   return { message: { ...message }, choice: { ...choice }, nodes };
@@ -401,6 +405,7 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.dir === "v") s += `dir = "v"\n`;
     if (n.pad) s += `pad = ${n.pad}\n`;
     if (n.align === "left") s += `align = "left"\n`;
+    if (!n.parent && n.visible) s += `visible = true\n`;
     for (const c of childrenOf(l.nodes, n.id)) emitNode(c);
   };
   for (const r of rootsOf(l.nodes)) emitNode(r);

@@ -88,8 +88,9 @@ export default function UiThemeModal(props: Props) {
   // canvas ; null = tout l'écran (demande Bertrand : « je crée un widget
   // et ça ouvre le designer dessus »)
   const [scope, setScope] = useState<string | null>(null);
+  // deux pages (demande Bertrand) : liste des widgets -> designer
+  const [view, setView] = useState<"list" | "design">("list");
   const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
-  const [themeOpen, setThemeOpen] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // drag en cours : déplacement d'une racine ou redimensionnement
   const dragRef = useRef<
@@ -404,7 +405,10 @@ export default function UiThemeModal(props: Props) {
     }
     setLay({ ...lay, nodes: [...lay.nodes, node] });
     setSelId(node.id);
-    if (!target) setScope(node.id); // nouveau widget : le designer s'ouvre dessus
+    if (!target) {
+      setScope(node.id); // nouveau widget : le designer s'ouvre dessus
+      setView("design");
+    }
   };
 
   const deleteSel = () => {
@@ -492,51 +496,141 @@ export default function UiThemeModal(props: Props) {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal uitheme" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">UI / Thème — designer</div>
-        <div className="uitheme-body">
-          {/* colonne gauche : thème + palette + arborescence */}
-          <div className="uitheme-left">
-            <fieldset className="evedit-box">
-              <legend onClick={() => setThemeOpen(!themeOpen)} style={{ cursor: "pointer" }}>
-                Thème {themeOpen ? "▾" : "▸"}
-              </legend>
-              {themeOpen && (
-                <>
-                  <label>
-                    Windowskin
-                    <select
-                      value={ui.windowskin ?? ""}
-                      onChange={(e) => setUi({ ...ui, windowskin: e.target.value || undefined })}
+        <div className="palette-title">
+          {view === "list" ? "UI — Widgets" : `UI — Designer « ${scope ?? "écran"} »`}
+        </div>
+        {view === "list" && (
+          <div className="uitheme-listview">
+            <div className="uitheme-listcol">
+              <fieldset className="evedit-box">
+                <legend>Thème</legend>
+                <label>
+                  Windowskin
+                  <select
+                    value={ui.windowskin ?? ""}
+                    onChange={(e) => setUi({ ...ui, windowskin: e.target.value || undefined })}
+                  >
+                    <option value="">(aucun — boîte pleine)</option>
+                    {props.windowskins.map((rel) => (
+                      <option key={rel} value={rel}>{assetStem(rel)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Planche d'icônes des widgets
+                  <select
+                    value={ui.icons ?? ""}
+                    onChange={(e) => setUi({ ...ui, icons: e.target.value || undefined })}
+                  >
+                    <option value="">(aucune)</option>
+                    {props.iconsets.map((rel) => (
+                      <option key={rel} value={rel}>{assetStem(rel)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Vitesse du texte (0 = instantané)
+                  <input
+                    type="number" min={0} max={10} value={ui.text_speed ?? 0}
+                    onChange={(e) => setUi({ ...ui, text_speed: Number(e.target.value) || undefined })}
+                  />
+                </label>
+                <span className="hint">Import : Gestionnaire de ressources (WindowSkin / IconSet).</span>
+              </fieldset>
+              <fieldset className="evedit-box">
+                <legend>Fenêtres du dialogue (tiles)</legend>
+                {(["message", "choice"] as const).map((k) => (
+                  <div className="row" key={k}>
+                    <span style={{ width: 62, alignSelf: "flex-end", paddingBottom: 5 }} className="hint">
+                      {k}
+                    </span>
+                    {([0, 1] as const).map((i) =>
+                      num(i ? "y" : "x", lay[k].pos[i], (v) => patchWin(k, i, "pos", v ?? 0))
+                    )}
+                    {([0, 1] as const).map((i) =>
+                      num(i ? "hauteur" : "largeur", lay[k].size[i], (v) => patchWin(k, i, "size", v ?? 8))
+                    )}
+                  </div>
+                ))}
+              </fieldset>
+            </div>
+            <fieldset className="evedit-box uitheme-widgetlist">
+              <legend>Widgets du projet ({rootsOf(lay.nodes).length})</legend>
+              <button onClick={() => addNode("window", true)}>✧ Nouveau widget</button>
+              <div className="uitheme-treelist">
+                {rootsOf(lay.nodes).map((r) => (
+                  <div key={r.id} className="tree-row uitheme-widgetrow"
+                    onDoubleClick={() => {
+                      setScope(r.id);
+                      setSelId(r.id);
+                      setView("design");
+                    }}>
+                    <span
+                      title={r.visible
+                        ? "Visible au démarrage (clic : cacher — affichable par event)"
+                        : "Caché au démarrage (clic : visible dès le boot) — s'affiche par la commande d'event « Afficher un widget UI »"}
+                      onClick={() => patchNode(r.id, { visible: !r.visible })}
+                      style={{ cursor: "pointer" }}
                     >
-                      <option value="">(aucun — boîte pleine)</option>
-                      {props.windowskins.map((rel) => (
-                        <option key={rel} value={rel}>{assetStem(rel)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Planche d'icônes
-                    <select
-                      value={ui.icons ?? ""}
-                      onChange={(e) => setUi({ ...ui, icons: e.target.value || undefined })}
-                    >
-                      <option value="">(aucune)</option>
-                      {props.iconsets.map((rel) => (
-                        <option key={rel} value={rel}>{assetStem(rel)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Vitesse du texte (0 = instantané)
-                    <input
-                      type="number" min={0} max={10} value={ui.text_speed ?? 0}
-                      onChange={(e) => setUi({ ...ui, text_speed: Number(e.target.value) || undefined })}
-                    />
-                  </label>
-                  <span className="hint">Import : Gestionnaire de ressources.</span>
-                </>
-              )}
+                      {r.visible ? "👁" : "▫"}
+                    </span>
+                    <span style={{ flex: 1 }}>
+                      {KIND_LABELS[r.type].split(" ")[0]} {r.id}
+                    </span>
+                    <button onClick={() => {
+                      setScope(r.id);
+                      setSelId(r.id);
+                      setView("design");
+                    }}>
+                      Éditer…
+                    </button>
+                    <button className="danger" title="Supprimer le widget (et son contenu)"
+                      onClick={() => {
+                        setSelId(r.id);
+                        setScope(r.id);
+                        // suppression directe du widget et de ses enfants
+                        const doomed = new Set([r.id]);
+                        let grew = true;
+                        while (grew) {
+                          grew = false;
+                          for (const n of lay.nodes)
+                            if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) {
+                              doomed.add(n.id);
+                              grew = true;
+                            }
+                        }
+                        setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
+                        setSelId(null);
+                        setScope(null);
+                      }}>
+                      🗑
+                    </button>
+                  </div>
+                ))}
+                {rootsOf(lay.nodes).length === 0 && (
+                  <span className="hint">Aucun widget — ✧ Nouveau widget pour commencer.</span>
+                )}
+              </div>
+              <button onClick={() => {
+                setScope(null);
+                setSelId(null);
+                setView("design");
+              }}>
+                ⛶ Vue d'ensemble de l'écran…
+              </button>
+              <span className="hint">
+                Double-clic (ou Éditer…) ouvre le designer. 👁 = visible au
+                démarrage ; sinon le widget est CACHÉ jusqu'à la commande
+                d'event « Afficher un widget UI ».
+              </span>
             </fieldset>
+          </div>
+        )}
+        {view === "design" && (
+        <div className="uitheme-body">
+          {/* colonne gauche : retour + palette + structure */}
+          <div className="uitheme-left">
+            <button onClick={() => setView("list")}>← Widgets</button>
             <fieldset className="evedit-box">
               <legend>Palette (clic = ajouter)</legend>
               <div className="uitheme-palette">
@@ -546,39 +640,10 @@ export default function UiThemeModal(props: Props) {
                       ? `Ajouter dans « ${sel.id} »`
                       : sel?.parent
                         ? `Ajouter à côté de « ${sel.id} »`
-                        : "Ajouter sur le canvas"
+                        : "Ajouter sur le canvas (nouveau widget)"
                   }>
                     {KIND_LABELS[k]}
                   </button>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="evedit-box">
-              <legend>Widgets ({rootsOf(lay.nodes).length})</legend>
-              <button
-                title="Crée une fenêtre vide sur une place libre et ouvre le designer dessus"
-                onClick={() => addNode("window", true)}
-              >
-                ✧ Nouveau widget
-              </button>
-              <div className="uitheme-treelist">
-                <div
-                  className={"tree-row" + (scope === null ? " active" : "")}
-                  onClick={() => setScope(null)}
-                >
-                  ⛶ Tout l'écran
-                </div>
-                {rootsOf(lay.nodes).map((r) => (
-                  <div
-                    key={r.id}
-                    className={"tree-row" + (scope === r.id ? " active" : "")}
-                    onClick={() => {
-                      setScope(r.id);
-                      setSelId(r.id);
-                    }}
-                  >
-                    {KIND_LABELS[r.type].split(" ")[0]} {r.id}
-                  </div>
                 ))}
               </div>
             </fieldset>
@@ -670,6 +735,13 @@ export default function UiThemeModal(props: Props) {
                         patchNode(sel.id, { pos: [sel.pos?.[0] ?? 0, v ?? 0] })
                       )}
                     </div>
+                  )}
+                  {!sel.parent && (
+                    <label className="checkline">
+                      <input type="checkbox" checked={!!sel.visible}
+                        onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
+                      Visible au démarrage (sinon : commande « Afficher un widget UI »)
+                    </label>
                   )}
                   {sel.size && (
                     <div className="row">
@@ -809,6 +881,7 @@ export default function UiThemeModal(props: Props) {
             </fieldset>
           </div>
         </div>
+        )}
         <div className="row">
           <button
             disabled={flat.errors.length > 0}

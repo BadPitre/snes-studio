@@ -16,10 +16,13 @@ size = [32, 8]
 #   0-2 cœur plein/demi/vide   3-5 jauge pleine/demie/vide
 #   6 rubis                    7 bombe
 # Décommenter un bloc, choisir la variable, Générer, jouer.
+# visible = true : affiché dès le boot — sans lui, un widget est CACHÉ
+# jusqu'à la commande d'event « Afficher un widget UI ».
 
 # Points de vie façon Zelda : var 6 sur un max de 12 (2 PV par cœur)
 # [[overlay]]
 # id = "vie"
+# visible = true
 # pos = [1, 0]
 # size = [6, 1]
 # content = "icon_row"
@@ -31,6 +34,7 @@ size = [32, 8]
 # Jauge de magie verticale (remplie par le bas, façon ALttP)
 # [[overlay]]
 # id = "magie"
+# visible = true
 # pos = [1, 2]
 # size = [1, 6]
 # content = "gauge"
@@ -43,6 +47,7 @@ size = [32, 8]
 # Compteur de rubis avec zéros de tête (072)
 # [[overlay]]
 # id = "rubis"
+# visible = true
 # pos = [26, 0]
 # size = [5, 1]
 # content = "icon_value"
@@ -54,6 +59,7 @@ size = [32, 8]
 # Fenêtre cadrée « libellé + valeur » (style RM2003)
 # [[overlay]]
 # id = "quete"
+# visible = true
 # pos = [8, 0]
 # size = [12, 3]
 # content = "variable_display"

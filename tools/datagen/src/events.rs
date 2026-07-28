@@ -29,6 +29,7 @@
 //!   {"c":"swappos","a":-1|n,"b":-1|n}
 //!   v0.15 (effets d'écran) :
 //!   {"c":"scr_hide","speed":1-15}   {"c":"scr_show","speed":1-15}
+//!   {"c":"ui_show","widget":"nom","on":true|false}   (widget UI, Ph. 12)
 //!   {"c":"tint","mode":"off"|"add"|"sub","r":0-31,"g":..,"b":..}
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
@@ -47,6 +48,8 @@ pub struct EventCompiler<'a> {
     texts: &'a mut Vec<TextEntry>,
     /// database du projet (commande db_read) — None si pas de schemas/
     db: Option<&'a Db>,
+    /// widgets UI du layout (Phase 12) — noms résolus vers leurs index
+    ui_widgets: Vec<String>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -71,6 +74,7 @@ impl<'a> EventCompiler<'a> {
         EventCompiler {
             texts,
             db: None,
+            ui_widgets: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -365,6 +369,27 @@ impl<'a> EventCompiler<'a> {
                         speed
                     ));
                 }
+                // Phase 12 — visibilité des widgets UI (SHOWUI)
+                "ui_show" => {
+                    let name = cmd["widget"].as_str().unwrap_or("");
+                    let idx = self
+                        .ui_widgets
+                        .iter()
+                        .position(|w| w == name)
+                        .with_context(|| {
+                            format!(
+                                "ui_show : widget « {} » introuvable dans ui/layout.toml                                  (widgets : {})",
+                                name,
+                                if self.ui_widgets.is_empty() {
+                                    "aucun".to_string()
+                                } else {
+                                    self.ui_widgets.join(", ")
+                                }
+                            )
+                        })?;
+                    let on = cmd["on"].as_bool().unwrap_or(true);
+                    out.push(format!("  SHOWUI {} {}", idx, on as u8));
+                }
                 "tint" => {
                     let mode = match cmd["mode"].as_str().unwrap_or("off") {
                         "off" => "off",
@@ -628,6 +653,7 @@ impl<'a> EventCompiler<'a> {
         events: &[Event],
         commons: &[CommonEvent],
         db: Option<&'a Db>,
+        ui_widgets: &[String],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -636,6 +662,7 @@ impl<'a> EventCompiler<'a> {
         self.cur_scene = scene_name.to_string();
         self.used_commons = vec![false; commons.len()];
         self.db = db;
+        self.ui_widgets = ui_widgets.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

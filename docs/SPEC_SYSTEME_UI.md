@@ -303,6 +303,18 @@ TOML — la communauté pourra en partager.
     live miroir de uigen (uilayout.ts), OK bloqué si invalide.
     Round-trip prouvé : le TOML écrit par l'éditeur redonne les mêmes
     primitives dans uigen.
+- **Livré (Phase 12, visibilité scriptée)** : les widgets sont CACHÉS
+  par défaut (`visible = true` sur une racine = visible au boot ; les
+  `[[overlay]]` W1 restent visibles — compat). Opcode VM 0x24 `SHOWUI
+  [widget][on]` + commande d'event « Afficher/cacher un widget UI »
+  (nom résolu vers l'index de racine à la compilation). Moteur :
+  visibilité runtime par widget (`ui_ov_widget` par primitive,
+  `ui_widget_vis` initiale, `overlay_show` dessine/efface, update et
+  refresh respectent l'état, valeurs suivies même caché). Éditeur : la
+  fenêtre devient « UI » en DEUX PAGES — liste des widgets (👁 visible
+  au boot, Éditer…, 🗑, ✧ Nouveau) puis le designer scopé sur le widget
+  choisi (← Widgets pour revenir, « Vue d'ensemble » pour tout
+  l'écran).
 - **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
   écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4
   — l'objet liste deviendra NAVIGABLE, le designer le pose déjà),

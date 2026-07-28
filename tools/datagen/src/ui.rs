@@ -132,6 +132,10 @@ pub struct Node {
     /// value : "left" pour coller la valeur à gauche (défaut : droite)
     #[serde(default)]
     pub align: Option<String>,
+    /// racines : visible au démarrage (défaut FALSE — les widgets
+    /// s'affichent par la commande d'event « Afficher un widget UI »)
+    #[serde(default)]
+    pub visible: Option<bool>,
 }
 
 /// Primitive aplatie — ce que le moteur dessine
@@ -149,6 +153,7 @@ pub struct Prim {
     pub max: u16,
     pub max_var: Option<u8>,
     pub bg: bool, // dans une window : cellules vides = fond du cadre
+    pub widget: usize, // index de la RACINE (visibilité par widget)
     pub text: String, // label des types 0 et 5
 }
 
@@ -190,6 +195,7 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         dir: ov.dir.clone(),
         pad: ov.pad,
         align: None,
+        visible: Some(true), // compat W1 : les overlays plats restent visibles
     }
 }
 
@@ -198,6 +204,7 @@ struct Flattener<'a> {
     children: Vec<Vec<usize>>,
     nodes: &'a [Node],
     icon_count: usize,
+    widget: usize, // index de la racine en cours de placement
     prims: Vec<Prim>,
 }
 
@@ -288,7 +295,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 4, frame: true, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, text: String::new(),
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(),
                 })?;
                 // les enfants s'empilent verticalement dans l'intérieur
                 let m = n.margin.unwrap_or([1, 1]);
@@ -331,7 +338,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: 1,
                     kind: 5, frame: false, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, text: t,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: t,
                 })?;
             }
             "value" => {
@@ -344,7 +351,7 @@ impl<'a> Flattener<'a> {
                     // le flag « dir » (inutilisé par le type 0) porte
                     // l'alignement : 1 = valeur collée à GAUCHE
                     vertical: n.align.as_deref() == Some("left"),
-                    pad: 0, max: 0, max_var: None, bg: in_window, text: String::new(),
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(),
                 })?;
             }
             "image" => {
@@ -352,7 +359,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: 1,
                     kind: 6, frame: false, var: 0, icon, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, text: String::new(),
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(),
                 })?;
             }
             "variable_display" => {
@@ -375,7 +382,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 0, frame: f, var, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, text: label,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label,
                 })?;
             }
             "gauge" | "icon_row" => {
@@ -403,7 +410,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: if n.kind == "gauge" { 1 } else { 2 },
                     frame: f, var, icon, vertical: n.vertical(),
-                    pad: 0, max, max_var, bg: in_window, text: String::new(),
+                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(),
                 })?;
             }
             "icon_value" => {
@@ -425,7 +432,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h,
                     kind: 3, frame: f, var, icon, vertical: false,
-                    pad: pad as u8, max: 0, max_var: None, bg: in_window, text: String::new(),
+                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(),
                 })?;
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
@@ -440,6 +447,8 @@ impl<'a> Flattener<'a> {
                 p.x, p.y, p.w, p.h
             );
         }
+        let mut p = p;
+        p.widget = self.widget;
         self.prims.push(p);
         if self.prims.len() > PRIM_MAX {
             bail!("ui : plus de {} primitives à l'écran — simplifier le layout", PRIM_MAX);
@@ -449,7 +458,7 @@ impl<'a> Flattener<'a> {
 }
 
 /// Charge, valide et APLATIT le layout. Renvoie (fenêtres, primitives).
-pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>)> {
+pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Vec<(String, bool)>)> {
     let p = proj_dir.join("ui").join("layout.toml");
     let mut lay: Layout = if p.is_file() {
         let src = std::fs::read_to_string(&p)
@@ -509,7 +518,8 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>)> {
         }
     }
 
-    let mut fl = Flattener { children, nodes: &nodes, icon_count, prims: Vec::new() };
+    let mut fl = Flattener { children, nodes: &nodes, icon_count, widget: 0, prims: Vec::new() };
+    let mut widgets: Vec<(String, bool)> = Vec::new();
     let mut root_rects: Vec<(String, (i64, i64, i64, i64))> = Vec::new();
     for &r in &roots {
         let n = &nodes[r];
@@ -532,17 +542,22 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>)> {
             }
         }
         root_rects.push((n.id.clone(), rect));
+        fl.widget = widgets.len();
+        widgets.push((n.id.clone(), n.visible.unwrap_or(false)));
         fl.place(r, pos[0], pos[1], 0, false)?;
+    }
+    if widgets.len() > 16 {
+        bail!("ui : {} widgets (max 16)", widgets.len());
     }
     let prims = fl.prims;
 
     lay.message = Some(msg);
     lay.choice = Some(chc);
-    Ok((lay, prims))
+    Ok((lay, prims, widgets))
 }
 
 /// Defines pour ui_cfg.h (fenêtres message/choix + compteur de prims)
-pub fn cfg_defines(lay: &Layout, prims: &[Prim]) -> String {
+pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> String {
     let m = lay.message.as_ref().unwrap();
     let c = lay.choice.as_ref().unwrap();
     // zone shadow de la textbox : l'UNION des rangées message + choix
@@ -552,17 +567,18 @@ pub fn cfg_defines(lay: &Layout, prims: &[Prim]) -> String {
         "#define UI_MSG_COL {}\n#define UI_MSG_ROW {}\n#define UI_MSG_W {}\n#define UI_MSG_H {}\n\
          #define UI_CHC_COL {}\n#define UI_CHC_ROW {}\n#define UI_CHC_W {}\n#define UI_CHC_H {}\n\
          #define UI_SHADOW_ROW {}\n#define UI_SHADOW_H {}\n\
-         #define UI_OV_COUNT {}\n",
+         #define UI_OV_COUNT {}\n#define UI_WIDGET_COUNT {}\n",
         m.pos[0], m.pos[1], m.size[0], m.size[1],
         c.pos[0], c.pos[1], c.size[0], c.size[1],
         top, bottom - top,
-        prims.len()
+        prims.len(),
+        widgets.len()
     )
 }
 
 /// ui_overlays.c : tables des primitives (u8 nus + max scindé lo/hi) +
 /// table de pointeurs des textes (types 0 et 5)
-pub fn emit_overlays(prims: &[Prim]) -> String {
+pub fn emit_overlays(prims: &[Prim], widgets: &[(String, bool)]) -> String {
     let mut s = String::from(crate::emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
     let n = prims.len().max(1);
@@ -586,9 +602,18 @@ pub fn emit_overlays(prims: &[Prim]) -> String {
     s.push_str(&field("dir", &|o| o.vertical as i64));
     s.push_str(&field("pad", &|o| o.pad as i64));
     s.push_str(&field("bg", &|o| o.bg as i64));
+    s.push_str(&field("widget", &|o| o.widget as i64));
     s.push_str(&field("maxvar", &|o| o.max_var.map(|v| v as i64).unwrap_or(0xFF)));
     s.push_str(&field("maxlo", &|o| (o.max & 0xFF) as i64));
     s.push_str(&field("maxhi", &|o| (o.max >> 8) as i64));
+    // visibilité initiale par WIDGET (racine) — modifiée par SHOWUI
+    let wn = widgets.len().max(1);
+    let mut a = format!("const u8 ui_widget_vis[{}] = {{ ", wn);
+    for i in 0..wn {
+        let _ = write!(a, "{}, ", widgets.get(i).map(|w| w.1 as u8).unwrap_or(0));
+    }
+    a.push_str("};\n");
+    s.push_str(&a);
     for (i, p) in prims.iter().enumerate() {
         let _ = write!(s, "static const char ui_ov_l{}[] = {:?};\n", i, p.text);
     }

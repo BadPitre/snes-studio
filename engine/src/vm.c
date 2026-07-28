@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "timer.h"
 #include "screenfx.h"
+#include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -540,6 +541,12 @@ static void vm_step(void)
           val16 |= (u16)db_tables[var][ofs + 1] << 8;
       }
       vm.vars16[op] = val16;
+      break;
+
+    case VM_OP_SHOWUI: /* visibilité d'un widget UI (Phase 12) */
+      var = fetch8(); /* index du widget (racine du layout) */
+      op = fetch8();  /* 1 = afficher, 0 = cacher */
+      overlay_show(var, op);
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */

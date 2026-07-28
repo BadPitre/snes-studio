@@ -65,6 +65,7 @@ const TABS: Tab[] = [
       { c: "tint", label: "Teinter l'écran" },
       { c: "flash", label: "Flash d'écran" },
       { c: "shake", label: "Secouer l'écran" },
+      { c: "ui_show", label: "Afficher/cacher un widget UI" },
     ],
   },
   {

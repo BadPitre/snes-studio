@@ -30,6 +30,7 @@ interface Props {
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   commonNames: string[]; // noms des common events (v0.16)
   db: Database | null; // database du projet (commande db_read, v0.17)
+  uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -110,6 +111,8 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "swappos":
       return `Échanger ${c.a < 0 ? "cet event" : `l'event ${c.a}`} ↔ ${
         c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
+    case "ui_show":
+      return `${c.on ? "Afficher" : "Cacher"} le widget UI « ${c.widget || "?"} »`;
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -244,7 +247,8 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  db: Database | null; // schémas + instances (commande db_read)
+  db: Database | null;
+  uiWidgets: string[]; // schémas + instances (commande db_read)
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -401,6 +405,8 @@ export function CommandListEditor(props: {
         return { c: "setpos", event: -1, from: "const", x: 0, y: 0 };
       case "swappos":
         return { c: "swappos", a: -1, b: 0 };
+      case "ui_show":
+        return { c: "ui_show", widget: "", on: true };
       case "scr_hide":
         return { c: "scr_hide", speed: 1 };
       case "scr_show":
@@ -477,6 +483,7 @@ export function CommandListEditor(props: {
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
               db={props.db}
+              uiWidgets={props.uiWidgets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -882,6 +889,7 @@ export default function EventEditorModal(props: Props) {
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
               db={props.db}
+              uiWidgets={props.uiWidgets}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -950,6 +958,7 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  uiWidgets: string[];
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -1491,6 +1500,39 @@ function CommandForm(props: {
             </label>
           ))}
         </div>
+      );
+      break;
+    case "ui_show":
+      valid = cmd.widget !== "";
+      body = (
+        <>
+          <label>
+            Widget (racines de ui/layout.toml — fenêtre UI)
+            <select
+              value={cmd.widget} autoFocus
+              onChange={(e) => onChange({ ...cmd, widget: e.target.value })}
+            >
+              <option value="">(choisir)</option>
+              {props.uiWidgets.map((w) => (
+                <option key={w} value={w}>{w}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Action
+            <select
+              value={cmd.on ? "on" : "off"}
+              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
+            >
+              <option value="on">Afficher</option>
+              <option value="off">Cacher</option>
+            </select>
+          </label>
+          <span className="hint">
+            Les widgets sont CACHÉS au démarrage (sauf « Visible au démarrage »
+            dans la fenêtre UI) — cette commande les affiche ou les cache.
+          </span>
+        </>
       );
       break;
     case "scr_hide":
