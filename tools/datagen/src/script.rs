@@ -49,6 +49,105 @@ const OP_JSW: u8 = 0x0D;
 const OP_SET16: u8 = 0x0E;
 const OP_ADD16: u8 = 0x0F;
 const OP_JCMP16: u8 = 0x10;
+const OP_ROUTE: u8 = 0x11;
+const OP_WAITROUTE: u8 = 0x12;
+const OP_WAIT: u8 = 0x13;
+const OP_VAROP: u8 = 0x14;
+const OP_TIMER: u8 = 0x15;
+const OP_CAMPAN: u8 = 0x16;
+const OP_CAMRET: u8 = 0x17;
+const OP_WAITCAM: u8 = 0x18;
+const OP_WARPV: u8 = 0x19;
+const OP_SETPOS: u8 = 0x1A;
+const OP_SWAPPOS: u8 = 0x1B;
+const OP_SCRHIDE: u8 = 0x1C;
+const OP_SCRSHOW: u8 = 0x1D;
+const OP_TINT: u8 = 0x1E;
+const OP_FLASH: u8 = 0x1F;
+const OP_SHAKE: u8 = 0x20;
+
+/// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
+/// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
+/// remap bloc projet → sprite set de la scène).
+fn route_step(tok: &str, remap: &HashMap<u8, u8>) -> Result<Vec<u8>> {
+    Ok(match tok {
+        "down" => vec![0x00],
+        "up" => vec![0x01],
+        "left" => vec![0x02],
+        "right" => vec![0x03],
+        "mrand" => vec![0x04],
+        "mhero" => vec![0x05],
+        "mflee" => vec![0x06],
+        "fwd" => vec![0x07],
+        "tdown" => vec![0x10],
+        "tup" => vec![0x11],
+        "tleft" => vec![0x12],
+        "tright" => vec![0x13],
+        "t90r" => vec![0x14],
+        "t90l" => vec![0x15],
+        "t180" => vec![0x16],
+        "t90x" => vec![0x17],
+        "trand" => vec![0x18],
+        "face" => vec![0x19],
+        "tflee" => vec![0x1A],
+        "spd+" => vec![0x20],
+        "spd-" => vec![0x21],
+        "frq+" => vec![0x22],
+        "frq-" => vec![0x23],
+        "fixon" => vec![0x28],
+        "fixoff" => vec![0x29],
+        "thruon" => vec![0x2A],
+        "thruoff" => vec![0x2B],
+        w if w.starts_with("swon:") || w.starts_with("swoff:") => {
+            let (op, num) = if let Some(n) = w.strip_prefix("swon:") {
+                (0x50u8, n)
+            } else {
+                (0x51u8, w.strip_prefix("swoff:").unwrap())
+            };
+            let idx: u16 = num
+                .parse()
+                .ok()
+                .filter(|&n| n < 512)
+                .with_context(|| format!("switch invalide : '{}'", w))?;
+            vec![op, idx as u8, (idx >> 8) as u8]
+        }
+        g if g.starts_with("gfx:") => {
+            let block: u8 = g[4..]
+                .parse()
+                .with_context(|| format!("bloc invalide : '{}'", g))?;
+            let slot = *remap.get(&block).with_context(|| {
+                format!(
+                    "gfx:{} — bloc absent du sprite set de la scene (il doit \
+                     etre porte par un event de la scene ou compte via les \
+                     pas gfx)",
+                    block
+                )
+            })?;
+            vec![0x52, slot]
+        }
+        w if w.starts_with('w') => {
+            let n: u8 = w[1..]
+                .parse()
+                .with_context(|| format!("pas d'attente invalide : '{}'", w))?;
+            if n == 0 || n > 15 {
+                bail!("attente w<n> : n entre 1 et 15 (x8 frames), recu {}", n);
+            }
+            vec![0x40 | n]
+        }
+        other => bail!("pas d'itineraire inconnu : '{}'", other),
+    })
+}
+
+/// Taille en octets d'un token de pas (passe 1)
+fn route_step_size(tok: &str) -> u16 {
+    if tok.starts_with("swon:") || tok.starts_with("swoff:") {
+        3
+    } else if tok.starts_with("gfx:") {
+        2
+    } else {
+        1
+    }
+}
 
 /// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
 const VAR_GLOBAL: u8 = 0x80;
@@ -80,7 +179,8 @@ fn parse_lines(source: &[String]) -> Result<Vec<Line<'_>>> {
     Ok(out)
 }
 
-fn op_size(op: &str, argc: usize) -> Result<u16> {
+fn op_size(op: &str, args: &[&str]) -> Result<u16> {
+    let argc = args.len();
     Ok(match op {
         "END" => 1,
         "MSG" | "SETVAR" | "ADDVAR" | "SETGVAR" | "JMP" => 3,
@@ -90,6 +190,34 @@ fn op_size(op: &str, argc: usize) -> Result<u16> {
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
         "JCMP16" => 7,
+        // RTBLOB <r> <s> <freq> <pas...> : blob de route custom (v0.14)
+        // — [flags][freq][len] + pas, DONNÉES (jamais exécuté)
+        "RTBLOB" => {
+            if argc < 4 {
+                bail!("RTBLOB <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
+            }
+            3 + args[3..].iter().map(|t| route_step_size(t)).sum::<u16>()
+        }
+        "WAITROUTE" => 1,
+        "WAIT" => 2,
+        "VAROP" => 6,
+        "TIMER" => 4,
+        "CAMPAN" => 4,
+        "CAMRET" => 2,
+        "WAITCAM" => 1,
+        "WARPV" => 4,
+        "SETPOS" => 5,
+        "SWAPPOS" => 3,
+        "SCRHIDE" | "SCRSHOW" => 2,
+        "TINT" | "FLASH" => 5,
+        "SHAKE" => 4,
+        // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
+        "ROUTE" => {
+            if argc < 5 {
+                bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
+            }
+            5 + args[4..].iter().map(|t| route_step_size(t)).sum::<u16>()
+        }
         // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
         "CHOICE" => {
             if argc < 3 || argc > 5 {
@@ -131,6 +259,7 @@ pub fn assemble(
     source: &[String],
     text_ids: &HashMap<String, u16>,
     scene_ids: &HashMap<&str, u8>,
+    sprite_remap: &HashMap<u8, u8>,
 ) -> Result<Assembled> {
     let lines = parse_lines(source)?;
 
@@ -144,7 +273,7 @@ pub fn assemble(
                     bail!("label en double : '{}'", name);
                 }
             }
-            Line::Op(op, args) => pc += op_size(op, args.len())?,
+            Line::Op(op, args) => pc += op_size(op, args)?,
         }
     }
 
@@ -286,8 +415,216 @@ pub fn assemble(
                 code.extend_from_slice(&val.to_le_bytes());
                 code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
             }
+            // VAROP <dst> <=|+|-|*|/|%|rand> <const|var|hx|hy|timer> <src>
+            "VAROP" => {
+                if argc != 4 { bail!("VAROP <dst> <op> <src_type> <src>"); }
+                let dst: u8 = args[0].parse()
+                    .with_context(|| format!("variable invalide : '{}'", args[0]))?;
+                let opb = match args[1] {
+                    "=" => 0u8, "+" => 1, "-" => 2, "*" => 3, "/" => 4,
+                    "%" => 5, "rand" => 6,
+                    o => bail!("VAROP : operation inconnue '{}'", o),
+                };
+                let st = match args[2] {
+                    "const" => 0u8, "var" => 1, "hx" => 2, "hy" => 3, "timer" => 4,
+                    "scene" => 5,
+                    o => bail!("VAROP : source inconnue '{}'", o),
+                };
+                let src: i32 = args[3].parse()
+                    .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
+                if !(-32768..=65535).contains(&src) {
+                    bail!("VAROP : valeur hors limite : {}", src);
+                }
+                code.push(OP_VAROP);
+                code.push(dst);
+                code.push(opb);
+                code.push(st);
+                code.extend_from_slice(&(src as u16).to_le_bytes());
+            }
+            "TIMER" => {
+                if argc != 2 { bail!("TIMER <start|stop|show|hide> <val>"); }
+                let opb = match args[0] {
+                    "start" => 0u8, "stop" => 1, "show" => 2, "hide" => 3,
+                    o => bail!("TIMER : operation inconnue '{}'", o),
+                };
+                let val: u16 = args[1].parse()
+                    .with_context(|| format!("valeur invalide : '{}'", args[1]))?;
+                code.push(OP_TIMER);
+                code.push(opb);
+                code.extend_from_slice(&val.to_le_bytes());
+            }
+            "CAMPAN" => {
+                if argc != 3 { bail!("CAMPAN <tx> <ty> <vitesse 1-8>"); }
+                code.push(OP_CAMPAN);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+            }
+            "CAMRET" => {
+                if argc != 1 { bail!("CAMRET <vitesse 1-8>"); }
+                code.push(OP_CAMRET);
+                code.push(parse_u8(args[0])?);
+            }
+            "WAITCAM" => {
+                if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
+                code.push(OP_WAITCAM);
+            }
+            // WARPV <vs> <vx> <vy> : téléport aux variables (v0.15)
+            "WARPV" => {
+                if argc != 3 { bail!("WARPV <var scene> <var x> <var y>"); }
+                code.push(OP_WARPV);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+            }
+            // SETPOS <acteur|self> <c|v> <x> <y> : place un event —
+            // c = constantes, v = numéros de variables 16-bit
+            "SETPOS" => {
+                if argc != 4 { bail!("SETPOS <acteur|self> <c|v> <x> <y>"); }
+                code.push(OP_SETPOS);
+                code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
+                code.push(match args[1] {
+                    "c" => 0,
+                    "v" => 1,
+                    o => bail!("SETPOS : source inconnue '{}' (c|v)", o),
+                });
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+            }
+            // SWAPPOS <a|self> <b|self> : échange deux events
+            "SWAPPOS" => {
+                if argc != 2 { bail!("SWAPPOS <a|self> <b|self>"); }
+                code.push(OP_SWAPPOS);
+                code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
+                code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
+            }
+            // Effets d'écran (v0.15)
+            "SCRHIDE" | "SCRSHOW" => {
+                if argc != 1 { bail!("{} <vitesse 1-15>", op); }
+                let speed: u8 = args[0]
+                    .parse()
+                    .ok()
+                    .filter(|&v| (1..=15).contains(&v))
+                    .with_context(|| format!("vitesse invalide : '{}' (1-15)", args[0]))?;
+                code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
+                code.push(speed);
+            }
+            // TINT <off|add|sub> <r> <g> <b> (0-31)
+            "TINT" => {
+                if argc != 4 { bail!("TINT <off|add|sub> <r> <g> <b>"); }
+                let mode = match args[0] {
+                    "off" => 0u8,
+                    "add" => 1,
+                    "sub" => 2,
+                    o => bail!("TINT : mode inconnu '{}' (off, add, sub)", o),
+                };
+                code.push(OP_TINT);
+                code.push(mode);
+                for t in &args[1..4] {
+                    let v: u8 = t
+                        .parse()
+                        .ok()
+                        .filter(|&v| v <= 31)
+                        .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
+                    code.push(v);
+                }
+            }
+            // FLASH <r> <g> <b> <frames 1-255>
+            "FLASH" => {
+                if argc != 4 { bail!("FLASH <r> <g> <b> <frames>"); }
+                code.push(OP_FLASH);
+                for t in &args[0..3] {
+                    let v: u8 = t
+                        .parse()
+                        .ok()
+                        .filter(|&v| v <= 31)
+                        .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
+                    code.push(v);
+                }
+                let frames = parse_u8(args[3])?;
+                if frames == 0 { bail!("FLASH : frames entre 1 et 255"); }
+                code.push(frames);
+            }
+            // SHAKE <power 0-8> <vitesse 1-8> <frames> (power 0 = stop)
+            "SHAKE" => {
+                if argc != 3 { bail!("SHAKE <power 0-8> <vitesse 1-8> <frames>"); }
+                let power: u8 = args[0]
+                    .parse()
+                    .ok()
+                    .filter(|&v| v <= 8)
+                    .with_context(|| format!("power invalide : '{}' (0-8)", args[0]))?;
+                let speed: u8 = args[1]
+                    .parse()
+                    .ok()
+                    .filter(|&v| (1..=8).contains(&v))
+                    .with_context(|| format!("vitesse invalide : '{}' (1-8)", args[1]))?;
+                code.push(OP_SHAKE);
+                code.push(power);
+                code.push(speed);
+                code.push(parse_u8(args[2])?);
+            }
+            "RTBLOB" => {
+                if argc < 4 { bail!("RTBLOB <r> <s> <freq> <pas...>"); }
+                let mut flags = 0u8;
+                if args[0] == "1" { flags |= 1; }
+                if args[1] == "1" { flags |= 2; }
+                let freq: u8 = args[2]
+                    .parse()
+                    .ok()
+                    .filter(|&f| (1..=8).contains(&f))
+                    .with_context(|| format!("frequence invalide : '{}' (1-8)", args[2]))?;
+                let mut steps: Vec<u8> = Vec::new();
+                for t in &args[3..] {
+                    steps.extend(route_step(t, sprite_remap)?);
+                }
+                if steps.is_empty() || steps.len() > 255 {
+                    bail!("RTBLOB : 1 a 255 octets de pas");
+                }
+                code.push(flags);
+                code.push(freq);
+                code.push(steps.len() as u8);
+                code.extend_from_slice(&steps);
+            }
+            "WAITROUTE" => {
+                if argc != 0 { bail!("WAITROUTE ne prend pas d'argument"); }
+                code.push(OP_WAITROUTE);
+            }
+            "WAIT" => {
+                if argc != 1 { bail!("WAIT <frames 1-255>"); }
+                code.push(OP_WAIT);
+                code.push(parse_u8(args[0])?);
+            }
+            "ROUTE" => {
+                if argc < 5 { bail!("ROUTE <acteur> <r> <s> <freq> <pas...>"); }
+                let actor: u8 = if args[0] == "self" {
+                    255
+                } else {
+                    parse_u8(args[0])?
+                };
+                let mut flags = 0u8;
+                if args[1] == "1" { flags |= 1; }
+                if args[2] == "1" { flags |= 2; }
+                let freq: u8 = args[3]
+                    .parse()
+                    .ok()
+                    .filter(|&f| (1..=8).contains(&f))
+                    .with_context(|| format!("frequence invalide : '{}' (1-8)", args[3]))?;
+                let mut steps: Vec<u8> = Vec::new();
+                for t in &args[4..] {
+                    steps.extend(route_step(t, sprite_remap)?);
+                }
+                if steps.is_empty() || steps.len() > 255 {
+                    bail!("ROUTE : 1 a 255 octets de pas");
+                }
+                code.push(OP_ROUTE);
+                code.push(actor);
+                code.push(flags);
+                code.push(freq);
+                code.push(steps.len() as u8);
+                code.extend_from_slice(&steps);
+            }
             "CHOICE" => {
-                op_size(op, argc)?; // valide 2-4 choix
+                op_size(op, args)?; // valide 2-4 choix
                 code.push(OP_CHOICE);
                 code.push(parse_any_var(args[0])?);
                 code.push((argc - 1) as u8);

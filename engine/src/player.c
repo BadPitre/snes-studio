@@ -81,7 +81,10 @@ static void check_warp(void)
   /* Déclencheur de contact ? (le script gèle le joueur dès cette frame) */
   i = actor_trigger_at(ctx, cty);
   if (i != ACTOR_NONE)
+  {
     vm_start(scene_ctx.actors[i].script_offset);
+    vm.script_actor = i; /* cible du ROUTE « cet event » (v0.12) */
+  }
 }
 
 /* Warp scripté (opcode WARP, spec §2 v0.6) — même chemin que les tiles de
@@ -201,6 +204,13 @@ static void player_try_interact(void)
     ty++;
 
   i = actor_at_tile(tx, ty);
+  if (i == ACTOR_NONE)
+  {
+    /* rien en face : un event « sous le héros » sous nos pieds ?
+       (coffre au sol, priorité below — v0.14) */
+    i = actor_standing_at((u8)((player.x + 8) >> 4),
+                          (u8)((player.y + 8) >> 4));
+  }
   if (i != ACTOR_NONE)
     actor_interact(i);
 }

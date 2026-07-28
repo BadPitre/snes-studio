@@ -21,6 +21,17 @@
 //!   {"c":"if_sw","n":..,"on":true|false,"then":[...],"else":[...]}
 //!   {"c":"if_var","n":..,"op":"=="|"!="|">=","value":..,
 //!    "then":[...],"else":[...]}
+//!   v0.15 (boucles + commentaires) :
+//!   {"c":"loop","do":[...]}   {"c":"break"}   {"c":"rem","text":"..."}
+//!   v0.15 (positions scriptées) :
+//!   {"c":"hero_loc","vs":n,"vx":n,"vy":n}   {"c":"warp_var","vs","vx","vy"}
+//!   {"c":"setpos","event":-1|n,"from":"const"|"vars","x":..,"y":..}
+//!   {"c":"swappos","a":-1|n,"b":-1|n}
+//!   v0.15 (effets d'écran) :
+//!   {"c":"scr_hide","speed":1-15}   {"c":"scr_show","speed":1-15}
+//!   {"c":"tint","mode":"off"|"add"|"sub","r":0-31,"g":..,"b":..}
+//!   {"c":"flash","r","g","b","frames":1-255}
+//!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
 use crate::project::{Actor, Event, TextEntry};
 use anyhow::{bail, Context, Result};
@@ -36,6 +47,11 @@ pub struct EventCompiler<'a> {
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
+    /// blocs de personnage référencés par des pas gfx: (Move Route) — à
+    /// compter dans le sprite set de la scène en cours
+    gfx_blocks: Vec<u8>,
+    /// pile des labels de fin de boucle (v0.15) — cible des « break »
+    loop_ends: Vec<String>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -44,7 +60,13 @@ impl<'a> EventCompiler<'a> {
             .iter()
             .map(|t| (t.text.clone(), t.name.clone()))
             .collect();
-        EventCompiler { texts, text_of, label_seq: 0 }
+        EventCompiler {
+            texts,
+            text_of,
+            label_seq: 0,
+            gfx_blocks: Vec::new(),
+            loop_ends: Vec::new(),
+        }
     }
 
     /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
@@ -94,6 +116,44 @@ impl<'a> EventCompiler<'a> {
             .filter(|&n| n <= 255)
             .map(|n| n as u8)
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
+    }
+
+    /// Pas d'itinéraire JSON → tokens assembleur (partagé entre la
+    /// commande route et les routes custom de page, v0.14). Les blocs des
+    /// pas gfx sont accumulés pour le budget charsets de la scène.
+    fn steps_tokens(steps: &[Value], gfx_blocks: &mut Vec<u8>) -> Result<Vec<String>> {
+        if steps.is_empty() || steps.len() > 200 {
+            bail!("route : 1 a 200 pas (recu {})", steps.len());
+        }
+        let mut toks = Vec::new();
+        for st in steps {
+            let sname = st["s"].as_str().context("pas sans champ s")?;
+            toks.push(match sname {
+                "down" | "up" | "left" | "right" | "mrand" | "mhero"
+                | "mflee" | "fwd" | "tdown" | "tup" | "tleft" | "tright"
+                | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face"
+                | "tflee" | "spd+" | "spd-" | "frq+" | "frq-" | "fixon"
+                | "fixoff" | "thruon" | "thruoff" => sname.to_string(),
+                "wait" => {
+                    let n = st["n"].as_u64().filter(|&n| (1..=15).contains(&n))
+                        .context("pas wait : n entre 1 et 15 (x8 frames)")?;
+                    format!("w{}", n)
+                }
+                "swon" | "swoff" => {
+                    let n = st["n"].as_u64().filter(|&n| n < 512)
+                        .context("pas switch : n entre 0 et 511")?;
+                    format!("{}:{}", sname, n)
+                }
+                "gfx" => {
+                    let b = st["block"].as_u64().filter(|&b| b < 64)
+                        .context("pas gfx : block entre 0 et 63")?;
+                    gfx_blocks.push(b as u8);
+                    format!("gfx:{}", b)
+                }
+                other => bail!("pas d'itineraire inconnu : « {} »", other),
+            });
+        }
+        Ok(toks)
     }
 
     /// Compile une liste de commandes en lignes d'assembleur (spec §2)
@@ -189,17 +249,96 @@ impl<'a> EventCompiler<'a> {
                     out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
                 }
                 "var" => {
+                    // v0.13 : arithmétique complète, aléatoire, sources
+                    // (constante, variable, X/Y héros, timer)
                     let n = Self::idx_field(cmd, "n", 256)?;
+                    let op = cmd["op"].as_str().unwrap_or("=");
+                    if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
+                        bail!("var : operation inconnue « {} »", op);
+                    }
+                    let from = cmd["from"].as_str().unwrap_or("const");
+                    let st = match from {
+                        "const" => "const",
+                        "var" => "var",
+                        "hero_x" => "hx",
+                        "hero_y" => "hy",
+                        "timer" => "timer",
+                        "scene" => "scene",
+                        o => bail!("var : source inconnue « {} »", o),
+                    };
                     let val = cmd["value"]
                         .as_i64()
                         .filter(|v| (-32768..=65535).contains(v))
-                        .with_context(|| format!("var : valeur 16-bit invalide : {}", cmd))?;
-                    let mnem = match cmd["op"].as_str().unwrap_or("=") {
-                        "=" => "SET16",
-                        "+" => "ADD16",
-                        o => bail!("var : operation inconnue « {} » (=, +)", o),
+                        .unwrap_or(0);
+                    // les vieux set/add 16-bit passent aussi par VAROP
+                    out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
+                }
+                "timer" => {
+                    let op = match cmd["op"].as_str().unwrap_or("start") {
+                        "start" => "start",
+                        "stop" => "stop",
+                        "show" => "show",
+                        "hide" => "hide",
+                        o => bail!("timer : operation inconnue « {} »", o),
                     };
-                    out.push(format!("  {} {} {}", mnem, n, val));
+                    let secs = cmd["secs"].as_u64().filter(|&v| v <= 5999).unwrap_or(0);
+                    out.push(format!("  TIMER {} {}", op, secs));
+                }
+                "campan" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!(
+                        "  CAMPAN {} {} {}",
+                        Self::u8_field(cmd, "x")?,
+                        Self::u8_field(cmd, "y")?,
+                        speed
+                    ));
+                }
+                "cam_return" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!("  CAMRET {}", speed));
+                }
+                "wait_cam" => {
+                    out.push("  WAITCAM".to_string());
+                }
+                // v0.15 — effets d'écran
+                "scr_hide" | "scr_show" => {
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=15).contains(&v)).unwrap_or(1);
+                    out.push(format!(
+                        "  {} {}",
+                        if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
+                        speed
+                    ));
+                }
+                "tint" => {
+                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
+                        "off" => "off",
+                        "add" => "add",
+                        "sub" => "sub",
+                        o => bail!("tint : mode inconnu « {} » (off, add, sub)", o),
+                    };
+                    let comp = |key: &str| -> u64 {
+                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
+                    };
+                    out.push(format!(
+                        "  TINT {} {} {} {}",
+                        mode, comp("r"), comp("g"), comp("b")
+                    ));
+                }
+                "flash" => {
+                    let comp = |key: &str| -> u64 {
+                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(31)
+                    };
+                    let frames = cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)).unwrap_or(8);
+                    out.push(format!(
+                        "  FLASH {} {} {} {}",
+                        comp("r"), comp("g"), comp("b"), frames
+                    ));
+                }
+                "shake" => {
+                    let power = cmd["power"].as_u64().filter(|&v| v <= 8).unwrap_or(4);
+                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
+                    out.push(format!("  SHAKE {} {} {}", power, speed, frames));
                 }
                 "if_sw" | "if_var" => {
                     let then_l = self.label("alors");
@@ -236,6 +375,112 @@ impl<'a> EventCompiler<'a> {
                     )?;
                     out.push(format!("{}:", end));
                 }
+                "wait" => {
+                    let n = Self::u8_field(cmd, "frames")?;
+                    out.push(format!("  WAIT {}", n));
+                }
+                // v0.15 — boucle RM2003 : label de tête, corps, saut de
+                // reprise ; « break » saute au label de fin de la boucle
+                // la plus proche. Une boucle sans commande bloquante tourne
+                // 32 ops/frame (la VM rend la main, spec §2).
+                "loop" => {
+                    let start = self.label("boucle");
+                    let end = self.label("finboucle");
+                    out.push(format!("{}:", start));
+                    self.loop_ends.push(end.clone());
+                    let r = self.compile_list(
+                        cmd["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                        depth + 1,
+                        out,
+                    );
+                    self.loop_ends.pop();
+                    r?;
+                    out.push(format!("  JMP {}", start));
+                    out.push(format!("{}:", end));
+                }
+                "break" => {
+                    let end = self
+                        .loop_ends
+                        .last()
+                        .context("« Sortir de la boucle » hors d'une boucle")?;
+                    out.push(format!("  JMP {}", end));
+                }
+                // v0.15 — commentaire : décoratif dans l'éditeur, aucun
+                // bytecode émis
+                "rem" => {}
+                "wait_route" => {
+                    out.push("  WAITROUTE".to_string());
+                }
+                "route" => {
+                    // {"c":"route","event":-1|n,"repeat":b,"skip":b,
+                    //  "steps":[{"s":"up"}|{"s":"wait","n":2}...]}
+                    // event -1 = « cet event » — résolu par compile_scene
+                    // via self_actor (index d'entrée de la page en cours).
+                    let target = match cmd["event"].as_i64() {
+                        None | Some(-1) => "self".to_string(),
+                        Some(n) if (0..24).contains(&n) => n.to_string(),
+                        Some(n) => bail!("route : event {} hors limite (0-23)", n),
+                    };
+                    let steps = cmd["steps"].as_array().context("route sans steps")?;
+                    let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
+                    if steps.is_empty() || steps.len() > 200 {
+                        bail!("route : 1 a 200 pas (recu {})", steps.len());
+                    }
+                    let freq = cmd["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
+                    out.push(format!(
+                        "  ROUTE {} {} {} {} {}",
+                        target,
+                        if cmd["repeat"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        if cmd["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        freq,
+                        toks.join(" ")
+                    ));
+                }
+                // v0.15 — positions scriptées (mémoriser/rappeler RM2003)
+                "hero_loc" => {
+                    // écrit scène/X/Y du héros dans trois variables 16-bit
+                    let vs = Self::idx_field(cmd, "vs", 256)?;
+                    let vx = Self::idx_field(cmd, "vx", 256)?;
+                    let vy = Self::idx_field(cmd, "vy", 256)?;
+                    out.push(format!("  VAROP {} = scene 0", vs));
+                    out.push(format!("  VAROP {} = hx 0", vx));
+                    out.push(format!("  VAROP {} = hy 0", vy));
+                }
+                "warp_var" => {
+                    let vs = Self::idx_field(cmd, "vs", 256)?;
+                    let vx = Self::idx_field(cmd, "vx", 256)?;
+                    let vy = Self::idx_field(cmd, "vy", 256)?;
+                    out.push(format!("  WARPV {} {} {}", vs, vx, vy));
+                }
+                "setpos" => {
+                    let target = match cmd["event"].as_i64() {
+                        None | Some(-1) => "self".to_string(),
+                        Some(n) if (0..24).contains(&n) => n.to_string(),
+                        Some(n) => bail!("setpos : event {} hors limite (0-23)", n),
+                    };
+                    let src = match cmd["from"].as_str().unwrap_or("const") {
+                        "const" => "c",
+                        "vars" => "v",
+                        o => bail!("setpos : source inconnue « {} » (const, vars)", o),
+                    };
+                    out.push(format!(
+                        "  SETPOS {} {} {} {}",
+                        target,
+                        src,
+                        Self::u8_field(cmd, "x")?,
+                        Self::u8_field(cmd, "y")?
+                    ));
+                }
+                "swappos" => {
+                    let ev = |key: &str| -> Result<String> {
+                        Ok(match cmd[key].as_i64() {
+                            None | Some(-1) => "self".to_string(),
+                            Some(n) if (0..24).contains(&n) => n.to_string(),
+                            Some(n) => bail!("swappos : event {} hors limite (0-23)", n),
+                        })
+                    };
+                    out.push(format!("  SWAPPOS {} {}", ev("a")?, ev("b")?));
+                }
                 "warp" => {
                     let to = cmd["to"].as_str().context("warp sans scene cible")?;
                     out.push(format!(
@@ -265,24 +510,30 @@ impl<'a> EventCompiler<'a> {
         &mut self,
         scene_name: &str,
         events: &[Event],
-    ) -> Result<(Vec<String>, Vec<Actor>)> {
+    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
+        let mut tail = Vec::new(); /* blobs de routes custom (v0.14) */
+        self.gfx_blocks.clear();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
-            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>)> =
+            #[allow(clippy::type_complexity)]
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8)> =
                 if ev.pages.is_empty() {
                     vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
-                          &ev.entry, ev.commands.as_slice(), &ev.r#move)]
+                          &ev.entry, ev.commands.as_slice(), &ev.r#move,
+                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0))]
                 } else {
                     ev.pages
                         .iter()
                         .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
-                                  p.dir.as_str(), &p.entry, p.commands.as_slice(), &p.r#move))
+                                  p.dir.as_str(), &p.entry, p.commands.as_slice(),
+                                  &p.r#move, &p.move_route, &p.priority,
+                                  p.speed.unwrap_or(0)))
                         .collect()
                 };
-            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv)) in
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed)) in
                 pages.iter().enumerate()
             {
                 let kind = match *trigger {
@@ -332,10 +583,24 @@ impl<'a> EventCompiler<'a> {
                 let entry = if !commands.is_empty() {
                     let label = format!("__ev{}p{}_{}", i, k, scene_name);
                     asm.push(format!("{}:", label));
+                    let first = asm.len();
                     self.compile_list(commands, 0, &mut asm).with_context(|| {
                         format!("event « {} » page {} de la scene '{}'",
                                 ev.name, k + 1, scene_name)
                     })?;
+                    // « self » -> index d'entrée de CETTE page (le n° de
+                    // slot acteur, pas le n° d'event : les pages comptent).
+                    // ROUTE/SETPOS/SWAPPOS peuvent viser « cet event » ;
+                    // aucun autre token de ces lignes ne vaut « self ».
+                    let self_idx = format!(" {}", actors.len());
+                    for line in asm.iter_mut().skip(first) {
+                        if line.starts_with("  ROUTE self ")
+                            || line.starts_with("  SETPOS self ")
+                            || line.starts_with("  SWAPPOS ")
+                        {
+                            *line = line.replace(" self", &self_idx);
+                        }
+                    }
                     asm.push("  END".to_string());
                     Some(label)
                 } else {
@@ -346,12 +611,53 @@ impl<'a> EventCompiler<'a> {
                     Some("random") => 1,
                     Some("vertical") => 2,
                     Some("horizontal") => 3,
+                    Some("custom") => 4,
                     Some(other) => bail!(
                         "event « {} » page {} : mouvement inconnu « {} » \
-                         (static, random, vertical, horizontal)",
+                         (static, random, vertical, horizontal, custom)",
                         ev.name, k + 1, other
                     ),
                 };
+                // Route custom (v0.14) : blob [flags][freq][len][pas...]
+                // émis en QUEUE d'asm (jamais exécuté comme du code)
+                let route_label = if move_type == 4 {
+                    let mr = mroute.as_ref().filter(|v| !v.is_null()).with_context(|| {
+                        format!(
+                            "event « {} » page {} : mouvement « custom » sans move_route",
+                            ev.name, k + 1
+                        )
+                    })?;
+                    let steps = mr["steps"].as_array().with_context(|| {
+                        format!("event « {} » page {} : move_route sans steps", ev.name, k + 1)
+                    })?;
+                    let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
+                    let freq = mr["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
+                    let label = format!("__rt{}p{}_{}", i, k, scene_name);
+                    tail.push(format!("{}:", label));
+                    tail.push(format!(
+                        "  RTBLOB {} {} {} {}",
+                        if mr["repeat"].as_bool().unwrap_or(true) { 1 } else { 0 },
+                        if mr["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+                        freq,
+                        toks.join(" ")
+                    ));
+                    Some(label)
+                } else {
+                    None
+                };
+                let priority = match prio.as_deref() {
+                    None | Some("same") => 1u8,
+                    Some("below") => 0,
+                    Some("above") => 2,
+                    Some(other) => bail!(
+                        "event « {} » page {} : priorite inconnue « {} » \
+                         (below, same, above)",
+                        ev.name, k + 1, other
+                    ),
+                };
+                if *speed > 4 {
+                    bail!("event « {} » page {} : vitesse {} (1-4)", ev.name, k + 1, speed);
+                }
                 if move_type != 0 && kind != "npc" {
                     bail!(
                         "event « {} » page {} : le mouvement demande le declencheur \
@@ -373,9 +679,13 @@ impl<'a> EventCompiler<'a> {
                     cond_idx,
                     cond_val,
                     move_type,
+                    priority,
+                    speed: *speed,
+                    route_label,
                 });
             }
         }
-        Ok((asm, actors))
+        asm.extend(tail);
+        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks)))
     }
 }

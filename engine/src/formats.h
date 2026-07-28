@@ -80,6 +80,105 @@
 #define VM_OP_JCMP16  0x10 /* var (u8), op (u8 : 0 ==, 1 !=, 2 >=),
                               val (u16), offset (u16) */
 
+/* v0.12 (Move Route) : itinéraires de PNJ + attentes bloquantes */
+#define VM_OP_ROUTE     0x11 /* acteur (u8, 0xFF = event du script), flags
+                                (u8 : bit0 repeat, bit1 skip si bloque),
+                                len (u8), puis len PAS INLINE — la route
+                                vit dans le bloc scripts, l'acteur pointe
+                                dessus. Non bloquant (cinematiques). */
+#define VM_OP_WAITROUTE 0x12 /* bloquant : attend la fin de toutes les
+                                routes non-repeat */
+#define VM_OP_WAIT      0x13 /* frames (u8) — pause bloquante */
+
+/* Pas d'itinéraire (spec §2 v0.13 — dialogue Move Route complet).
+   1 octet par pas, sauf 0x50-0x52 qui portent un paramètre. */
+#define ROUTE_STEP_MOVE   0x00 /* 0x00-0x03 : marcher down/up/left/right */
+#define ROUTE_STEP_MRAND  0x04 /* marcher dans une direction au hasard */
+#define ROUTE_STEP_MHERO  0x05 /* marcher vers le heros */
+#define ROUTE_STEP_MFLEE  0x06 /* fuir le heros */
+#define ROUTE_STEP_FWD    0x07 /* un pas dans la direction courante */
+#define ROUTE_STEP_TURN   0x10 /* 0x10-0x13 : se tourner (sans bouger) */
+#define ROUTE_STEP_T90R   0x14 /* tourner 90 degres a droite */
+#define ROUTE_STEP_T90L   0x15 /* tourner 90 degres a gauche */
+#define ROUTE_STEP_T180   0x16 /* demi-tour */
+#define ROUTE_STEP_T90X   0x17 /* 90 degres gauche OU droite (hasard) */
+#define ROUTE_STEP_TRAND  0x18 /* direction au hasard */
+#define ROUTE_STEP_FACEP  0x19 /* se tourner vers le heros */
+#define ROUTE_STEP_TFLEE  0x1A /* tourner dos au heros */
+#define ROUTE_STEP_SPDUP  0x20 /* vitesse + (1-4) */
+#define ROUTE_STEP_SPDDN  0x21 /* vitesse - */
+#define ROUTE_STEP_FRQUP  0x22 /* frequence + (1-8) */
+#define ROUTE_STEP_FRQDN  0x23 /* frequence - */
+#define ROUTE_STEP_FIXON  0x28 /* direction fix ON (fige l'orientation) */
+#define ROUTE_STEP_FIXOFF 0x29
+#define ROUTE_STEP_THRUON 0x2A /* through ON (traverse tout) */
+#define ROUTE_STEP_THRUOFF 0x2B
+#define ROUTE_STEP_WAITN  0x40 /* 0x40|n : attendre n*8 frames (n 1-15) */
+#define ROUTE_STEP_SWON   0x50 /* + u16 : switch ON */
+#define ROUTE_STEP_SWOFF  0x51 /* + u16 : switch OFF */
+#define ROUTE_STEP_GFX    0x52 /* + u8 : changer le graphisme (slot local) */
+#define ROUTE_FLAG_REPEAT 0x01
+#define ROUTE_FLAG_SKIP   0x02
+
+/* v0.13 : opérations avancées, timer, caméra scriptée */
+#define VM_OP_VAROP   0x14 /* dst (u8), op (u8), src_type (u8), src (u16) —
+                              vars16[dst] = vars16[dst] OP valeur(src).
+                              op : 0 =, 1 +, 2 -, 3 *, 4 /, 5 mod,
+                              6 aleatoire 0..valeur (inclus).
+                              src_type : 0 constante, 1 variable[src],
+                              2 X heros (tiles), 3 Y heros (tiles),
+                              4 timer (secondes restantes).
+                              division/mod par zero -> 0. */
+#define VM_OP_TIMER   0x15 /* op (u8) : 0 regler+demarrer (val = secondes),
+                              1 stop, 2 afficher, 3 cacher ; val (u16) */
+#define VM_OP_CAMPAN  0x16 /* tx (u8), ty (u8), vitesse (u8 px/frame) —
+                              pan de la camera vers la tile (centree),
+                              NON bloquant */
+#define VM_OP_CAMRET  0x17 /* vitesse (u8) — pan de retour vers le heros
+                              puis reprise du suivi */
+#define VM_OP_WAITCAM 0x18 /* bloquant : attend la fin du pan */
+
+/* v0.15 : positions scriptées (mémoriser/rappeler façon RM2003) */
+#define VM_OP_WARPV   0x19 /* vs (u8), vx (u8), vy (u8) — téléporte le
+                              héros à la scène vars16[vs], tile
+                              (vars16[vx], vars16[vy]) et TERMINE le
+                              script (comme WARP). Rappel d'une position
+                              mémorisée par VAROP scene/hx/hy. */
+#define VM_OP_SETPOS  0x1A /* acteur (u8, 0xFF = event du script),
+                              src (u8 : 0 constantes, 1 variables),
+                              x (u8), y (u8) — place l'event sur la tile
+                              (x,y), ou (vars16[x], vars16[y]) si src=1 */
+#define VM_OP_SWAPPOS 0x1B /* a (u8), b (u8, 0xFF = event du script) —
+                              échange les positions de deux events */
+
+/* v0.15 : effets d'écran (module screenfx) */
+#define VM_OP_SCRHIDE 0x1C /* vitesse (u8 1-15, pas de luminosité/frame) —
+                              fondu vers le noir, BLOQUANT */
+#define VM_OP_SCRSHOW 0x1D /* vitesse (u8) — fondu entrant, BLOQUANT */
+#define VM_OP_TINT    0x1E /* mode (u8 : 0 normale, 1 eclaircir, 2
+                              assombrir), r, g, b (u8 0-31) — teinte du
+                              décor (color math couleur fixe, BG3 et OBJ
+                              pal 0-3 exclus), persiste entre scènes */
+#define VM_OP_FLASH   0x1F /* r, g, b (u8 0-31), frames (u8) — flash
+                              additif décroissant, NON bloquant */
+#define VM_OP_SHAKE   0x20 /* power (u8 0-8 px, 0 = stop), vitesse (u8
+                              1-8, frames par alternance), frames (u8) —
+                              secousse horizontale, NON bloquant */
+
+#define VAROP_SET 0
+#define VAROP_ADD 1
+#define VAROP_SUB 2
+#define VAROP_MUL 3
+#define VAROP_DIV 4
+#define VAROP_MOD 5
+#define VAROP_RAND 6
+#define VARSRC_CONST 0
+#define VARSRC_VAR 1
+#define VARSRC_HERO_X 2
+#define VARSRC_HERO_Y 3
+#define VARSRC_TIMER 4
+#define VARSRC_SCENE 5 /* v0.15 : index de la scène courante */
+
 /* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
    Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
 #define VM_SWITCH_COUNT 512
@@ -100,9 +199,17 @@ typedef struct
   u16 script_offset; /* offset dans le bloc scripts, SCRIPT_NONE = aucun */
   u8 direction;     /* DIR_* */
   u8 flags;         /* v0.10 : bit 7 = CONTINUATION (page du même event que
-                       l'entrée précédente), bits 0-2 = type de condition */
+                       l'entrée précédente), bits 0-2 = type de condition,
+                       bits 3-5 = type de mouvement (v0.14 : 3 bits) */
   u16 cond_idx;     /* switch (0-511) ou variable 16-bit (0-255) */
   u16 cond_val;     /* valeur comparée (var >= val) */
+  u8 prio_speed;    /* v0.14 : bits 0-1 = priorité (0 sous le héros,
+                       1 comme le héros, 2 au-dessus), bits 4-7 =
+                       vitesse 1-4 (0 = défaut 1) */
+  u8 reserved;
+  u16 route_ofs;    /* v0.14 : route custom — offset du blob
+                       [flags][freq][len][pas...] dans le bloc scripts,
+                       0xFFFF = aucune */
 } ActorDef;
 
 /* Pages d'events conditionnelles (v0.10, modèle RM2003) : un event =
@@ -112,11 +219,18 @@ typedef struct
 #define ACTOR_COND_MASK 0x07
 /* v0.11 : bits 3-4 des flags = type de mouvement du PNJ (RM2003) */
 #define ACTOR_MOVE_SHIFT 3
-#define ACTOR_MOVE_MASK 0x18
+#define ACTOR_MOVE_MASK 0x38 /* v0.14 : 3 bits (route custom) */
 #define ACTOR_MOVE_STATIC 0
 #define ACTOR_MOVE_RANDOM 1
 #define ACTOR_MOVE_VERT 2   /* va-et-vient haut-bas */
 #define ACTOR_MOVE_HORIZ 3  /* va-et-vient gauche-droite */
+#define ACTOR_MOVE_CUSTOM 4 /* route custom (blob route_ofs, v0.14) */
+
+/* Priorité d'un event (v0.14, byte prio_speed bits 0-1) — modèle RM2003 */
+#define ACTOR_PRIO_BELOW 0 /* sous le héros : traversable, interaction en
+                              se tenant dessus (coffre au sol) */
+#define ACTOR_PRIO_SAME 1  /* comme le héros : bloque et parle de face */
+#define ACTOR_PRIO_ABOVE 2 /* au-dessus : traversable, dessiné par-dessus */
 #define ACTOR_COND_NONE 0x00
 #define ACTOR_COND_SW_ON 0x01  /* switch cond_idx == ON */
 #define ACTOR_COND_SW_OFF 0x02 /* switch cond_idx == OFF */

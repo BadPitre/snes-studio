@@ -11,6 +11,10 @@
 #define VM_WAIT_KEY 1     /* réservé (non utilisé v0) */
 #define VM_WAIT_TEXTBOX 2 /* attend la fermeture de la textbox (touche A) */
 #define VM_WAIT_CHOICE 3  /* CHOICE : curseur haut/bas, A valide (v0.6) */
+#define VM_WAIT_ROUTE 4   /* WAITROUTE : fin des itinéraires (v0.12) */
+#define VM_WAIT_TIMER 5   /* WAIT : compteur de frames (v0.12) */
+#define VM_WAIT_CAM 6     /* WAITCAM : fin du pan camera (v0.13) */
+#define VM_WAIT_SCREEN 7  /* SCRHIDE/SCRSHOW : fin du fondu (v0.15) */
 
 /* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
    le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),
@@ -24,6 +28,9 @@ typedef struct
   u8 gvars[64]; /* variables globales (persistent entre scènes) */
   u8 switches[64];  /* 512 switches (bits), persistants — v0.9 */
   u16 vars16[256];  /* 256 variables 16-bit, persistantes — v0.9 */
+  u8 wait_timer;   /* frames restantes du WAIT (v0.12) */
+  u8 script_actor; /* acteur qui a lancé le script (0xFF = aucun) — cible
+                      de ROUTE « cet event » (v0.12) */
   u8 choice_var;   /* variable destination du CHOICE en cours */
   u8 choice_count; /* nombre d'options (2-4) */
   u8 choice_sel;   /* option sous le curseur */

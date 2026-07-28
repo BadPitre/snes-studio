@@ -133,7 +133,7 @@ tilesets : seuls les blocs de personnage utilisés par la scène (joueur
 inclus, 5 max) sont embarqués, et le `sprite_id` des acteurs est remappé
 vers le slot local (§1.3, §5).*
 
-### 1.3 Entrée acteur (v0.10 — 12 octets par PAGE)
+### 1.3 Entrée acteur (v0.14 — 16 octets par PAGE)
 
 ```
 Offset  Taille  Champ
@@ -170,7 +170,21 @@ Offset  Taille  Champ
                                       uniquement)
 8       2       cond_idx      (u16) — switch (0-511) ou variable (0-255)
 10      2       cond_val      (u16) — valeur comparée (type 3)
+12      1       prio_speed    (u8)  — bits 0-1 : priorité (0 sous le héros,
+                                      1 comme le héros, 2 au-dessus) ;
+                                      bits 4-7 : vitesse 1-4 (0 = défaut 1)
+13      1       reserved      (u8)
+14      2       route_ofs     (u16) — route custom (mouvement type 4) :
+                                      offset du blob [flags][freq][len][pas]
+                                      dans le bloc scripts, 0xFFFF = aucune
 ```
+
+**v0.14** : les flags passent le mouvement sur les bits 3-5 (masque 0x38) —
+type 4 = ROUTE CUSTOM, appliquée quand la page devient active (répétée ou
+non selon le flag du blob). Priorités : *sous le héros* = traversable,
+interaction en se tenant dessus ; *comme le héros* = bloque et parle de
+face ; *au-dessus* = traversable, OBJ priorité 3 (devant la couche sup).
+Seuls les « comme le héros » se bloquent entre eux et bloquent le héros.
 
 **Pages (v0.10, modèle RM2003)** : un event = 1..N entrées consécutives
 (flag CONTINUATION sur les pages 2+). À tout instant, la **dernière page
@@ -248,8 +262,11 @@ multi-bank à venir.
 - Deux catégories : opcodes **immédiats** (exécutés en chaîne dans la frame)
   et opcodes **bloquants** (rendent la main à la boucle principale jusqu'à
   un événement — input, fin de frame).
-- Budget : ne jamais exécuter plus de ~32 opcodes immédiats par frame (garde-fou
-  anti-boucle infinie : compteur + arrêt d'urgence en debug).
+- Budget : ne jamais exécuter plus de ~32 opcodes immédiats par frame.
+  v0.15 : budget épuisé = la VM **rend la main** et reprend à la frame
+  suivante (les boucles LOOP de l'éditeur sans commande bloquante sont
+  légales et tournent 32 ops/frame, comme RM2003 — plus de halt debug ici ;
+  l'opcode inconnu, lui, halte toujours).
 
 ### État de la VM (en WRAM)
 
@@ -273,7 +290,8 @@ scripts de la scène est déjà résolu en pointeur far (`scene_ctx.scripts`),
 `pc` est l'offset dans ce bloc (même sémantique que le format binaire : les
 offsets des opcodes de saut et les `script_offset` d'acteurs sont absolus
 dans le bloc scripts de la scène). Garde-fou : 32 opcodes immédiats max par
-frame, halt debug au-delà (idem opcode inconnu).
+frame, puis la VM rend la main jusqu'à la frame suivante (v0.15) ; halt
+debug sur opcode inconnu uniquement.
 
 ### Table des opcodes — v0.6
 
@@ -337,8 +355,76 @@ projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 | 0x10 | JCMP16 | var u8, op u8, val u16, ofs u16 | pc = ofs si vrai — op : 0 `==`, 1 `!=`, 2 `>=` |
 
 Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
-**globaux et persistants** (sauvegardés, §4bis v2). Les v/g 8-bit
-d'origine restent valides (héritage + variable de travail des CHOICE).
+**globaux et persistants** (sauvegardés, §4bis v2).
+
+**v0.12 (Move Route — cinématiques) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x11 | ROUTE | acteur u8, flags u8, len u8, len × pas u8 | lance l'itinéraire (NON bloquant) — acteur 0xFF = l'event du script ; flags : bit0 répéter, bit1 ignorer si bloqué |
+| 0x12 | WAITROUTE | — | bloquant : attend la fin de tous les itinéraires non répétés |
+| 0x13 | WAIT | frames u8 | pause bloquante |
+
+**v0.13 (opérations, timer, caméra) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x14 | VAROP | dst u8, op u8, src_type u8, src u16 | vars16[dst] = dst OP source — op : 0 `=`, 1 `+`, 2 `-`, 3 `*`, 4 `/`, 5 `mod`, 6 hasard 0..src ; source : 0 constante, 1 variable[src], 2 X héros (tiles), 3 Y héros, 4 timer (s), 5 index de la scène courante (v0.15). Division/mod par 0 → 0. |
+| 0x15 | TIMER | op u8, val u16 | 0 régler+démarrer (val s), 1 stop, 2 afficher (« M:SS » coin haut-droit BG3), 3 cacher |
+| 0x16 | CAMPAN | tx u8, ty u8, vitesse u8 | pan caméra vers la tile (centrée), NON bloquant |
+| 0x17 | CAMRET | vitesse u8 | pan de retour vers le héros puis reprise du suivi |
+| 0x18 | WAITCAM | — | bloquant : fin du pan |
+
+**v0.15 (positions scriptées — mémoriser/rappeler façon RM2003) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x19 | WARPV | vs u8, vx u8, vy u8 | téléporte le héros à la scène `vars16[vs]`, tile (`vars16[vx]`, `vars16[vy]`) et TERMINE le script (comme WARP — le bloc scripts change de scène) |
+| 0x1A | SETPOS | acteur u8, src u8, x u8, y u8 | place l'event sur la tile (x,y) — acteur 0xFF = l'event du script ; src : 0 constantes, 1 = x/y sont des numéros de variables 16-bit. Coupe le pas de marche en cours. |
+| 0x1B | SWAPPOS | a u8, b u8 | échange les positions de deux events (0xFF = l'event du script) |
+
+Le VAROP gagne la source 5 = **index de la scène courante** : « mémoriser
+la position du héros » = trois VAROP (scène, X, Y), « rappeler » = WARPV
+sur les mêmes variables.
+
+**v0.15 (effets d'écran — module `screenfx.c`) :**
+
+| Opcode | Nom | Opérandes | Effet |
+|---|---|---|---|
+| 0x1C | SCRHIDE | vitesse u8 (1-15) | fondu vers le noir (INIDISP, `vitesse` niveaux de luminosité par frame), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume) |
+| 0x1D | SCRSHOW | vitesse u8 | fondu entrant, BLOQUANT |
+| 0x1E | TINT | mode u8, r u8, g u8, b u8 | teinte du décor : 0 normale, 1 éclaircir (addition), 2 assombrir (soustraction), composantes 0-31 — color math couleur fixe ($2130-$2132) sur BG1+BG2+fond ; BG3 (textbox) exclu, et les OBJ ne participent pas (palettes 0-3, limite hardware). Immédiate, persiste entre les scènes (réaffirmée après warp). |
+| 0x1F | FLASH | r u8, g u8, b u8, frames u8 | addition décroissant linéairement sur `frames`, puis la teinte courante revient — NON bloquant |
+| 0x20 | SHAKE | power u8 (0-8), vitesse u8 (1-8), frames u8 | secousse : offset de scroll horizontal ±power px alternant toutes `vitesse` frames pendant `frames` frames ; power 0 = stop — NON bloquant |
+
+Toutes les écritures registres ($2100, $2130-$2132) partent au VBlank
+(`screenfx_vblank`). Les fondus scriptés et `setFadeEffect` (warps) ne se
+chevauchent jamais : SCRHIDE/SCRSHOW sont bloquants côté VM, et
+`screenfx_warp_reset()` resynchronise le fondu après chaque warp. Nouveau
+wait_mode : `VM_WAIT_SCREEN` (7).
+
+Pièges toolchain documentés au passage : un couple de paramètres
+`(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à
+paramètre unique) ; les glyphes BG3 commencent au char 1 (char 0
+transparent, glyphe = ascii − 31).
+
+Pas d'itinéraire (v0.13, dialogue Move Route complet) — 1 octet par pas
+sauf mention : `0x00-0x03` marcher bas/haut/gauche/droite, `0x04` au
+hasard, `0x05` vers le héros, `0x06` fuir le héros, `0x07` un pas en
+avant ; `0x10-0x13` se tourner, `0x14` 90° droite, `0x15` 90° gauche,
+`0x16` demi-tour, `0x17` 90° G/D au hasard, `0x18` au hasard, `0x19`
+vers le héros, `0x1A` dos au héros ; `0x20/0x21` vitesse ±(1-4 :
+0.5/1/2/4 px/frame), `0x22/0x23` fréquence ±(1-8 : pause (8-f)×4 frames
+après chaque pas de marche) ; `0x28/0x29` direction fixe ON/OFF (fige
+l'orientation — tours, FACE et le réflexe « se tourner vers le héros »
+ignorés), `0x2A/0x2B` passe-muraille ON/OFF (seul le bord de map
+bloque) ; `0x40|n` attendre n×8 frames ; `0x50/0x51` + u16 switch
+ON/OFF ; `0x52` + u8 changer le graphisme (slot local du sprite set,
+compté dans le budget 5 charsets/scène). L'opcode ROUTE porte
+[acteur][flags][fréquence 1-8][len octets][pas…] ; la route vit INLINE
+dans le bloc scripts et avance AUSSI pendant les scripts (cinématiques),
+l'errance restant gelée. Un pas de marche bloqué tourne le PNJ et est
+retenté (ou abandonné avec « ignorer si bloqué »).
 
 ## 3. Structures WRAM du moteur
 

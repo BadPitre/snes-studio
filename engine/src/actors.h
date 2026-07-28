@@ -21,6 +21,24 @@ void actors_resolve_pages(void);
    hors script/menu (les events gèlent le monde, comme RM2003). */
 void actors_update(void);
 
+/* Itinéraires (v0.12, opcode ROUTE) : lance/écrase la route du slot —
+   ofs = offset des PAS dans le bloc scripts. */
+void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len);
+
+/* Fréquence 1-8 de la prochaine route (opcode ROUTE) : à poser via
+   actors_route_freq PUIS lier avec actors_route_bind_freq(index) —
+   deux appels à un argument (piège tcc des paramètres multiples). */
+void actors_route_freq(u8 freq);
+void actors_route_bind_freq(u8 index);
+
+/* Positions scriptées (v0.15) : place un acteur sur une tile (SETPOS),
+   échange deux acteurs (SWAPPOS). Coupe le pas de marche en cours. */
+void actors_set_pos(u8 index, u8 tx, u8 ty);
+void actors_swap_pos(u8 a, u8 b);
+
+/* 1 si une route non-repeat court encore (opcode WAITROUTE). */
+u8 actors_routes_busy(void);
+
 /* Écrit les metasprites des acteurs dans le shadow OAM (chaque frame).
    Les acteurs hors écran sont cachés. */
 void actors_draw(void);
@@ -33,6 +51,10 @@ u8 actor_at_tile(u8 tx, u8 ty);
 /* Index du déclencheur de CONTACT (type 0x02, avec script) sur la tile,
    ou ACTOR_NONE — le script part quand le héros marche dessus. */
 u8 actor_trigger_at(u8 tx, u8 ty);
+
+/* Event « sous le héros » sur cette tile (priorité below, v0.14) —
+   interaction en se tenant dessus. */
+u8 actor_standing_at(u8 tx, u8 ty);
 
 /* Offset du script du déclencheur AUTO de la scène (type 0x03), ou
    SCRIPT_NONE — lancé une fois au chargement de la scène. */

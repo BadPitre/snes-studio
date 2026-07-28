@@ -49,6 +49,25 @@ static u8 actor_timer[ACTOR_SLOTS]; /* frames avant la prochaine décision */
 static u16 mv_seed;                 /* xorshift 16-bit (aléatoire) */
 static u8 mv_phase;                 /* vitesse PNJ : 1 px 1 frame sur 2 */
 
+/* Itinéraires (v0.12) — la route vit dans le bloc scripts de la scène,
+   le slot ne garde qu'un curseur. 0xFFFF = pas de route. */
+static u16 route_ofs[ACTOR_SLOTS];
+static u8 route_pos[ACTOR_SLOTS];
+static u8 route_len[ACTOR_SLOTS];
+static u8 route_flags[ACTOR_SLOTS];
+static u8 route_wait[ACTOR_SLOTS];
+
+/* Attributs Move Route (v0.13) : vitesse 1-4 (0.5/1/2/4 px par frame),
+   fréquence 1-8 (pause entre pas de route), direction figée, passe-
+   muraille, graphisme changé (0xFF = celui de la page). */
+static u8 actor_speed[ACTOR_SLOTS];
+static u8 actor_freq[ACTOR_SLOTS];
+static u8 actor_dirfix[ACTOR_SLOTS];
+static u8 actor_mvdir[ACTOR_SLOTS]; /* direction du pas en cours (dirfix) */
+static u8 actor_thru[ACTOR_SLOTS];
+static u8 actor_gfx[ACTOR_SLOTS];
+static u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
+
 static u16 mv_rand(void)
 {
   mv_seed ^= mv_seed << 7;
@@ -75,6 +94,26 @@ static u8 page_cond_ok(const ActorDef *a)
   default:
     return 1;
   }
+}
+
+/* Route custom d'une page (v0.14) : blob [flags][freq][len][pas...] à
+   route_ofs dans le bloc scripts — appliquée quand la page devient
+   active (type de mouvement « Route custom »). */
+static void actors_apply_page_route(u8 i)
+{
+  const ActorDef *a = &scene_ctx.actors[i];
+  u16 ofs;
+
+  if (((a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT) != ACTOR_MOVE_CUSTOM)
+    return;
+  ofs = a->route_ofs;
+  if (ofs == 0xFFFF)
+    return;
+  actor_freq[i] = scene_ctx.scripts[ofs + 1];
+  if (actor_freq[i] < 1 || actor_freq[i] > 8)
+    actor_freq[i] = 3;
+  actors_set_route(i, (u16)(ofs + 3), scene_ctx.scripts[ofs],
+                   scene_ctx.scripts[ofs + 2]);
 }
 
 /* Par GROUPE de pages (entrées consécutives liées par CONTINUATION), la
@@ -104,8 +143,15 @@ void actors_resolve_pages(void)
       {
         oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
         oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+        route_ofs[i] = 0xFFFF; /* la page part, sa route aussi */
       }
-      actor_active[i] = (i == win);
+      if (i == win && !actor_active[i])
+      {
+        actor_active[i] = 1;
+        actors_apply_page_route(i); /* route custom de la page (v0.14) */
+      }
+      else
+        actor_active[i] = (i == win);
     }
   }
 }
@@ -131,6 +177,18 @@ void actors_init(void)
     actor_step[i] = 0;
     actor_anim[i] = 0;
     actor_timer[i] = (u8)(20 + i * 13); /* décale les décisions */
+    route_ofs[i] = 0xFFFF;
+    route_pos[i] = 0;
+    route_len[i] = 0;
+    route_flags[i] = 0;
+    route_wait[i] = 0;
+    actor_speed[i] = 1;  /* 0.5 px/frame — la vitesse v0.11 */
+    actor_freq[i] = 3;   /* défaut RM2003 */
+    actor_dirfix[i] = 0;
+    actor_thru[i] = 0;
+    actor_gfx[i] = 0xFF;
+    actor_mvdir[i] = DIR_DOWN;
+    actor_prio[i] = ACTOR_PRIO_SAME;
   }
   mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
   mv_phase = 0;
@@ -143,6 +201,9 @@ void actors_init(void)
       actor_dirs[i] = a->direction;
       actor_px[i] = (u16)a->x << 4;
       actor_py[i] = (u16)a->y << 4;
+      actor_prio[i] = a->prio_speed & 3;
+      if ((a->prio_speed >> 4) >= 1 && (a->prio_speed >> 4) <= 4)
+        actor_speed[i] = a->prio_speed >> 4;
     }
     if (!ACTOR_VISIBLE(a))
       continue;
@@ -190,19 +251,29 @@ void actors_draw(void)
         ay + 16 > camera.y && ay < camera.y + 224 + SPRITE_Y_OVERLAP)
     {
       u8 d = (i < ACTOR_SLOTS) ? actor_dirs[i] : a->direction;
-      u8 f = ACTOR_FRAME(a, d);
+      u8 f;
+
+      /* graphisme changé par la route (Change Graphic) ? */
+      if (i < ACTOR_SLOTS && actor_gfx[i] != 0xFF)
+        f = (u8)(actor_gfx[i] * 12 + d * 3);
+      else
+        f = ACTOR_FRAME(a, d);
 
       /* anim de marche (même motif que le joueur : pas A, repos, pas B,
          repos) pendant un pas */
       if (i < ACTOR_SLOTS && actor_step[i])
         f += (actor_anim[i] & 1) ? (u8)(1 + (actor_anim[i] >> 1)) : 0;
 
+      u8 op = (i < ACTOR_SLOTS && actor_prio[i] == ACTOR_PRIO_ABOVE)
+                  ? 3
+                  : ACTOR_OBJ_PRIO; /* au-dessus : devant la couche sup */
+
       /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
       oamSet(ACTOR_OAM_TOP(i), ax - camera.x,
-             ay - camera.y - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             ay - camera.y - SPRITE_Y_OVERLAP, op, 0, 0,
              OBJ_TOP_TILE(f), a->sprite_id);
       oamSet(ACTOR_OAM_BOT(i), ax - camera.x,
-             ay - camera.y + 16 - SPRITE_Y_OVERLAP, ACTOR_OBJ_PRIO, 0, 0,
+             ay - camera.y + 16 - SPRITE_Y_OVERLAP, op, 0, 0,
              OBJ_BOTTOM_TILE(f), a->sprite_id);
     }
     else
@@ -220,15 +291,19 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
 
   if (tx >= scene_ctx.map_w || ty >= scene_ctx.map_h)
     return 1;
+  if (actor_thru[i])
+    return 0; /* passe-muraille (Through ON) : seul le bord de map bloque */
   if (scene_collision(tx, ty) == COL_SOLID)
     return 1;
-  /* la tile du héros (boîte 16x16 : sa tile centrale suffit ici) */
-  if (tx == (u8)((player.x + 8) >> 4) && ty == (u8)((player.y + 8) >> 4))
+  /* la tile du héros — un event sous/au-dessus du héros passe (v0.14) */
+  if (actor_prio[i] == ACTOR_PRIO_SAME &&
+      tx == (u8)((player.x + 8) >> 4) && ty == (u8)((player.y + 8) >> 4))
     return 1;
-  /* les autres acteurs actifs (tile runtime, cible de pas comprise) */
+  /* les autres acteurs actifs « comme le héros » */
   for (j = 0; j < scene_ctx.actor_count && j < ACTOR_SLOTS; j++)
   {
-    if (j != i && actor_active[j] && ACTOR_TX(j) == tx && ACTOR_TY(j) == ty)
+    if (j != i && actor_active[j] && actor_prio[j] == ACTOR_PRIO_SAME &&
+        ACTOR_TX(j) == tx && ACTOR_TY(j) == ty)
       return 1;
   }
   return 0;
@@ -238,69 +313,322 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
 static const s8 mv_dx[4] = {0, 0, -1, 1};
 static const s8 mv_dy[4] = {1, -1, 0, 0};
 
-/* Mouvement des PNJ (v0.11) — appelé chaque frame par la boucle
-   principale SAUF pendant un script ou le menu Système (gel RM2003).
+/* Lance un itinéraire (opcode ROUTE, v0.12). ofs pointe les PAS dans le
+   bloc scripts. Remplace la route en cours du slot s'il y en a une. */
+void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
+{
+  if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count || len == 0)
+    return;
+  actor_step[index] = 0; /* coupe le pas d'errance en cours */
+  route_ofs[index] = ofs;
+  route_pos[index] = 0;
+  route_len[index] = len;
+  route_flags[index] = flags;
+  route_wait[index] = 0;
+}
+
+/* Place l'acteur sur une tile (opcode SETPOS, v0.15) — coupe le pas en
+   cours pour ne pas laisser un déplacement à moitié fait. */
+void actors_set_pos(u8 index, u8 tx, u8 ty)
+{
+  if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count)
+    return;
+  actor_px[index] = (u16)tx << 4;
+  actor_py[index] = (u16)ty << 4;
+  actor_step[index] = 0;
+}
+
+/* Échange les positions de deux acteurs (opcode SWAPPOS, v0.15). */
+void actors_swap_pos(u8 a, u8 b)
+{
+  u16 t;
+
+  if (a >= ACTOR_SLOTS || b >= ACTOR_SLOTS || a >= scene_ctx.actor_count ||
+      b >= scene_ctx.actor_count)
+    return;
+  t = actor_px[a];
+  actor_px[a] = actor_px[b];
+  actor_px[b] = t;
+  t = actor_py[a];
+  actor_py[a] = actor_py[b];
+  actor_py[b] = t;
+  actor_step[a] = 0;
+  actor_step[b] = 0;
+}
+
+/* Fréquence 1-8 du slot (posée par l'opcode ROUTE avant set_route) */
+static u8 route_freq_pending;
+
+void actors_route_freq(u8 freq)
+{
+  route_freq_pending = (freq >= 1 && freq <= 8) ? freq : 3;
+}
+
+void actors_route_bind_freq(u8 index)
+{
+  if (index < ACTOR_SLOTS)
+    actor_freq[index] = route_freq_pending;
+}
+
+/* 1 si une route NON-repeat est encore en cours (WAITROUTE) — les routes
+   répétées tournent pour toujours, on ne les attend pas. */
+u8 actors_routes_busy(void)
+{
+  u8 i;
+
+  for (i = 0; i < ACTOR_SLOTS; i++)
+  {
+    if (route_ofs[i] != 0xFFFF && !(route_flags[i] & ROUTE_FLAG_REPEAT))
+      return 1;
+  }
+  return 0;
+}
+
+/* Se tourner vers le héros (pas FACEP + interactions) */
+static u8 dir_toward_player(u8 i)
+{
+  u16 dx = player.x > actor_px[i] ? player.x - actor_px[i]
+                                  : actor_px[i] - player.x;
+  u16 dy = player.y > actor_py[i] ? player.y - actor_py[i]
+                                  : actor_py[i] - player.y;
+
+  if (dx > dy)
+    return player.x > actor_px[i] ? DIR_RIGHT : DIR_LEFT;
+  return player.y > actor_py[i] ? DIR_DOWN : DIR_UP;
+}
+
+/* Rotations 90 degres (indices DIR_DOWN=0 UP=1 LEFT=2 RIGHT=3) :
+   horaire 0→2→1→3→0, anti-horaire l'inverse. */
+static const u8 dir_cw[4] = {2, 3, 1, 0};
+static const u8 dir_ccw[4] = {3, 2, 0, 1};
+
+/* Avance la route du slot i d'un cran (un pas par appel au plus). */
+static void route_tick(u8 i)
+{
+  u8 step, d, tx, ty, adv;
+
+  if (actor_step[i])
+    return; /* pas de marche en cours : on le laisse finir */
+  if (route_wait[i])
+  {
+    route_wait[i]--;
+    return;
+  }
+  if (route_pos[i] >= route_len[i])
+  {
+    if (route_flags[i] & ROUTE_FLAG_REPEAT)
+      route_pos[i] = 0;
+    else
+    {
+      route_ofs[i] = 0xFFFF; /* terminé */
+      return;
+    }
+  }
+  step = scene_ctx.scripts[route_ofs[i] + route_pos[i]];
+  adv = 1;
+  d = actor_dirs[i];
+
+  if ((step & 0xF0) == ROUTE_STEP_WAITN)
+  {
+    route_wait[i] = (u8)((step & 0x0F) << 3);
+    route_pos[i]++;
+    return;
+  }
+  switch (step)
+  {
+  case ROUTE_STEP_MRAND:
+    d = (u8)(mv_rand() & 3);
+    goto marche;
+  case ROUTE_STEP_MHERO:
+    d = dir_toward_player(i);
+    goto marche;
+  case ROUTE_STEP_MFLEE:
+    d = dir_toward_player(i) ^ 1;
+    goto marche;
+  case ROUTE_STEP_FWD:
+    goto marche;
+  case ROUTE_STEP_T90R:
+    d = dir_cw[d];
+    goto tourne;
+  case ROUTE_STEP_T90L:
+    d = dir_ccw[d];
+    goto tourne;
+  case ROUTE_STEP_T180:
+    d = d ^ 1;
+    goto tourne;
+  case ROUTE_STEP_T90X:
+    d = (mv_rand() & 1) ? dir_cw[d] : dir_ccw[d];
+    goto tourne;
+  case ROUTE_STEP_TRAND:
+    d = (u8)(mv_rand() & 3);
+    goto tourne;
+  case ROUTE_STEP_FACEP:
+    d = dir_toward_player(i);
+    goto tourne;
+  case ROUTE_STEP_TFLEE:
+    d = dir_toward_player(i) ^ 1;
+    goto tourne;
+  case ROUTE_STEP_SPDUP:
+    if (actor_speed[i] < 4)
+      actor_speed[i]++;
+    goto fini;
+  case ROUTE_STEP_SPDDN:
+    if (actor_speed[i] > 1)
+      actor_speed[i]--;
+    goto fini;
+  case ROUTE_STEP_FRQUP:
+    if (actor_freq[i] < 8)
+      actor_freq[i]++;
+    goto fini;
+  case ROUTE_STEP_FRQDN:
+    if (actor_freq[i] > 1)
+      actor_freq[i]--;
+    goto fini;
+  case ROUTE_STEP_FIXON:
+    actor_dirfix[i] = 1;
+    goto fini;
+  case ROUTE_STEP_FIXOFF:
+    actor_dirfix[i] = 0;
+    goto fini;
+  case ROUTE_STEP_THRUON:
+    actor_thru[i] = 1;
+    goto fini;
+  case ROUTE_STEP_THRUOFF:
+    actor_thru[i] = 0;
+    goto fini;
+  case ROUTE_STEP_SWON:
+  case ROUTE_STEP_SWOFF:
+    vm_switch_set((u16)scene_ctx.scripts[route_ofs[i] + route_pos[i] + 1] |
+                      ((u16)scene_ctx.scripts[route_ofs[i] + route_pos[i] + 2]
+                       << 8),
+                  step == ROUTE_STEP_SWON);
+    adv = 3;
+    goto fini;
+  case ROUTE_STEP_GFX:
+    actor_gfx[i] = scene_ctx.scripts[route_ofs[i] + route_pos[i] + 1];
+    adv = 2;
+    goto fini;
+  default:
+    if ((step & 0xF0) == ROUTE_STEP_TURN)
+    {
+      d = step & 3;
+      goto tourne;
+    }
+    d = step & 3; /* 0x00-0x03 : marcher */
+    goto marche;
+  }
+
+tourne:
+  if (!actor_dirfix[i])
+    actor_dirs[i] = d;
+  goto fini;
+
+marche:
+  tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
+  ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
+  if (mv_blocked(i, tx, ty))
+  {
+    if (!actor_dirfix[i])
+      actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
+    if (route_flags[i] & ROUTE_FLAG_SKIP)
+      route_pos[i] += adv; /* « ignorer si bloqué » : pas suivant */
+    return; /* sinon : réessaie tant que c'est bloqué */
+  }
+  if (!actor_dirfix[i])
+    actor_dirs[i] = d;
+  actor_mvdir[i] = d; /* direction RÉELLE du déplacement (dirfix) */
+  actor_step[i] = 16;
+  route_pos[i] += adv;
+  /* pause de fréquence APRÈS un pas de marche (1 = lent, 8 = enchaîné) */
+  route_wait[i] = (u8)((8 - actor_freq[i]) << 2);
+  return;
+
+fini:
+  route_pos[i] += adv;
+}
+
+/* Mouvement des PNJ (v0.11/v0.12) — appelé chaque frame par la boucle
+   principale. Les ITINÉRAIRES avancent aussi pendant les scripts (c'est
+   le moteur des cinématiques) ; l'errance (move_type) reste gelée
+   pendant les scripts, et tout s'arrête dans le menu Système.
    Vitesse : 1 px une frame sur deux (moitié du héros). */
 void actors_update(void)
 {
   u8 i, d, tx, ty, mt;
   const ActorDef *a = scene_ctx.actors;
+  u8 frozen = vm_active();
 
   mv_phase ^= 1;
-  if (!mv_phase)
-    return;
 
   for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
   {
-    mt = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
-    if (mt == ACTOR_MOVE_STATIC || !actor_active[i] ||
-        a->actor_type != ACTOR_TYPE_NPC_STATIC)
+    if (!actor_active[i] || a->actor_type != ACTOR_TYPE_NPC_STATIC)
       continue;
+
+    /* itinéraire prioritaire sur l'errance */
+    if (route_ofs[i] != 0xFFFF)
+      route_tick(i);
+
+    mt = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
+    if (route_ofs[i] == 0xFFFF && (mt == ACTOR_MOVE_STATIC || frozen))
+    {
+      /* ni route ni errance : finir le pas en cours s'il y en a un */
+      if (!actor_step[i])
+        continue;
+    }
+    else if (route_ofs[i] == 0xFFFF && !actor_step[i])
+    {
+      /* errance (v0.11) : décision */
+      if (actor_timer[i])
+      {
+        actor_timer[i]--;
+        continue;
+      }
+      if (mt == ACTOR_MOVE_RANDOM)
+      {
+        d = (u8)(mv_rand() & 3);
+        actor_timer[i] = (u8)(64 + (mv_rand() & 127));
+      }
+      else
+      {
+        d = actor_dirs[i];
+        if (mt == ACTOR_MOVE_VERT && d != DIR_DOWN && d != DIR_UP)
+          d = DIR_DOWN;
+        if (mt == ACTOR_MOVE_HORIZ && d != DIR_LEFT && d != DIR_RIGHT)
+          d = DIR_RIGHT;
+        actor_timer[i] = 16;
+      }
+      tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
+      ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
+      if (mv_blocked(i, tx, ty))
+      {
+        if (mt != ACTOR_MOVE_RANDOM && !actor_dirfix[i])
+          actor_dirs[i] = d ^ 1; /* demi-tour */
+        continue;
+      }
+      if (!actor_dirfix[i])
+        actor_dirs[i] = d;
+      actor_mvdir[i] = d;
+      actor_step[i] = 16;
+    }
 
     if (actor_step[i])
     {
-      /* pas en cours : avancer d'1 px */
-      d = actor_dirs[i];
-      actor_px[i] += mv_dx[d];
-      actor_py[i] += mv_dy[d];
-      actor_step[i]--;
-      if ((actor_step[i] & 7) == 0)
-        actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
-      continue;
+      /* pas en cours — vitesse 1-4 : 0.5 / 1 / 2 / 4 px par frame */
+      u8 px = actor_speed[i] == 1 ? (mv_phase ? 1 : 0)
+              : actor_speed[i] == 2 ? 1
+              : actor_speed[i] == 3 ? 2 : 4;
+      d = actor_mvdir[i];
+      while (px && actor_step[i])
+      {
+        actor_px[i] += mv_dx[d];
+        actor_py[i] += mv_dy[d];
+        actor_step[i]--;
+        px--;
+        if ((actor_step[i] & 7) == 0)
+          actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
+      }
     }
-
-    if (actor_timer[i])
-    {
-      actor_timer[i]--;
-      continue;
-    }
-
-    /* décision : direction du prochain pas */
-    if (mt == ACTOR_MOVE_RANDOM)
-    {
-      d = (u8)(mv_rand() & 3);
-      actor_timer[i] = (u8)(32 + (mv_rand() & 63));
-    }
-    else
-    {
-      /* va-et-vient : continuer, demi-tour si bloqué */
-      d = actor_dirs[i];
-      if (mt == ACTOR_MOVE_VERT && d != DIR_DOWN && d != DIR_UP)
-        d = DIR_DOWN;
-      if (mt == ACTOR_MOVE_HORIZ && d != DIR_LEFT && d != DIR_RIGHT)
-        d = DIR_RIGHT;
-      actor_timer[i] = 8;
-    }
-    tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
-    ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
-    if (mv_blocked(i, tx, ty))
-    {
-      if (mt != ACTOR_MOVE_RANDOM)
-        actor_dirs[i] = d ^ 1; /* demi-tour (DOWN<->UP, LEFT<->RIGHT) */
-      continue;
-    }
-    actor_dirs[i] = d;
-    actor_step[i] = 16;
   }
 }
 
@@ -315,11 +643,30 @@ u8 actor_at_tile(u8 tx, u8 ty)
       continue;
     if (i < ACTOR_SLOTS)
     {
-      /* position RUNTIME (PNJ mobiles, v0.11) */
-      if (actor_active[i] && ACTOR_TX(i) == tx && ACTOR_TY(i) == ty)
+      /* position RUNTIME — seuls les « comme le héros » bloquent et se
+         parlent de face (priorité v0.14) */
+      if (actor_active[i] && actor_prio[i] == ACTOR_PRIO_SAME &&
+          ACTOR_TX(i) == tx && ACTOR_TY(i) == ty)
         return i;
     }
     else if (a->x == tx && a->y == ty)
+      return i;
+  }
+  return ACTOR_NONE;
+}
+
+/* Event « sous le héros » (priorité below) sur cette tile — interaction
+   en se tenant dessus, façon RM2003 (coffre au sol). */
+u8 actor_standing_at(u8 tx, u8 ty)
+{
+  u8 i;
+  const ActorDef *a = scene_ctx.actors;
+
+  for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
+  {
+    if (a->actor_type == ACTOR_TYPE_NPC_STATIC && actor_active[i] &&
+        actor_prio[i] == ACTOR_PRIO_BELOW && ACTOR_TX(i) == tx &&
+        ACTOR_TY(i) == ty)
       return i;
   }
   return ACTOR_NONE;
@@ -356,8 +703,9 @@ u16 actors_autorun(void)
 
 void actor_face(u8 index, u8 dir)
 {
-  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count)
-    actor_dirs[index] = dir & 3;
+  if (index < ACTOR_SLOTS && index < scene_ctx.actor_count &&
+      !actor_dirfix[index])
+    actor_dirs[index] = dir & 3; /* Direction Fix : orientation figée */
 }
 
 void actor_interact(u8 index)
@@ -369,5 +717,8 @@ void actor_interact(u8 index)
   actor_face(index, player.dir ^ 1);
 
   if (ofs != SCRIPT_NONE)
+  {
     vm_start(ofs);
+    vm.script_actor = index; /* cible du ROUTE « cet event » (v0.12) */
+  }
 }

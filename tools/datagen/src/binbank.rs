@@ -43,7 +43,7 @@ pub fn build_scene_bank(
     let (mut grids_raw, mut grids_rle) = (0usize, 0usize);
 
     for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids, &scene_ids)
+        let asm = script::assemble(&sc.script, text_ids, &scene_ids, &sprite_remaps[i])
             .with_context(|| format!("script de la scene '{}'", sc.name))?;
 
         let w = sc.width as usize;
@@ -87,7 +87,7 @@ pub fn build_scene_bank(
         let upper_ofs = tilemap_ofs + rle_lower.len();
         let collision_ofs = upper_ofs + rle_upper.len();
         let actors_ofs = collision_ofs + rle_col.len();
-        let warps_ofs = actors_ofs + sc.actors.len() * 12;
+        let warps_ofs = actors_ofs + sc.actors.len() * 16;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
         // Entrée de la Scene Table
@@ -125,7 +125,7 @@ pub fn build_scene_bank(
         blob.extend_from_slice(&rle_upper);
         blob.extend_from_slice(&rle_col);
 
-        // Entrées acteurs (spec §1.3 v0.10, 12 octets)
+        // Entrées acteurs (spec §1.3 v0.14, 16 octets)
         for a in &sc.actors {
             let ofs = match &a.entry {
                 None => 0xFFFFu16,
@@ -156,6 +156,16 @@ pub fn build_scene_bank(
             blob.push(if a.cont { 0x80 } else { 0 } | a.cond_type | (a.move_type << 3));
             blob.extend_from_slice(&a.cond_idx.to_le_bytes());
             blob.extend_from_slice(&a.cond_val.to_le_bytes());
+            // v0.14 : priorité | vitesse<<4, réservé, route custom
+            blob.push(a.priority | (a.speed << 4));
+            blob.push(0);
+            let rofs = match &a.route_label {
+                None => 0xFFFFu16,
+                Some(label) => *asm.labels.get(label).with_context(|| {
+                    format!("scene '{}' : blob de route '{}' introuvable", sc.name, label)
+                })?,
+            };
+            blob.extend_from_slice(&rofs.to_le_bytes());
         }
 
         // Entrées warps (spec §1.5, 8 octets)

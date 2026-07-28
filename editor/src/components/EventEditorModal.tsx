@@ -4,10 +4,11 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, GameEvent, MoveType, Scene } from "../types";
+import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
+import MoveRouteModal from "./MoveRouteModal";
 
 interface Props {
   event: GameEvent;
@@ -22,6 +23,10 @@ interface Props {
   labels: string[]; // labels du script manuel (champ avancé)
   switchNames: string[]; // noms des switches (project.json)
   varNames: string[]; // noms des variables 16-bit
+  // libellés des ENTRÉES acteur de la scène (une par page d'event) —
+  // cibles de « Déplacer un event » et « Tourner un event »
+  entryNames: string[];
+  charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -35,6 +40,7 @@ interface Line {
   depth: number;
   label: string;
   branch?: boolean; // ligne de branche ( : Quand [Oui] ) — non éditable
+  comment?: boolean; // commande « Commentaire » — style vert RM2003
 }
 
 function labelOf(c: Command): string {
@@ -55,20 +61,115 @@ function labelOf(c: Command): string {
       return `Tourner l'event ${c.event} vers ${c.dir}`;
     case "switch":
       return `Switch [${c.n}] ${c.on ? "ON" : "OFF"}`;
-    case "var":
-      return `Variable [${c.n}] ${c.op === "=" ? "=" : "+="} ${c.value}`;
+    case "var": {
+      const src = c.from === "var" ? `variable [${c.value}]`
+        : c.from === "hero_x" ? "X du héros"
+        : c.from === "hero_y" ? "Y du héros"
+        : c.from === "timer" ? "le timer"
+        : c.from === "scene" ? "n° de scène" : String(c.value);
+      return c.op === "rand"
+        ? `Variable [${c.n}] = hasard 0..${src}`
+        : `Variable [${c.n}] ${c.op}= ${src}`;
+    }
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
     case "if_var":
       return `Condition : si variable [${c.n}] ${c.op} ${c.value}`;
+    case "route":
+      return `Déplacer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${c.steps.length} pas${c.repeat ? " (répété)" : ""}`;
+    case "wait_route":
+      return "Attendre la fin des déplacements";
+    case "wait":
+      return `Attendre ${c.frames} frames`;
+    case "timer":
+      return c.op === "start" ? `Timer : démarrer (${c.secs ?? 0} s)`
+        : c.op === "stop" ? "Timer : arrêter"
+        : c.op === "show" ? "Timer : afficher" : "Timer : cacher";
+    case "campan":
+      return `Caméra : pan vers (${c.x},${c.y}) vitesse ${c.speed}`;
+    case "cam_return":
+      return `Caméra : retour au héros (vitesse ${c.speed})`;
+    case "wait_cam":
+      return "Attendre la caméra";
+    case "loop":
+      return "Boucle";
+    case "break":
+      return "Sortir de la boucle";
+    case "rem":
+      return `Commentaire : ${c.text}`;
+    case "hero_loc":
+      return `Mémoriser la position du héros → variables [${c.vs}],[${c.vx}],[${c.vy}]`;
+    case "warp_var":
+      return `Téléporter le héros aux variables [${c.vs}],[${c.vx}],[${c.vy}]`;
+    case "setpos":
+      return `Placer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${
+        c.from === "vars" ? `variables [${c.x}],[${c.y}]` : `(${c.x},${c.y})`}`;
+    case "swappos":
+      return `Échanger ${c.a < 0 ? "cet event" : `l'event ${c.a}`} ↔ ${
+        c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
+    case "scr_hide":
+      return `Cacher l'écran (vitesse ${c.speed})`;
+    case "scr_show":
+      return `Montrer l'écran (vitesse ${c.speed})`;
+    case "tint":
+      return c.mode === "off"
+        ? "Teinte : normale"
+        : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`;
+    case "flash":
+      return `Flash d'écran (${c.r},${c.g},${c.b}) ${c.frames} frames`;
+    case "shake":
+      return c.power === 0
+        ? "Secousse : stop"
+        : `Secouer l'écran (force ${c.power}, ${c.frames} frames)`;
   }
+}
+
+// Titre de la fenêtre d'options d'une commande (mêmes libellés que le
+// sélecteur par onglets)
+function cmdTitle(c: Command["c"]): string {
+  const titles: Partial<Record<Command["c"], string>> = {
+    msg: "Afficher un message",
+    choice: "Afficher un choix",
+    set: "Variable 8-bit (héritage)",
+    add: "Variable 8-bit (héritage)",
+    if: "Condition 8-bit (héritage)",
+    switch: "Modifier un switch",
+    var: "Modifier une variable",
+    if_sw: "Condition : switch",
+    if_var: "Condition : variable",
+    route: "Déplacer un event",
+    wait_route: "Attendre la fin des déplacements",
+    face: "Tourner un event",
+    warp: "Téléporter le héros",
+    wait: "Attendre",
+    timer: "Timer",
+    campan: "Déplacer la caméra",
+    cam_return: "Caméra : retour au héros",
+    wait_cam: "Attendre la caméra",
+    loop: "Boucle",
+    break: "Sortir de la boucle",
+    rem: "Commentaire",
+    hero_loc: "Mémoriser la position du héros",
+    warp_var: "Téléporter aux variables",
+    setpos: "Placer un event",
+    swappos: "Échanger deux events",
+    scr_hide: "Cacher l'écran",
+    scr_show: "Montrer l'écran",
+    tint: "Teinter l'écran",
+    flash: "Flash d'écran",
+    shake: "Secouer l'écran",
+  };
+  return titles[c] ?? "Options de la commande";
 }
 
 function flatten(cmds: Command[], base: string, depth: number, out: Line[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
-    out.push({ path, depth, label: labelOf(c) });
-    if (c.c === "choice") {
+    out.push({ path, depth, label: labelOf(c), comment: c.c === "rem" });
+    if (c.c === "loop") {
+      flatten(c.do, `${path}.d.`, depth + 1, out);
+      out.push({ path: `${path}.d.-1`, depth: depth + 1, label: ": Fin de boucle", branch: true });
+    } else if (c.c === "choice") {
       c.options.forEach((o, k) => {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
         flatten(o.do, `${path}.o${k}.`, depth + 2, out);
@@ -106,6 +207,9 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
       ) {
         list = sel === "t" ? c.then : c.else;
         i++;
+      } else if (c.c === "loop" && sel === "d") {
+        list = c.do;
+        i++;
       }
     }
   }
@@ -122,6 +226,9 @@ export default function EventEditorModal(props: Props) {
       ? {
           condition: draft.condition,
           move: draft.move,
+          move_route: draft.move_route,
+          priority: draft.priority,
+          speed: draft.speed,
           trigger: draft.trigger,
           sprite: draft.sprite,
           dir: draft.dir,
@@ -146,7 +253,12 @@ export default function EventEditorModal(props: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   // fenêtre Switches/Variables ouverte depuis un formulaire (bouton …)
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
+  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
+  const [pageRouteOpen, setPageRouteOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
+
+  // presse-papiers de commandes (Ctrl+C / Ctrl+V dans la liste Contenu)
+  const [clipCmd, setClipCmd] = useState<Command | null>(null);
 
   const lines: Line[] = [];
   flatten(cmds, "", 0, lines);
@@ -158,8 +270,6 @@ export default function EventEditorModal(props: Props) {
     const { list, index } = resolve(cmds, path);
     return list[index] ?? null;
   }
-  const selCmd = cmdAt(sel);
-
   // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
   function openPicker(path: string) {
     setSel(path);
@@ -176,6 +286,34 @@ export default function EventEditorModal(props: Props) {
     setForm(structuredClone(c));
     setFormIsNew(false);
   }
+
+  // Ctrl+C copie la commande sélectionnée, Ctrl+V l'insère à la ligne
+  // courante, Suppr la supprime — inactifs quand un champ a le focus ou
+  // qu'une sous-fenêtre est ouverte (demande utilisateur).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (form || picking || menu || varPick || pageRouteOpen) return;
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const c = cmdAt(sel);
+        if (c) {
+          setClipCmd(structuredClone(c));
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (clipCmd) {
+          insertCmd(structuredClone(clipCmd));
+          e.preventDefault();
+        }
+      } else if (e.key === "Delete") {
+        deleteCmd();
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   useEffect(() => {
     const cv = previewRef.current;
@@ -225,16 +363,16 @@ export default function EventEditorModal(props: Props) {
     setForm(null);
   }
 
-  function moveCmd(delta: number) {
-    if (!selCmd) return;
-    const { list, index } = resolve(cmds, sel);
+  function moveCmd(delta: number, path = sel) {
+    if (!cmdAt(path)) return;
+    const { list, index } = resolve(cmds, path);
     const j = index + delta;
     if (j < 0 || j >= list.length) return;
     commit(() => {
       const [c] = list.splice(index, 1);
       list.splice(j, 0, c);
     });
-    setSel(sel.replace(/\d+$/, String(j)));
+    setSel(path.replace(/\d+$/, String(j)));
   }
 
   function defaultCmd(t: Command["c"]): Command {
@@ -264,6 +402,44 @@ export default function EventEditorModal(props: Props) {
         return { c: "if_sw", n: 0, on: true, then: [], else: [] };
       case "if_var":
         return { c: "if_var", n: 0, op: "==", value: 1, then: [], else: [] };
+      case "route":
+        return { c: "route", event: -1, repeat: false, skip: false, steps: [] };
+      case "wait_route":
+        return { c: "wait_route" };
+      case "wait":
+        return { c: "wait", frames: 60 };
+      case "timer":
+        return { c: "timer", op: "start", secs: 60 };
+      case "campan":
+        return { c: "campan", x: 0, y: 0, speed: 2 };
+      case "cam_return":
+        return { c: "cam_return", speed: 2 };
+      case "wait_cam":
+        return { c: "wait_cam" };
+      case "loop":
+        return { c: "loop", do: [] };
+      case "break":
+        return { c: "break" };
+      case "rem":
+        return { c: "rem", text: "" };
+      case "hero_loc":
+        return { c: "hero_loc", vs: 0, vx: 1, vy: 2 };
+      case "warp_var":
+        return { c: "warp_var", vs: 0, vx: 1, vy: 2 };
+      case "setpos":
+        return { c: "setpos", event: -1, from: "const", x: 0, y: 0 };
+      case "swappos":
+        return { c: "swappos", a: -1, b: 0 };
+      case "scr_hide":
+        return { c: "scr_hide", speed: 1 };
+      case "scr_show":
+        return { c: "scr_show", speed: 1 };
+      case "tint":
+        return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
+      case "flash":
+        return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
+      case "shake":
+        return { c: "shake", power: 4, speed: 2, frames: 30 };
     }
   }
 
@@ -413,15 +589,35 @@ export default function EventEditorModal(props: Props) {
                 value={cur.move ?? "static"}
                 disabled={cur.trigger !== "action"}
                 title={cur.trigger !== "action" ? "Seuls les events « touche action » se déplacent" : undefined}
-                onChange={(e) =>
-                  patchCur({ move: e.target.value === "static" ? undefined : (e.target.value as MoveType) })
-                }
+                onChange={(e) => {
+                  const move = e.target.value === "static" ? undefined : (e.target.value as MoveType);
+                  patchCur({
+                    move,
+                    move_route:
+                      move === "custom"
+                        ? cur.move_route ?? { freq: 3, repeat: true, skip: false, steps: [] }
+                        : undefined,
+                  });
+                }}
               >
                 <option value="static">Statique</option>
                 <option value="random">Aléatoire</option>
                 <option value="vertical">Vertical (haut-bas)</option>
                 <option value="horizontal">Horizontal (gauche-droite)</option>
+                <option value="custom">Route custom</option>
               </select>
+              {cur.move === "custom" && (
+                <>
+                  <button onClick={() => setPageRouteOpen(true)}>
+                    Éditer la route… ({cur.move_route?.steps.length ?? 0} pas)
+                  </button>
+                  {(cur.move_route?.steps.length ?? 0) === 0 && (
+                    <span className="hint" style={{ color: "#ff7070" }}>
+                      Route vide — datagen la refusera.
+                    </span>
+                  )}
+                </>
+              )}
             </fieldset>
             <fieldset className="evedit-box">
               <legend>Déclencheur</legend>
@@ -434,10 +630,31 @@ export default function EventEditorModal(props: Props) {
                 <option value="auto">Auto-start (chargement)</option>
               </select>
             </fieldset>
-            <fieldset className="evedit-box" disabled title="À venir (P4)">
+            <fieldset className="evedit-box">
               <legend>Priorité / Vitesse</legend>
-              <select>
-                <option>Sous le héros</option>
+              <select
+                value={cur.priority ?? "same"}
+                onChange={(e) =>
+                  patchCur({ priority: e.target.value === "same" ? undefined : (e.target.value as EventPriority) })
+                }
+                title="Sous le héros : traversable, s'active en se tenant dessus. Au-dessus : traversable, dessiné par-dessus tout."
+              >
+                <option value="below">Sous le héros</option>
+                <option value="same">Comme le héros</option>
+                <option value="above">Au-dessus du héros</option>
+              </select>
+              <select
+                value={cur.speed ?? 1}
+                disabled={cur.trigger !== "action"}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  patchCur({ speed: v === 1 ? undefined : v });
+                }}
+              >
+                <option value={1}>Vitesse 1 (lente)</option>
+                <option value={2}>Vitesse 2 (normale)</option>
+                <option value={3}>Vitesse 3 (rapide)</option>
+                <option value={4}>Vitesse 4 (très rapide)</option>
               </select>
             </fieldset>
             {props.labels.length > 0 && (
@@ -468,7 +685,8 @@ export default function EventEditorModal(props: Props) {
                 <div
                   key={l.path}
                   className={
-                    "evedit-line" + (l.path === sel ? " active" : "") + (l.branch ? " branch" : "")
+                    "evedit-line" + (l.path === sel ? " active" : "") +
+                    (l.branch ? " branch" : "") + (l.comment ? " comment" : "")
                   }
                   style={{ paddingLeft: 6 + l.depth * 16 }}
                   onClick={() => {
@@ -496,38 +714,6 @@ export default function EventEditorModal(props: Props) {
                 </div>
               ))}
             </div>
-            <p className="hint">
-              Double-clic sur une ligne vide : ajouter une commande. Clic droit :
-              insérer / éditer.
-            </p>
-            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-              <button onClick={() => openPicker(sel)}>Ajouter…</button>
-              <button disabled={!selCmd} onClick={() => openEditor(sel)}>
-                Modifier…
-              </button>
-              <button disabled={!selCmd} onClick={() => deleteCmd()}>
-                Supprimer
-              </button>
-              <button disabled={!selCmd} onClick={() => moveCmd(-1)}>
-                ↑
-              </button>
-              <button disabled={!selCmd} onClick={() => moveCmd(1)}>
-                ↓
-              </button>
-            </div>
-            {form && (
-              <CommandForm
-                cmd={form}
-                sceneNames={props.sceneNames}
-                scenes={props.scenes}
-                switchNames={props.switchNames}
-                varNames={props.varNames}
-                onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
-                onChange={setForm}
-                onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
-                onCancel={() => setForm(null)}
-              />
-            )}
           </div>
         </div>
         <div className="row">
@@ -541,6 +727,27 @@ export default function EventEditorModal(props: Props) {
       </div>
       </div>
 
+      {form && (
+        <div className="modal-backdrop" onClick={() => setForm(null)}>
+          <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
+            <div className="palette-title">{cmdTitle(form.c)}</div>
+            <CommandForm
+              cmd={form}
+              sceneNames={props.sceneNames}
+              scenes={props.scenes}
+              switchNames={props.switchNames}
+              varNames={props.varNames}
+              entryNames={props.entryNames}
+              charsetNames={props.charsetNames}
+              onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
+              onChange={setForm}
+              onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
+              onCancel={() => setForm(null)}
+            />
+          </div>
+        </div>
+      )}
+
       {picking && (
         <EventCommandPicker
           onClose={() => setPicking(false)}
@@ -552,6 +759,29 @@ export default function EventEditorModal(props: Props) {
         />
       )}
 
+      {pageRouteOpen && (
+        <MoveRouteModal
+          cmd={{
+            c: "route",
+            event: -1,
+            repeat: cur.move_route?.repeat ?? true,
+            skip: cur.move_route?.skip ?? false,
+            freq: cur.move_route?.freq ?? 3,
+            steps: cur.move_route?.steps ?? [],
+          }}
+          hideTarget
+          eventNames={props.entryNames}
+          switchNames={props.switchNames}
+          charsetNames={props.charsetNames}
+          onClose={() => setPageRouteOpen(false)}
+          onOk={(c) => {
+            patchCur({
+              move_route: { freq: c.freq ?? 3, repeat: c.repeat, skip: c.skip, steps: c.steps },
+            });
+            setPageRouteOpen(false);
+          }}
+        />
+      )}
       {varPick && (
         <VarListModal
           kind={varPick.kind}
@@ -602,6 +832,25 @@ export default function EventEditorModal(props: Props) {
             <button
               disabled={!cmdAt(menu.path)}
               onClick={() => {
+                moveCmd(-1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↑ Monter
+            </button>
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
+                moveCmd(1, menu.path);
+                setMenu(null);
+              }}
+            >
+              ↓ Descendre
+            </button>
+            <div className="menu-sep" />
+            <button
+              disabled={!cmdAt(menu.path)}
+              onClick={() => {
                 setSel(menu.path);
                 deleteCmd(menu.path);
                 setMenu(null);
@@ -624,12 +873,16 @@ function CommandForm(props: {
   scenes: Record<string, Scene>;
   switchNames: string[];
   varNames: string[];
+  entryNames: string[];
+  charsetNames: string[];
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
   onOk: () => void;
   onCancel: () => void;
 }) {
   const { cmd, onChange } = props;
+  // fenêtre Itinéraire (commande « Déplacer un event »)
+  const [routeOpen, setRouteOpen] = useState(false);
   const varField = (v: string, set: (s: string) => void) => (
     <label>
       Variable (v0-v63 scène, g0-g63 globale)
@@ -779,7 +1032,7 @@ function CommandForm(props: {
     case "var":
       valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
       body = (
-        <div className="row">
+        <div className="row" style={{ flexWrap: "wrap" }}>
           <label>
             Variable (0-255)
             <span className="row" style={{ gap: 4 }}>
@@ -796,19 +1049,44 @@ function CommandForm(props: {
             Opération
             <select
               value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "=" | "+" })}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as VarOp })}
             >
               <option value="=">= (affecter)</option>
               <option value="+">+ (ajouter)</option>
+              <option value="-">− (soustraire)</option>
+              <option value="*">× (multiplier)</option>
+              <option value="/">÷ (diviser)</option>
+              <option value="%">mod (reste)</option>
+              <option value="rand">hasard 0..N</option>
             </select>
           </label>
           <label>
-            Valeur (16 bits{cmd.op === "+" ? ", négatif accepté" : ""})
-            <input
-              type="number" min={-32768} max={65535} value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-            />
+            Source
+            <select
+              value={cmd.from ?? "const"}
+              onChange={(e) => {
+                const from = e.target.value as VarSource;
+                onChange({ ...cmd, from: from === "const" ? undefined : from });
+              }}
+            >
+              <option value="const">Constante</option>
+              <option value="var">Une variable</option>
+              <option value="hero_x">X du héros (tiles)</option>
+              <option value="hero_y">Y du héros (tiles)</option>
+              <option value="timer">Timer (secondes)</option>
+              <option value="scene">N° de la scène courante</option>
+            </select>
           </label>
+          {(cmd.from ?? "const") === "const" || cmd.from === "var" ? (
+            <label>
+              {cmd.from === "var" ? "N° de variable source" : "Valeur"}
+              <input
+                type="number" min={cmd.from === "var" ? 0 : -32768}
+                max={cmd.from === "var" ? 255 : 65535} value={cmd.value}
+                onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+              />
+            </label>
+          ) : null}
         </div>
       );
       break;
@@ -876,6 +1154,382 @@ function CommandForm(props: {
             />
           </label>
         </div>
+      );
+      break;
+    case "route":
+      valid = cmd.steps.length > 0;
+      body = (
+        <>
+          <span className="hint">
+            {cmd.event < 0 ? "Cet event" : props.entryNames[cmd.event] ?? `event ${cmd.event}`} —{" "}
+            {cmd.steps.length} pas{cmd.repeat ? ", répété" : ""}
+            {cmd.skip ? ", ignore si bloqué" : ""}. L'itinéraire part en
+            tâche de fond : le séquencer avec « Attendre la fin des
+            déplacements ».
+          </span>
+          <button onClick={() => setRouteOpen(true)}>Modifier l'itinéraire…</button>
+          {routeOpen && (
+            <MoveRouteModal
+              cmd={cmd}
+              eventNames={props.entryNames}
+              switchNames={props.switchNames}
+              charsetNames={props.charsetNames}
+              onClose={() => setRouteOpen(false)}
+              onOk={(c) => {
+                onChange(c);
+                setRouteOpen(false);
+              }}
+            />
+          )}
+        </>
+      );
+      break;
+    case "wait_route":
+      body = (
+        <span className="hint">
+          Bloque le script jusqu'à la fin de tous les itinéraires (les
+          itinéraires « répétés » ne sont pas attendus).
+        </span>
+      );
+      break;
+    case "wait":
+      valid = cmd.frames >= 1 && cmd.frames <= 255;
+      body = (
+        <label>
+          Durée (frames, 60 = 1 seconde)
+          <input
+            type="number" min={1} max={255} value={cmd.frames} autoFocus
+            onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+          />
+        </label>
+      );
+      break;
+    case "timer":
+      valid = cmd.op !== "start" || ((cmd.secs ?? 0) >= 1 && (cmd.secs ?? 0) <= 5999);
+      body = (
+        <div className="row">
+          <label>
+            Action
+            <select
+              value={cmd.op}
+              onChange={(e) => onChange({ ...cmd, op: e.target.value as "start" | "stop" | "show" | "hide" })}
+            >
+              <option value="start">Régler et démarrer</option>
+              <option value="stop">Arrêter</option>
+              <option value="show">Afficher (coin haut-droit)</option>
+              <option value="hide">Cacher</option>
+            </select>
+          </label>
+          {cmd.op === "start" && (
+            <label>
+              Secondes (1-5999)
+              <input
+                type="number" min={1} max={5999} value={cmd.secs ?? 60}
+                onChange={(e) => onChange({ ...cmd, secs: Number(e.target.value) })}
+              />
+            </label>
+          )}
+        </div>
+      );
+      break;
+    case "campan":
+      body = (
+        <div className="row">
+          <label>
+            Tile x
+            <input type="number" min={0} max={254} value={cmd.x}
+              onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
+          </label>
+          <label>
+            Tile y
+            <input type="number" min={0} max={254} value={cmd.y}
+              onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
+          </label>
+          <label>
+            Vitesse (px/frame)
+            <input type="number" min={1} max={8} value={cmd.speed}
+              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
+          </label>
+          <span className="hint">Non bloquant — enchaîner avec « Attendre la caméra ».</span>
+        </div>
+      );
+      break;
+    case "cam_return":
+      body = (
+        <label>
+          Vitesse (px/frame)
+          <input type="number" min={1} max={8} value={cmd.speed}
+            onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
+        </label>
+      );
+      break;
+    case "wait_cam":
+      body = <span className="hint">Bloque le script jusqu'à la fin du pan caméra.</span>;
+      break;
+    case "loop":
+      body = (
+        <span className="hint">
+          Les commandes ajoutées entre « Boucle » et « : Fin de boucle »
+          se répètent pour toujours — en sortir avec « Sortir de la
+          boucle » (ou Téléporter le héros).
+        </span>
+      );
+      break;
+    case "break":
+      body = (
+        <span className="hint">
+          Saute à la fin de la boucle la plus proche. Hors d'une boucle,
+          datagen refusera la scène.
+        </span>
+      );
+      break;
+    case "rem":
+      body = (
+        <label>
+          Commentaire (jamais affiché en jeu)
+          <textarea
+            rows={3}
+            value={cmd.text}
+            autoFocus
+            onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+          />
+        </label>
+      );
+      break;
+    case "hero_loc":
+    case "warp_var": {
+      const triple: { key: "vs" | "vx" | "vy"; label: string }[] = [
+        { key: "vs", label: "Variable scène" },
+        { key: "vx", label: "Variable X (tiles)" },
+        { key: "vy", label: "Variable Y (tiles)" },
+      ];
+      valid = triple.every((t) => cmd[t.key] >= 0 && cmd[t.key] < 256);
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {triple.map((t) => (
+              <label key={t.key}>
+                {t.label}
+                <span className="row" style={{ gap: 4 }}>
+                  <input
+                    type="number" min={0} max={255} value={cmd[t.key]}
+                    onChange={(e) => onChange({ ...cmd, [t.key]: Number(e.target.value) })}
+                  />
+                  <button className="browse" title="Choisir dans la liste"
+                    onClick={() => props.onPickVar("var", cmd[t.key], (n) => onChange({ ...cmd, [t.key]: n }))}>…</button>
+                </span>
+                <span className="hint">{props.varNames[cmd[t.key]] || ""}</span>
+              </label>
+            ))}
+          </div>
+          <span className="hint">
+            {cmd.c === "hero_loc"
+              ? "Écrit la scène courante et la tile du héros dans ces trois variables (à rappeler avec « Téléporter aux variables »)."
+              : "Téléporte le héros à la scène et la tile lues dans ces trois variables — termine le script, comme un warp."}
+          </span>
+        </>
+      );
+      break;
+    }
+    case "setpos":
+      valid = cmd.x >= 0 && cmd.x <= 254 && cmd.y >= 0 && cmd.y <= 254;
+      body = (
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          <label style={{ flex: 2 }}>
+            Event
+            <select
+              value={cmd.event}
+              onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
+            >
+              <option value={-1}>Cet event</option>
+              {props.entryNames.map((n, i) => (
+                <option key={i} value={i}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Coordonnées
+            <select
+              value={cmd.from}
+              onChange={(e) => onChange({ ...cmd, from: e.target.value as "const" | "vars" })}
+            >
+              <option value="const">Constantes (tiles)</option>
+              <option value="vars">Dans des variables</option>
+            </select>
+          </label>
+          <label>
+            {cmd.from === "vars" ? "Variable X" : "x"}
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+              {cmd.from === "vars" && (
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() => props.onPickVar("var", cmd.x, (n) => onChange({ ...cmd, x: n }))}>…</button>
+              )}
+            </span>
+          </label>
+          <label>
+            {cmd.from === "vars" ? "Variable Y" : "y"}
+            <span className="row" style={{ gap: 4 }}>
+              <input
+                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+              {cmd.from === "vars" && (
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() => props.onPickVar("var", cmd.y, (n) => onChange({ ...cmd, y: n }))}>…</button>
+              )}
+            </span>
+          </label>
+        </div>
+      );
+      break;
+    case "swappos":
+      valid = cmd.a !== cmd.b;
+      body = (
+        <div className="row">
+          {(["a", "b"] as const).map((k) => (
+            <label key={k} style={{ flex: 1 }}>
+              {k === "a" ? "Event A" : "Event B"}
+              <select
+                value={cmd[k]}
+                onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+              >
+                <option value={-1}>Cet event</option>
+                {props.entryNames.map((n, i) => (
+                  <option key={i} value={i}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      );
+      break;
+    case "scr_hide":
+    case "scr_show":
+      valid = cmd.speed >= 1 && cmd.speed <= 15;
+      body = (
+        <>
+          <label>
+            Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
+            <input
+              type="number" min={1} max={15} value={cmd.speed} autoFocus
+              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+            />
+          </label>
+          <span className="hint">
+            {cmd.c === "scr_hide"
+              ? "Fondu vers le noir — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
+              : "Fondu entrant — bloque le script jusqu'à la pleine luminosité."}
+          </span>
+        </>
+      );
+      break;
+    case "tint":
+      valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <label>
+              Mode
+              <select
+                value={cmd.mode}
+                onChange={(e) => onChange({ ...cmd, mode: e.target.value as "off" | "add" | "sub" })}
+              >
+                <option value="off">Normale (retirer la teinte)</option>
+                <option value="add">Éclaircir (+)</option>
+                <option value="sub">Assombrir (−)</option>
+              </select>
+            </label>
+            {cmd.mode !== "off" &&
+              (["r", "g", "b"] as const).map((k) => (
+                <label key={k}>
+                  {k.toUpperCase()} (0-31)
+                  <input
+                    type="number" min={0} max={31} value={cmd[k]}
+                    onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                  />
+                </label>
+              ))}
+          </div>
+          <span className="hint">
+            Immédiate, persiste entre les scènes. Teinte le décor — pas les
+            personnages ni le texte (limite hardware SNES). Nuit :
+            assombrir (12,12,4).
+          </span>
+        </>
+      );
+      break;
+    case "flash":
+      valid =
+        [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31) &&
+        cmd.frames >= 1 && cmd.frames <= 255;
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            {(["r", "g", "b"] as const).map((k) => (
+              <label key={k}>
+                {k.toUpperCase()} (0-31)
+                <input
+                  type="number" min={0} max={31} value={cmd[k]}
+                  onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                />
+              </label>
+            ))}
+            <label>
+              Durée (frames)
+              <input
+                type="number" min={1} max={255} value={cmd.frames}
+                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Éclair qui décroît sur la durée — non bloquant (enchaîner avec
+            « Attendre »). Blanc plein : 31,31,31.
+          </span>
+        </>
+      );
+      break;
+    case "shake":
+      valid = cmd.power >= 0 && cmd.power <= 8 && cmd.speed >= 1 && cmd.speed <= 8 &&
+        cmd.frames >= 0 && cmd.frames <= 255;
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Force (px, 0 = arrêter)
+              <input
+                type="number" min={0} max={8} value={cmd.power} autoFocus
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Vitesse (frames par va-et-vient)
+              <input
+                type="number" min={1} max={8} value={cmd.speed}
+                onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Durée (frames)
+              <input
+                type="number" min={0} max={255} value={cmd.frames}
+                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Secousse horizontale — non bloquante (enchaîner avec
+            « Attendre »).
+          </span>
+        </>
       );
       break;
     case "warp": {

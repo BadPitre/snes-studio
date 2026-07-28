@@ -149,6 +149,67 @@ déclencheurs « touche action » ; le PNJ se déplace d'une tile à la fois à
 la moitié de la vitesse du héros, sans jamais marcher sur lui ni sur un
 autre event, et gèle pendant les dialogues.
 
+**Move Route (v0.12)** : `{"c":"route","event":-1,"repeat":false,
+"skip":false,"steps":[{"s":"right"},{"s":"wait","n":4},{"s":"face"}]}` —
+`event` : -1 = cet event, sinon n° d'ENTRÉE (les pages comptent) ; pas :
+`down/up/left/right`, `tdown/tup/tleft/tright` (tourner), `fwd`, `face`,
+`{"s":"wait","n":1-15}` (n×8 frames), et v0.13 : `mrand/mhero/mflee`
+(marcher au hasard / vers / fuir le héros), `t90r/t90l/t180/t90x/trand/
+tflee` (rotations), `spd+/spd-` (vitesse 1-4), `frq+/frq-` (fréquence
+1-8), `fixon/fixoff` (direction fixe), `thruon/thruoff` (passe-muraille),
+`{"s":"swon"|"swoff","n":0-511}` (switch dans la route),
+`{"s":"gfx","block":b}` (changer le graphisme — le bloc compte dans les
+5 charsets de la scène). La route accepte `"freq":1-8` (défaut 3).
+L'itinéraire part en tâche de fond ;
+`{"c":"wait_route"}` bloque jusqu'à la fin des itinéraires non répétés,
+`{"c":"wait","frames":n}` fait une pause. Assembleur : `ROUTE <acteur|self>
+<r> <s> <pas...>`, `WAITROUTE`, `WAIT <frames>`.
+
+**v0.13** : `{"c":"var"}` gagne l'arithmétique complète (`op` : `=`, `+`,
+`-`, `*`, `/`, `%`, `rand`) et des sources (`from` : `const` (défaut),
+`var` (value = n° de variable source), `hero_x`, `hero_y`, `timer`) ;
+`{"c":"timer","op":"start|stop|show|hide","secs":n}` (affichage « M:SS »
+coin haut-droit) ; `{"c":"campan","x","y","speed":1-8}` (non bloquant),
+`{"c":"cam_return","speed"}`, `{"c":"wait_cam"}`. Assembleur : `VAROP
+<dst> <op> <const|var|hx|hy|timer> <src>`, `TIMER <op> <val>`, `CAMPAN`,
+`CAMRET`, `WAITCAM`.
+
+**v0.15 (positions)** : `{"c":"hero_loc","vs":n,"vx":n,"vy":n}` mémorise
+la position du héros (scène/X/Y) dans trois variables 16-bit — compilé
+en trois `VAROP` (nouvelle source `scene`) ; `{"c":"warp_var","vs","vx",
+"vy"}` la rappelle (téléport, termine le script — assembleur `WARPV`) ;
+`{"c":"setpos","event":-1|n,"from":"const"|"vars","x","y"}` place un
+event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
+<acteur|self> <c|v> <x> <y>` ; `{"c":"swappos","a":-1|n,"b":-1|n}`
+échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
+= cet event (résolu en index d'entrée par datagen, comme route).
+
+**v0.15 (écran)** : `{"c":"scr_hide","speed":1-15}` / `{"c":"scr_show",
+"speed"}` — fondu sortant/entrant bloquant (assembleur `SCRHIDE`/
+`SCRSHOW <vitesse>`) ; `{"c":"tint","mode":"off"|"add"|"sub","r","g",
+"b"}` (0-31) — teinte du décor, immédiate et persistante (`TINT <mode>
+<r> <g> <b>`) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
+"frames"}` — secousse horizontale non bloquante, power 0 = stop
+(`SHAKE`). La teinte et le flash ne touchent ni le texte ni les
+personnages (hardware SNES : color math OBJ limité aux palettes 4-7).
+
+**v0.15** : `{"c":"loop","do":[...]}` — boucle RM2003 : le corps se
+répète pour toujours ; `{"c":"break"}` saute à la fin de la boucle la
+plus proche (hors d'une boucle : erreur datagen). Compilation pure
+(label de tête + `JMP`, aucun opcode nouveau). Une boucle sans commande
+bloquante est légale : la VM exécute 32 opcodes par frame puis rend la
+main (plus de halt debug sur budget épuisé). `{"c":"rem","text":"..."}` —
+commentaire décoratif de l'éditeur, aucun bytecode émis (le texte n'a
+pas la contrainte ASCII des messages).
+
+**v0.14** : par event ou par page — `"move": "custom"` +
+`"move_route": {"freq":1-8,"repeat":bool,"skip":bool,"steps":[...]}`
+(mêmes pas que la commande route) ; `"priority": "below"|"same"|"above"`
+(défaut same) ; `"speed": 1-4` (défaut 1). En binaire : entrée acteur
+16 octets, blob de route en queue du bloc scripts (directive interne
+`RTBLOB`).
+
 **Pages (v0.10)** : un event peut remplacer ses champs plats par
 `"pages": [...]` — chaque page a `condition` (`{"switch": n, "on": bool}`
 ou `{"var": n, "min": v}`, absente = toujours), `trigger`, `sprite`,

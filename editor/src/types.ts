@@ -72,9 +72,93 @@ export type Command =
   // set/add/if sur v/g 8-bit restent lisibles (héritage) mais la fenêtre
   // de commandes ne propose plus que les versions modernes.
   | { c: "switch"; n: number; on: boolean }
-  | { c: "var"; n: number; op: "=" | "+"; value: number }
   | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
-  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] };
+  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
+  // v0.12 — Move Route (cinématiques) : itinéraire en tâche de fond,
+  // attente de fin, pause bloquante
+  | { c: "route"; event: number; repeat: boolean; skip: boolean; freq?: number; steps: RouteStep[] }
+  | { c: "wait_route" }
+  | { c: "wait"; frames: number }
+  // v0.13 — opérations avancées, timer, caméra scriptée
+  | { c: "var"; n: number; op: VarOp; from?: VarSource; value: number }
+  | { c: "timer"; op: "start" | "stop" | "show" | "hide"; secs?: number }
+  | { c: "campan"; x: number; y: number; speed: number }
+  | { c: "cam_return"; speed: number }
+  | { c: "wait_cam" }
+  // v0.15 — boucles RM2003 et commentaires (datagen pur : loop = label +
+  // JMP, break = JMP fin de boucle, rem = rien)
+  | { c: "loop"; do: Command[] }
+  | { c: "break" }
+  | { c: "rem"; text: string }
+  // v0.15 — positions scriptées : mémoriser la position du héros dans 3
+  // variables (scène/X/Y), la rappeler (téléport), placer/échanger des
+  // events. event/a/b : -1 = cet event, sinon n° d'ENTRÉE de la scène.
+  | { c: "hero_loc"; vs: number; vx: number; vy: number }
+  | { c: "warp_var"; vs: number; vx: number; vy: number }
+  | { c: "setpos"; event: number; from: "const" | "vars"; x: number; y: number }
+  | { c: "swappos"; a: number; b: number }
+  // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
+  // persistante (décor seulement — hardware), flash et secousse non
+  // bloquants (enchaîner avec « Attendre »)
+  | { c: "scr_hide"; speed: number }
+  | { c: "scr_show"; speed: number }
+  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
+  | { c: "flash"; r: number; g: number; b: number; frames: number }
+  | { c: "shake"; power: number; speed: number; frames: number };
+
+export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
+export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";
+
+// Un pas d'itinéraire (v0.13, dialogue Move Route complet).
+// wait : n × 8 frames (1-15) ; swon/swoff : n = switch ; gfx : block projet.
+export type RouteStep =
+  | {
+      s:
+        | "down" | "up" | "left" | "right"
+        | "mrand" | "mhero" | "mflee" | "fwd"
+        | "tdown" | "tup" | "tleft" | "tright"
+        | "t90r" | "t90l" | "t180" | "t90x" | "trand" | "face" | "tflee"
+        | "spd+" | "spd-" | "frq+" | "frq-"
+        | "fixon" | "fixoff" | "thruon" | "thruoff";
+    }
+  | { s: "wait"; n: number }
+  | { s: "swon"; n: number }
+  | { s: "swoff"; n: number }
+  | { s: "gfx"; block: number };
+
+export const ROUTE_STEP_LABELS: Record<string, string> = {
+  down: "Marcher bas",
+  up: "Marcher haut",
+  left: "Marcher gauche",
+  right: "Marcher droite",
+  mrand: "Marcher au hasard",
+  mhero: "Vers le héros",
+  mflee: "Fuir le héros",
+  fwd: "Un pas en avant",
+  tdown: "Tourner bas",
+  tup: "Tourner haut",
+  tleft: "Tourner gauche",
+  tright: "Tourner droite",
+  t90r: "Tourner 90° droite",
+  t90l: "Tourner 90° gauche",
+  t180: "Demi-tour",
+  t90x: "90° gauche ou droite",
+  trand: "Tourner au hasard",
+  face: "Se tourner vers le héros",
+  tflee: "Tourner dos au héros",
+  "spd+": "Vitesse +",
+  "spd-": "Vitesse −",
+  "frq+": "Fréquence +",
+  "frq-": "Fréquence −",
+  fixon: "Direction fixe ON",
+  fixoff: "Direction fixe OFF",
+  thruon: "Passe-muraille ON",
+  thruoff: "Passe-muraille OFF",
+  wait: "Attendre",
+  swon: "Switch ON",
+  swoff: "Switch OFF",
+  gfx: "Changer le graphisme",
+};
 
 export const SWITCH_COUNT = 512;
 export const VAR16_COUNT = 256;
@@ -87,7 +171,16 @@ export type PageCondition =
 // Page supplémentaire d'un event (v0.10). Les champs plats de GameEvent
 // SONT la page 1 — extraPages porte les pages 2+ (la DERNIÈRE page dont
 // la condition passe est active en jeu, modèle RM2003).
-export type MoveType = "static" | "random" | "vertical" | "horizontal";
+export type MoveType = "static" | "random" | "vertical" | "horizontal" | "custom";
+export type EventPriority = "below" | "same" | "above";
+
+// Route custom d'une page (type de mouvement « custom », v0.14)
+export interface PageRoute {
+  freq: number; // 1-8
+  repeat: boolean;
+  skip: boolean;
+  steps: RouteStep[];
+}
 
 export interface EventPage {
   condition?: PageCondition;
@@ -97,6 +190,9 @@ export interface EventPage {
   entry?: string;
   commands: Command[];
   move?: MoveType; // v0.11 — PNJ mobiles (défaut : static)
+  move_route?: PageRoute; // v0.14 — requis si move == "custom"
+  priority?: EventPriority; // v0.14 — défaut "same"
+  speed?: number; // v0.14 — 1-4 (défaut 1)
 }
 
 export interface GameEvent {
@@ -111,6 +207,9 @@ export interface GameEvent {
   condition?: PageCondition; // condition de la page 1 (rare mais permise)
   extraPages?: EventPage[]; // pages 2+ (v0.10)
   move?: MoveType; // v0.11 — type de mouvement de la page 1
+  move_route?: PageRoute; // v0.14
+  priority?: EventPriority; // v0.14
+  speed?: number; // v0.14
 }
 
 // Prefab : un event réutilisable, sans position (project.json "prefabs")

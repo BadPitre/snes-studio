@@ -1,36 +1,84 @@
-// Fenêtre « Commande d'événement » — calquée sur la boîte Event Command de
-// RPG Maker 2003 : des onglets de pages (1 à 4) et une grille de boutons,
-// un par commande. Seule la page 1 est peuplée pour l'instant ; les pages
-// 2 à 4 accueilleront les commandes P4 (switches, mouvements, son…).
+// Fenêtre « Commande d'événement » — boîte Event Command de RM2003, les
+// commandes classées par ONGLETS (demande utilisateur : beaucoup de
+// commandes à venir, les colonnes ne tiennent plus). Les commandes
+// annoncées mais pas encore compilables restent grisées (jamais de
+// bouton qui ment).
 //
-// Elle s'ouvre depuis l'Event Editor : bouton « Ajouter… », double-clic sur
-// une ligne vide, ou clic droit → Insérer…
+// Elle s'ouvre depuis l'Event Editor : double-clic sur une ligne vide,
+// ou clic droit → Insérer…
 
+import { useState } from "react";
 import type { Command } from "../types";
 
-// Les commandes réellement compilées vers la VM (docs/TOOLS.md).
-// v0.9 : switches (512) et variables 16-bit (256) façon RM2003 — les
-// anciennes commandes v/g 8-bit restent lisibles mais ne sont plus
-// proposées ici.
-const PAGE1: { c: Command["c"]; label: string }[] = [
-  { c: "msg", label: "Afficher un message" },
-  { c: "choice", label: "Afficher un choix" },
-  { c: "switch", label: "Modifier un switch" },
-  { c: "var", label: "Modifier une variable" },
-  { c: "if_sw", label: "Condition : switch" },
-  { c: "if_var", label: "Condition : variable" },
-  { c: "warp", label: "Téléporter le héros" },
-  { c: "face", label: "Tourner un event" },
-];
+interface Tab {
+  title: string;
+  items: { c: Command["c"]; label: string }[];
+  soon?: string[];
+}
 
-// Cases annoncées mais pas encore compilables — affichées grisées pour que
-// la fenêtre dise la vérité sur ce qui existe (jamais de bouton qui ment).
-const PAGE1_SOON = [
-  "Attendre",
-  "Jouer un son",
-  "Déplacer un event",
-  "Changer l'apparence",
-  "Appeler un event",
+const TABS: Tab[] = [
+  {
+    title: "Messages",
+    items: [
+      { c: "msg", label: "Afficher un message" },
+      { c: "choice", label: "Afficher un choix" },
+    ],
+  },
+  {
+    title: "Logique",
+    items: [
+      { c: "switch", label: "Modifier un switch" },
+      { c: "var", label: "Modifier une variable" },
+      { c: "if_sw", label: "Condition : switch" },
+      { c: "if_var", label: "Condition : variable" },
+      { c: "loop", label: "Boucle" },
+      { c: "break", label: "Sortir de la boucle" },
+      { c: "rem", label: "Commentaire" },
+    ],
+  },
+  {
+    title: "Déplacements",
+    items: [
+      { c: "route", label: "Déplacer un event…" },
+      { c: "wait_route", label: "Attendre la fin des déplacements" },
+      { c: "face", label: "Tourner un event" },
+      { c: "warp", label: "Téléporter le héros" },
+      { c: "hero_loc", label: "Mémoriser la position du héros" },
+      { c: "warp_var", label: "Téléporter aux variables" },
+      { c: "setpos", label: "Placer un event" },
+      { c: "swappos", label: "Échanger deux events" },
+    ],
+  },
+  {
+    title: "Temps",
+    items: [
+      { c: "wait", label: "Attendre" },
+      { c: "timer", label: "Timer (régler / afficher)" },
+    ],
+  },
+  {
+    title: "Écran",
+    items: [
+      { c: "scr_hide", label: "Cacher l'écran" },
+      { c: "scr_show", label: "Montrer l'écran" },
+      { c: "tint", label: "Teinter l'écran" },
+      { c: "flash", label: "Flash d'écran" },
+      { c: "shake", label: "Secouer l'écran" },
+    ],
+  },
+  {
+    title: "Caméra",
+    items: [
+      { c: "campan", label: "Déplacer la caméra" },
+      { c: "cam_return", label: "Caméra : retour au héros" },
+      { c: "wait_cam", label: "Attendre la caméra" },
+    ],
+  },
+  {
+    title: "Autres",
+    items: [],
+    soon: ["Jouer un son", "Appeler un event"],
+  },
 ];
 
 interface Props {
@@ -39,26 +87,31 @@ interface Props {
 }
 
 export default function EventCommandPicker(props: Props) {
+  const [tab, setTab] = useState(0);
+  const cur = TABS[tab];
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal cmdpick" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Commande d'événement</div>
         <div className="cmdpick-tabs">
-          <button className="active">1</button>
-          {[2, 3, 4].map((n) => (
-            <button key={n} disabled title="Commandes supplémentaires : à venir (P4)">
-              {n}
+          {TABS.map((t, i) => (
+            <button
+              key={t.title}
+              className={i === tab ? "active" : ""}
+              onClick={() => setTab(i)}
+            >
+              {t.title}
             </button>
           ))}
         </div>
         <div className="cmdpick-grid">
-          {PAGE1.map((t) => (
+          {cur.items.map((t) => (
             <button key={t.c} onClick={() => props.onPick(t.c)}>
               {t.label}
             </button>
           ))}
-          {PAGE1_SOON.map((l) => (
-            <button key={l} disabled title="À venir (P4)">
+          {(cur.soon ?? []).map((l) => (
+            <button key={l} disabled title="À venir">
               {l}
             </button>
           ))}

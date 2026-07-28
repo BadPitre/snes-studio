@@ -193,6 +193,48 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Horizontal. En jeu : vitesse moitié du héros, demi-tour quand bloqué,
   jamais sur la tile du héros ni d'un autre event, gel pendant les
   dialogues et le menu.
+- **Move Route (v0.12/v0.13)** : commande « Déplacer un event… » →
+  fenêtre **Itinéraire** complète façon RM2003 : 3 colonnes de pas
+  (marcher ×4 / au hasard / vers-fuir le héros / un pas en avant ;
+  tourner ×4 / 90° D-G / demi-tour / au hasard / vers-dos au héros ;
+  Vitesse ± / Fréquence ± / Direction fixe / Passe-muraille / Switch
+  ON-OFF / Graphisme / Attendre), radios **Fréquence 1-8**, options
+  Répéter / Ignorer si bloqué ; cible « Cet event » ou un event de la
+  scène. L'itinéraire
+  part en tâche de fond — le séquencer avec « Attendre la fin des
+  déplacements » ; « Attendre » (frames) complète la panoplie cinématique.
+- **v0.13** : « Modifier une variable » couvre l'arithmétique complète
+  (=, +, −, ×, ÷, mod, hasard 0..N) et des sources (constante, autre
+  variable, X/Y du héros, timer) ; commandes **Timer** (régler/arrêter/
+  afficher « M:SS » au coin haut-droit), **Déplacer la caméra** (pan
+  scripté non bloquant), **Caméra : retour au héros** et **Attendre la
+  caméra**.
+- **v0.14** : par page — **Type de mouvement « Route custom »** (bouton
+  « Éditer la route… » vers la fenêtre Itinéraire, options
+  Répéter/Ignorer/Fréquence incluses), **Priorité** (Sous le héros :
+  traversable, s'active en se tenant dessus / Comme le héros / Au-dessus :
+  traversable, dessiné par-dessus tout) et **Vitesse 1-4**. Raccourcis
+  dans la liste Contenu et l'Itinéraire : **Ctrl+C / Ctrl+V / Suppr**.
+- **v0.15** : la fenêtre Commande d'événement passe en **onglets** par
+  catégorie (Messages, Logique, Déplacements, Temps, Écran, Caméra,
+  Autres) — extensible quand la liste des commandes grossit. Les
+  paramètres d'une commande s'éditent dans une **fenêtre séparée**
+  (titre = nom de la commande, OK/Annuler) au lieu du formulaire inline
+  sous la liste Contenu ; la rangée de boutons Ajouter/Modifier/…/↑/↓ a
+  disparu — tout passe par le double-clic, le clic droit (Insérer /
+  Éditer / ↑ Monter / ↓ Descendre / Supprimer) et le clavier. Nouvelles
+  commandes Logique : **Boucle** (le corps entre « Boucle » et « : Fin
+  de boucle » se répète), **Sortir de la boucle** et **Commentaire**
+  (ligne verte italique, jamais compilée). Nouvelles commandes
+  Déplacements : **Mémoriser la position du héros** (scène/X/Y → trois
+  variables), **Téléporter aux variables** (rappel de la position
+  mémorisée), **Placer un event** (coordonnées constantes ou lues dans
+  des variables) et **Échanger deux events** ; « Modifier une variable »
+  gagne la source **N° de la scène courante**. Onglet **Écran** :
+  **Cacher / Montrer l'écran** (fondu bloquant), **Teinter l'écran**
+  (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
+  personnages et le texte gardent leurs couleurs), **Flash d'écran** et
+  **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms
@@ -200,13 +242,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   variable, conditions) a un bouton « … » qui ouvre cette liste en mode
   sélection (double-clic = choisir) et affiche le nom sous le numéro.
 - **Fenêtre « Commande d'événement »** (façon Event Command de RM2003) :
-  une boîte séparée avec des onglets de pages (1 à 4 ; les pages 2-4
-  accueilleront les commandes P4) et une grille de boutons, un par
-  commande. Elle s'ouvre de trois façons : bouton « Ajouter… »,
+  une boîte séparée avec des **onglets par catégorie** et une grille de
+  boutons, un par commande (les commandes annoncées mais pas encore
+  compilables restent grisées). Elle s'ouvre de deux façons :
   **double-clic sur une ligne vide** `@>`, ou **clic droit → Insérer…**.
-  Le clic droit sur une ligne de commande donne aussi **Éditer…** et
-  **Supprimer** ; le double-clic sur une ligne pleine ouvre directement
-  ses paramètres.
+  Le clic droit sur une ligne de commande donne aussi **Éditer…**,
+  **↑ Monter / ↓ Descendre** et **Supprimer** ; le double-clic sur une
+  ligne pleine ouvre la **fenêtre d'options** de la commande.
 - **Prefabs d'events** : clic droit sur un event → « Enregistrer comme
   prefab » (stocké dans project.json) ; clic droit sur une tile vide →
   « Prefab : <nom> » pour l'instancier.
