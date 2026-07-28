@@ -26,5 +26,8 @@
   "ui": {
     "windowskin": "assets/windowskin.png",
     "text_speed": 2
-  }
+  },
+  "windowskins": [
+    "assets/windowskin.png"
+  ]
 }

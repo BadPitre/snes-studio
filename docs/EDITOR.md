@@ -122,14 +122,19 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   nom → `datagen import-charset` recadre les frames 24x32 en 16x24 et
   réécrit `assets/sprites.png`.
 - **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
-  catégories **CharSet** (personnages) et **ChipSet** (tilesets), liste
-  avec aperçu, et actions **Importer / Exporter / Renommer / Supprimer**.
+  catégories **CharSet** (personnages), **ChipSet** (tilesets) et
+  **WindowSkin** (cadres 9-slice de la Phase 11), liste avec aperçu, et
+  actions **Importer / Exporter / Renommer / Supprimer**.
   Export charset au format RM2003 (72x128, PNG transparent) ; export
   chipset = copie de la grille PNG. Renommer un tileset renomme ses
   fichiers et met à jour les scènes ; supprimer est bloqué si la
   ressource est utilisée par une scène (et le bloc 0 = héros est
   protégé). Supprimer un personnage décale les blocs suivants (les
-  acteurs sont mis à jour).
+  acteurs sont mis à jour). Windowskins : l'import valide le PNG 24x24
+  (copié dans `assets/`, registre `windowskins` de project.json —
+  éditeur seulement, ignoré par datagen), l'aperçu montre la planche et
+  une fenêtre 9-slice d'exemple, ★ marque le thème actif (suppression
+  bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
   déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
@@ -281,12 +286,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   `SPEC_SYSTEME_UI.md` §7) : tout l'habillage du jeu au même endroit,
   avec une **preview 256x224 fidèle tiles** (fonte et windowskin réels
   du projet, upscalée 2x pixelisée) qui se redessine à chaque frappe.
-  Thème : **« Importer un windowskin… »** (PNG 24x24 validé à l'import,
-  copié dans `assets/`, ✕ pour revenir à la boîte pleine) et **vitesse
-  du texte** (frames/caractère, 0 = instantané). Fenêtres : position et
-  taille EN TILES du message et du choix (x, y, largeur, hauteur —
-  écran 32x28). HUD permanent : jusqu'à 8 fenêtres `variable_display`
-  sur les 4 rangées du haut (id, libellé, variable, géométrie). La
+  Thème : le **windowskin se choisit dans un menu** parmi les ressources
+  du projet (« (aucun) » = boîte pleine historique — l'IMPORT se fait
+  dans le **Gestionnaire de ressources**, catégorie WindowSkin) et
+  **vitesse du texte** (frames/caractère, 0 = instantané). Fenêtres :
+  position et taille EN TILES du message et du choix, chaque champ
+  porte son libellé (x, y, largeur, hauteur — écran 32x28). HUD
+  permanent : jusqu'à 8 fenêtres `variable_display` sur les 4 rangées
+  du haut (id, libellé, variable, géométrie — mêmes libellés). La
   fenêtre applique **les mêmes règles que uigen** (tailles minimales,
   zone HUD, chevauchements, libellés ASCII bornés) : les erreurs
   s'affichent en rouge et **OK reste bloqué** tant qu'il en reste — le

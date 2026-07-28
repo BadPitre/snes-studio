@@ -12,6 +12,7 @@ import {
   eventAt,
   musicStem,
   projectTilesets,
+  projectWindowskins,
   spriteBlockCount,
 } from "./types";
 import {
@@ -750,6 +751,111 @@ export default function App() {
     }
   }
 
+  // Windowskins (Phase 11) : PNG 24x24 9-slice importés via le
+  // Gestionnaire de ressources — registre project.windowskins (éditeur
+  // seulement), le thème actif se choisit dans Tools → UI / Thème.
+  async function importWindowskin() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer un windowskin (PNG 24x24, 9-slice)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (bmp.width !== 24 || bmp.height !== 24) {
+        setStatus(`Windowskin : attendu 24x24 (9 tiles 8x8), reçu ${bmp.width}x${bmp.height}`);
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectWindowskins(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: {
+            ...d.project,
+            windowskins: [...projectWindowskins(d.project), rel],
+          },
+        }));
+      }
+      setStatus(`Windowskin importé : ${name}`);
+    } catch (e) {
+      setStatus(`Import windowskin : ${e}`);
+    }
+  }
+
+  async function exportWindowskin(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter le windowskin (PNG 24x24)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Windowskin exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export windowskin : ${e}`);
+    }
+  }
+
+  async function renameWindowskin(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectWindowskins(data.project).includes(newRel)) {
+      setStatus(`Renommage : le windowskin « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      // fichier renommé + refs (registre et thème actif) dans le même
+      // geste, projet sauvegardé pour que le disque reste cohérent
+      const windowskins = projectWindowskins(data.project).map((r) =>
+        r === oldRel ? newRel : r
+      );
+      const ui =
+        data.project.ui?.windowskin === oldRel
+          ? { ...data.project.ui, windowskin: newRel }
+          : data.project.ui;
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, windowskins, ui },
+      };
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Windowskin renommé : ${assetStem(oldRel)} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteWindowskin(rel: string) {
+    if (!data || data.project.ui?.windowskin === rel) return; // thème actif
+    if (!confirm(`Supprimer le windowskin « ${assetStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const windowskins = projectWindowskins(data.project).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: {
+          ...data.project,
+          windowskins: windowskins.length ? windowskins : undefined,
+        },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Windowskin supprimé : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1398,22 +1504,29 @@ export default function App() {
       )}
       {showResources && data && (
         <ResourceManagerModal
+          root={data.root}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}
           blockCount={spriteBlocks}
           blockNames={blockNames}
+          windowskins={projectWindowskins(data.project)}
+          activeSkin={data.project.ui?.windowskin}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
           onImportCharset={importCharset}
           onImportChipset={importChipset}
+          onImportWindowskin={() => void importWindowskin()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
+          onExportWindowskin={(rel) => void exportWindowskin(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
+          onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
+          onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -1633,6 +1746,7 @@ export default function App() {
         <UiThemeModal
           root={data.root}
           project={data.project}
+          windowskins={projectWindowskins(data.project)}
           varNames={data.project.variables ?? []}
           onOk={(ui) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));

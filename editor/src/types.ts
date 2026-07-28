@@ -22,6 +22,17 @@ export interface Project {
   // Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md) : windowskin 24x24
   // (9-slice, palette de la fonte) + vitesse de la machine à écrire
   ui?: { windowskin?: string; text_speed?: number };
+  windowskins?: string[]; // chemins PNG 24x24 importés via le Gestionnaire
+  // de ressources (éditeur seulement, ignoré par datagen) — le thème actif
+  // (ui.windowskin) pointe l'un d'eux
+}
+
+// windowskins du projet — le thème actif y figure toujours (migration des
+// projets d'avant le registre)
+export function projectWindowskins(p: Project): string[] {
+  const list = p.windowskins ?? [];
+  const cur = p.ui?.windowskin;
+  return cur && !list.includes(cur) ? [...list, cur] : list;
 }
 
 // Layout uigen v1 (ui/layout.toml) — positions/tailles EN TILES

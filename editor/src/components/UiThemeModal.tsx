@@ -7,20 +7,18 @@
 import { useEffect, useRef, useState } from "react";
 import { parse } from "smol-toml";
 import type { Project, UiLayout, UiOverlay, UiWin } from "../types";
-import { defaultUiLayout } from "../types";
+import { assetStem, defaultUiLayout } from "../types";
 import {
   ensureProjectDir,
   loadAssetPng,
-  pickPngFile,
-  readBinaryFile,
   readProjectText,
-  writeBinaryFile,
   writeProjectText,
 } from "../io";
 
 interface Props {
   root: string;
   project: Project;
+  windowskins: string[]; // ressources importées (Gestionnaire de ressources)
   varNames: string[];
   // (ui du projet, layout écrit dans ui/layout.toml par la fenêtre)
   onOk: (ui: Project["ui"]) => void;
@@ -183,21 +181,6 @@ export default function UiThemeModal(props: Props) {
     }
   }, [layout, font, skin]);
 
-  // ---- import du windowskin (validation 24x24, copie dans assets/) ----
-  async function importSkin() {
-    const file = await pickPngFile("Importer un windowskin (PNG 24x24, 9-slice)");
-    if (!file) return;
-    const bytes = await readBinaryFile(file);
-    const bmp = await createImageBitmap(new Blob([bytes as BlobPart]));
-    if (bmp.width !== 24 || bmp.height !== 24) {
-      alert(`Windowskin : attendu 24x24 (9 tiles 8x8), reçu ${bmp.width}x${bmp.height}`);
-      return;
-    }
-    const name = file.split(/[\\/]/).pop()!;
-    await writeBinaryFile(`${props.root}/assets/${name}`, bytes);
-    setUi({ ...ui, windowskin: `assets/${name}` });
-  }
-
   if (!layout) return null;
   const ov: UiOverlay | undefined = layout.overlay[selOv];
   const patchWin = (key: "message" | "choice", i: number, axis: "pos" | "size", v: number) => {
@@ -214,24 +197,28 @@ export default function UiThemeModal(props: Props) {
           <div className="uitheme-form">
             <fieldset className="evedit-box">
               <legend>Thème</legend>
-              <div className="row">
-                <button onClick={() => void importSkin()}>
-                  Importer un windowskin… (24x24)
-                </button>
-                {ui.windowskin && (
-                  <button
-                    className="danger"
-                    title="Revenir à la boîte pleine historique"
-                    onClick={() => setUi({ ...ui, windowskin: undefined })}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+              <label>
+                Windowskin (ressources du projet)
+                <select
+                  value={ui.windowskin ?? ""}
+                  onChange={(e) =>
+                    setUi({ ...ui, windowskin: e.target.value || undefined })
+                  }
+                >
+                  <option value="">(aucun — boîte pleine)</option>
+                  {props.windowskins.map((rel) => (
+                    <option key={rel} value={rel}>
+                      {assetStem(rel)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <span className="hint">
                 {ui.windowskin
-                  ? `Windowskin : ${ui.windowskin} (palette de la fonte : 0 transparent, 1 fond, 2 bord, 3 accent)`
+                  ? "Palette de la fonte : 0 transparent, 1 fond, 2 bord, 3 accent."
                   : "Pas de windowskin — boîte pleine historique."}
+                {" "}Import de nouveaux cadres : Gestionnaire de ressources
+                (catégorie WindowSkin).
               </span>
               <label>
                 Vitesse du texte (frames/caractère, 0 = instantané)
@@ -247,20 +234,26 @@ export default function UiThemeModal(props: Props) {
               <legend>Fenêtres (en tiles — écran 32x28)</legend>
               {(["message", "choice"] as const).map((k) => (
                 <div className="row" key={k}>
-                  <span style={{ width: 70 }} className="hint">{k}</span>
+                  <span style={{ width: 70, alignSelf: "flex-end", paddingBottom: 5 }} className="hint">
+                    {k}
+                  </span>
                   {([0, 1] as const).map((i) => (
-                    <input key={"p" + i} type="number" title={i ? "y" : "x"}
-                      value={layout[k].pos[i]}
-                      onChange={(e) => patchWin(k, i, "pos", Number(e.target.value))} />
+                    <label key={"p" + i} className="uitheme-num">
+                      {i ? "y" : "x"}
+                      <input type="number" value={layout[k].pos[i]}
+                        onChange={(e) => patchWin(k, i, "pos", Number(e.target.value))} />
+                    </label>
                   ))}
                   {([0, 1] as const).map((i) => (
-                    <input key={"s" + i} type="number" title={i ? "hauteur" : "largeur"}
-                      value={layout[k].size[i]}
-                      onChange={(e) => patchWin(k, i, "size", Number(e.target.value))} />
+                    <label key={"s" + i} className="uitheme-num">
+                      {i ? "hauteur" : "largeur"}
+                      <input type="number" value={layout[k].size[i]}
+                        onChange={(e) => patchWin(k, i, "size", Number(e.target.value))} />
+                    </label>
                   ))}
                 </div>
               ))}
-              <span className="hint">x, y, largeur, hauteur — cadre compris (texte : marge de 2/1).</span>
+              <span className="hint">Cadre compris (le texte garde une marge de 2 colonnes / 1 rangée).</span>
             </fieldset>
             <fieldset className="evedit-box">
               <legend>HUD permanent (4 rangées du haut, {layout.overlay.length}/8)</legend>
@@ -324,17 +317,20 @@ export default function UiThemeModal(props: Props) {
                   <div className="row">
                     {(["pos", "size"] as const).map((axis) =>
                       ([0, 1] as const).map((i) => (
-                        <input key={axis + i} type="number"
-                          title={axis === "pos" ? (i ? "y" : "x") : i ? "hauteur" : "largeur"}
-                          value={ov[axis][i]}
-                          onChange={(e) => {
-                            ov[axis] = [...ov[axis]] as [number, number];
-                            ov[axis][i] = Number(e.target.value);
-                            setLayout({ ...layout });
-                          }} />
+                        <label key={axis + i} className="uitheme-num">
+                          {axis === "pos" ? (i ? "y" : "x") : i ? "hauteur" : "largeur"}
+                          <input type="number" value={ov[axis][i]}
+                            onChange={(e) => {
+                              ov[axis] = [...ov[axis]] as [number, number];
+                              ov[axis][i] = Number(e.target.value);
+                              setLayout({ ...layout });
+                            }} />
+                        </label>
                       ))
                     )}
-                    <span className="hint">{props.varNames[ov.var ?? 0] || ""}</span>
+                    <span className="hint" style={{ alignSelf: "flex-end", paddingBottom: 5 }}>
+                      {props.varNames[ov.var ?? 0] || ""}
+                    </span>
                   </div>
                 </>
               )}
