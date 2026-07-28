@@ -14,6 +14,7 @@ const u8 ui_ov_frame[1] = { 0, };
 const u8 ui_ov_icon[1] = { 0, };
 const u8 ui_ov_dir[1] = { 0, };
 const u8 ui_ov_pad[1] = { 0, };
+const u8 ui_ov_bg[1] = { 0, };
 const u8 ui_ov_maxvar[1] = { 0, };
 const u8 ui_ov_maxlo[1] = { 0, };
 const u8 ui_ov_maxhi[1] = { 0, };

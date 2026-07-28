@@ -289,22 +289,30 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
   database crée ses dossiers `schemas/`+`data/` à la première table.
-- **Fenêtre « UI / Thème »** (Tools →, Phase 11 — réf
-  `SPEC_SYSTEME_UI.md` §7) : tout l'habillage du jeu au même endroit,
-  avec une **preview 256x224 fidèle tiles** (fonte et windowskin réels
-  du projet, upscalée 2x pixelisée) qui se redessine à chaque frappe.
-  Thème : le **windowskin** et la **planche d'icônes** se choisissent
-  dans des menus parmi les ressources du projet (l'IMPORT se fait dans
-  le **Gestionnaire de ressources**, catégories WindowSkin/IconSet) et
-  **vitesse du texte** (frames/caractère, 0 = instantané). Fenêtres :
-  position et taille EN TILES du message et du choix, chaque champ
-  porte son libellé (x, y, largeur, hauteur — écran 32x28). **Widgets
-  permanents** (W1) : jusqu'à 8, placés LIBREMENT sur l'écran — types
-  « Libellé + valeur », « Jauge » (barre h/v liée à une variable, max
-  constant ou variable), « Rangée d'icônes » (cœurs pleine/demie/vide)
-  et « Icône + compteur » (zéros de tête), avec case **Cadre** (fenêtre
-  ou widget nu façon Zelda). Le formulaire s'adapte au type ; la
-  preview dessine les icônes réelles de la planche. La
+- **Fenêtre « UI / Thème » — le DESIGNER** (Tools →, Phase 12 D1, réf
+  `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.
+  **Palette** à gauche (clic = ajouter) : Fenêtre (cadre 9-slice,
+  conteneur), Liste verticale et Boîte horizontale (empilent leurs
+  enfants, espacement réglable), Label (texte fixe), Image (icônes de
+  la planche), Valeur (variable alignée à droite), et les widgets
+  Zelda (Jauge, Cœurs, Icône + compteur, Libellé + valeur). L'objet
+  s'ajoute DANS le conteneur sélectionné (sinon à côté, sinon sur le
+  canvas). **Arborescence** : la structure (fenêtre > listes > lignes >
+  labels), sélection au clic. **Canvas 256x224 fidèle tiles** (2x,
+  fonte/windowskin/icônes réels) : clic = sélectionner l'objet le plus
+  profond, glisser = déplacer sa racine (snap 8 px), poignée du coin =
+  redimensionner. **Inspecteur** à droite : propriétés du sélectionné
+  (↑↓ réordonner, 🗑 supprimer avec ses enfants, id, variable avec la
+  liste nommée « … », vignettes d'icônes cliquables, cadre, max
+  constant ou variable, direction de jauge…). Un panneau façon Chrono
+  Trigger = Fenêtre > Liste verticale > Boîtes horizontales > labels/
+  valeurs/images. Les erreurs (mêmes règles que le compilateur —
+  débordements, chevauchements avec les fenêtres de dialogue, icônes
+  manquantes) s'affichent sous le canvas et bloquent OK. En tête :
+  Thème repliable (windowskin, planche d'icônes, vitesse du texte) et,
+  sous le canvas, la géométrie des fenêtres message/choix. OK écrit
+  `ui/layout.toml` (arbre `[[node]]` — les anciens layouts plats sont
+  migrés à l'ouverture). La
   fenêtre applique **les mêmes règles que uigen** (tailles minimales,
   zone HUD, chevauchements, libellés ASCII bornés) : les erreurs
   s'affichent en rouge et **OK reste bloqué** tant qu'il en reste — le

@@ -3,12 +3,17 @@
  * Phase 12 W1, docs/PLANNING_SYSTEME_MENUS.md) : placement libre sur
  * l'écran, en continu pendant le gameplay.
  *
- * Content types (ui_ov_type) :
+ * Content types (ui_ov_type — PRIMITIVES aplaties par uigen depuis
+ * l'arbre du designer D1, les conteneurs vbox/hbox n'existent qu'à la
+ * compilation) :
  *   0 variable_display — libellé + valeur (fenêtre par défaut)
  *   1 gauge            — barre pleine/demie/vide, horizontale ou
  *                        verticale (remplie de BAS en haut, ALttP)
  *   2 icon_row         — icônes répétées façon cœurs Zelda
  *   3 icon_value       — icône + compteur (zéros de tête optionnels)
+ *   4 panel            — cadre seul (fenêtre du designer) — STATIQUE
+ *   5 label            — texte fixe (ui_ov_label) — STATIQUE
+ *   6 image            — suite d'icônes de la planche — STATIQUE
  * ui_ov_frame : cadre 9-slice/boîte, ou widget nu sur le jeu.
  * Icônes : chars UI_ICON_BASE+n (planche ui.icons, après le windowskin) ;
  * gauge/icon_row : icon, icon+1, icon+2 = pleine, demie, vide.
@@ -35,6 +40,7 @@ extern const u8 ui_ov_frame[];
 extern const u8 ui_ov_icon[];
 extern const u8 ui_ov_dir[];
 extern const u8 ui_ov_pad[];
+extern const u8 ui_ov_bg[]; /* 1 = dans une window (fond du cadre) */
 extern const u8 ui_ov_maxvar[]; /* 0xFF = max constant (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
 extern const u8 ui_ov_maxhi[];
@@ -43,6 +49,13 @@ extern const char *const ui_ov_label[];
 #define OV_ENTRY(c) ((u16)(c) | 0x3000) /* palette fonte + priorité */
 #define OV_CHAR(a) ((u16)(a) - 31)
 #define OV_SKIN_BASE 97
+/* fond des cellules vides d'un widget posé DANS une window (D1) :
+   centre du 9-slice — un 0 percerait le panneau jusqu'au jeu */
+#if UI_HAS_SKIN
+#define OV_BG_ENTRY OV_ENTRY(OV_SKIN_BASE + 4)
+#else
+#define OV_BG_ENTRY OV_ENTRY(OV_CHAR(' '))
+#endif
 
 static u16 ov_last[UI_OV_COUNT];  /* dernière valeur dessinée */
 static u16 ov_lastm[UI_OV_COUNT]; /* dernier maximum (max_var) */
@@ -86,12 +99,15 @@ static void ov_draw(u8 i)
   }
   else
   {
-    /* widget nu : la zone redevient transparente avant le contenu */
+    /* widget nu : la zone repasse au fond (transparent, ou fond de
+       cadre si le widget vit dans une window du designer) */
+    u16 bgent = ui_ov_bg[i] ? OV_BG_ENTRY : 0;
+
     for (cy = 0; cy < h; cy++)
     {
       base = (u16)(ui_ov_y[i] + cy) * 32 + x;
       for (cx = 0; cx < w; cx++)
-        ui_map[base + cx] = 0;
+        ui_map[base + cx] = bgent;
     }
   }
 
@@ -130,6 +146,21 @@ static void ov_draw(u8 i)
       else
         ui_map[base + x + k] = OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i] + 2 - d);
     }
+    break;
+
+  case 4: /* panel : cadre seul (déjà dessiné ci-dessus) */
+    break;
+
+  case 5: /* label : texte statique */
+    cx = x;
+    l = ui_ov_label[i];
+    while (*l && cx < (u8)(x + w))
+      ui_map[base + cx++] = OV_ENTRY(OV_CHAR(*l++));
+    break;
+
+  case 6: /* image : icônes consécutives de la planche */
+    for (k = 0; k < w; k++)
+      ui_map[base + x + k] = OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i] + k);
     break;
 
   case 3: /* icon_value : icône + compteur aligné à droite, zéros pad */
@@ -191,6 +222,8 @@ void overlay_update(void)
 
   for (i = 0; i < UI_OV_COUNT; i++)
   {
+    if (ui_ov_type[i] >= 4)
+      continue; /* panel/label/image : statiques (refresh seulement) */
     v = vm.vars16[ui_ov_var[i]];
     m = ov_max(i);
     if (v != ov_last[i] || m != ov_lastm[i])

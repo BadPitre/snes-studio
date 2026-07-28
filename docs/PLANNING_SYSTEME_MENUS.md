@@ -119,8 +119,9 @@ Extension du contexte overlay (uigen `[[overlay]]`) : nouveaux
 |------|---------|------|
 | M1 | tampon unifié ui_screen | fait |
 | W1 | widgets Zelda (gauge/icon_row/icon_value, frame, IconSet, placement libre) | fait — détail dans SPEC_SYSTEME_UI.md (appendice) |
+| D1 | designer à canvas (arbre window/vbox/hbox/label/value/image, aplatisseur, palette/arborescence/inspecteur) | fait — demande explicite (modèle UMG/Chrono Trigger), détail dans SPEC_SYSTEME_UI.md |
 | M2 | écrans déclaratifs + ouverture | à faire |
-| M3 | listes + curseur + pile | à faire |
+| M3 | listes + curseur + pile (l'objet liste du designer devient navigable) | à faire |
 | M4 | portraits, listes database, hp_bar | à faire |
 
 Écarts W1 vs le plan ci-dessus : `icon_row` est horizontal seulement

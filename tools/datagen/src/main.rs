@@ -388,7 +388,7 @@ fn main() -> Result<()> {
             None => 0,
         };
         let icon_base = 97 + if has_skin != 0 { 9 } else { 0 };
-        let layout = ui::load(&proj_dir, icon_count)?;
+        let (layout, prims) = ui::load(&proj_dir, icon_count)?;
         write_out(
             &out_dir,
             "ui_cfg.h",
@@ -398,12 +398,12 @@ fn main() -> Result<()> {
                 speed,
                 icon_base,
                 icon_count,
-                ui::cfg_defines(&layout)
+                ui::cfg_defines(&layout, &prims)
             ),
         )?;
-        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(&layout))?;
-        if !layout.overlay.is_empty() {
-            println!("  ui : {} overlay(s), fenetre message deplacable", layout.overlay.len());
+        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(&prims))?;
+        if !prims.is_empty() {
+            println!("  ui : {} primitive(s) de widgets (designer D1)", prims.len());
         }
     }
 

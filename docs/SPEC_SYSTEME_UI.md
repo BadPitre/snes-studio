@@ -263,7 +263,34 @@ TOML — la communauté pourra en partager.
     planche active ★, aperçu avec index sous chaque icône), sélection
     de la planche dans UI / Thème, formulaires par type de widget et
     preview fidèle (icônes réelles, jauge remplie à 58 %).
+- **Livré (Phase 12 D1) — designer à canvas (modèle UMG).**
+  `ui/layout.toml` passe au format ARBRE `[[node]]` (les `[[overlay]]`
+  plats W1 restent acceptés — migration transparente) :
+  - conteneurs : `window` (cadre 9-slice, size explicite, margin=[1,1],
+    empile ses enfants verticalement), `vbox` (empilement vertical,
+    gap), `hbox` (alignement horizontal, gap) ;
+  - feuilles : `label` (texte statique), `value` (variable, width 1-5,
+    alignée à droite), `image` (suite d'icônes), + les widgets W1
+    (`gauge`/`icon_row`/`icon_value`/`variable_display`) ;
+  - `parent = "id"` rattache à un conteneur, une racine a `pos` ;
+  - uigen APLATIT l'arbre en primitives positionnées en tiles (types
+    moteur 4 panel / 5 label / 6 image — STATIQUES, plus 0-3 W1, cap
+    32 primitives, tableau `ui_ov_bg` : les cellules vides d'un widget
+    posé dans une window prennent le fond du cadre au lieu de percer
+    jusqu'au jeu). Zéro conteneur au runtime.
+  - Règle d'art : une icône posée sur un panneau doit avoir son fond en
+    couleur 1 (ses pixels transparents laissent voir le jeu, pas le
+    panneau — compositing par tiles).
+  - Éditeur : la fenêtre UI / Thème devient le **designer** — palette
+    d'objets, arborescence (sélection, ↑↓, suppression en cascade),
+    canvas interactif (clic = sélection du nœud le plus profond,
+    glisser = déplacer la racine, poignée coin = redimensionner, snap
+    tiles), inspecteur par type (pickers variables/icônes), erreurs
+    live miroir de uigen (uilayout.ts), OK bloqué si invalide.
+    Round-trip prouvé : le TOML écrit par l'éditeur redonne les mêmes
+    primitives dans uigen.
 - **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
-  écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4),
+  écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4
+  — l'objet liste deviendra NAVIGABLE, le designer le pose déjà),
   portraits/listes database/hp_bar M4, thèmes multiples en table
-  database + SET_THEME, designer à grille (§7).
+  database + SET_THEME.
