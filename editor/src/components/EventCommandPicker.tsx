@@ -76,8 +76,8 @@ const TABS: Tab[] = [
   },
   {
     title: "Autres",
-    items: [],
-    soon: ["Jouer un son", "Appeler un event"],
+    items: [{ c: "call", label: "Appeler un common event" }],
+    soon: ["Jouer un son"],
   },
 ];
 

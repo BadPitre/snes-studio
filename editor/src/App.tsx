@@ -59,6 +59,7 @@ import SceneTree from "./components/SceneTree";
 import EventsPanel from "./components/EventsPanel";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
+import CommonEventsModal from "./components/CommonEventsModal";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -117,6 +118,7 @@ export default function App() {
   // fenêtre de diagnostic (Tools → Vérifier le projet)
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
+  const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -1011,6 +1013,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Common events…",
+          action: () => setCommonEvOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Vérifier le projet…",
           action: () => void openDiagnostics(),
           disabled: !data,
@@ -1483,6 +1490,32 @@ export default function App() {
           </div>
         </div>
       )}
+      {commonEvOpen && data && (
+        <CommonEventsModal
+          commons={data.project.common_events ?? []}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(commons) => {
+            mutate((d) => ({
+              ...d,
+              project: {
+                ...d.project,
+                common_events: commons.length ? commons : undefined,
+              },
+            }));
+            setCommonEvOpen(false);
+          }}
+          onClose={() => setCommonEvOpen(false)}
+        />
+      )}
       {varMgr && data && (
         <VarListModal
           kind="var"
@@ -1515,6 +1548,9 @@ export default function App() {
               n > 1 ? `${ev.name} (page ${k + 1})` : ev.name
             );
           })}
+          commonNames={(data.project.common_events ?? []).map(
+            (ce, i) => ce.name || `CE ${i + 1}`
+          )}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

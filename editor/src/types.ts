@@ -18,6 +18,7 @@ export interface Project {
   prefabs?: EventPrefab[]; // prefabs d'events (éditeur seulement)
   switches?: string[]; // noms des switches (éditeur seulement, index = n)
   variables?: string[]; // noms des variables 16-bit (éditeur seulement)
+  common_events?: CommonEvent[]; // scripts globaux (v0.16, compilés par datagen)
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -104,7 +105,19 @@ export type Command =
   | { c: "scr_show"; speed: number }
   | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
-  | { c: "shake"; power: number; speed: number; frames: number };
+  | { c: "shake"; power: number; speed: number; frames: number }
+  // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)
+  | { c: "call"; n: number };
+
+// Common event (v0.16, modèle RM2003 Database → Common Events) : script
+// global au projet, appelable ({"c":"call"}) ou déclenché en auto par un
+// switch (relancé tant que le switch est ON — le script doit l'éteindre).
+export interface CommonEvent {
+  name: string;
+  trigger: "none" | "auto";
+  switch?: number; // requis si trigger == "auto"
+  commands: Command[];
+}
 
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";

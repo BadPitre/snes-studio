@@ -195,6 +195,12 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; flex: 1; }
 .cmdpick-grid button { text-align: left; font-size: 12px; }
+/* Fenêtre Common events (Database RM2003) */
+.modal.cevents { width: 900px; }
+.cevents-body { display: flex; gap: 10px; height: 480px; }
+.cevents-list { display: flex; flex-direction: column; gap: 6px; width: 210px; }
+.cevents-right { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cevents-right .evedit-cmds { flex: 1; overflow-y: auto; }
 /* Fenêtre d'options d'une commande (double-clic sur une ligne pleine) */
 .modal.cmdform { width: 520px; }
 .modal.cmdform .evedit-form { border: none; padding: 0; background: none; }

@@ -235,6 +235,15 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
   personnages et le texte gardent leurs couleurs), **Flash d'écran** et
   **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
+- **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
+  de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
+  à droite Nom, Déclencheur (« Aucun (appelé) » ou « Auto (switch ON) »
+  avec son switch de condition obligatoire) et le Contenu — le même
+  éditeur de commandes que l'Event Editor (double-clic, clic droit,
+  Ctrl+C/V/Suppr, toutes les commandes). Un common event s'appelle
+  depuis n'importe quel event avec **« Appeler un common event »**
+  (onglet Autres) ; en auto, il est relancé tant que son switch est ON
+  (penser à l'éteindre). « Cet event » y désigne l'event appelant.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms
