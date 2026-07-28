@@ -249,6 +249,16 @@ résout le nom vers son index de racine (`SHOWUI <widget> <0|1>`, opcode
 0x24). Nom introuvable = erreur de compilation avec la liste des
 widgets du projet.
 
+**Phase 12 (Key Input Processing, façon RM2003)** :
+`{"c":"key_input","var":n,"wait":true|false,"keys":[codes 1-12]}` —
+écrit dans `vars16[var]` le code de la touche (1 bas, 2 gauche,
+3 droite, 4 haut, 5 A, 6 B, 7 Y, 8 X, 9 L, 10 R, 11 Select, 12 Start ;
+0 = aucune). `wait` bloque jusqu'à un appui NEUF d'une touche cochée
+(marche aussi dans un Parallel process). `{"c":"sysmenu"}` ouvre le
+menu Système (sauvegarde) — **le mapping START en dur du moteur est
+retiré** : l'auteur choisit sa touche (key_input + condition, ou tout
+autre déclencheur).
+
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
 [...]}]` — des scripts globaux au projet, modèle RM2003.

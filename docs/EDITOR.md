@@ -314,7 +314,8 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fenêtres de dialogue, et la LISTE des widgets — 👁 = visible au
   démarrage (par défaut un widget est CACHÉ et s'affiche par la
   commande d'event **« Afficher/cacher un widget UI »**, onglet
-  Écran), Éditer…/double-clic ouvre le **designer scopé** sur le
+  Écran), **✎ Renommer** (les enfants suivent), Éditer…/double-clic
+  ouvre le **designer scopé** sur le
   widget (les autres estompés), ✧ Nouveau widget en crée un sur une
   place libre, « ← Widgets » revient à la liste. En tête du designer :
   Thème repliable (windowskin, planche d'icônes, vitesse du texte) et,

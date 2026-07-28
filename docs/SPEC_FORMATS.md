@@ -461,6 +461,9 @@ l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
 | 0x23 | DBREAD | table u8, src u8, entrée u8, offset u8, taille u8 (1-2), dst u8 | `vars16[dst]` = champ de la database — table = index du registre généré `db_tables[]` ; src : 0 = entrée constante, 1 = entrée lue dans `vars16[entrée]` ; une entrée dynamique hors table donne 0 (jamais de lecture sauvage). |
+| 0x24 | SHOWUI | widget u8, on u8 | Visibilité d'un WIDGET UI (racine du layout uigen, Phase 12) — les widgets sont cachés au démarrage sauf `visible = true` ; on : 1 = afficher, 0 = cacher. Index hors bornes : ignoré. |
+| 0x25 | KEYIN | wait u8, mask u16 (lo, hi), dst u8 | Key Input Processing (RM2003, Phase 12) : `vars16[dst]` = code de la touche (1 bas, 2 gauche, 3 droite, 4 haut, 5 A, 6 B, 7 Y, 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune). mask : bit `1<<code` = touche autorisée. wait = 1 : bloque (VM_WAIT_KEY, main ET parallel) jusqu'à un appui NEUF d'une touche du masque. |
+| 0x26 | SYSMENU | — | Ouvre le menu Système (sauvegarder/charger) — il prend la main quand le script se termine. Le mapping START câblé du moteur est RETIRÉ (Phase 12) : l'auteur mappe sa touche via KEYIN. Interdit en parallel (datagen). |
 
 Le registre (`db_index.c` : `db_tables[]`, `db_table_sizes[]`,
 `db_table_counts[]` + `DB_TABLE_COUNT` dans db_tables.h) est TOUJOURS

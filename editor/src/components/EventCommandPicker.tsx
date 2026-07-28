@@ -27,6 +27,7 @@ const TABS: Tab[] = [
   {
     title: "Logique",
     items: [
+      { c: "key_input", label: "Touche pressée (Key Input)" },
       { c: "switch", label: "Modifier un switch" },
       { c: "var", label: "Modifier une variable" },
       { c: "if_sw", label: "Condition : switch" },
@@ -78,7 +79,8 @@ const TABS: Tab[] = [
   },
   {
     title: "Autres",
-    items: [{ c: "call", label: "Appeler un common event" }],
+    items: [
+      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" }],
     soon: ["Jouer un son"],
   },
 ];

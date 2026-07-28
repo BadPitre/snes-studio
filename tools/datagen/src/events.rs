@@ -30,6 +30,8 @@
 //!   v0.15 (effets d'écran) :
 //!   {"c":"scr_hide","speed":1-15}   {"c":"scr_show","speed":1-15}
 //!   {"c":"ui_show","widget":"nom","on":true|false}   (widget UI, Ph. 12)
+//!   {"c":"key_input","var":n,"wait":bool,"keys":[1-12]}  (Key Input RM2003)
+//!   {"c":"sysmenu"}   (menu Système — le mapping START en dur est retiré)
 //!   {"c":"tint","mode":"off"|"add"|"sub","r":0-31,"g":..,"b":..}
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
@@ -186,7 +188,7 @@ impl<'a> EventCompiler<'a> {
                     cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
                 };
                 match cmd["c"].as_str().unwrap_or("") {
-                    "msg" | "choice" => bail!(
+                    "msg" | "choice" | "sysmenu" => bail!(
                         "common event « {} » (parallel) : les messages et les \
                          choix sont interdits dans un Parallel process (il \
                          tourne en tache de fond, sans dialogue)",
@@ -389,6 +391,33 @@ impl<'a> EventCompiler<'a> {
                         })?;
                     let on = cmd["on"].as_bool().unwrap_or(true);
                     out.push(format!("  SHOWUI {} {}", idx, on as u8));
+                }
+                // Phase 12 — Key Input Processing (RM2003) : le code de la
+                // touche pressée dans une variable (0 = aucune)
+                "key_input" => {
+                    let var = cmd["var"].as_u64().filter(|&v| v < 256).with_context(|| {
+                        "key_input : var = 0-255 requis".to_string()
+                    })?;
+                    let wait = cmd["wait"].as_bool().unwrap_or(true);
+                    let mut mask: u16 = 0;
+                    let keys = cmd["keys"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                    if keys.is_empty() {
+                        bail!("key_input : keys = [codes 1-12] (au moins une touche)");
+                    }
+                    for k in keys {
+                        let code = k.as_u64().filter(|&c| (1..=12).contains(&c))
+                            .with_context(|| {
+                                format!("key_input : code de touche invalide « {} » (1-12)", k)
+                            })?;
+                        mask |= 1u16 << code;
+                    }
+                    out.push(format!(
+                        "  KEYIN {} {} {} {}",
+                        wait as u8, mask & 0xFF, mask >> 8, var
+                    ));
+                }
+                "sysmenu" => {
+                    out.push("  SYSMENU".to_string());
                 }
                 "tint" => {
                     let mode = match cmd["mode"].as_str().unwrap_or("off") {

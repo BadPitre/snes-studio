@@ -163,6 +163,11 @@ export type Command =
   // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
   // persistante (décor seulement — hardware), flash et secousse non
   // bloquants (enchaîner avec « Attendre »)
+  // Phase 12 — Key Input Processing (RM2003) : code de la touche dans
+  // une variable (1 bas, 2 gauche, 3 droite, 4 haut, 5 A, 6 B, 7 Y,
+  // 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune)
+  | { c: "key_input"; var: number; wait: boolean; keys: number[] }
+  | { c: "sysmenu" } // menu Système (le mapping START en dur est retiré)
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }

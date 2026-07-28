@@ -1894,13 +1894,11 @@ export default function App() {
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
-          onOk={(ui) => {
+          onOk={(ui, widgets) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));
+            setUiWidgets(widgets);
             setUiOpen(false);
             setStatus("UI sauvegardée (project.json + ui/layout.toml).");
-            void loadUiLayout2(data.root).then((l) =>
-              setUiWidgets(rootsOf(l.nodes).map((n) => n.id))
-            );
           }}
           onClose={() => setUiOpen(false)}
         />

@@ -113,6 +113,10 @@ function labelOf(c: Command, ceNames?: string[]): string {
         c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
     case "ui_show":
       return `${c.on ? "Afficher" : "Cacher"} le widget UI « ${c.widget || "?"} »`;
+    case "key_input":
+      return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
+    case "sysmenu":
+      return "Ouvrir le menu Système (sauvegarde)";
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -407,6 +411,10 @@ export function CommandListEditor(props: {
         return { c: "swappos", a: -1, b: 0 };
       case "ui_show":
         return { c: "ui_show", widget: "", on: true };
+      case "key_input":
+        return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
+      case "sysmenu":
+        return { c: "sysmenu" };
       case "scr_hide":
         return { c: "scr_hide", speed: 1 };
       case "scr_show":
@@ -1500,6 +1508,70 @@ function CommandForm(props: {
             </label>
           ))}
         </div>
+      );
+      break;
+    case "key_input": {
+      valid = cmd.keys.length > 0;
+      const KEY_NAMES: [number, string][] = [
+        [1, "Bas (1)"], [2, "Gauche (2)"], [3, "Droite (3)"], [4, "Haut (4)"],
+        [5, "A — valider (5)"], [6, "B — annuler (6)"], [7, "Y (7)"], [8, "X (8)"],
+        [9, "L (9)"], [10, "R (10)"], [11, "Select (11)"], [12, "Start (12)"],
+      ];
+      body = (
+        <>
+          <label>
+            Variable destination (reçoit le code, 0 = aucune touche)
+            <div className="row" style={{ gap: 4 }}>
+              <input type="number" min={0} max={255} value={cmd.var} autoFocus
+                onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+              <button className="browse"
+                onClick={() => props.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+                …
+              </button>
+            </div>
+            <span className="hint">{props.varNames[cmd.var] || ""}</span>
+          </label>
+          <label className="checkline">
+            <input type="checkbox" checked={cmd.wait}
+              onChange={(e) => onChange({ ...cmd, wait: e.target.checked })} />
+            Attendre l'appui d'une touche (sinon : lecture immédiate)
+          </label>
+          <fieldset className="evedit-box">
+            <legend>Touches autorisées</legend>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              {KEY_NAMES.map(([code, name]) => (
+                <label className="checkline" key={code}>
+                  <input type="checkbox" checked={cmd.keys.includes(code)}
+                    onChange={(e) =>
+                      onChange({
+                        ...cmd,
+                        keys: e.target.checked
+                          ? [...cmd.keys, code].sort((a, b) => a - b)
+                          : cmd.keys.filter((k) => k !== code),
+                      })
+                    } />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <span className="hint">
+            Façon RM2003 : le code de la touche est écrit dans la variable.
+            En « attendre », le script bloque jusqu'à un appui NEUF d'une
+            touche cochée.
+          </span>
+        </>
+      );
+      break;
+    }
+    case "sysmenu":
+      body = (
+        <span className="hint">
+          Ouvre le menu Système (sauvegarder/charger) quand le script se
+          termine. Le mapping START en dur a été retiré : mappe ta touche
+          avec « Touche pressée » + une condition, ou appelle cette
+          commande où tu veux.
+        </span>
       );
       break;
     case "ui_show":

@@ -143,8 +143,9 @@ int main(void)
         player_update(); /* inputs + mouvement + collision + interaction */
         if (player_take_warp(&wd, &wx, &wy))
           do_warp(wd, wx, wy);
-        else if (padsDown(0) & KEY_START)
-          sysmenu_open();
+        /* Phase 12 : plus de mapping START en dur — le menu Système
+           s'ouvre par la commande d'event SYSMENU (l'auteur choisit sa
+           touche via KEYIN) */
       }
     }
 

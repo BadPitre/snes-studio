@@ -37,7 +37,9 @@ interface Props {
   varNames: string[];
   switchNames: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
-  onOk: (ui: Project["ui"]) => void;
+  // ui du projet + widgets (racines) — ui/layout.toml est écrit AVANT
+  // l'appel, la liste alimente la commande « Afficher un widget UI »
+  onOk: (ui: Project["ui"], widgets: string[]) => void;
   onClose: () => void;
 }
 
@@ -584,6 +586,29 @@ export default function UiThemeModal(props: Props) {
                     }}>
                       Éditer…
                     </button>
+                    <button title="Renommer le widget"
+                      onClick={() => {
+                        const newId = prompt(`Nouveau nom du widget « ${r.id} »`, r.id)?.trim();
+                        if (!newId || newId === r.id) return;
+                        if (lay.nodes.some((n) => n.id === newId)) {
+                          alert(`Le nom « ${newId} » est déjà pris.`);
+                          return;
+                        }
+                        setLay({
+                          ...lay,
+                          nodes: lay.nodes.map((n) =>
+                            n.id === r.id
+                              ? { ...n, id: newId }
+                              : n.parent === r.id
+                                ? { ...n, parent: newId }
+                                : n
+                          ),
+                        });
+                        if (scope === r.id) setScope(newId);
+                        if (selId === r.id) setSelId(newId);
+                      }}>
+                      ✎
+                    </button>
                     <button className="danger" title="Supprimer le widget (et son contenu)"
                       onClick={() => {
                         setSelId(r.id);
@@ -888,10 +913,15 @@ export default function UiThemeModal(props: Props) {
             title={flat.errors.length ? "Corriger les erreurs d'abord" : undefined}
             onClick={() => {
               void (async () => {
+                // écrire PUIS prévenir : l'appelant recharge la liste des
+                // widgets — la course écriture/rechargement a déjà mordu
                 await ensureProjectDir(props.root, "ui");
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
+                props.onOk(
+                  ui.windowskin || ui.text_speed || ui.icons ? ui : undefined,
+                  rootsOf(lay.nodes).map((n) => n.id)
+                );
               })();
-              props.onOk(ui.windowskin || ui.text_speed || ui.icons ? ui : undefined);
             }}
           >
             OK
