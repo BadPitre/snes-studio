@@ -391,6 +391,40 @@ export default function App() {
     setStatus(`Prefab « ${name} » enregistré${category ? ` (${category})` : ""}.`);
   }
 
+  // Ctrl+C / Ctrl+X / Ctrl+V / Suppr sur la COUCHE ÉVÉNEMENTS de la carte
+  // (v0.16) — inactifs dès qu'une fenêtre ou un champ a le focus
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!data || !scene || layer !== "events") return;
+      if (document.querySelector(".modal-backdrop, .ctx-backdrop")) return;
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        if (selectedEvent) {
+          copyEvent();
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+        if (selectedEvent) {
+          cutEvent();
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (evClipboard) {
+          pasteEvent();
+          e.preventDefault();
+        }
+      } else if (e.key === "Delete") {
+        if (selectedEvent) {
+          deleteSelEvent();
+          e.preventDefault();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
   // puis rechargement du projet (project.json et assets modifiés sur disque)
   async function importChipset() {
@@ -1080,20 +1114,20 @@ export default function App() {
               className={layer === "lower" ? "active" : ""}
               onClick={() => setLayer("lower")}
             >
-              Couche inf.
+              <LayerIcon kind="lower" /> Couche inf.
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
               onClick={() => setLayer("upper")}
             >
-              Couche sup.
+              <LayerIcon kind="upper" /> Couche sup.
             </button>
             <button
               className={layer === "events" ? "active" : ""}
               onClick={() => setLayer("events")}
-              title="Couche des événements (RM2003) : events, warps, départ du joueur — clic droit pour créer"
+              title="Couche des événements (RM2003) : events, warps, départ du joueur — clic droit pour créer, Ctrl+C/X/V et Suppr sur l'event sélectionné"
             >
-              Événements
+              <LayerIcon kind="events" /> Événements
             </button>
           </span>
         )}
@@ -1657,5 +1691,27 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+// Icônes de couches façon RM2003 (deux tuiles empilées en perspective —
+// la couche éditée est surlignée ; la couche Événements porte un
+// petit personnage)
+function LayerIcon({ kind }: { kind: "lower" | "upper" | "events" }) {
+  const on = "#ffd76a"; // couche active (jaune RM2003)
+  const off = "#5a6472";
+  const top = kind === "upper" ? on : off;
+  const bottom = kind === "lower" ? on : kind === "events" ? "#7fb0e0" : off;
+  return (
+    <svg width="15" height="14" viewBox="0 0 15 14" style={{ verticalAlign: "-2px", marginRight: 2 }}>
+      <polygon points="4.5,1 13.5,1 10.5,5.5 1.5,5.5" fill={top} stroke="#14161a" strokeWidth="1" />
+      <polygon points="4.5,7.5 13.5,7.5 10.5,12 1.5,12" fill={bottom} stroke="#14161a" strokeWidth="1" />
+      {kind === "events" && (
+        <>
+          <rect x="6" y="6" width="3.6" height="4.4" rx="0.8" fill="#ffd76a" stroke="#14161a" strokeWidth="0.8" />
+          <rect x="6.6" y="4.6" width="2.4" height="2.2" rx="1" fill="#f7be94" stroke="#14161a" strokeWidth="0.8" />
+        </>
+      )}
+    </svg>
   );
 }

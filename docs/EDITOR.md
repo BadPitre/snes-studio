@@ -268,6 +268,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   s'ouvre groupée par catégorie, double-clic (ou « Créer ici ») instancie
   l'event. **Tools → Prefabs…** gère la bibliothèque : renommer,
   recatégoriser, supprimer. Stockés dans project.json.
+- Sur la couche Événements de la carte : **Ctrl+C / Ctrl+X / Ctrl+V /
+  Suppr** sur l'event sélectionné (v0.16 — en plus du menu Edit et du
+  clic droit). Les boutons de couches portent les **icônes RM2003**
+  (piles de tuiles, la couche éditée en surbrillance). « Vérifier le
+  projet… » vit désormais dans le menu **Game**.
 - L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
   warps s'éditent au clic droit via la fenêtre **« Téléporter »** (v0.16,
   calquée sur Transfer Player de RM2003) : arbre des scènes à gauche,
