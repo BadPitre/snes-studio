@@ -60,6 +60,7 @@ import EventsPanel from "./components/EventsPanel";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
+import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -119,6 +120,11 @@ export default function App() {
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
+  // prefabs (v0.16) : enregistrement (event source), création (position
+  // cible) et gestionnaire (Tools)
+  const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
+  const [prefabPickAt, setPrefabPickAt] = useState<{ tx: number; ty: number } | null>(null);
+  const [prefabMgr, setPrefabMgr] = useState(false);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -365,10 +371,9 @@ export default function App() {
     setEvEdit({ index, ev });
   }
 
-  function saveEventAsPrefab(ev: GameEvent) {
-    if (!data) return;
-    const name = prompt("Nom du prefab :", ev.name);
-    if (!name) return;
+  // Enregistre l'event comme prefab (nom + catégorie choisis dans la
+  // fenêtre SavePrefabModal — v0.16)
+  function doSavePrefab(ev: GameEvent, name: string, category: string | undefined) {
     const cp = structuredClone(ev) as Partial<GameEvent>;
     delete cp.x;
     delete cp.y;
@@ -378,11 +383,11 @@ export default function App() {
         ...d.project,
         prefabs: [
           ...(d.project.prefabs ?? []).filter((pf) => pf.name !== name),
-          { name, event: cp as Omit<GameEvent, "x" | "y"> },
+          { name, category, event: cp as Omit<GameEvent, "x" | "y"> },
         ],
       },
     }));
-    setStatus(`Prefab « ${name} » enregistré.`);
+    setStatus(`Prefab « ${name} » enregistré${category ? ` (${category})` : ""}.`);
   }
 
   // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
@@ -1018,6 +1023,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Prefabs…",
+          action: () => setPrefabMgr(true),
+          disabled: !data,
+        },
+        {
           label: "Vérifier le projet…",
           action: () => void openDiagnostics(),
           disabled: !data,
@@ -1393,7 +1403,7 @@ export default function App() {
                     <button
                       onClick={() => {
                         close();
-                        saveEventAsPrefab(ev);
+                        setPrefabSave(structuredClone(ev));
                       }}
                     >
                       Enregistrer comme prefab…
@@ -1421,17 +1431,20 @@ export default function App() {
                   >
                     ＋ Nouvel événement…
                   </button>
-                  {(data?.project.prefabs ?? []).map((pf) => (
-                    <button
-                      key={pf.name}
-                      onClick={() => {
-                        close();
-                        newEventAt(evMenu.tx, evMenu.ty, pf.event);
-                      }}
-                    >
-                      ＋ Prefab : {pf.name}
-                    </button>
-                  ))}
+                  <button
+                    disabled={(data?.project.prefabs ?? []).length === 0}
+                    title={
+                      (data?.project.prefabs ?? []).length === 0
+                        ? "Aucun prefab — clic droit sur un event → Enregistrer comme prefab…"
+                        : undefined
+                    }
+                    onClick={() => {
+                      close();
+                      setPrefabPickAt({ tx: evMenu.tx, ty: evMenu.ty });
+                    }}
+                  >
+                    ＋ Nouvel événement depuis un prefab…
+                  </button>
                   {evClipboard && (
                     <button
                       onClick={() => {
@@ -1489,6 +1502,44 @@ export default function App() {
             })()}
           </div>
         </div>
+      )}
+      {prefabSave && data && (
+        <SavePrefabModal
+          defaultName={prefabSave.name}
+          existingCategories={[
+            ...new Set(
+              (data.project.prefabs ?? [])
+                .map((pf) => pf.category?.trim())
+                .filter((c): c is string => !!c)
+            ),
+          ]}
+          onOk={(name, category) => {
+            doSavePrefab(prefabSave, name, category);
+            setPrefabSave(null);
+          }}
+          onClose={() => setPrefabSave(null)}
+        />
+      )}
+      {(prefabPickAt || prefabMgr) && data && (
+        <PrefabsModal
+          prefabs={data.project.prefabs ?? []}
+          pick={!!prefabPickAt}
+          onPick={(pf) => {
+            if (prefabPickAt) newEventAt(prefabPickAt.tx, prefabPickAt.ty, pf.event);
+            setPrefabPickAt(null);
+          }}
+          onOk={(prefabs) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, prefabs: prefabs.length ? prefabs : undefined },
+            }));
+            if (prefabMgr) setPrefabMgr(false);
+          }}
+          onClose={() => {
+            setPrefabPickAt(null);
+            setPrefabMgr(false);
+          }}
+        />
       )}
       {commonEvOpen && data && (
         <CommonEventsModal

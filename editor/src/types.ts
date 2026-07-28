@@ -225,9 +225,12 @@ export interface GameEvent {
   speed?: number; // v0.14
 }
 
-// Prefab : un event réutilisable, sans position (project.json "prefabs")
+// Prefab : un event réutilisable, sans position (project.json "prefabs").
+// v0.16 : une catégorie libre pour ranger la bibliothèque (« PNJ »,
+// « Coffres », … — absente = « Sans catégorie »).
 export interface EventPrefab {
   name: string;
+  category?: string;
   event: Omit<GameEvent, "x" | "y">;
 }
 

@@ -195,6 +195,15 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; flex: 1; }
 .cmdpick-grid button { text-align: left; font-size: 12px; }
+/* Fenêtres Prefabs (bibliothèque par catégorie, v0.16) */
+.modal.prefabs { width: 560px; }
+.prefabs-body { display: flex; gap: 10px; height: 340px; }
+.prefabs-body .evedit-cmds { overflow-y: auto; }
+.prefabs-cat {
+  font-size: 11px; color: #9aa0a8; text-transform: uppercase;
+  border-bottom: 1px solid #000; padding: 4px 2px 2px; margin-bottom: 2px;
+}
+.prefabs-side { width: 200px; display: flex; flex-direction: column; gap: 8px; }
 /* Fenêtre Common events (Database RM2003) */
 .modal.cevents { width: 900px; }
 .cevents-body { display: flex; gap: 10px; height: 480px; }
