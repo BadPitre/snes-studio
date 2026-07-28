@@ -1,30 +1,53 @@
 // Gestionnaire de ressources façon RPG Maker 2003 : catégories à gauche,
 // liste des ressources au centre, actions à droite (Importer / Exporter /
-// Renommer / Supprimer) + aperçu. Catégories v1 : CharSet (personnages,
-// blocs de la feuille de sprites) et ChipSet (tilesets).
+// Renommer / Supprimer) + aperçu. Catégories : CharSet (personnages,
+// blocs de la feuille de sprites), ChipSet (tilesets) et WindowSkin
+// (cadres 9-slice 24x24 de la Phase 11 — le thème actif se choisit dans
+// Tools → UI / Thème).
 
 import { useEffect, useRef, useState } from "react";
+import { loadAssetPng } from "../io";
+import { assetStem } from "../types";
 
-type Cat = "charset" | "chipset";
+type Cat = "charset" | "chipset" | "windowskin" | "iconset" | "fontset";
 
 interface Props {
+  root: string;
   tilesetNames: string[]; // stems, ordre du projet
   tilesets: Record<string, ImageBitmap>;
   sprites: ImageBitmap | null;
   blockCount: number;
   blockNames: string[];
+  windowskins: string[]; // chemins relatifs (assets/xxx.png)
+  activeSkin?: string; // thème actif (project.ui.windowskin)
+  iconsets: string[]; // planches d'icônes des widgets (W1)
+  activeIcons?: string; // planche active (project.ui.icons)
+  fonts: string[]; // fontes 768x8 (S1) — la défaut (assets.font) en tête
+  defaultFont: string; // project.assets.font (★, non supprimable)
   // ressource -> scènes qui l'utilisent (pour bloquer la suppression)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
   canWrite: boolean;
   onImportCharset: () => void;
   onImportChipset: () => void;
+  onImportWindowskin: () => void;
+  onImportIconset: () => void;
+  onImportFont: () => void;
   onExportCharset: (b: number) => void;
   onExportChipset: (stem: string) => void;
+  onExportWindowskin: (rel: string) => void;
+  onExportIconset: (rel: string) => void;
+  onExportFont: (rel: string) => void;
   onRenameCharset: (b: number, name: string) => void;
   onRenameChipset: (stem: string, newStem: string) => void;
+  onRenameWindowskin: (rel: string, newName: string) => void;
+  onRenameIconset: (rel: string, newName: string) => void;
+  onRenameFont: (rel: string, newName: string) => void;
   onDeleteCharset: (b: number) => void;
   onDeleteChipset: (stem: string) => void;
+  onDeleteWindowskin: (rel: string) => void;
+  onDeleteIconset: (rel: string) => void;
+  onDeleteFont: (rel: string) => void;
   onClose: () => void;
 }
 
@@ -32,11 +55,46 @@ export default function ResourceManagerModal(p: Props) {
   const [cat, setCat] = useState<Cat>("charset");
   const [selBloc, setSelBloc] = useState(0);
   const [selChip, setSelChip] = useState(p.tilesetNames[0] ?? "");
+  const [selSkin, setSelSkin] = useState(p.windowskins[0] ?? "");
+  const [selIcons, setSelIcons] = useState(p.iconsets[0] ?? "");
+  const [selFont, setSelFont] = useState(p.fonts[0] ?? "");
+  const [skinBmp, setSkinBmp] = useState<ImageBitmap | null>(null);
+  const [iconsBmp, setIconsBmp] = useState<ImageBitmap | null>(null);
+  const [fontBmp, setFontBmp] = useState<ImageBitmap | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   const charsetUsers = p.usedCharsets[selBloc] ?? [];
   const chipUsers = p.usedChipsets[selChip] ?? [];
+  const skinActive = !!selSkin && selSkin === p.activeSkin;
+  const iconsActive = !!selIcons && selIcons === p.activeIcons;
+  const fontDefault = !!selFont && selFont === p.defaultFont;
+
+  // la liste peut changer sous nos pieds (import/suppression)
+  useEffect(() => {
+    if (!p.windowskins.includes(selSkin)) setSelSkin(p.windowskins[0] ?? "");
+  }, [p.windowskins, selSkin]);
+  useEffect(() => {
+    if (!p.iconsets.includes(selIcons)) setSelIcons(p.iconsets[0] ?? "");
+  }, [p.iconsets, selIcons]);
+  useEffect(() => {
+    setSkinBmp(null);
+    if (cat === "windowskin" && selSkin)
+      void loadAssetPng(p.root, selSkin).then(setSkinBmp).catch(() => {});
+  }, [cat, selSkin, p.root, p.windowskins]);
+  useEffect(() => {
+    setIconsBmp(null);
+    if (cat === "iconset" && selIcons)
+      void loadAssetPng(p.root, selIcons).then(setIconsBmp).catch(() => {});
+  }, [cat, selIcons, p.root, p.iconsets]);
+  useEffect(() => {
+    if (!p.fonts.includes(selFont)) setSelFont(p.fonts[0] ?? "");
+  }, [p.fonts, selFont]);
+  useEffect(() => {
+    setFontBmp(null);
+    if (cat === "fontset" && selFont)
+      void loadAssetPng(p.root, selFont).then(setFontBmp).catch(() => {});
+  }, [cat, selFont, p.root, p.fonts]);
 
   // aperçu : charset = les 4 frames de repos du bloc ; chipset = haut de la
   // grille de tiles
@@ -62,15 +120,57 @@ export default function ResourceManagerModal(p: Props) {
         ctx.font = "11px system-ui";
         ctx.fillText(`${(bmp.width / 16) * (bmp.height / 16)} tiles`, 116, 14);
       }
+    } else if (cat === "windowskin" && skinBmp) {
+      // la planche 24x24 en 3x, puis une fenêtre 9-slice d'exemple 12x4
+      // tiles en 2x — le rendu qu'aura le cadre en jeu
+      ctx.drawImage(skinBmp, 0, 0, 24, 24, 8, 14, 72, 72);
+      for (let ty = 0; ty < 4; ty++)
+        for (let tx = 0; tx < 12; tx++) {
+          const sx = tx === 0 ? 0 : tx === 11 ? 2 : 1;
+          const sy = ty === 0 ? 0 : ty === 3 ? 2 : 1;
+          ctx.drawImage(skinBmp, sx * 8, sy * 8, 8, 8, 116 + tx * 16, 18 + ty * 16, 16, 16);
+        }
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      ctx.fillText("24x24 (9 tiles)", 8, 10);
+      ctx.fillText("aperçu 9-slice" + (skinActive ? " — thème actif ★" : ""), 116, 10);
+    } else if (cat === "iconset" && iconsBmp) {
+      // la bande d'icônes en 3x avec l'index sous chaque icône
+      const n = Math.floor(iconsBmp.width / 8);
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      ctx.fillText(
+        `${n} icônes 8x8` + (iconsActive ? " — planche active ★" : ""), 8, 10);
+      for (let i = 0; i < n && i < 20; i++) {
+        ctx.drawImage(iconsBmp, i * 8, 0, 8, 8, 8 + i * 25, 22, 24, 24);
+        ctx.fillText(String(i), 14 + i * 25, 58);
+      }
+      if (n > 20) ctx.fillText("…", 8 + 20 * 25, 40);
+    } else if (cat === "fontset" && fontBmp) {
+      // texte d'exemple rendu avec la fonte (2x) + la bande des 96 glyphes
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      ctx.fillText(
+        "96 glyphes 8x8 (bande 768x8)" + (fontDefault ? " — fonte du projet ★" : ""), 8, 10);
+      const sample = "Le vif zephyr 0123456789 !?";
+      for (let i = 0; i < sample.length; i++) {
+        const k = sample.charCodeAt(i) - 32;
+        if (k > 0 && k < 96) ctx.drawImage(fontBmp, k * 8, 0, 8, 8, 8 + i * 17, 18, 16, 16);
+      }
+      for (let half = 0; half < 2; half++)
+        ctx.drawImage(fontBmp, half * 384, 0, 384, 8, 8, 48 + half * 20, 384, 8);
     }
-  }, [cat, selBloc, selChip, p.sprites, p.tilesets]);
+  }, [cat, selBloc, selChip, p.sprites, p.tilesets, skinBmp, skinActive, iconsBmp, iconsActive, fontBmp, fontDefault]);
 
   const rename = () => {
     if (renaming === null) return;
     const v = renaming.trim();
     if (v) {
       if (cat === "charset") p.onRenameCharset(selBloc, v);
-      else p.onRenameChipset(selChip, v);
+      else if (cat === "chipset") p.onRenameChipset(selChip, v);
+      else if (cat === "windowskin") p.onRenameWindowskin(selSkin, v);
+      else if (cat === "iconset") p.onRenameIconset(selIcons, v);
+      else p.onRenameFont(selFont, v);
     }
     setRenaming(null);
   };
@@ -99,6 +199,33 @@ export default function ResourceManagerModal(p: Props) {
             >
               🗀 ChipSet (Tilesets)
             </div>
+            <div
+              className={"tree-row" + (cat === "windowskin" ? " active" : "")}
+              onClick={() => {
+                setCat("windowskin");
+                setRenaming(null);
+              }}
+            >
+              🗀 WindowSkin (Cadres)
+            </div>
+            <div
+              className={"tree-row" + (cat === "iconset" ? " active" : "")}
+              onClick={() => {
+                setCat("iconset");
+                setRenaming(null);
+              }}
+            >
+              🗀 IconSet (Widgets)
+            </div>
+            <div
+              className={"tree-row" + (cat === "fontset" ? " active" : "")}
+              onClick={() => {
+                setCat("fontset");
+                setRenaming(null);
+              }}
+            >
+              🗀 FontSet (Fontes)
+            </div>
           </div>
           <div className="resmgr-list">
             {cat === "charset"
@@ -115,39 +242,119 @@ export default function ResourceManagerModal(p: Props) {
                     {b === 0 ? " ★" : ""}
                   </div>
                 ))
-              : p.tilesetNames.map((n) => (
-                  <div
-                    key={n}
-                    className={"tree-row" + (n === selChip ? " active" : "")}
-                    onClick={() => {
-                      setSelChip(n);
-                      setRenaming(null);
-                    }}
-                  >
-                    ▦ {n}
-                  </div>
-                ))}
+              : cat === "chipset"
+                ? p.tilesetNames.map((n) => (
+                    <div
+                      key={n}
+                      className={"tree-row" + (n === selChip ? " active" : "")}
+                      onClick={() => {
+                        setSelChip(n);
+                        setRenaming(null);
+                      }}
+                    >
+                      ▦ {n}
+                    </div>
+                  ))
+                : cat === "windowskin"
+                  ? p.windowskins.map((rel) => (
+                      <div
+                        key={rel}
+                        className={"tree-row" + (rel === selSkin ? " active" : "")}
+                        onClick={() => {
+                          setSelSkin(rel);
+                          setRenaming(null);
+                        }}
+                      >
+                        ▦ {assetStem(rel)}
+                        {rel === p.activeSkin ? " ★" : ""}
+                      </div>
+                    ))
+                  : cat === "iconset"
+                    ? p.iconsets.map((rel) => (
+                        <div
+                          key={rel}
+                          className={"tree-row" + (rel === selIcons ? " active" : "")}
+                          onClick={() => {
+                            setSelIcons(rel);
+                            setRenaming(null);
+                          }}
+                        >
+                          ▦ {assetStem(rel)}
+                          {rel === p.activeIcons ? " ★" : ""}
+                        </div>
+                      ))
+                    : p.fonts.map((rel) => (
+                        <div
+                          key={rel}
+                          className={"tree-row" + (rel === selFont ? " active" : "")}
+                          onClick={() => {
+                            setSelFont(rel);
+                            setRenaming(null);
+                          }}
+                        >
+                          ▦ {assetStem(rel)}
+                          {rel === p.defaultFont ? " ★" : ""}
+                        </div>
+                      ))}
           </div>
           <div className="resmgr-actions">
             <button
               disabled={!p.canWrite}
-              onClick={cat === "charset" ? p.onImportCharset : p.onImportChipset}
+              onClick={
+                cat === "charset"
+                  ? p.onImportCharset
+                  : cat === "chipset"
+                    ? p.onImportChipset
+                    : cat === "windowskin"
+                      ? p.onImportWindowskin
+                      : cat === "iconset"
+                        ? p.onImportIconset
+                        : p.onImportFont
+              }
             >
               Importer…
             </button>
             <button
-              disabled={!p.canWrite || (cat === "chipset" && !selChip)}
+              disabled={
+                !p.canWrite ||
+                (cat === "chipset" && !selChip) ||
+                (cat === "windowskin" && !selSkin) ||
+                (cat === "iconset" && !selIcons) ||
+                (cat === "fontset" && !selFont)
+              }
               onClick={() =>
-                cat === "charset" ? p.onExportCharset(selBloc) : p.onExportChipset(selChip)
+                cat === "charset"
+                  ? p.onExportCharset(selBloc)
+                  : cat === "chipset"
+                    ? p.onExportChipset(selChip)
+                    : cat === "windowskin"
+                      ? p.onExportWindowskin(selSkin)
+                      : cat === "iconset"
+                        ? p.onExportIconset(selIcons)
+                        : p.onExportFont(selFont)
               }
             >
               Exporter…
             </button>
             <button
-              disabled={!p.canWrite || (cat === "chipset" && !selChip)}
+              disabled={
+                !p.canWrite ||
+                (cat === "chipset" && !selChip) ||
+                (cat === "windowskin" && !selSkin) ||
+                (cat === "iconset" && !selIcons) ||
+                (cat === "fontset" && !selFont)
+              }
               onClick={() =>
                 setRenaming(
-                  cat === "charset" ? p.blockNames[selBloc] ?? `Bloc ${selBloc}` : selChip
+                  cat === "charset"
+                    ? p.blockNames[selBloc] ?? `Bloc ${selBloc}`
+                    : cat === "chipset"
+                      ? selChip
+                      : cat === "windowskin"
+                        ? assetStem(selSkin)
+                        : cat === "iconset"
+                          ? assetStem(selIcons)
+                          : assetStem(selFont)
                 )
               }
             >
@@ -159,7 +366,10 @@ export default function ResourceManagerModal(p: Props) {
                 !p.canWrite ||
                 (cat === "charset" &&
                   (selBloc === 0 || charsetUsers.length > 0 || selBloc >= p.blockCount)) ||
-                (cat === "chipset" && (chipUsers.length > 0 || p.tilesetNames.length <= 1))
+                (cat === "chipset" && (chipUsers.length > 0 || p.tilesetNames.length <= 1)) ||
+                (cat === "windowskin" && (!selSkin || skinActive)) ||
+                (cat === "iconset" && (!selIcons || iconsActive)) ||
+                (cat === "fontset" && (!selFont || fontDefault))
               }
               title={
                 cat === "charset"
@@ -168,12 +378,32 @@ export default function ResourceManagerModal(p: Props) {
                     : charsetUsers.length
                       ? `Utilisé par : ${charsetUsers.join(", ")}`
                       : "Supprimer le personnage (les blocs suivants sont décalés)"
-                  : chipUsers.length
-                    ? `Utilisé par : ${chipUsers.join(", ")}`
-                    : "Supprimer le tileset et ses fichiers"
+                  : cat === "chipset"
+                    ? chipUsers.length
+                      ? `Utilisé par : ${chipUsers.join(", ")}`
+                      : "Supprimer le tileset et ses fichiers"
+                    : cat === "windowskin"
+                      ? skinActive
+                        ? "Thème actif du projet (changer dans Tools → UI / Thème)"
+                        : "Supprimer le windowskin et son fichier"
+                      : cat === "iconset"
+                        ? iconsActive
+                          ? "Planche active du projet (changer dans Tools → UI / Thème)"
+                          : "Supprimer la planche d'icônes et son fichier"
+                        : fontDefault
+                          ? "Fonte du projet (assets.font) — non supprimable"
+                          : "Supprimer la fonte et son fichier (refusé si un style l'utilise)"
               }
               onClick={() =>
-                cat === "charset" ? p.onDeleteCharset(selBloc) : p.onDeleteChipset(selChip)
+                cat === "charset"
+                  ? p.onDeleteCharset(selBloc)
+                  : cat === "chipset"
+                    ? p.onDeleteChipset(selChip)
+                    : cat === "windowskin"
+                      ? p.onDeleteWindowskin(selSkin)
+                      : cat === "iconset"
+                        ? p.onDeleteIconset(selIcons)
+                        : p.onDeleteFont(selFont)
               }
             >
               ✕ Supprimer
@@ -192,7 +422,7 @@ export default function ResourceManagerModal(p: Props) {
                 <button onClick={rename}>OK</button>
               </div>
             )}
-            {cat === "chipset" && renaming !== null && (
+            {cat !== "charset" && renaming !== null && (
               <span className="hint">a-z, 0-9, _ (renomme les fichiers)</span>
             )}
           </div>

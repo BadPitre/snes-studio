@@ -28,6 +28,20 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine
 make data
 ```
 
+### Build cartouche (flashcart)
+
+```bash
+cd engine && make cart   # -> engine/snesstudio.smc
+```
+
+`tools/mkcart.sh` transforme le `.sfc` du build (256 Ko, refusé par
+les flashcarts type Super UFO Pro 8 : « File type error ») en `.smc`
+prêt pour cartouche : contenu **miroité** jusqu'à 512 Ko minimum (comme
+le décodage d'adresses d'une vraie cartouche), octet de taille `$7FD7`
+et checksum `$7FDC-$7FDF` recalculés. Validé sur Super UFO Pro 8 +
+console. Aussi accessible depuis l'éditeur : Game → « Build cartouche
+(.smc) ».
+
 ## Structure d'un projet source
 
 ```
@@ -184,6 +198,27 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**Layouts uigen v1 (Phase 11, docs/SPEC_SYSTEME_UI.md §3)** :
+`ui/layout.toml` — positions/tailles EN TILES (écran 32x28). `[message]`
+et `[choice]` déplacent/retaillent les fenêtres de dialogue et de choix
+(`pos = [x, y]`, `size = [w, h]`, minimum 8x3 — absentes = boîte
+historique en bas pleine largeur). `[[overlay]]` déclare des fenêtres
+PERMANENTES (HUD) dans les 4 rangées du haut (8 max, sans chevauchement,
+content v1 : `variable_display` avec `var` + `label` ASCII) — redessinées
+dès que la variable change, même pendant les dialogues. uigen refuse
+l'invalide à la compilation (bornes, zone, chevauchements) et émet les
+defines de ui_cfg.h + ui_overlays.c.
+
+**Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md)** : `project.json`
+accepte `"ui": {"windowskin": "assets/....png", "text_speed": n}`. Le
+windowskin est un PNG **24x24** (9-slice : 3x3 tiles 8x8, indexes 0-3 =
+transparent/fond/bord/accent — la palette de la FONTE) converti par
+datagen en 9 chars BG3 après la fonte ; la textbox et les choix se
+dessinent avec ce cadre (absent = boîte pleine historique).
+`text_speed` = frames par caractère de la machine à écrire (0 =
+instantané, défaut) ; en jeu, A révèle tout puis ferme. datagen émet
+`ui_cfg.h` (UI_HAS_SKIN, UI_TEXT_SPEED).
+
 **\v[n] dans les textes (v0.17)** : `{"c":"msg"}` (et les options de
 choix) acceptent `\v[n]` — la valeur de la variable 16-bit n (0-254)
 est insérée en décimal au moment de l'affichage (spec §2). Exemple :
@@ -205,6 +240,50 @@ la fiche ; `from:"var"` lit le n° de fiche dans une variable (hors
 table → 0). events.rs résout table/entrée/champ symboliques vers
 l'assembleur `DBREAD <table> <src> <entrée> <ofs> <taille> <dst>`
 (spec §2). flags8 : l'octet des bits ; ref : l'index de la fiche visée.
+
+**Phase 12 (visibilité des widgets UI)** :
+`{"c":"ui_show","widget":"<id de racine du layout>","on":true|false}` —
+affiche/cache un WIDGET du designer (ui/layout.toml). Les widgets sont
+CACHÉS au démarrage (sauf `visible = true` sur la racine) ; events.rs
+résout le nom vers son index de racine (`SHOWUI <widget> <0|1>`, opcode
+0x24). Nom introuvable = erreur de compilation avec la liste des
+widgets du projet.
+
+**Phase 12 (Key Input Processing, façon RM2003)** :
+`{"c":"key_input","var":n,"wait":true|false,"keys":[codes 1-12]}` —
+écrit dans `vars16[var]` le code de la touche (1 bas, 2 gauche,
+3 droite, 4 haut, 5 A, 6 B, 7 Y, 8 X, 9 L, 10 R, 11 Select, 12 Start ;
+0 = aucune). `wait` bloque jusqu'à un appui NEUF d'une touche cochée
+(marche aussi dans un Parallel process). `{"c":"sysmenu"}` ouvre le
+menu Système (sauvegarde) — **le mapping START en dur du moteur est
+retiré** : l'auteur choisit sa touche (key_input + condition, ou tout
+autre déclencheur).
+
+**Phase 12 S1 (styles de dialogue)** : `ui/layout.toml` accepte des
+blocs `[[dialog_style]]` (max 3 en plus du défaut) — `id` ASCII unique,
+`windowskin` (PNG 24x24, défaut : celui du thème), `font` (PNG 768x8 —
+96 glyphes 8x8, défaut : `assets.font`), `message = { pos, size }`
+(défaut : `[message]`), `choice = { pos, size }` (défaut : le message
+du style). Fenêtres min 8x3 dans 32x28 ; les overlays ne doivent
+chevaucher AUCUNE fenêtre d'AUCUN style. Les commandes msg/choice
+prennent un champ optionnel `"style": "<id>"` (absent = boîte par
+défaut, TOUJOURS présente) — events.rs résout le nom (erreur avec la
+liste sinon) et émet `DLGSTYLE <n>` (opcode 0x27) devant la boîte,
+UNIQUEMENT si le projet a des styles (sans styles le bytecode est
+byte-identique). Budget VRAM BG3 : 256 chars — fonte 0 en occupe 97,
+chaque windowskin 9, les icônes 2×N, chaque fonte supplémentaire 96
+(dédupliqués) ; dépassement = erreur datagen détaillée. v1 : toutes
+les fontes/skins partagent la palette de la fonte 0. `project.json`
+accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
+datagen — layout.toml fait foi).
+
+**Phase 12 S2 (fonte par widget)** : un `[[node]]` RACINE accepte
+`font = "assets/....png"` (768x8 — erreur uigen si posé sur un enfant) :
+tout le texte du widget est dessiné avec cette fonte. Même plan VRAM
+dédupliqué que les fontes des styles (une fonte partagée entre style et
+widget ne compte qu'une fois) ; uigen émet la table par-primitive
+`ui_ov_font[]` (base du glyphe ' ', 1 = fonte du projet) dans
+ui_overlays.c.
 
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":

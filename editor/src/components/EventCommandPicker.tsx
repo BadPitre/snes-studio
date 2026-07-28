@@ -27,6 +27,7 @@ const TABS: Tab[] = [
   {
     title: "Logique",
     items: [
+      { c: "key_input", label: "Touche pressée (Key Input)" },
       { c: "switch", label: "Modifier un switch" },
       { c: "var", label: "Modifier une variable" },
       { c: "if_sw", label: "Condition : switch" },
@@ -65,6 +66,7 @@ const TABS: Tab[] = [
       { c: "tint", label: "Teinter l'écran" },
       { c: "flash", label: "Flash d'écran" },
       { c: "shake", label: "Secouer l'écran" },
+      { c: "ui_show", label: "Afficher/cacher un widget UI" },
     ],
   },
   {
@@ -77,7 +79,8 @@ const TABS: Tab[] = [
   },
   {
     title: "Autres",
-    items: [{ c: "call", label: "Appeler un common event" }],
+    items: [
+      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" }],
     soon: ["Jouer un son"],
   },
 ];

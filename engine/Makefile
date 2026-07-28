@@ -29,6 +29,13 @@ export ROMNAME := snesstudio
 # écrits à la main (voir src/data/data_assets.c).
 all: $(ROMNAME).sfc checkwram
 
+# Build « cartouche » (flashcart type Super UFO Pro 8) : .smc miroité à
+# 512 Ko minimum, octet de taille et checksum de l'en-tête recalculés.
+# Le .sfc de 256 Ko est refusé tel quel par ces cartes (File type error).
+.PHONY: cart
+cart: all
+	@bash ../tools/mkcart.sh $(ROMNAME).sfc $(ROMNAME).smc
+
 # Garde-fou WRAM : le .bss de tcc-816 (bank $7E, SLOT 2) et les variables
 # de PVSnesLib (oamMemory à $7E:9094, SLOT 0) partagent la bank $7E, et WLA
 # alloue les deux slots SANS détecter le recouvrement. Un .bss qui dépasse

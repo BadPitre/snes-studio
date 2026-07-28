@@ -16,8 +16,11 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
   const [width, setWidth] = useState(32);
   const [height, setHeight] = useState(32);
 
-  const clean = name.replace(/[^a-z0-9_]/g, "");
-  const nameOk = clean.length > 0 && !existing.includes(clean);
+  // le nom TAPÉ doit être valide tel quel (a-z, 0-9, _) — pas de
+  // nettoyage silencieux : « MaScene » ne doit pas devenir « ascene »
+  const charsOk = /^[a-z0-9_]+$/.test(name);
+  const taken = charsOk && existing.includes(name);
+  const nameOk = charsOk && !taken;
   // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
   const sizeOk =
     width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 &&
@@ -54,10 +57,16 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             />
           </label>
         </div>
-        {!nameOk && clean.length > 0 && <p className="hint">Nom déjà pris.</p>}
+        {name.length > 0 && !charsOk && (
+          <p className="hint" style={{ color: "#ff7070" }}>
+            ⚠ Caractères autorisés : minuscules a-z, chiffres, _ (pas de
+            majuscule, d'espace ni d'accent).
+          </p>
+        )}
+        {taken && <p className="hint" style={{ color: "#ff7070" }}>⚠ Nom déjà pris.</p>}
         {!sizeOk && <p className="hint">Dimensions : {MIN_W}x{MIN_H} à 255x255, 8192 tiles max.</p>}
         <div className="row">
-          <button disabled={!nameOk || !sizeOk} onClick={() => onCreate(clean, width, height)}>
+          <button disabled={!nameOk || !sizeOk} onClick={() => onCreate(name, width, height)}>
             Créer
           </button>
           <button onClick={onClose}>Annuler</button>

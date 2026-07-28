@@ -27,6 +27,28 @@ pub struct Project {
     /// sont émis dans le bloc scripts de la scène).
     #[serde(default)]
     pub common_events: Vec<CommonEvent>,
+    /// Système UI (Phase 11, docs/SPEC_SYSTEME_UI.md) : thème v1
+    #[serde(default)]
+    pub ui: Option<UiConfig>,
+}
+
+/// Thème UI v1 (docs/SPEC_SYSTEME_UI.md §6 — la table database arrive
+/// avec les thèmes multiples ; v1 = un thème projet)
+#[derive(Deserialize)]
+pub struct UiConfig {
+    /// PNG 24x24 (9-slice : 3x3 tiles 8x8) — MÊME palette que la fonte
+    /// (0 transparent, 1 fond, 2 texte/bord, 3 accent). Absent = boîte
+    /// pleine historique.
+    #[serde(default)]
+    pub windowskin: Option<String>,
+    /// frames par caractère du typewriter (0 = instantané, défaut)
+    #[serde(default)]
+    pub text_speed: u8,
+    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
+    /// PNG bande Nx8 (largeur multiple de 8, max 64 icônes), palette de
+    /// la fonte — chars BG3 appendus après le windowskin (UI_ICON_BASE).
+    #[serde(default)]
+    pub icons: Option<String>,
 }
 
 #[derive(Deserialize)]

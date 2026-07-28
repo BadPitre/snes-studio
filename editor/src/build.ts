@@ -33,9 +33,25 @@ export async function runMake(
   bashPath: string,
   clean = false
 ): Promise<BuildResult> {
+  return runMakeCmd(projectRoot, bashPath, clean ? "make clean && make" : "make");
+}
+
+// Build « cartouche » : make cart → engine/snesstudio.smc (512 Ko minimum,
+// miroité + checksum recalculé — validé sur Super UFO Pro 8)
+export async function runMakeCart(
+  projectRoot: string,
+  bashPath: string
+): Promise<BuildResult> {
+  return runMakeCmd(projectRoot, bashPath, "make cart");
+}
+
+async function runMakeCmd(
+  projectRoot: string,
+  bashPath: string,
+  mk: string
+): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : make indisponible" };
   const repo = parentDir(projectRoot);
-  const mk = clean ? "make clean && make" : "make";
   const cmd = isWindows()
     ? Command.create("cmd", [
         "/C",

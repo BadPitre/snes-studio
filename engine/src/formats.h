@@ -182,6 +182,26 @@
                               (u8 : 1 ou 2), var dst (u8) —
                               vars16[dst] = champ ; hors bornes (entrée
                               dynamique invalide) -> 0 */
+#define VM_OP_SHOWUI  0x24 /* widget (u8, index de racine du layout),
+                              on (u8 : 1 affiche, 0 cache) — visibilité
+                              d'un widget UI (Phase 12, caché par défaut) */
+#define VM_OP_KEYIN   0x25 /* wait (u8), mask lo (u8), mask hi (u8), var
+                              dst (u8) — Key Input Processing (RM2003) :
+                              vars16[dst] = code de la touche (1 bas,
+                              2 gauche, 3 droite, 4 haut, 5 A, 6 B, 7 Y,
+                              8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 =
+                              aucune). wait = 1 : bloque jusqu'à un appui
+                              NEUF d'une touche du masque (Ph. 12) */
+#define VM_OP_SYSMENU 0x26 /* ouvre le menu Système (sauvegarde) — le
+                              menu prend la main quand le script se
+                              termine. Le mapping START en dur est
+                              retiré (Ph. 12) : l'auteur mappe sa touche
+                              via KEYIN + cette commande */
+#define VM_OP_DLGSTYLE 0x27 /* style (u8, 0 = défaut) — boîte de dialogue
+                               du prochain MSG/CHOICE (S1) : fenêtre,
+                               windowskin et fonte par style (tables
+                               ui_styles.c). Émis par datagen avant
+                               CHAQUE msg/choice (champ "style"). */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

@@ -6,6 +6,7 @@ use crate::tileset::dist555 as color_dist;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct IndexedImage {
     pub width: usize,
     pub height: usize,
@@ -336,6 +337,74 @@ impl IndexedImage {
             out.extend_from_slice(&self.char2bpp(c * 8, 0));
         }
         Ok(out)
+    }
+
+    /// Windowskin 9-slice (Phase 11, docs/SPEC_SYSTEME_UI.md) : PNG 24x24
+    /// indexé, 3x3 tiles 8x8 converties en 2bpp dans l'ordre ligne par
+    /// ligne (HG H HD / G C D / BG B BD). Mêmes 4 couleurs que la fonte
+    /// (0 transparent, 1 fond, 2 texte/bord, 3 accent).
+    pub fn to_windowskin(&self) -> Result<Vec<u8>> {
+        if self.width != 24 || self.height != 24 {
+            bail!("windowskin : attendu 24x24 (9-slice de tiles 8x8), recu {}x{}",
+                  self.width, self.height);
+        }
+        if self.pixels.iter().any(|&p| p > 3) {
+            bail!("windowskin : 4 couleurs max (indexes 0-3, palette de la fonte)");
+        }
+        let mut out = Vec::new();
+        for ty in 0..3 {
+            for tx in 0..3 {
+                out.extend_from_slice(&self.char2bpp(tx * 8, ty * 8));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Fonte SUPPLÉMENTAIRE d'un style de dialogue (S1) : les 96 glyphes
+    /// seuls, SANS le char transparent de tête (la base pointe sur ' ').
+    pub fn to_font_glyphs(&self) -> Result<Vec<u8>> {
+        let full = self.to_font()?;
+        Ok(full[16..].to_vec())
+    }
+
+    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
+    /// bande Nx8 (largeur multiple de 8, 64 icônes max), indexée sur la
+    /// palette de la fonte (0 transparent, 1 fond, 2 bord, 3 accent).
+    /// Chaque icône devient un char 2bpp, appendu après le windowskin.
+    pub fn to_icons(&self) -> Result<Vec<u8>> {
+        if self.height != 8 || self.width == 0 || self.width % 8 != 0 {
+            bail!(
+                "icones UI : attendu une bande Nx8 (largeur multiple de 8), recu {}x{}",
+                self.width, self.height
+            );
+        }
+        let n = self.width / 8;
+        if n > 64 {
+            bail!("icones UI : {} icones (max 64)", n);
+        }
+        if self.pixels.iter().any(|&p| p > 3) {
+            bail!("icones UI : 4 couleurs max (indexes 0-3, palette de la fonte)");
+        }
+        let mut out = Vec::new();
+        for c in 0..n {
+            out.extend_from_slice(&self.char2bpp(c * 8, 0));
+        }
+        Ok(out)
+    }
+
+    /// Variantes « fond de panneau » des icônes (D1) : les pixels
+    /// transparents (index 0) deviennent le FOND (index 1) — une icône
+    /// posée dans une window montre le cadre derrière elle, pas le jeu
+    /// (le compositing SNES est par tiles, on résout à la compilation).
+    /// Chars appendus après les icônes normales (UI_ICON_BASE + count).
+    pub fn to_icons_bg(&self) -> Result<Vec<u8>> {
+        let mut copy = self.clone();
+        for p in copy.pixels.iter_mut() {
+            if *p == 0 {
+                *p = 1;
+            }
+        }
+        copy.to_icons()
     }
 
     /// Palette complétée/tronquée à n entrées BGR555

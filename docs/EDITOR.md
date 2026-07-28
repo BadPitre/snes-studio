@@ -122,14 +122,28 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   nom → `datagen import-charset` recadre les frames 24x32 en 16x24 et
   réécrit `assets/sprites.png`.
 - **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
-  catégories **CharSet** (personnages) et **ChipSet** (tilesets), liste
-  avec aperçu, et actions **Importer / Exporter / Renommer / Supprimer**.
+  catégories **CharSet** (personnages), **ChipSet** (tilesets),
+  **WindowSkin** (cadres 9-slice de la Phase 11), **IconSet**
+  (planches d'icônes des widgets, W1 — bande PNG Nx8 validée à
+  l'import, aperçu avec l'index sous chaque icône, ★ = planche active)
+  et **FontSet** (fontes S1 — bande PNG 768x8, 96 glyphes 8x8, validée
+  à l'import ; aperçu = texte d'exemple rendu avec la fonte + la bande
+  des glyphes ; ★ = fonte du projet `assets.font`, non supprimable ;
+  registre `fonts` de project.json ; renommer met à jour les styles de
+  dialogue ET les widgets qui la pointent, supprimer est refusé si un
+  style ou un widget l'utilise),
+  liste avec aperçu, et actions **Importer / Exporter / Renommer /
+  Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export
   chipset = copie de la grille PNG. Renommer un tileset renomme ses
   fichiers et met à jour les scènes ; supprimer est bloqué si la
   ressource est utilisée par une scène (et le bloc 0 = héros est
   protégé). Supprimer un personnage décale les blocs suivants (les
-  acteurs sont mis à jour).
+  acteurs sont mis à jour). Windowskins : l'import valide le PNG 24x24
+  (copié dans `assets/`, registre `windowskins` de project.json —
+  éditeur seulement, ignoré par datagen), l'aperçu montre la planche et
+  une fenêtre 9-slice d'exemple, ★ marque le thème actif (suppression
+  bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
   déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
@@ -145,7 +159,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   - *Edit* : Annuler/Rétablir (Ctrl+Z / Ctrl+Y), Couper/Copier/Coller/
     Supprimer le PNJ sélectionné, Réglages du projet (bash, émulateur).
   - *Tools* : réservé.
-  - *Game* : Lancer le jeu, Générer les données.
+  - *Game* : Lancer le jeu, Vérifier le projet, Générer les données,
+    **Build cartouche (.smc)** — un `.smc` prêt pour flashcart
+    (miroité à 512 Ko, checksum recalculé, validé sur Super UFO
+    Pro 8 : le `.sfc` de 256 Ko y donne « File type error »),
+    Recompiler tout.
   - *Help* : Version.
   La barre de boutons se réduit à : 💾 (sauvegarder), couches, Ressources,
   Collision/Grille, puis « Générer les données » et « ▶ Jouer » en fin.
@@ -277,6 +295,57 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
   database crée ses dossiers `schemas/`+`data/` à la première table.
+- **Fenêtres « UI »** (Tools → UI → **sous-menu** : « Widgets… » et
+  « Dialogues et choix… », Phase 12, réf
+  `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.
+  **Palette** à gauche (clic = ajouter) : Fenêtre (cadre 9-slice,
+  conteneur), Liste verticale et Boîte horizontale (empilent leurs
+  enfants, espacement réglable), Label (texte fixe), Image (icônes de
+  la planche), Valeur (variable alignée à droite), et les widgets
+  Zelda (Jauge, Cœurs, Icône + compteur, Libellé + valeur). L'objet
+  s'ajoute DANS le conteneur sélectionné (sinon à côté, sinon sur le
+  canvas). **Arborescence** : la structure (fenêtre > listes > lignes >
+  labels), sélection au clic. **Canvas 256x224 fidèle tiles** (2x,
+  fonte/windowskin/icônes réels) : clic = sélectionner l'objet le plus
+  profond, glisser = déplacer sa racine (snap 8 px), poignée du coin =
+  redimensionner. **Inspecteur** à droite : propriétés du sélectionné
+  (↑↓ réordonner, 🗑 supprimer avec ses enfants, id, variable avec la
+  liste nommée « … », vignettes d'icônes cliquables, cadre, max
+  constant ou variable, direction de jauge…) ; sur une RACINE :
+  visibilité au démarrage et **« Fonte du widget »** (S2 — un FontSet
+  pour tout le texte du widget, le canvas la montre en direct). Un panneau façon Chrono
+  Trigger = Fenêtre > Liste verticale > Boîtes horizontales > labels/
+  valeurs/images. Les erreurs (mêmes règles que le compilateur —
+  débordements, chevauchements avec les fenêtres de dialogue, icônes
+  manquantes) s'affichent sous le canvas et bloquent OK. **« Dialogues
+  et choix »** (S1) s'ouvre sur la liste **« Boîtes de dialogue »** :
+  la boîte **(défaut) ★** (toujours là — thème windowskin + vitesse du
+  texte + géométrie message/choix) et jusqu'à 3 **styles nommés**
+  (✧ Nouveau style, ✎ renommer — ASCII —, 🗑 supprimer avec
+  confirmation). Un style sélectionné édite SON windowskin (défaut :
+  celui du thème), SA fonte (liste des FontSets, défaut : la fonte du
+  projet ★) et SES fenêtres (message obligatoire, « fenêtre de choix
+  distincte » optionnelle) ; la preview dessine la boîte du style
+  sélectionné avec son skin ET sa fonte. Les formulaires des commandes
+  **Message** et **Afficher un choix** gagnent un select « Boîte de
+  dialogue » ((défaut) + styles — le libellé de la liste des commandes
+  affiche `[style]`). **« Widgets »** s'ouvre sur la
+  page liste : la planche d'icônes et la LISTE des widgets — 👁 = visible au
+  démarrage (par défaut un widget est CACHÉ et s'affiche par la
+  commande d'event **« Afficher/cacher un widget UI »**, onglet
+  Écran), **✎ Renommer** (les enfants suivent), Éditer…/double-clic
+  ouvre le **designer scopé** sur le
+  widget (les autres estompés), ✧ Nouveau widget en crée un sur une
+  place libre, « ← Widgets » revient à la liste. En tête du designer :
+  Thème repliable (windowskin, planche d'icônes, vitesse du texte) et,
+  sous le canvas, la géométrie des fenêtres message/choix. OK écrit
+  `ui/layout.toml` (arbre `[[node]]` — les anciens layouts plats sont
+  migrés à l'ouverture). La
+  fenêtre applique **les mêmes règles que uigen** (tailles minimales,
+  zone HUD, chevauchements, libellés ASCII bornés) : les erreurs
+  s'affichent en rouge et **OK reste bloqué** tant qu'il en reste — le
+  designer ne peut pas produire un layout que le build refuserait. OK
+  écrit `ui/layout.toml` + la section `"ui"` de project.json.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

@@ -19,6 +19,77 @@ export interface Project {
   switches?: string[]; // noms des switches (éditeur seulement, index = n)
   variables?: string[]; // noms des variables 16-bit (éditeur seulement)
   common_events?: CommonEvent[]; // scripts globaux (v0.16, compilés par datagen)
+  // Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md) : windowskin 24x24
+  // (9-slice, palette de la fonte), vitesse de la machine à écrire, et
+  // planche d'icônes des widgets (W1 — bande Nx8, max 64)
+  ui?: { windowskin?: string; text_speed?: number; icons?: string };
+  windowskins?: string[]; // chemins PNG 24x24 importés via le Gestionnaire
+  // de ressources (éditeur seulement, ignoré par datagen) — le thème actif
+  // (ui.windowskin) pointe l'un d'eux
+  iconsets?: string[]; // planches d'icônes importées (même modèle)
+  fonts?: string[]; // fontes importées (S1) — assets.font est la défaut ★
+}
+
+// windowskins du projet — le thème actif y figure toujours (migration des
+// projets d'avant le registre)
+export function projectWindowskins(p: Project): string[] {
+  const list = p.windowskins ?? [];
+  const cur = p.ui?.windowskin;
+  return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// planches d'icônes du projet — même règle de migration
+export function projectIconsets(p: Project): string[] {
+  const list = p.iconsets ?? [];
+  const cur = p.ui?.icons;
+  return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// fontes du projet : assets.font (la défaut) toujours en tête
+export function projectFonts(p: Project): string[] {
+  const list = p.fonts ?? [];
+  return list.includes(p.assets.font)
+    ? [p.assets.font, ...list.filter((f) => f !== p.assets.font)]
+    : [p.assets.font, ...list];
+}
+
+// Layout uigen v1 (ui/layout.toml) — positions/tailles EN TILES
+export interface UiWin {
+  pos: [number, number];
+  size: [number, number];
+}
+export interface UiOverlay {
+  id: string;
+  pos: [number, number];
+  size: [number, number];
+  // "variable_display" | "gauge" | "icon_row" | "icon_value" (W1)
+  content: string;
+  var?: number;
+  label: string;
+  frame?: boolean; // défaut : true pour variable_display, false sinon
+  max?: number; // gauge/icon_row : maximum constant…
+  max_var?: number; // …ou porté par une variable (exclusifs)
+  icon?: number; // gauge/icon_row : 1er de 3 (pleine/demie/vide) ; icon_value : seule
+  dir?: string; // gauge : "h" (défaut) | "v"
+  pad?: number; // icon_value : zéros de tête (0-5)
+}
+
+// cadre par défaut d'un overlay selon son content (règle uigen W1)
+export function overlayFramed(o: UiOverlay): boolean {
+  return o.frame ?? o.content === "variable_display";
+}
+export interface UiLayout {
+  message: UiWin;
+  choice: UiWin;
+  overlay: UiOverlay[];
+}
+// défauts historiques (sans fichier) — mêmes valeurs que uigen
+export function defaultUiLayout(): UiLayout {
+  return {
+    message: { pos: [0, 20], size: [32, 8] },
+    choice: { pos: [0, 20], size: [32, 8] },
+    overlay: [],
+  };
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")
@@ -62,8 +133,8 @@ export interface Actor {
 export type EventTrigger = "action" | "touch" | "auto";
 
 export type Command =
-  | { c: "msg"; text: string }
-  | { c: "choice"; var?: string; options: { text: string; do: Command[] }[] }
+  | { c: "msg"; text: string; style?: string } // style : boîte S1 (absent = défaut)
+  | { c: "choice"; var?: string; style?: string; options: { text: string; do: Command[] }[] }
   | { c: "set"; var: string; value: number }
   | { c: "add"; var: string; value: number }
   | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
@@ -101,6 +172,12 @@ export type Command =
   // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
   // persistante (décor seulement — hardware), flash et secousse non
   // bloquants (enchaîner avec « Attendre »)
+  // Phase 12 — Key Input Processing (RM2003) : code de la touche dans
+  // une variable (1 bas, 2 gauche, 3 droite, 4 haut, 5 A, 6 B, 7 Y,
+  // 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune)
+  | { c: "key_input"; var: number; wait: boolean; keys: number[] }
+  | { c: "sysmenu" } // menu Système (le mapping START en dur est retiré)
+  | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }
   | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }

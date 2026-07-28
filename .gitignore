@@ -1,5 +1,6 @@
 # .gitignore snes
 *.sfc
+*.smc
 *.ps
 *.obj
 *.sym

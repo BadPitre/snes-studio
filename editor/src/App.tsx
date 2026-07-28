@@ -11,7 +11,10 @@ import {
   charsetName,
   eventAt,
   musicStem,
+  projectFonts,
+  projectIconsets,
   projectTilesets,
+  projectWindowskins,
   spriteBlockCount,
 } from "./types";
 import {
@@ -29,6 +32,7 @@ import {
   renamePath,
   saveProject,
   writeBinaryFile,
+  writeProjectText,
 } from "./io";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
@@ -49,7 +53,7 @@ import {
 } from "./state";
 import { scriptLabels } from "./state";
 import { useHistory } from "./history";
-import { canBuild, launchEmulator, runDatagen, runMake } from "./build";
+import { canBuild, launchEmulator, runDatagen, runMake, runMakeCart } from "./build";
 import SettingsModal from "./components/SettingsModal";
 import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
@@ -63,6 +67,8 @@ import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
+import UiThemeModal, { loadUiLayout2 } from "./components/UiThemeModal";
+import { layoutToToml, rootsOf } from "./uilayout";
 import { loadDatabase, saveDatabase } from "./db";
 import type { Database } from "./db";
 import TextsPanel from "./components/TextsPanel";
@@ -134,6 +140,12 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
+  // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
+  const [uiMode, setUiMode] = useState<null | "widgets" | "dialogs">(null);
+  // widgets du layout (racines) — pour la commande « Afficher un widget UI »
+  const [uiWidgets, setUiWidgets] = useState<string[]>([]);
+  // styles de dialogue (S1) — pour le champ « Boîte de dialogue » de msg/choice
+  const [uiStyles, setUiStyles] = useState<string[]>([]);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -200,6 +212,14 @@ export default function App() {
     } catch (e) {
       setDb(null);
       setStatus(`Database illisible : ${e}`);
+    }
+    try {
+      const l = await loadUiLayout2(root);
+      setUiWidgets(rootsOf(l.nodes).map((n) => n.id));
+      setUiStyles(l.styles.map((s) => s.id));
+    } catch {
+      setUiWidgets([]);
+      setUiStyles([]);
     }
     setSelEvent(null);
     setLayer("lower");
@@ -748,6 +768,323 @@ export default function App() {
     }
   }
 
+  // Windowskins (Phase 11) : PNG 24x24 9-slice importés via le
+  // Gestionnaire de ressources — registre project.windowskins (éditeur
+  // seulement), le thème actif se choisit dans Tools → UI / Thème.
+  async function importWindowskin() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer un windowskin (PNG 24x24, 9-slice)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (bmp.width !== 24 || bmp.height !== 24) {
+        setStatus(`Windowskin : attendu 24x24 (9 tiles 8x8), reçu ${bmp.width}x${bmp.height}`);
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectWindowskins(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: {
+            ...d.project,
+            windowskins: [...projectWindowskins(d.project), rel],
+          },
+        }));
+      }
+      setStatus(`Windowskin importé : ${name}`);
+    } catch (e) {
+      setStatus(`Import windowskin : ${e}`);
+    }
+  }
+
+  async function exportWindowskin(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter le windowskin (PNG 24x24)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Windowskin exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export windowskin : ${e}`);
+    }
+  }
+
+  async function renameWindowskin(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectWindowskins(data.project).includes(newRel)) {
+      setStatus(`Renommage : le windowskin « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      // fichier renommé + refs (registre et thème actif) dans le même
+      // geste, projet sauvegardé pour que le disque reste cohérent
+      const windowskins = projectWindowskins(data.project).map((r) =>
+        r === oldRel ? newRel : r
+      );
+      const ui =
+        data.project.ui?.windowskin === oldRel
+          ? { ...data.project.ui, windowskin: newRel }
+          : data.project.ui;
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, windowskins, ui },
+      };
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Windowskin renommé : ${assetStem(oldRel)} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteWindowskin(rel: string) {
+    if (!data || data.project.ui?.windowskin === rel) return; // thème actif
+    if (!confirm(`Supprimer le windowskin « ${assetStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const windowskins = projectWindowskins(data.project).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: {
+          ...data.project,
+          windowskins: windowskins.length ? windowskins : undefined,
+        },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Windowskin supprimé : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
+  // Planches d'icônes des widgets (W1) : PNG bande Nx8 (largeur multiple
+  // de 8, max 64 icônes) — même modèle de registre que les windowskins.
+  async function importIconset() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une planche d'icônes (PNG Nx8, largeur multiple de 8)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (bmp.height !== 8 || bmp.width % 8 !== 0 || bmp.width === 0 || bmp.width > 512) {
+        setStatus(
+          `Planche d'icônes : attendu une bande Nx8 (largeur multiple de 8, max 64 icônes), reçu ${bmp.width}x${bmp.height}`
+        );
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectIconsets(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
+        }));
+      }
+      setStatus(`Planche d'icônes importée : ${name} (${bmp.width / 8} icônes)`);
+    } catch (e) {
+      setStatus(`Import planche d'icônes : ${e}`);
+    }
+  }
+
+  async function exportIconset(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter la planche d'icônes (PNG)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Planche d'icônes exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export planche d'icônes : ${e}`);
+    }
+  }
+
+  async function renameIconset(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectIconsets(data.project).includes(newRel)) {
+      setStatus(`Renommage : la planche « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const iconsets = projectIconsets(data.project).map((r) => (r === oldRel ? newRel : r));
+      const ui =
+        data.project.ui?.icons === oldRel
+          ? { ...data.project.ui, icons: newRel }
+          : data.project.ui;
+      const d2: ProjectData = { ...data, project: { ...data.project, iconsets, ui } };
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Planche d'icônes renommée : ${assetStem(oldRel)} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteIconset(rel: string) {
+    if (!data || data.project.ui?.icons === rel) return; // planche active
+    if (!confirm(`Supprimer la planche d'icônes « ${assetStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const iconsets = projectIconsets(data.project).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, iconsets: iconsets.length ? iconsets : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Planche d'icônes supprimée : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
+  // Fontes (S1) : PNG bande 768x8 (96 glyphes ASCII 32-127) — même modèle
+  // de registre. assets.font est la fonte du projet (★) ; les autres
+  // servent aux styles de dialogue. Export demandé explicitement par
+  // Bertrand (« la font soit exportable depuis le ressource »).
+  async function importFont() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une fonte (PNG 768x8 — 96 glyphes 8x8)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (bmp.width !== 768 || bmp.height !== 8) {
+        setStatus(
+          `Fonte : attendu une bande 768x8 (96 glyphes 8x8, ASCII 32-127), reçu ${bmp.width}x${bmp.height}`
+        );
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectFonts(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: { ...d.project, fonts: [...(d.project.fonts ?? []), rel] },
+        }));
+      }
+      setStatus(`Fonte importée : ${name}`);
+    } catch (e) {
+      setStatus(`Import fonte : ${e}`);
+    }
+  }
+
+  async function exportFont(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter la fonte (PNG)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Fonte exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export fonte : ${e}`);
+    }
+  }
+
+  async function renameFont(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectFonts(data.project).includes(newRel)) {
+      setStatus(`Renommage : la fonte « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const fonts = (data.project.fonts ?? []).map((r) => (r === oldRel ? newRel : r));
+      const assets =
+        data.project.assets.font === oldRel
+          ? { ...data.project.assets, font: newRel }
+          : data.project.assets;
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      // les styles de dialogue ET les widgets qui pointaient l'ancienne
+      // fonte suivent (S2)
+      const l = await loadUiLayout2(data.root);
+      if (
+        l.styles.some((s) => s.font === oldRel) ||
+        l.nodes.some((n) => n.font === oldRel)
+      ) {
+        l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
+        l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
+        await writeProjectText(data.root, "ui/layout.toml", layoutToToml(l));
+      }
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, fonts: fonts.length ? fonts : undefined, assets },
+      };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Fonte renommée : ${assetStem(oldRel)} → ${newStem}`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteFont(rel: string) {
+    if (!data || data.project.assets.font === rel) return; // fonte du projet ★
+    try {
+      // refusé si un style de dialogue OU un widget l'utilise
+      const l = await loadUiLayout2(data.root);
+      const users = [
+        ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
+        ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
+      ];
+      if (users.length) {
+        setStatus(`Fonte utilisée par : ${users.join(", ")} — changer d'abord dans Tools → UI.`);
+        return;
+      }
+      if (!confirm(`Supprimer la fonte « ${assetStem(rel)} » et son fichier ?`)) return;
+      const keep = sceneName;
+      const fonts = (data.project.fonts ?? []).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, fonts: fonts.length ? fonts : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Fonte supprimée : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -857,6 +1194,33 @@ export default function App() {
       setStatus(`Jouer : ${e}`);
     } finally {
       setPlaying(false);
+    }
+  }
+
+  // Build « cartouche » : .smc prêt pour flashcart (Super UFO Pro 8 & co) —
+  // miroité à 512 Ko minimum, checksum recalculé (tools/mkcart.sh)
+  async function buildCart() {
+    if (!data || building || playing) return;
+    setBuilding(true);
+    try {
+      await save();
+      setStatus("datagen…");
+      const gen = await runDatagen(data.root);
+      if (!gen.ok) {
+        setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
+        return;
+      }
+      setStatus("Build cartouche (make cart)…");
+      const mk = await runMakeCart(data.root, playCfg.bash);
+      setStatus(
+        mk.ok
+          ? "Cartouche prête : engine/snesstudio.smc (512 Ko, à copier sur la flashcart)."
+          : `make cart a échoué : ${mk.output.slice(-400)}`
+      );
+    } catch (e) {
+      setStatus(`Build cartouche : ${e}`);
+    } finally {
+      setBuilding(false);
     }
   }
 
@@ -1089,6 +1453,22 @@ export default function App() {
           action: () => setDbOpen(true),
           disabled: !data,
         },
+        {
+          label: "UI",
+          disabled: !data,
+          sub: [
+            {
+              label: "Widgets…",
+              action: () => setUiMode("widgets"),
+              disabled: !data,
+            },
+            {
+              label: "Dialogues et choix…",
+              action: () => setUiMode("dialogs"),
+              disabled: !data,
+            },
+          ],
+        },
       ],
     },
     {
@@ -1107,6 +1487,12 @@ export default function App() {
         {
           label: "Générer les données",
           action: generate,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Build cartouche (.smc)",
+          hint: "flashcart",
+          action: () => void buildCart(),
           disabled: !data || !canBuild() || playing || building,
         },
         {
@@ -1391,22 +1777,41 @@ export default function App() {
       )}
       {showResources && data && (
         <ResourceManagerModal
+          root={data.root}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}
           blockCount={spriteBlocks}
           blockNames={blockNames}
+          windowskins={projectWindowskins(data.project)}
+          activeSkin={data.project.ui?.windowskin}
+          iconsets={projectIconsets(data.project)}
+          activeIcons={data.project.ui?.icons}
+          fonts={projectFonts(data.project)}
+          defaultFont={data.project.assets.font}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
           onImportCharset={importCharset}
           onImportChipset={importChipset}
+          onImportWindowskin={() => void importWindowskin()}
+          onImportIconset={() => void importIconset()}
+          onImportFont={() => void importFont()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
+          onExportWindowskin={(rel) => void exportWindowskin(rel)}
+          onExportIconset={(rel) => void exportIconset(rel)}
+          onExportFont={(rel) => void exportFont(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
+          onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
+          onRenameIconset={(rel, n) => void renameIconset(rel, n)}
+          onRenameFont={(rel, n) => void renameFont(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
+          onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
+          onDeleteIconset={(rel) => void deleteIconset(rel)}
+          onDeleteFont={(rel) => void deleteFont(rel)}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -1622,6 +2027,29 @@ export default function App() {
           onClose={() => setDbOpen(false)}
         />
       )}
+      {uiMode && data && (
+        <UiThemeModal
+          root={data.root}
+          mode={uiMode}
+          project={data.project}
+          windowskins={projectWindowskins(data.project)}
+          iconsets={projectIconsets(data.project)}
+          fonts={projectFonts(data.project)}
+          varNames={data.project.variables ?? []}
+          switchNames={data.project.switches ?? []}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(ui, widgets, styles) => {
+            mutate((d) => ({ ...d, project: { ...d.project, ui } }));
+            setUiWidgets(widgets);
+            setUiStyles(styles);
+            setUiMode(null);
+            setStatus("UI sauvegardée (project.json + ui/layout.toml).");
+          }}
+          onClose={() => setUiMode(null)}
+        />
+      )}
       {commonEvOpen && data && (
         <CommonEventsModal
           commons={data.project.common_events ?? []}
@@ -1633,6 +2061,8 @@ export default function App() {
             charsetName(data.project, b)
           )}
           db={db}
+          uiWidgets={uiWidgets}
+          uiStyles={uiStyles}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -1685,6 +2115,8 @@ export default function App() {
             (ce, i) => ce.name || `CE ${i + 1}`
           )}
           db={db}
+          uiWidgets={uiWidgets}
+          uiStyles={uiStyles}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

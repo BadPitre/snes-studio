@@ -345,6 +345,13 @@ avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
 projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 (32-126, accents en v1 avec la fonte définitive).
 
+**Phase 11 — windowskin (docs/SPEC_SYSTEME_UI.md §1) :** quand le
+projet déclare un windowskin, ses 9 tiles 2bpp (9-slice HG H HD / G C D
+/ BG B BD) suivent la fonte dans les chars BG3 (chars 97-105, même
+palette CGRAM 16-19). La textbox les utilise pour se dessiner en cadre ;
+la machine à écrire (`text_speed` frames/caractère) révèle le texte
+pendant l'attente TEXTBOX de la VM — A complète, puis ferme.
+
 **v0.17 — afficher une variable (`\v[n]`, modèle RM2003) :** dans le
 texte SOURCE, `\v[n]` (n = variable 16-bit, 0-254) est encodé par
 datagen en `[0x01][n+1]` (jamais d'octet nul dans une chaîne ; les
@@ -454,6 +461,10 @@ l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
 | 0x23 | DBREAD | table u8, src u8, entrée u8, offset u8, taille u8 (1-2), dst u8 | `vars16[dst]` = champ de la database — table = index du registre généré `db_tables[]` ; src : 0 = entrée constante, 1 = entrée lue dans `vars16[entrée]` ; une entrée dynamique hors table donne 0 (jamais de lecture sauvage). |
+| 0x24 | SHOWUI | widget u8, on u8 | Visibilité d'un WIDGET UI (racine du layout uigen, Phase 12) — les widgets sont cachés au démarrage sauf `visible = true` ; on : 1 = afficher, 0 = cacher. Index hors bornes : ignoré. |
+| 0x25 | KEYIN | wait u8, mask u16 (lo, hi), dst u8 | Key Input Processing (RM2003, Phase 12) : `vars16[dst]` = code de la touche (1 bas, 2 gauche, 3 droite, 4 haut, 5 A, 6 B, 7 Y, 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune). mask : bit `1<<code` = touche autorisée. wait = 1 : bloque (VM_WAIT_KEY, main ET parallel) jusqu'à un appui NEUF d'une touche du masque. |
+| 0x26 | SYSMENU | — | Ouvre le menu Système (sauvegarder/charger) — il prend la main quand le script se termine. Le mapping START câblé du moteur est RETIRÉ (Phase 12) : l'auteur mappe sa touche via KEYIN. Interdit en parallel (datagen). |
+| 0x27 | DLGSTYLE | style u8 | Style de dialogue (S1) de la PROCHAINE boîte : fenêtre message/choix, windowskin et fonte du style n (tables `ui_styles.c`, 0 = défaut, hors bornes = 0). Émis par datagen devant CHAQUE msg/choice — UNIQUEMENT si le projet déclare des `[[dialog_style]]` (sinon bytecode inchangé, byte-identique). |
 
 Le registre (`db_index.c` : `db_tables[]`, `db_table_sizes[]`,
 `db_table_counts[]` + `DB_TABLE_COUNT` dans db_tables.h) est TOUJOURS

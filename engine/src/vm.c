@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "timer.h"
 #include "screenfx.h"
+#include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -45,6 +46,8 @@ void vm_init(void)
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = 0;
   vm.wait_timer = 0;
+  vm.keyin_mask = 0;
+  vm.keyin_dst = 0;
   vm.script_actor = 0xFF;
   vm.call_sp = 0;
   for (i = 0; i < VM_CALL_DEPTH; i++)
@@ -144,6 +147,43 @@ static u8 p_script_actor;
 static u8 p_call_sp;
 static u16 p_call_stack[VM_CALL_DEPTH];
 
+/* KEYIN (Ph. 12) : code de la première touche du masque présente dans
+   « pressed » — codes RM2003 étendus SNES (formats.h). If-chain : pas de
+   table u16 (piège toolchain). */
+static u16 keyin_bit(u8 code)
+{
+  switch (code)
+  {
+  case 1: return KEY_DOWN;
+  case 2: return KEY_LEFT;
+  case 3: return KEY_RIGHT;
+  case 4: return KEY_UP;
+  case 5: return KEY_A;
+  case 6: return KEY_B;
+  case 7: return KEY_Y;
+  case 8: return KEY_X;
+  case 9: return KEY_L;
+  case 10: return KEY_R;
+  case 11: return KEY_SELECT;
+  case 12: return KEY_START;
+  }
+  return 0;
+}
+
+static u8 keyin_scan(u16 mask, u16 pressed)
+{
+  u8 code;
+
+  for (code = 1; code <= 12; code++)
+    if ((mask & ((u16)1 << code)) && (pressed & keyin_bit(code)))
+      return code;
+  return 0;
+}
+
+/* contexte parallèle : masque/destination du KEYIN en cours */
+static u16 p_keyin_mask;
+static u8 p_keyin_dst;
+
 static void pvm_swap(void)
 {
   u8 i, t8;
@@ -155,6 +195,8 @@ static void pvm_swap(void)
   t8 = vm.wait_timer;  vm.wait_timer = p_wait_timer; p_wait_timer = t8;
   t8 = vm.script_actor; vm.script_actor = p_script_actor; p_script_actor = t8;
   t8 = vm.call_sp;     vm.call_sp = p_call_sp;       p_call_sp = t8;
+  t16 = vm.keyin_mask; vm.keyin_mask = p_keyin_mask;  p_keyin_mask = t16;
+  t8 = vm.keyin_dst;   vm.keyin_dst = p_keyin_dst;    p_keyin_dst = t8;
   for (i = 0; i < VM_CALL_DEPTH; i++)
   {
     t16 = vm.call_stack[i];
@@ -169,6 +211,8 @@ void vm_parallel_reset(void)
 
   p_active = 0;
   p_pc = 0;
+  p_keyin_mask = 0;
+  p_keyin_dst = 0;
   p_wait_mode = VM_WAIT_NONE;
   p_wait_timer = 0;
   p_script_actor = 0xFF;
@@ -542,6 +586,37 @@ static void vm_step(void)
       vm.vars16[op] = val16;
       break;
 
+    case VM_OP_SHOWUI: /* visibilité d'un widget UI (Phase 12) */
+      var = fetch8(); /* index du widget (racine du layout) */
+      op = fetch8();  /* 1 = afficher, 0 = cacher */
+      overlay_show(var, op);
+      break;
+
+    case VM_OP_KEYIN: /* Key Input Processing (RM2003, Phase 12) */
+      op = fetch8();    /* 1 = attendre un appui */
+      val16 = fetch8(); /* masque des touches autorisées (lo) */
+      val16 |= (u16)fetch8() << 8;
+      var = fetch8();   /* variable destination */
+      if (op)
+      {
+        vm.keyin_mask = val16;
+        vm.keyin_dst = var;
+        vm.wait_mode = VM_WAIT_KEY;
+      }
+      else
+        vm.vars16[var] = keyin_scan(val16, padsCurrent(0));
+      break;
+
+    case VM_OP_DLGSTYLE: /* style de la prochaine boîte (S1) */
+      textbox_set_style(fetch8());
+      break;
+
+    case VM_OP_SYSMENU: /* menu Système (sauvegarde) — Phase 12 : le
+                           mapping START en dur est retiré, l'auteur
+                           ouvre le menu par cette commande */
+      sysmenu_open();
+      break;
+
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
       var = fetch8();
       val = fetch8(); /* 0 ==, 1 !=, 2 >= */
@@ -565,10 +640,16 @@ void vm_update(void)
 
   if (vm.wait_mode == VM_WAIT_TEXTBOX)
   {
+    textbox_tick(); /* machine à écrire (Phase 11, thème text_speed) */
     if (padsDown(0) & KEY_A)
     {
-      textbox_close();
-      vm.wait_mode = VM_WAIT_NONE;
+      if (textbox_busy())
+        textbox_finish(); /* premier A : tout révéler */
+      else
+      {
+        textbox_close();
+        vm.wait_mode = VM_WAIT_NONE;
+      }
     }
     return; /* la VM reprend à la frame suivante */
   }
@@ -600,6 +681,14 @@ void vm_update(void)
       vm.wait_timer--;
       return;
     }
+    vm.wait_mode = VM_WAIT_NONE;
+  }
+  if (vm.wait_mode == VM_WAIT_KEY)
+  {
+    down = keyin_scan(vm.keyin_mask, padsDown(0));
+    if (!down)
+      return;
+    vm.vars16[vm.keyin_dst] = down;
     vm.wait_mode = VM_WAIT_NONE;
   }
   if (vm.wait_mode == VM_WAIT_CHOICE)
@@ -672,6 +761,15 @@ void vm_parallel_update(void)
       p_wait_timer--;
       return;
     }
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_KEY)
+  {
+    u8 code = keyin_scan(p_keyin_mask, padsDown(0));
+
+    if (!code)
+      return;
+    vm.vars16[p_keyin_dst] = code;
     p_wait_mode = VM_WAIT_NONE;
   }
   if (p_wait_mode != VM_WAIT_NONE)

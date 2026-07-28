@@ -17,6 +17,8 @@
 #include "audio.h"
 #include "timer.h"
 #include "screenfx.h"
+#include "ui_overlay.h"
+#include "ui_screen.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -76,10 +78,12 @@ int main(void)
   scene_load(scene_boot_id());
   audio_play_music(scene_ctx.music_id);
   textbox_init();
+  ui_screen_init(); /* tampon BG3 partagé (M1) : map nettoyée écran éteint */
   vm_init();
   sysmenu_init();
   timer_init();
   screenfx_init();
+  overlay_init(); /* HUD permanent du layout uigen (Phase 11) */
   camera_init();
   player_init();
   actors_init();
@@ -139,8 +143,9 @@ int main(void)
         player_update(); /* inputs + mouvement + collision + interaction */
         if (player_take_warp(&wd, &wx, &wy))
           do_warp(wd, wx, wy);
-        else if (padsDown(0) & KEY_START)
-          sysmenu_open();
+        /* Phase 12 : plus de mapping START en dur — le menu Système
+           s'ouvre par la commande d'event SYSMENU (l'auteur choisit sa
+           touche via KEYIN) */
       }
     }
 
@@ -153,6 +158,7 @@ int main(void)
     }
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
+    overlay_update();  /* HUD : redessin si une variable a changé */
     camera_update();
     map_update();  /* prépare le streaming de la fenêtre tilemap */
     player_draw(); /* shadow OAM — transféré par le NMI au VBlank */
@@ -164,8 +170,7 @@ int main(void)
 
     /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement */
     map_vblank();
-    textbox_vblank();
-    timer_vblank();
+    ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
     screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
     bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
     bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);

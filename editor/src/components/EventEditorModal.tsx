@@ -30,6 +30,8 @@ interface Props {
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   commonNames: string[]; // noms des common events (v0.16)
   db: Database | null; // database du projet (commande db_read, v0.17)
+  uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
+  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -49,9 +51,9 @@ interface Line {
 function labelOf(c: Command, ceNames?: string[]): string {
   switch (c.c) {
     case "msg":
-      return `Message : ${c.text}`;
+      return `Message${c.style ? ` [${c.style}]` : ""} : ${c.text}`;
     case "choice":
-      return "Afficher un choix…";
+      return `Afficher un choix…${c.style ? ` [${c.style}]` : ""}`;
     case "set":
       return `Variable ${c.var} = ${c.value}`;
     case "add":
@@ -110,6 +112,12 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "swappos":
       return `Échanger ${c.a < 0 ? "cet event" : `l'event ${c.a}`} ↔ ${
         c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
+    case "ui_show":
+      return `${c.on ? "Afficher" : "Cacher"} le widget UI « ${c.widget || "?"} »`;
+    case "key_input":
+      return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
+    case "sysmenu":
+      return "Ouvrir le menu Système (sauvegarde)";
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -244,7 +252,9 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  db: Database | null; // schémas + instances (commande db_read)
+  db: Database | null;
+  uiWidgets: string[];
+  uiStyles: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -401,6 +411,12 @@ export function CommandListEditor(props: {
         return { c: "setpos", event: -1, from: "const", x: 0, y: 0 };
       case "swappos":
         return { c: "swappos", a: -1, b: 0 };
+      case "ui_show":
+        return { c: "ui_show", widget: "", on: true };
+      case "key_input":
+        return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
+      case "sysmenu":
+        return { c: "sysmenu" };
       case "scr_hide":
         return { c: "scr_hide", speed: 1 };
       case "scr_show":
@@ -477,6 +493,8 @@ export function CommandListEditor(props: {
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
               db={props.db}
+              uiWidgets={props.uiWidgets}
+              uiStyles={props.uiStyles}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -882,6 +900,8 @@ export default function EventEditorModal(props: Props) {
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
               db={props.db}
+              uiWidgets={props.uiWidgets}
+              uiStyles={props.uiStyles}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -950,6 +970,8 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  uiWidgets: string[];
+  uiStyles: string[];
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -973,6 +995,27 @@ function CommandForm(props: {
   const varOk = (v: string) =>
     /^[vg]\d{1,2}$/.test(v) && Number(v.slice(1)) <= 63;
 
+  // sélecteur de boîte de dialogue (S1) — affiché seulement si le projet
+  // a des styles ; absent = la boîte par défaut (toujours là)
+  const styleField = (c: { style?: string }, set: (s: string | undefined) => void) =>
+    props.uiStyles.length > 0 && (
+      <label>
+        Boîte de dialogue
+        <select value={c.style ?? ""} onChange={(e) => set(e.target.value || undefined)}>
+          <option value="">(défaut)</option>
+          {props.uiStyles.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+          {c.style && !props.uiStyles.includes(c.style) && (
+            <option value={c.style}>{c.style} (?)</option>
+          )}
+        </select>
+        {c.style && !props.uiStyles.includes(c.style) && (
+          <span className="hint">⚠ style « {c.style} » introuvable (Tools → UI → Dialogues et choix)</span>
+        )}
+      </label>
+    );
+
   let body = null;
   let valid = true;
   switch (cmd.c) {
@@ -993,6 +1036,7 @@ function CommandForm(props: {
             \v[n] affiche la variable n au moment de l'affichage (ex. « Tu
             as \v[12] pièces d'or ») — marche aussi dans les choix.
           </span>
+          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
         </>
       );
       break;
@@ -1031,6 +1075,7 @@ function CommandForm(props: {
             + Ajouter un choix
           </button>
           <p className="hint">Les commandes de chaque branche s'ajoutent ensuite sous « : Quand […] ».</p>
+          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
         </>
       );
       break;
@@ -1491,6 +1536,103 @@ function CommandForm(props: {
             </label>
           ))}
         </div>
+      );
+      break;
+    case "key_input": {
+      valid = cmd.keys.length > 0;
+      const KEY_NAMES: [number, string][] = [
+        [1, "Bas (1)"], [2, "Gauche (2)"], [3, "Droite (3)"], [4, "Haut (4)"],
+        [5, "A — valider (5)"], [6, "B — annuler (6)"], [7, "Y (7)"], [8, "X (8)"],
+        [9, "L (9)"], [10, "R (10)"], [11, "Select (11)"], [12, "Start (12)"],
+      ];
+      body = (
+        <>
+          <label>
+            Variable destination (reçoit le code, 0 = aucune touche)
+            <div className="row" style={{ gap: 4 }}>
+              <input type="number" min={0} max={255} value={cmd.var} autoFocus
+                onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+              <button className="browse"
+                onClick={() => props.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+                …
+              </button>
+            </div>
+            <span className="hint">{props.varNames[cmd.var] || ""}</span>
+          </label>
+          <label className="checkline">
+            <input type="checkbox" checked={cmd.wait}
+              onChange={(e) => onChange({ ...cmd, wait: e.target.checked })} />
+            Attendre l'appui d'une touche (sinon : lecture immédiate)
+          </label>
+          <fieldset className="evedit-box">
+            <legend>Touches autorisées</legend>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              {KEY_NAMES.map(([code, name]) => (
+                <label className="checkline" key={code}>
+                  <input type="checkbox" checked={cmd.keys.includes(code)}
+                    onChange={(e) =>
+                      onChange({
+                        ...cmd,
+                        keys: e.target.checked
+                          ? [...cmd.keys, code].sort((a, b) => a - b)
+                          : cmd.keys.filter((k) => k !== code),
+                      })
+                    } />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <span className="hint">
+            Façon RM2003 : le code de la touche est écrit dans la variable.
+            En « attendre », le script bloque jusqu'à un appui NEUF d'une
+            touche cochée.
+          </span>
+        </>
+      );
+      break;
+    }
+    case "sysmenu":
+      body = (
+        <span className="hint">
+          Ouvre le menu Système (sauvegarder/charger) quand le script se
+          termine. Le mapping START en dur a été retiré : mappe ta touche
+          avec « Touche pressée » + une condition, ou appelle cette
+          commande où tu veux.
+        </span>
+      );
+      break;
+    case "ui_show":
+      valid = cmd.widget !== "";
+      body = (
+        <>
+          <label>
+            Widget (racines de ui/layout.toml — fenêtre UI)
+            <select
+              value={cmd.widget} autoFocus
+              onChange={(e) => onChange({ ...cmd, widget: e.target.value })}
+            >
+              <option value="">(choisir)</option>
+              {props.uiWidgets.map((w) => (
+                <option key={w} value={w}>{w}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Action
+            <select
+              value={cmd.on ? "on" : "off"}
+              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
+            >
+              <option value="on">Afficher</option>
+              <option value="off">Cacher</option>
+            </select>
+          </label>
+          <span className="hint">
+            Les widgets sont CACHÉS au démarrage (sauf « Visible au démarrage »
+            dans la fenêtre UI) — cette commande les affiche ou les cache.
+          </span>
+        </>
       );
       break;
     case "scr_hide":

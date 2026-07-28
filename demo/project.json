@@ -22,5 +22,16 @@
   "charsets": [
     "Héros",
     "Villageois"
+  ],
+  "ui": {
+    "windowskin": "assets/windowskin.png",
+    "text_speed": 2,
+    "icons": "assets/icons.png"
+  },
+  "windowskins": [
+    "assets/windowskin.png"
+  ],
+  "iconsets": [
+    "assets/icons.png"
   ]
 }

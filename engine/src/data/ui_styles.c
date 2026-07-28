@@ -1,0 +1,16 @@
+/*
+ * FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.
+ * Source : demo/ (projet JSON/PNG). Regenerer : make data (ou cargo run).
+ */
+#include <snes.h>
+
+const u8 ui_st_mx[1] = { 0, };
+const u8 ui_st_my[1] = { 20, };
+const u8 ui_st_mw[1] = { 32, };
+const u8 ui_st_mh[1] = { 8, };
+const u8 ui_st_cx[1] = { 0, };
+const u8 ui_st_cy[1] = { 20, };
+const u8 ui_st_cw[1] = { 32, };
+const u8 ui_st_ch[1] = { 8, };
+const u8 ui_st_font[1] = { 1, };
+const u8 ui_st_skin[1] = { 97, };

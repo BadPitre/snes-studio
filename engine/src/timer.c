@@ -3,14 +3,16 @@
  *
  * Un décompte en secondes, piloté par l'opcode TIMER (spec §2) : régler/
  * démarrer, arrêter, afficher/cacher. L'affichage « M:SS » vit sur BG3
- * (fonte de la textbox, déjà en VRAM), coin HAUT-DROIT — la textbox
- * n'occupe que le bas de la couche. Écriture VRAM au VBlank uniquement,
- * et seulement quand l'affichage change (dirty).
+ * (fonte de la textbox, déjà en VRAM), coin HAUT-DROIT. Depuis M1
+ * (Phase 12), il est composé dans le tampon partagé ui_map dès que
+ * l'état change (hors VBlank) — transfert centralisé ui_screen_vblank.
+ * Cas assumé (doc M1) : une fenêtre de dialogue qui recouvre sa rangée
+ * l'efface jusqu'au tick suivant.
  */
 #include <snes.h>
 #include "formats.h"
-#include "vram.h"
 #include "timer.h"
+#include "ui_screen.h"
 
 /* Même encodage d'entrée BG3 que la textbox (textbox.c) : char 0 =
    transparent, la fonte commence au char 1 (glyphe = ascii - 31) */
@@ -25,8 +27,35 @@ static u16 t_secs;    /* secondes restantes */
 static u8 t_frames;   /* frames écoulées de la seconde en cours */
 static u8 t_run;      /* 1 = décompte actif */
 static u8 t_show;     /* 1 = affiché */
-static u8 t_dirty;    /* l'affichage doit être réécrit au VBlank */
-static u16 t_map[T_LEN]; /* entrées BG3 préparées hors VBlank */
+
+/* Compose « M:SS » (ou l'efface) dans ui_map — hors VBlank */
+static void t_render(void)
+{
+  u16 m, s, base;
+  u8 i;
+
+  base = (u16)T_ROW * 32 + T_COL;
+  if (t_show)
+  {
+    m = t_secs / 60;
+    s = t_secs % 60;
+    if (m > 99)
+      m = 99;
+    /* pas de zéro de tête sur les minutes — espace OPAQUE (fond fonte),
+       comme avant M1 : le rendu doit rester pixel-identique */
+    ui_map[base + 0] = m < 10 ? T_ENTRY(' ') : T_ENTRY('0' + m / 10);
+    ui_map[base + 1] = T_ENTRY('0' + m % 10);
+    ui_map[base + 2] = T_ENTRY(':');
+    ui_map[base + 3] = T_ENTRY('0' + s / 10);
+    ui_map[base + 4] = T_ENTRY('0' + s % 10);
+  }
+  else
+  {
+    for (i = 0; i < T_LEN; i++)
+      ui_map[base + i] = 0;
+  }
+  ui_mark(T_ROW, 1);
+}
 
 void timer_init(void)
 {
@@ -34,7 +63,6 @@ void timer_init(void)
   t_frames = 0;
   t_run = 0;
   t_show = 0;
-  t_dirty = 0;
 }
 
 /* API à paramètre UNIQUE : le couple (u8, u16) en paramètres était
@@ -45,7 +73,7 @@ void timer_set(u16 secs)
   t_secs = secs;
   t_frames = 0;
   t_run = 1;
-  t_dirty = 1;
+  t_render();
 }
 
 void timer_stop(void)
@@ -56,7 +84,15 @@ void timer_stop(void)
 void timer_display(u8 on)
 {
   t_show = on;
-  t_dirty = 1;
+  t_render();
+}
+
+/* Redessin inconditionnel — la bande du dialogue vient d'être effacée
+   et peut couvrir la rangée du timer (tb_clear_band, W1) */
+void timer_refresh(void)
+{
+  if (t_show)
+    t_render();
 }
 
 u16 timer_secs(void)
@@ -77,38 +113,6 @@ void timer_tick(void)
     if (t_secs == 0)
       t_run = 0;
     if (t_show)
-      t_dirty = 1;
+      t_render();
   }
-}
-
-/* Prépare puis transfère « M:SS » (ou l'efface) — VBlank uniquement */
-void timer_vblank(void)
-{
-  u16 m, s;
-  u8 i;
-
-  if (!t_dirty)
-    return;
-  t_dirty = 0;
-
-  if (t_show)
-  {
-    m = t_secs / 60;
-    s = t_secs % 60;
-    if (m > 99)
-      m = 99;
-    t_map[0] = T_ENTRY('0' + m / 10);
-    t_map[1] = T_ENTRY('0' + m % 10);
-    t_map[2] = T_ENTRY(':');
-    t_map[3] = T_ENTRY('0' + s / 10);
-    t_map[4] = T_ENTRY('0' + s % 10);
-    if (m < 10)
-      t_map[0] = T_ENTRY(' '); /* pas de zéro de tête sur les minutes */
-  }
-  else
-  {
-    for (i = 0; i < T_LEN; i++)
-      t_map[i] = 0;
-  }
-  dmaCopyVram((u8 *)t_map, VRAM_BG3_MAP + T_ROW * 32 + T_COL, T_LEN * 2);
 }

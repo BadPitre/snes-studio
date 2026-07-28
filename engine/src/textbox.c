@@ -4,7 +4,9 @@
  * BG3 reste toujours actif : sa map est remplie de char 0 (transparent)
  * quand la boîte est fermée — pas de bascule d'activation de layer.
  * Les glyphes ont un fond opaque (couleur 1), donc la boîte est le simple
- * rectangle des chars écrits. Écritures VRAM différées au VBlank.
+ * rectangle des chars écrits. Depuis M1 (Phase 12), le module compose
+ * dans le tampon d'écran partagé ui_map (ui_screen.c) — le transfert
+ * VRAM est centralisé au VBlank par ui_screen_vblank.
  */
 #include <snes.h>
 #include "formats.h"
@@ -13,6 +15,30 @@
 #include "rom_layout.h"
 #include "vram.h"
 #include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
+#include "ui_screen.h" /* tampon BG3 partagé (Phase 12 M1) */
+#include "ui_overlay.h" /* refresh des widgets après effacement (W1) */
+#include "timer.h"
+#include "data/ui_cfg.h" /* theme UI v1 : windowskin + text_speed (Ph. 11) */
+
+/* Styles de dialogue (S1, tables ui_styles.c générées) : fenêtre,
+   windowskin (base char, 0 = boîte pleine) et fonte (base char du
+   glyphe ' ') PAR STYLE — style 0 = défaut, changé par DLGSTYLE. */
+extern const u8 ui_st_mx[];
+extern const u8 ui_st_my[];
+extern const u8 ui_st_mw[];
+extern const u8 ui_st_mh[];
+extern const u8 ui_st_cx[];
+extern const u8 ui_st_cy[];
+extern const u8 ui_st_cw[];
+extern const u8 ui_st_ch[];
+extern const u8 ui_st_font[];
+extern const u8 ui_st_skin[];
+
+/* style courant, copié des tables par textbox_set_style */
+static u8 tb_mx, tb_my, tb_mw, tb_mh; /* fenêtre message */
+static u8 tb_cx2, tb_cy2, tb_cw2, tb_ch2; /* fenêtre choix */
+static u8 tb_font; /* base char de la fonte (glyphe ' ') */
+static u8 tb_skin; /* base char du 9-slice (0 = boîte pleine) */
 
 /* Fonte + palette (data_font.c) */
 extern const u8 font_gfx[];
@@ -74,28 +100,150 @@ static void text_decode(u16 text_id, char *dst, u8 max)
 static char tb_text[176];
 static char tb_opts[4][28];
 
-/* Géométrie de la boîte (rangées de la map BG3 32x32) */
-#define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
-#define TB_ROWS 8       /* hauteur totale (64 px) */
-#define TB_TEXT_COL 2   /* marge gauche du texte */
-#define TB_TEXT_COLS 28 /* largeur utile en caractères */
-#define TB_TEXT_ROW 1   /* première ligne de texte (relative à TB_ROW) */
-#define TB_TEXT_ROWS 6  /* nombre de lignes de texte */
+/* Géométrie : fenêtres MESSAGE et CHOIX du STYLE COURANT (S1 — tables
+   ui_styles.c, style 0 = défaut du layout). Adressage ABSOLU dans
+   ui_map (M1) ; UI_SHADOW_* borne la bande à effacer (union de toutes
+   les fenêtres de tous les styles, calculée par uigen). */
+#define TB_TEXT_COLS ((u8)(tb_mw - 4)) /* cadre : 2 tiles de marge par côté */
+#define TB_TEXT_ROWS ((u8)(tb_mh - 2)) /* cadre : 1 rangée haut et bas */
+#define TB_CHC_COLS ((u8)(tb_cw2 - 4))
+#define TB_CHC_ROWS ((u8)(tb_ch2 - 2))
+/* cellule ui_map (ligne de texte l, colonne c) de chaque fenêtre */
+#define TB_MSG_CELL(l, c) \
+  ((u16)(tb_my + 1 + (l)) * 32 + tb_mx + 2 + (c))
+#define TB_CHC_CELL(l, c) \
+  ((u16)(tb_cy2 + 1 + (l)) * 32 + tb_cx2 + 2 + (c))
 
 /* Entrée BG3 : char 2bpp + palette 4 (CGRAM 16) + priorité (au-dessus de
    tout avec le bit BG3-prio du mode 1) */
 #define TB_ENTRY(c) ((u16)(c) | 0x3000)
-#define TB_CHAR(ascii) ((u16)(ascii) - 31) /* char 0 = transparent, 1 = espace */
+/* glyphe du STYLE courant : tb_font pointe le char de ' ' (fonte 0 :
+   base 1 -> 1 + ascii - 32 = ascii - 31, comme avant S1) */
+#define TB_CHAR(ascii) ((u16)tb_font + (ascii) - 32)
+/* Tuile de fond de la fenêtre courante (effacement du curseur de choix) */
+#define TB_BG_CHAR (tb_skin ? (u16)(tb_skin + 4) : TB_CHAR(' '))
 
-static u16 tb_shadow[32 * TB_ROWS];
-static u8 tb_dirty;
-
-static void tb_fill(u16 entry)
+/* Efface la BANDE du dialogue (union des rangées message/choix) dans le
+   tampon partagé, puis redessine ce qui peut partager ces rangées :
+   les widgets du HUD (placement libre depuis W1 — jamais SOUS les
+   fenêtres du dialogue, uigen le garantit, mais possiblement à côté)
+   et le timer. */
+static void tb_clear_band(void)
 {
   u16 i;
 
-  for (i = 0; i < 32 * TB_ROWS; i++)
-    tb_shadow[i] = entry;
+  for (i = (u16)UI_SHADOW_ROW * 32; i < (u16)(UI_SHADOW_ROW + UI_SHADOW_H) * 32; i++)
+    ui_map[i] = 0;
+  ui_mark(UI_SHADOW_ROW, UI_SHADOW_H);
+  overlay_refresh();
+  timer_refresh();
+}
+
+/* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans ui_map :
+   cadre 9-slice du windowskin s'il existe, sinon boîte pleine — le
+   reste de la bande du dialogue redevient transparent. */
+static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
+{
+  u8 x, y, sy;
+  u16 base, mid, fill;
+
+  tb_clear_band();
+  if (tb_skin) /* 9-slice du style courant — test HORS des boucles :
+                  l'ouverture d'un message tient dans sa frame (le moteur
+                  a déjà frôlé la frame de lag ici, prudence) */
+  {
+    for (y = 0; y < h; y++)
+    {
+      base = (u16)(row + y) * 32 + col;
+      sy = y == 0 ? 0 : (y == (u8)(h - 1) ? 2 : 1);
+      mid = TB_ENTRY(tb_skin + sy * 3 + 1);
+      ui_map[base] = TB_ENTRY(tb_skin + sy * 3);
+      for (x = 1; x < (u8)(w - 1); x++)
+        ui_map[base + x] = mid;
+      ui_map[base + w - 1] = TB_ENTRY(tb_skin + sy * 3 + 2);
+    }
+  }
+  else
+  {
+    fill = TB_ENTRY(TB_CHAR(' '));
+    for (y = 0; y < h; y++)
+    {
+      base = (u16)(row + y) * 32 + col;
+      for (x = 0; x < w; x++)
+        ui_map[base + x] = fill;
+    }
+  }
+}
+
+/* Machine à écrire (UI_TEXT_SPEED frames par caractère, 0 = instantané).
+   État de la révélation en cours — init EXPLICITE (statics tcc). */
+static u8 tw_active;
+static u8 tw_timer;
+static const char *tw_s;
+static u8 tw_row, tw_col;
+
+/* Révèle UN caractère — même logique de wrap par mot que le rendu
+   instantané de textbox_open_raw */
+static void tw_step(void)
+{
+  char c;
+  u16 wl;
+
+  c = *tw_s;
+  if (!c || tw_row >= TB_TEXT_ROWS)
+  {
+    tw_active = 0;
+    return;
+  }
+  if (c == ' ')
+  {
+    wl = 0;
+    while (tw_s[wl + 1] && tw_s[wl + 1] != ' ')
+      wl++;
+    if ((u16)tw_col + 1 + wl > TB_TEXT_COLS)
+    {
+      tw_row++;
+      tw_col = 0;
+      tw_s++;
+      return;
+    }
+  }
+  if (tw_col >= TB_TEXT_COLS)
+  {
+    tw_row++;
+    tw_col = 0;
+    if (tw_row >= TB_TEXT_ROWS)
+    {
+      tw_active = 0;
+      return;
+    }
+  }
+  ui_map[TB_MSG_CELL(tw_row, tw_col)] = TB_ENTRY(TB_CHAR(c));
+  ui_mark((u8)(tb_my + 1 + tw_row), 1);
+  tw_col++;
+  tw_s++;
+}
+
+void textbox_tick(void)
+{
+  if (!tw_active)
+    return;
+  tw_timer++;
+  if (tw_timer < UI_TEXT_SPEED)
+    return;
+  tw_timer = 0;
+  tw_step();
+}
+
+u8 textbox_busy(void)
+{
+  return tw_active;
+}
+
+void textbox_finish(void)
+{
+  while (tw_active)
+    tw_step();
 }
 
 /* Palette de la fonte : CGRAM 16-19 (palette BG 2bpp n°4). Ces slots sont
@@ -107,29 +255,54 @@ void textbox_load_pal(void)
   dmaCopyCGram((u8 *)textbox_pal, 16, 4 * 2);
 }
 
+void textbox_set_style(u8 n)
+{
+  if (n >= UI_STYLE_COUNT)
+    n = 0;
+  tb_mx = ui_st_mx[n];
+  tb_my = ui_st_my[n];
+  tb_mw = ui_st_mw[n];
+  tb_mh = ui_st_mh[n];
+  tb_cx2 = ui_st_cx[n];
+  tb_cy2 = ui_st_cy[n];
+  tb_cw2 = ui_st_cw[n];
+  tb_ch2 = ui_st_ch[n];
+  tb_font = ui_st_font[n];
+  tb_skin = ui_st_skin[n];
+}
+
 void textbox_init(void)
 {
-  /* Fonte 2bpp + palette — écran éteint, transferts sûrs */
+  /* Fonte 2bpp + palette — écran éteint, transferts sûrs. Le nettoyage
+     de la map BG3 est fait par ui_screen_init (tampon partagé, M1). */
   bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
   textbox_load_pal();
   bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
 
-  /* Map BG3 entièrement transparente (char 0) : le shadow ne couvre que la
-     zone de la boîte, on l'utilise 4 fois pour effacer les 32 rangées */
-  tb_fill(0);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP, 32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS, 32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 2,
-              32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 3,
-              32 * TB_ROWS * 2);
-  tb_dirty = 0;
+  textbox_set_style(0); /* style par défaut — init EXPLICITE (tcc) */
+
+  /* état machine à écrire — init EXPLICITE (statics tcc) */
+  tw_active = 0;
+  tw_timer = 0;
+  tw_s = 0;
+  tw_row = 0;
+  tw_col = 0;
 }
 
 void textbox_open(u16 text_id)
 {
   text_decode(text_id, tb_text, sizeof(tb_text));
+#if UI_TEXT_SPEED
+  /* machine à écrire : boîte vide, le texte se révèle via textbox_tick */
+  tb_box_at(tb_mx, tb_my, tb_mw, tb_mh);
+  tw_active = 1;
+  tw_timer = 0;
+  tw_s = tb_text;
+  tw_row = 0;
+  tw_col = 0;
+#else
   textbox_open_raw(tb_text);
+#endif
 }
 
 /* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
@@ -140,14 +313,14 @@ void textbox_open_raw(const char *s)
   u8 row, col;
   char c;
 
-  /* Fond de boîte : chars "espace" opaques partout */
-  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+  tw_active = 0; /* un rendu instantané annule toute révélation en cours */
+  tb_box_at(tb_mx, tb_my, tb_mw, tb_mh);
 
   if (s)
   {
-    row = TB_TEXT_ROW;
+    row = 0; /* ligne de texte, relative à la fenêtre */
     col = 0;
-    while (*s && row < TB_TEXT_ROW + TB_TEXT_ROWS)
+    while (*s && row < TB_TEXT_ROWS)
     {
       c = *s;
       if (c == ' ')
@@ -168,16 +341,14 @@ void textbox_open_raw(const char *s)
       {
         row++;
         col = 0;
-        if (row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+        if (row >= TB_TEXT_ROWS)
           break;
       }
-      tb_shadow[(u16)row * 32 + TB_TEXT_COL + col] = TB_ENTRY(TB_CHAR(c));
+      ui_map[TB_MSG_CELL(row, col)] = TB_ENTRY(TB_CHAR(c));
       col++;
       s++;
     }
   }
-
-  tb_dirty = 1;
 }
 
 /* CHOICE (spec §2 v0.6) : 2-4 options, une par ligne, curseur '>' devant
@@ -201,21 +372,20 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
   const char *s;
   u8 i, col;
 
-  tb_fill(TB_ENTRY(TB_CHAR(' ')));
-  for (i = 0; i < count; i++)
+  tw_active = 0;
+  tb_box_at(tb_cx2, tb_cy2, tb_cw2, tb_ch2);
+  for (i = 0; i < count && i < TB_CHC_ROWS; i++)
   {
     s = options[i];
     col = 0;
-    while (s && *s && col < TB_TEXT_COLS - 2)
+    while (s && *s && col < TB_CHC_COLS - 2)
     {
-      tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL + 2 + col] =
-          TB_ENTRY(TB_CHAR(*s));
+      ui_map[TB_CHC_CELL(i, 2 + col)] = TB_ENTRY(TB_CHAR(*s));
       col++;
       s++;
     }
   }
-  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
-  tb_dirty = 1;
+  ui_map[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
 }
 
 /* Déplace le curseur du CHOICE (redessine la colonne des '>') */
@@ -223,25 +393,14 @@ void textbox_choice_cursor(u8 sel)
 {
   u8 i;
 
-  for (i = 0; i < TB_TEXT_ROWS; i++)
-    tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL] =
-        TB_ENTRY(TB_CHAR(' '));
-  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
-  tb_dirty = 1;
+  for (i = 0; i < TB_CHC_ROWS; i++)
+    ui_map[TB_CHC_CELL(i, 0)] = TB_ENTRY(TB_BG_CHAR);
+  ui_map[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
+  ui_mark((u8)(tb_cy2 + 1), TB_CHC_ROWS);
 }
 
 void textbox_close(void)
 {
-  tb_fill(0);
-  tb_dirty = 1;
-}
-
-void textbox_vblank(void)
-{
-  if (tb_dirty)
-  {
-    tb_dirty = 0;
-    dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + TB_ROW * 32,
-                32 * TB_ROWS * 2);
-  }
+  tw_active = 0;
+  tb_clear_band();
 }

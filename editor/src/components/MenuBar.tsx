@@ -10,6 +10,7 @@ export interface MenuItem {
   action?: () => void;
   disabled?: boolean;
   sep?: boolean;
+  sub?: MenuItem[]; // sous-menu (flyout au survol, ex. Tools → UI)
 }
 
 export interface Menu {
@@ -19,6 +20,7 @@ export interface Menu {
 
 export default function MenuBar({ menus }: { menus: Menu[] }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [sub, setSub] = useState<number | null>(null); // item au flyout ouvert
 
   return (
     <div className="menubar">
@@ -27,7 +29,10 @@ export default function MenuBar({ menus }: { menus: Menu[] }) {
         <div key={m.label} className="menu">
           <button
             className={"menu-title" + (open === i ? " active" : "")}
-            onClick={() => setOpen(open === i ? null : i)}
+            onClick={() => {
+              setOpen(open === i ? null : i);
+              setSub(null);
+            }}
             onMouseEnter={() => {
               if (open !== null) setOpen(i);
             }}
@@ -39,6 +44,36 @@ export default function MenuBar({ menus }: { menus: Menu[] }) {
               {m.items.map((it, j) =>
                 it.sep ? (
                   <div key={j} className="menu-sep" />
+                ) : it.sub ? (
+                  <div
+                    key={j}
+                    className="menu-subwrap"
+                    onMouseEnter={() => setSub(j)}
+                    onMouseLeave={() => setSub(null)}
+                  >
+                    <button disabled={it.disabled}>
+                      <span>{it.label}</span>
+                      <span className="menu-hint">▸</span>
+                    </button>
+                    {sub === j && (
+                      <div className="menu-drop menu-sub">
+                        {it.sub.map((sit, k) => (
+                          <button
+                            key={k}
+                            disabled={sit.disabled}
+                            onClick={() => {
+                              setOpen(null);
+                              setSub(null);
+                              sit.action?.();
+                            }}
+                          >
+                            <span>{sit.label}</span>
+                            {sit.hint && <span className="menu-hint">{sit.hint}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <button
                     key={j}

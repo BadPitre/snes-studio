@@ -8,7 +8,7 @@
 
 /* wait_mode — spec §2 */
 #define VM_WAIT_NONE 0
-#define VM_WAIT_KEY 1     /* réservé (non utilisé v0) */
+#define VM_WAIT_KEY 1     /* KEYIN : attente d'une touche autorisée (Ph. 12) */
 #define VM_WAIT_TEXTBOX 2 /* attend la fermeture de la textbox (touche A) */
 #define VM_WAIT_CHOICE 3  /* CHOICE : curseur haut/bas, A valide (v0.6) */
 #define VM_WAIT_ROUTE 4   /* WAITROUTE : fin des itinéraires (v0.12) */
@@ -33,6 +33,8 @@ typedef struct
                       de ROUTE « cet event » (v0.12) */
   u16 call_stack[8]; /* adresses de retour des CALL (v0.16) */
   u8 call_sp;
+  u16 keyin_mask;  /* KEYIN : touches autorisées (bit 1<<code, Ph. 12) */
+  u8 keyin_dst;    /* KEYIN : variable destination du code de touche */
   u8 choice_var;   /* variable destination du CHOICE en cours */
   u8 choice_count; /* nombre d'options (2-4) */
   u8 choice_sel;   /* option sous le curseur */
