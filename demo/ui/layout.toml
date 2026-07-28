@@ -1,4 +1,4 @@
-# Layout UI du projet (uigen v1 — docs/SPEC_SYSTEME_UI.md §3).
+# Layout UI du projet (uigen — docs/SPEC_SYSTEME_UI.md §3 + widgets W1).
 # Positions et tailles EN TILES (unités de 8 px, écran 32x28).
 # Sans ce fichier : boîte historique en bas, pleine largeur.
 
@@ -10,10 +10,51 @@ size = [32, 8]
 pos = [0, 20]
 size = [32, 8]
 
-# Fenêtres PERMANENTES (HUD) — zone : les 4 rangées du haut, 8 max.
+# ---- Widgets PERMANENTS (8 max, placement libre — jamais sous les ----
+# fenêtres message/choice). La planche d'icônes du projet
+# (assets/icons.png, Gestionnaire de ressources → IconSet) fournit :
+#   0-2 cœur plein/demi/vide   3-5 jauge pleine/demie/vide
+#   6 rubis                    7 bombe
+# Décommenter un bloc, choisir la variable, Générer, jouer.
+
+# Points de vie façon Zelda : var 6 sur un max de 12 (2 PV par cœur)
+# [[overlay]]
+# id = "vie"
+# pos = [1, 0]
+# size = [6, 1]
+# content = "icon_row"
+# var = 6
+# max = 12
+# icon = 0
+# frame = false
+
+# Jauge de magie verticale (remplie par le bas, façon ALttP)
+# [[overlay]]
+# id = "magie"
+# pos = [1, 2]
+# size = [1, 6]
+# content = "gauge"
+# var = 7
+# max = 100
+# icon = 3
+# dir = "v"
+# frame = false
+
+# Compteur de rubis avec zéros de tête (072)
+# [[overlay]]
+# id = "rubis"
+# pos = [26, 0]
+# size = [5, 1]
+# content = "icon_value"
+# var = 8
+# icon = 6
+# pad = 3
+# frame = false
+
+# Fenêtre cadrée « libellé + valeur » (style RM2003)
 # [[overlay]]
 # id = "quete"
-# pos = [1, 0]
+# pos = [8, 0]
 # size = [12, 3]
 # content = "variable_display"
 # var = 5
