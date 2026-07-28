@@ -50,7 +50,7 @@ import {
 } from "./state";
 import { scriptLabels } from "./state";
 import { useHistory } from "./history";
-import { canBuild, launchEmulator, runDatagen, runMake } from "./build";
+import { canBuild, launchEmulator, runDatagen, runMake, runMakeCart } from "./build";
 import SettingsModal from "./components/SettingsModal";
 import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
@@ -968,6 +968,33 @@ export default function App() {
     }
   }
 
+  // Build « cartouche » : .smc prêt pour flashcart (Super UFO Pro 8 & co) —
+  // miroité à 512 Ko minimum, checksum recalculé (tools/mkcart.sh)
+  async function buildCart() {
+    if (!data || building || playing) return;
+    setBuilding(true);
+    try {
+      await save();
+      setStatus("datagen…");
+      const gen = await runDatagen(data.root);
+      if (!gen.ok) {
+        setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
+        return;
+      }
+      setStatus("Build cartouche (make cart)…");
+      const mk = await runMakeCart(data.root, playCfg.bash);
+      setStatus(
+        mk.ok
+          ? "Cartouche prête : engine/snesstudio.smc (512 Ko, à copier sur la flashcart)."
+          : `make cart a échoué : ${mk.output.slice(-400)}`
+      );
+    } catch (e) {
+      setStatus(`Build cartouche : ${e}`);
+    } finally {
+      setBuilding(false);
+    }
+  }
+
   // Recompilation complète : make clean + make (à utiliser après une mise à
   // jour du moteur — évite tout mélange d'objets compilés obsolètes)
   async function rebuildAll() {
@@ -1220,6 +1247,12 @@ export default function App() {
         {
           label: "Générer les données",
           action: generate,
+          disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Build cartouche (.smc)",
+          hint: "flashcart",
+          action: () => void buildCart(),
           disabled: !data || !canBuild() || playing || building,
         },
         {

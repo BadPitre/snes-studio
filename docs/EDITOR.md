@@ -150,7 +150,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   - *Edit* : Annuler/Rétablir (Ctrl+Z / Ctrl+Y), Couper/Copier/Coller/
     Supprimer le PNJ sélectionné, Réglages du projet (bash, émulateur).
   - *Tools* : réservé.
-  - *Game* : Lancer le jeu, Générer les données.
+  - *Game* : Lancer le jeu, Vérifier le projet, Générer les données,
+    **Build cartouche (.smc)** — un `.smc` prêt pour flashcart
+    (miroité à 512 Ko, checksum recalculé, validé sur Super UFO
+    Pro 8 : le `.sfc` de 256 Ko y donne « File type error »),
+    Recompiler tout.
   - *Help* : Version.
   La barre de boutons se réduit à : 💾 (sauvegarder), couches, Ressources,
   Collision/Grille, puis « Générer les données » et « ▶ Jouer » en fin.

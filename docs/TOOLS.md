@@ -28,6 +28,20 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine
 make data
 ```
 
+### Build cartouche (flashcart)
+
+```bash
+cd engine && make cart   # -> engine/snesstudio.smc
+```
+
+`tools/mkcart.sh` transforme le `.sfc` du build (256 Ko, refusé par
+les flashcarts type Super UFO Pro 8 : « File type error ») en `.smc`
+prêt pour cartouche : contenu **miroité** jusqu'à 512 Ko minimum (comme
+le décodage d'adresses d'une vraie cartouche), octet de taille `$7FD7`
+et checksum `$7FDC-$7FDF` recalculés. Validé sur Super UFO Pro 8 +
+console. Aussi accessible depuis l'éditeur : Game → « Build cartouche
+(.smc) ».
+
 ## Structure d'un projet source
 
 ```
