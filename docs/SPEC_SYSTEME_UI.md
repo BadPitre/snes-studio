@@ -278,9 +278,23 @@ TOML — la communauté pourra en partager.
     32 primitives, tableau `ui_ov_bg` : les cellules vides d'un widget
     posé dans une window prennent le fond du cadre au lieu de percer
     jusqu'au jeu). Zéro conteneur au runtime.
-  - Règle d'art : une icône posée sur un panneau doit avoir son fond en
-    couleur 1 (ses pixels transparents laissent voir le jeu, pas le
-    panneau — compositing par tiles).
+  - Icônes sur panneau : datagen génère automatiquement une VARIANTE
+    « fond de panneau » de chaque icône (pixels transparents → couleur
+    1, chars UI_ICON_BASE + UI_ICON_COUNT + n) — le moteur l'utilise
+    quand l'icône vit dans une window (ui_ov_bg), l'icône montre le
+    cadre derrière elle et pas le jeu. Budget VRAM : 106 + 2×64 chars
+    max ≤ 256.
+  - `value` : `align = "left"` colle la valeur au texte précédent (via
+    le flag dir, inutilisé par le type 0) — par défaut elle est alignée
+    à droite dans sa largeur. Le pas des `gap` reste 1 tile = 8 px
+    (grille matérielle BG3, pas de demi-tile sans fonte à largeur
+    variable).
+  - Widgets NOMMÉS dans l'éditeur : chaque racine = un widget ; la
+    liste « Widgets » du designer permet ✧ Nouveau widget (posé sur
+    une place LIBRE du canvas, designer ouvert dessus), l'édition
+    scopée (structure limitée au widget, les autres estompés sur le
+    canvas — cliquer un autre widget bascule dessus), ⛶ Tout l'écran
+    pour dé-scoper.
   - Éditeur : la fenêtre UI / Thème devient le **designer** — palette
     d'objets, arborescence (sélection, ↑↓, suppression en cascade),
     canvas interactif (clic = sélection du nœud le plus profond,

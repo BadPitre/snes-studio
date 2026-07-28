@@ -45,6 +45,7 @@ export interface UiNode {
   icon?: number;
   dir?: string; // gauge : "h" | "v"
   pad?: number; // icon_value : zéros de tête
+  align?: string; // value : "left" (défaut : valeur alignée à droite)
 }
 
 export interface UiLayout2 {
@@ -252,7 +253,8 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       }
       case "value":
         if (n.var === undefined) errors.push(`« ${n.id} » : variable requise`);
-        emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base });
+        // le flag vertical du type 0 porte l'alignement gauche (uigen idem)
+        emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base, vertical: n.align === "left" });
         break;
       case "image":
         needIcon(n, size[0]);
@@ -398,6 +400,7 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.icon !== undefined) s += `icon = ${n.icon}\n`;
     if (n.dir === "v") s += `dir = "v"\n`;
     if (n.pad) s += `pad = ${n.pad}\n`;
+    if (n.align === "left") s += `align = "left"\n`;
     for (const c of childrenOf(l.nodes, n.id)) emitNode(c);
   };
   for (const r of rootsOf(l.nodes)) emitNode(r);

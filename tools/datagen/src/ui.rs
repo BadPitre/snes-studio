@@ -129,6 +129,9 @@ pub struct Node {
     pub dir: Option<String>,
     #[serde(default)]
     pub pad: Option<u8>, // icon_value : zéros de tête
+    /// value : "left" pour coller la valeur à gauche (défaut : droite)
+    #[serde(default)]
+    pub align: Option<String>,
 }
 
 /// Primitive aplatie — ce que le moteur dessine
@@ -186,6 +189,7 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         icon: ov.icon,
         dir: ov.dir.clone(),
         pad: ov.pad,
+        align: None,
     }
 }
 
@@ -336,7 +340,10 @@ impl<'a> Flattener<'a> {
                 })?;
                 self.emit(Prim {
                     x, y, w: size[0], h: 1,
-                    kind: 0, frame: false, var, icon: 0, vertical: false,
+                    kind: 0, frame: false, var, icon: 0,
+                    // le flag « dir » (inutilisé par le type 0) porte
+                    // l'alignement : 1 = valeur collée à GAUCHE
+                    vertical: n.align.as_deref() == Some("left"),
                     pad: 0, max: 0, max_var: None, bg: in_window, text: String::new(),
                 })?;
             }

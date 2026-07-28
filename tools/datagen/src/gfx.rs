@@ -6,6 +6,7 @@ use crate::tileset::dist555 as color_dist;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct IndexedImage {
     pub width: usize,
     pub height: usize,
@@ -382,6 +383,21 @@ impl IndexedImage {
             out.extend_from_slice(&self.char2bpp(c * 8, 0));
         }
         Ok(out)
+    }
+
+    /// Variantes « fond de panneau » des icônes (D1) : les pixels
+    /// transparents (index 0) deviennent le FOND (index 1) — une icône
+    /// posée dans une window montre le cadre derrière elle, pas le jeu
+    /// (le compositing SNES est par tiles, on résout à la compilation).
+    /// Chars appendus après les icônes normales (UI_ICON_BASE + count).
+    pub fn to_icons_bg(&self) -> Result<Vec<u8>> {
+        let mut copy = self.clone();
+        for p in copy.pixels.iter_mut() {
+            if *p == 0 {
+                *p = 1;
+            }
+        }
+        copy.to_icons()
     }
 
     /// Palette complétée/tronquée à n entrées BGR555

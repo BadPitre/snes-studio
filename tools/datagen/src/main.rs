@@ -626,11 +626,16 @@ fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
             })?);
         }
         // Planche d'icônes des widgets (W1) : chars 2bpp APRÈS le
-        // windowskin (UI_ICON_BASE de ui_cfg.h), même palette
+        // windowskin (UI_ICON_BASE de ui_cfg.h), même palette — suivis
+        // des variantes « fond de panneau » (D1, transparence -> fond) :
+        // char UI_ICON_BASE + UI_ICON_COUNT + n
         if let Some(icons_path) = &ui.icons {
             let icons = gfx::load_indexed_png(&proj_dir.join(icons_path))
                 .with_context(|| format!("icones UI {}", icons_path))?;
             gfx_bytes.extend(icons.to_icons().with_context(|| {
+                format!("icones UI {}", icons_path)
+            })?);
+            gfx_bytes.extend(icons.to_icons_bg().with_context(|| {
                 format!("icones UI {}", icons_path)
             })?);
         }

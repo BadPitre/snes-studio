@@ -84,6 +84,10 @@ export default function UiThemeModal(props: Props) {
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
+  // widget (racine) en cours d'édition — les autres sont estompés sur le
+  // canvas ; null = tout l'écran (demande Bertrand : « je crée un widget
+  // et ça ouvre le designer dessus »)
+  const [scope, setScope] = useState<string | null>(null);
   const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -212,7 +216,8 @@ export default function UiThemeModal(props: Props) {
         case 0: {
           text(p.text, x0, y0, cw - 1);
           const val = "42";
-          text(val, x0 + cw - val.length, y0, 5);
+          if (p.vertical) text(val, x0 + p.text.length, y0, 5); // align left
+          else text(val, x0 + cw - val.length, y0, 5);
           break;
         }
       }
@@ -225,6 +230,15 @@ export default function UiThemeModal(props: Props) {
     if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
       win(c.pos[0], c.pos[1], c.size[0], c.size[1]);
       text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4);
+    }
+    // mode widget : les AUTRES widgets sont estompés (contexte)
+    if (scope) {
+      ctx.fillStyle = "rgba(10, 12, 16, 0.55)";
+      for (const r of rootsOf(lay.nodes)) {
+        if (r.id === scope || !flat.rects[r.id]) continue;
+        const rr = flat.rects[r.id];
+        ctx.fillRect(rr.x * 8, rr.y * 8, rr.w * 8, rr.h * 8);
+      }
     }
     // sélection : cadre blanc/noir + poignée de redimensionnement
     if (selId && flat.rects[selId]) {
@@ -241,7 +255,7 @@ export default function UiThemeModal(props: Props) {
         ctx.strokeRect((r.x + r.w) * 8 - 4.5, (r.y + r.h) * 8 - 4.5, 5, 5);
       }
     }
-  }, [lay, flat, font, skin, icons, iconCount, selId]);
+  }, [lay, flat, font, skin, icons, iconCount, selId, scope]);
 
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
@@ -303,6 +317,11 @@ export default function UiThemeModal(props: Props) {
       }
     }
     const hit = nodeAt(tx, ty);
+    // en mode widget : cliquer un AUTRE widget bascule le designer dessus
+    if (hit && scope) {
+      const hitRoot = rootAncestor(lay.nodes, hit);
+      if (hitRoot && hitRoot.id !== scope) setScope(hitRoot.id);
+    }
     setSelId(hit);
     if (hit) {
       const root = rootAncestor(lay.nodes, hit);
@@ -340,18 +359,52 @@ export default function UiThemeModal(props: Props) {
     dragRef.current = null;
   };
 
+  // première position LIBRE pour un nouveau widget racine (demande
+  // Bertrand : « pas tout au même endroit ») — évite les racines
+  // existantes et les fenêtres du dialogue
+  const freeSpot = (w: number, h: number): [number, number] => {
+    const taken = rootsOf(lay.nodes)
+      .filter((r) => r.pos && flat.rects[r.id])
+      .map((r) => flat.rects[r.id]);
+    taken.push({ x: lay.message.pos[0], y: lay.message.pos[1], w: lay.message.size[0], h: lay.message.size[1] });
+    taken.push({ x: lay.choice.pos[0], y: lay.choice.pos[1], w: lay.choice.size[0], h: lay.choice.size[1] });
+    for (let y = 0; y + h <= 28; y++)
+      for (let x = 1; x + w <= 32; x++) {
+        const r = { x, y, w, h };
+        if (!taken.some((t) => !(r.x + r.w <= t.x || t.x + t.w <= r.x || r.y + r.h <= t.y || t.y + t.h <= r.y)))
+          return [x, y];
+      }
+    return [1, 1];
+  };
+
   // ---- palette : ajout d'un nœud --------------------------------------
-  const addNode = (kind: NodeKind) => {
+  const addNode = (kind: NodeKind, asRoot = false) => {
     let i = 1;
     while (lay.nodes.some((n) => n.id === `${kind}${i}`)) i++;
     const node: UiNode = { id: `${kind}${i}`, type: kind, ...newNode(kind) };
-    // dans le conteneur sélectionné, sinon frère, sinon racine libre
-    const target =
-      sel && isContainer(sel) ? sel.id : sel?.parent ? sel.parent : undefined;
+    // dans le conteneur sélectionné, sinon frère, sinon le widget en
+    // cours d'édition, sinon nouveau widget racine sur une place libre
+    const scopeNode = scope ? lay.nodes.find((n) => n.id === scope) : undefined;
+    const target = asRoot
+      ? undefined
+      : sel && isContainer(sel)
+        ? sel.id
+        : sel?.parent
+          ? sel.parent
+          : scopeNode && isContainer(scopeNode)
+            ? scopeNode.id
+            : undefined;
     if (target) node.parent = target;
-    else node.pos = [1, 1];
+    else {
+      const s = node.size ?? [
+        kind === "label" ? 5 : kind === "value" ? 3 : kind === "icon_value" ? 5 : 3,
+        1,
+      ];
+      node.pos = freeSpot(s[0], s[1]);
+    }
     setLay({ ...lay, nodes: [...lay.nodes, node] });
     setSelId(node.id);
+    if (!target) setScope(node.id); // nouveau widget : le designer s'ouvre dessus
   };
 
   const deleteSel = () => {
@@ -368,6 +421,7 @@ export default function UiThemeModal(props: Props) {
     }
     setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
     setSelId(null);
+    if (scope && doomed.has(scope)) setScope(null);
   };
 
   const moveSel = (delta: -1 | 1) => {
@@ -395,6 +449,7 @@ export default function UiThemeModal(props: Props) {
             : n
       ),
     });
+    if (scope === sel.id) setScope(newId);
     setSelId(newId);
   };
 
@@ -498,14 +553,48 @@ export default function UiThemeModal(props: Props) {
                 ))}
               </div>
             </fieldset>
-            <fieldset className="evedit-box uitheme-tree">
-              <legend>Arborescence</legend>
+            <fieldset className="evedit-box">
+              <legend>Widgets ({rootsOf(lay.nodes).length})</legend>
+              <button
+                title="Crée une fenêtre vide sur une place libre et ouvre le designer dessus"
+                onClick={() => addNode("window", true)}
+              >
+                ✧ Nouveau widget
+              </button>
               <div className="uitheme-treelist">
+                <div
+                  className={"tree-row" + (scope === null ? " active" : "")}
+                  onClick={() => setScope(null)}
+                >
+                  ⛶ Tout l'écran
+                </div>
                 {rootsOf(lay.nodes).map((r) => (
+                  <div
+                    key={r.id}
+                    className={"tree-row" + (scope === r.id ? " active" : "")}
+                    onClick={() => {
+                      setScope(r.id);
+                      setSelId(r.id);
+                    }}
+                  >
+                    {KIND_LABELS[r.type].split(" ")[0]} {r.id}
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="evedit-box uitheme-tree">
+              <legend>
+                {scope ? `Structure de « ${scope} »` : "Arborescence"}
+              </legend>
+              <div className="uitheme-treelist">
+                {(scope
+                  ? lay.nodes.filter((n) => n.id === scope)
+                  : rootsOf(lay.nodes)
+                ).map((r) => (
                   <TreeRow key={r.id} n={r} depth={0} />
                 ))}
                 {lay.nodes.length === 0 && (
-                  <span className="hint">Vide — ajoute un objet depuis la palette.</span>
+                  <span className="hint">Vide — ✧ Nouveau widget, ou un objet de la palette.</span>
                 )}
               </div>
             </fieldset>
@@ -598,6 +687,17 @@ export default function UiThemeModal(props: Props) {
                     <label>Texte
                       <input value={sel.text ?? ""}
                         onChange={(e) => patchNode(sel.id, { text: e.target.value })} />
+                    </label>
+                  )}
+                  {sel.type === "value" && (
+                    <label>Alignement
+                      <select value={sel.align ?? "right"}
+                        onChange={(e) =>
+                          patchNode(sel.id, { align: e.target.value === "left" ? "left" : undefined })
+                        }>
+                        <option value="right">Droite (chiffres calés au bord)</option>
+                        <option value="left">Gauche (collée au texte d'avant)</option>
+                      </select>
                     </label>
                   )}
                   {sel.type === "variable_display" && (

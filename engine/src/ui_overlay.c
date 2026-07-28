@@ -56,6 +56,11 @@ extern const char *const ui_ov_label[];
 #else
 #define OV_BG_ENTRY OV_ENTRY(OV_CHAR(' '))
 #endif
+/* icônes : dans une window, on prend la VARIANTE « fond de panneau »
+   (pixels transparents -> fond, générée par datagen après la planche)
+   pour que l'icône montre le cadre derrière elle, pas le jeu */
+#define OV_ICON_BASE(i) \
+  (UI_ICON_BASE + (ui_ov_bg[i] ? UI_ICON_COUNT : 0))
 
 static u16 ov_last[UI_OV_COUNT];  /* dernière valeur dessinée */
 static u16 ov_lastm[UI_OV_COUNT]; /* dernier maximum (max_var) */
@@ -142,9 +147,9 @@ static void ov_draw(u8 i)
         d = 2;
       if (ui_ov_dir[i]) /* verticale : remplie de BAS en haut (ALttP) */
         ui_map[base + (u16)(h - 1 - k) * 32 + x] =
-            OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i] + 2 - d);
+            OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + 2 - d);
       else
-        ui_map[base + x + k] = OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i] + 2 - d);
+        ui_map[base + x + k] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + 2 - d);
     }
     break;
 
@@ -160,11 +165,11 @@ static void ov_draw(u8 i)
 
   case 6: /* image : icônes consécutives de la planche */
     for (k = 0; k < w; k++)
-      ui_map[base + x + k] = OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i] + k);
+      ui_map[base + x + k] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + k);
     break;
 
   case 3: /* icon_value : icône + compteur aligné à droite, zéros pad */
-    ui_map[base + x] = OV_ENTRY(UI_ICON_BASE + ui_ov_icon[i]);
+    ui_map[base + x] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i]);
     d = 0;
     do
     {
@@ -180,7 +185,7 @@ static void ov_draw(u8 i)
       ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
     break;
 
-  default: /* variable_display : libellé à gauche, valeur à droite */
+  default: /* variable_display / value : libellé puis valeur */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w - 1))
@@ -191,12 +196,22 @@ static void ov_draw(u8 i)
       ov_num[d++] = '0' + (v % 10);
       v /= 10;
     } while (v && d < 5);
-    if (d > w) /* fenêtre étroite : la valeur peut couvrir le libellé,
-                  jamais déborder du widget */
-      d = w;
-    cx = (u8)(x + w - d);
-    while (d)
-      ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+    if (ui_ov_dir[i])
+    {
+      /* align = "left" (D1) : la valeur COLLE au libellé — pas de trou
+         devant les petits nombres */
+      while (d && cx < (u8)(x + w))
+        ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+    }
+    else
+    {
+      if (d > w) /* fenêtre étroite : la valeur peut couvrir le libellé,
+                    jamais déborder du widget */
+        d = w;
+      cx = (u8)(x + w - d);
+      while (d)
+        ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+    }
     break;
   }
   ui_mark(ui_ov_y[i], ui_ov_h[i]);
