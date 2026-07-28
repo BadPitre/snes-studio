@@ -130,7 +130,7 @@ export default function SchemaEditorModal(props: Props) {
               ))}
             </div>
             <div className="row" style={{ gap: 4 }}>
-              <button onClick={addField}>＋ Champ</button>
+              <button title="Nouveau champ" onClick={addField}>＋</button>
               <button disabled={!cur} onClick={() => moveField(-1)}>↑</button>
               <button disabled={!cur} onClick={() => moveField(1)}>↓</button>
               <button className="danger" disabled={!cur || draft.fields.length <= 1}

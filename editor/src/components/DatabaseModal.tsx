@@ -261,11 +261,15 @@ export default function DatabaseModal(props: Props) {
               ))}
             </div>
             <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
-              <button onClick={() => setNewTable({ name: "", title: "" })}>
-                ＋ Table
+              <button title="Nouvelle table" onClick={() => setNewTable({ name: "", title: "" })}>
+                ＋
               </button>
-              <button disabled={!sc} onClick={() => setSchemaEdit(true)}>
-                Structure…
+              <button
+                disabled={!sc}
+                title="Paramètres de la table (champs et types)"
+                onClick={() => setSchemaEdit(true)}
+              >
+                🗃
               </button>
               <button
                 className="danger"
