@@ -30,6 +30,16 @@ async function writeTextFile(path: string, content: string): Promise<void> {
   console.warn(`mode navigateur : écriture ignorée (${path})`, content.length);
 }
 
+// Fichiers texte du projet par chemin relatif (database : schémas TOML,
+// instances) — root vaut "/project" en mode navigateur (voir loadProject)
+export async function readProjectText(root: string, rel: string): Promise<string> {
+  return readTextFile(`${root}/${rel}`);
+}
+
+export async function writeProjectText(root: string, rel: string, content: string): Promise<void> {
+  return writeTextFile(`${root}/${rel}`, content);
+}
+
 // Fichiers binaires / gestion d'assets (Resource Manager) — Tauri seulement
 export async function readBinaryFile(path: string): Promise<Uint8Array> {
   return readFile(path);

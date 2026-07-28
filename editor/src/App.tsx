@@ -62,6 +62,9 @@ import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
+import DatabaseModal from "./components/DatabaseModal";
+import { loadDatabase, saveDatabase } from "./db";
+import type { Database } from "./db";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -128,6 +131,9 @@ export default function App() {
   const [prefabMgr, setPrefabMgr] = useState(false);
   // curseur de CELLULE de la couche Événements (v0.16) : cible du Ctrl+V
   const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
+  // Database (Phase 10) : schémas + instances (null = pas de schemas/)
+  const [db, setDb] = useState<Database | null>(null);
+  const [dbOpen, setDbOpen] = useState(false);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -188,6 +194,13 @@ export default function App() {
     setTilesets(bitmaps);
     setAutoImgs(autos);
     setSprites(await loadAssetPng(root, d.project.assets.sprites));
+    // Database (Phase 10) : schémas + instances, si le projet en a une
+    try {
+      setDb(await loadDatabase(root));
+    } catch (e) {
+      setDb(null);
+      setStatus(`Database illisible : ${e}`);
+    }
     setSelEvent(null);
     setLayer("lower");
     setPassMode(false);
@@ -1071,6 +1084,12 @@ export default function App() {
           action: () => setPrefabMgr(true),
           disabled: !data,
         },
+        {
+          label: "Database…",
+          hint: db ? undefined : "ajouter schemas/",
+          action: () => setDbOpen(true),
+          disabled: !data || !db,
+        },
       ],
     },
     {
@@ -1588,6 +1607,20 @@ export default function App() {
             setPrefabPickAt(null);
             setPrefabMgr(false);
           }}
+        />
+      )}
+      {dbOpen && data && db && (
+        <DatabaseModal
+          db={db}
+          textNames={data.texts.map((t) => t.name)}
+          onOk={(next) => {
+            setDb(next);
+            setDbOpen(false);
+            void saveDatabase(data.root, next)
+              .then(() => setStatus("Database sauvegardée (data/*.toml)."))
+              .catch((e) => setStatus(`Database : ${e}`));
+          }}
+          onClose={() => setDbOpen(false)}
         />
       )}
       {commonEvOpen && data && (

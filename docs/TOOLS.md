@@ -184,6 +184,14 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**Database (Phase 10)** : datagen embarque « dbgen » (module `db.rs`) —
+`schemas/*.toml` + `data/*.toml` → `db_<table>.c` (tables byte-packed)
++ `db_tables.h` (constantes `TABLE_ID`, tailles, offsets). Format et
+règles : `docs/PLANNING_SYSTEME_DATABASE.md` (contractuel). Un projet
+sans dossier `schemas/` n'a pas de database. Le fichier
+`schemas/_index.json` est un manifeste maintenu par l'éditeur pour son
+mode navigateur — ignoré par dbgen (le dossier fait foi).
+
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
 [...]}]` — des scripts globaux au projet, modèle RM2003.
