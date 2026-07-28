@@ -31,6 +31,8 @@ typedef struct
   u8 wait_timer;   /* frames restantes du WAIT (v0.12) */
   u8 script_actor; /* acteur qui a lancé le script (0xFF = aucun) — cible
                       de ROUTE « cet event » (v0.12) */
+  u16 call_stack[8]; /* adresses de retour des CALL (v0.16) */
+  u8 call_sp;
   u8 choice_var;   /* variable destination du CHOICE en cours */
   u8 choice_count; /* nombre d'options (2-4) */
   u8 choice_sel;   /* option sous le curseur */
@@ -54,6 +56,13 @@ u8 vm_active(void);
    pages d'events conditionnelles. */
 u8 vm_switch_get(u16 idx);
 void vm_switch_set(u16 idx, u8 on);
+
+/* Common events AUTO (v0.16) : le bloc scripts de chaque scène commence
+   par la table [n][(switch u16)(offset u16) x n] — renvoie l'offset du
+   premier common event dont le switch est ON, ou SCRIPT_NONE. À appeler
+   quand la VM est libre : le script relance tant que le switch reste ON
+   (modèle RM2003 — c'est au script d'éteindre son switch). */
+u16 vm_common_auto(void);
 
 /* À appeler chaque frame quand la VM est active : route les inputs vers la
    textbox si un opcode bloquant attend, sinon exécute les opcodes immédiats

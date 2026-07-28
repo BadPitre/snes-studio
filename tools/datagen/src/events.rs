@@ -33,7 +33,7 @@
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
-use crate::project::{Actor, Event, TextEntry};
+use crate::project::{Actor, CommonEvent, Event, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -52,6 +52,11 @@ pub struct EventCompiler<'a> {
     gfx_blocks: Vec<u8>,
     /// pile des labels de fin de boucle (v0.15) — cible des « break »
     loop_ends: Vec<String>,
+    /// v0.16 — scène en cours (suffixe des labels de common events)
+    cur_scene: String,
+    /// v0.16 — common events référencés par la scène en cours (calls +
+    /// déclencheurs auto) : leurs corps sont émis dans le bloc scripts
+    used_commons: Vec<bool>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -66,6 +71,8 @@ impl<'a> EventCompiler<'a> {
             label_seq: 0,
             gfx_blocks: Vec::new(),
             loop_ends: Vec::new(),
+            cur_scene: String::new(),
+            used_commons: Vec::new(),
         }
     }
 
@@ -408,6 +415,21 @@ impl<'a> EventCompiler<'a> {
                 // v0.15 — commentaire : décoratif dans l'éditeur, aucun
                 // bytecode émis
                 "rem" => {}
+                // v0.16 — appel d'un common event (CALL/RET, pile de 8)
+                "call" => {
+                    let n = cmd["n"]
+                        .as_u64()
+                        .filter(|&n| (n as usize) < self.used_commons.len())
+                        .with_context(|| {
+                            format!(
+                                "call : common event inexistant ({} definis) : {}",
+                                self.used_commons.len(),
+                                cmd
+                            )
+                        })? as usize;
+                    self.used_commons[n] = true;
+                    out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
+                }
                 "wait_route" => {
                     out.push("  WAITROUTE".to_string());
                 }
@@ -506,15 +528,21 @@ impl<'a> EventCompiler<'a> {
     /// consécutive (flag CONT sur les pages 2+) avec sa condition, son
     /// apparence, son déclencheur et son bytecode. Un event sans "pages"
     /// = une page implicite formée de ses champs directs.
+    /// v0.16 : renvoie AUSSI la ligne CETAB (table des common events auto)
+    /// que l'appelant doit placer en PREMIÈRE ligne du script assemblé —
+    /// le moteur lit cette table à l'offset 0 du bloc scripts.
     pub fn compile_scene(
         &mut self,
         scene_name: &str,
         events: &[Event],
-    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>)> {
+        commons: &[CommonEvent],
+    ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
         let mut tail = Vec::new(); /* blobs de routes custom (v0.14) */
         self.gfx_blocks.clear();
+        self.cur_scene = scene_name.to_string();
+        self.used_commons = vec![false; commons.len()];
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
@@ -686,6 +714,48 @@ impl<'a> EventCompiler<'a> {
             }
         }
         asm.extend(tail);
-        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks)))
+
+        // Common events (v0.16) : les AUTO sont toujours inclus (entrée de
+        // table CETAB), puis les corps référencés — transitivement, un
+        // common peut en appeler un autre — sont émis une fois chacun.
+        let mut cetab = "CETAB".to_string();
+        for (k, ce) in commons.iter().enumerate() {
+            match ce.trigger.as_str() {
+                "none" => {}
+                "auto" => {
+                    let sw = ce.switch.filter(|&s| s < 512).with_context(|| {
+                        format!(
+                            "common event {} « {} » : le declencheur auto demande \
+                             un switch de condition (0-511) — sans lui le script \
+                             relancerait pour toujours",
+                            k + 1,
+                            ce.name
+                        )
+                    })?;
+                    self.used_commons[k] = true;
+                    cetab.push_str(&format!(" {} __ce{}_{}", sw, k, scene_name));
+                }
+                other => bail!(
+                    "common event {} « {} » : declencheur inconnu « {} » (none, auto)",
+                    k + 1,
+                    ce.name,
+                    other
+                ),
+            }
+        }
+        let mut emitted = vec![false; commons.len()];
+        while let Some(k) =
+            (0..commons.len()).find(|&k| self.used_commons[k] && !emitted[k])
+        {
+            emitted[k] = true;
+            asm.push(format!("__ce{}_{}:", k, scene_name));
+            self.compile_list(&commons[k].commands, 0, &mut asm)
+                .with_context(|| {
+                    format!("common event {} « {} »", k + 1, commons[k].name)
+                })?;
+            asm.push("  RET".to_string());
+        }
+
+        Ok((asm, actors, std::mem::take(&mut self.gfx_blocks), cetab))
     }
 }

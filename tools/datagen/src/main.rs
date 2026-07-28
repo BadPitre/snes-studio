@@ -76,17 +76,23 @@ fn main() -> Result<()> {
             }
         }
         // Événements (Event Editor) : compilés vers acteurs + asm VM, leurs
-        // textes inline rejoignent la bank de textes (dédupliqués)
-        if !scene.events.is_empty() {
+        // textes inline rejoignent la bank de textes (dédupliqués).
+        // v0.16 : TOUJOURS exécuté — chaque bloc scripts commence par la
+        // table CETAB des common events auto (offset 0, lue par le moteur),
+        // même vide.
+        {
             let mut ec = events::EventCompiler::new(&mut texts);
-            let (asm, actors, gfx_blocks) = ec.compile_scene(name, &scene.events)?;
+            let (asm, actors, gfx_blocks, cetab) =
+                ec.compile_scene(name, &scene.events, &project.common_events)?;
+            scene.script.insert(0, cetab);
             scene.script.extend(asm);
             scene.actors.extend(actors);
             scene_gfx_blocks.push(gfx_blocks);
-        } else {
-            scene_gfx_blocks.push(Vec::new());
         }
         scenes.push(scene);
+    }
+    if project.common_events.len() > 255 {
+        bail!("trop de common events (max 255)");
     }
 
     let mut text_ids: HashMap<String, u16> = HashMap::new();

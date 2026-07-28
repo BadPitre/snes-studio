@@ -24,6 +24,9 @@
 static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
 {
   u16 auto_ofs;
+  u8 wdir;
+  u8 pdir = player.dir; /* « conserver » (v0.16) : la direction survit au
+                           rechargement (player_init la remettrait à bas) */
 
   setFadeEffect(FADE_OUT);
   setScreenOff();
@@ -34,6 +37,8 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   camera_init(); /* un pan scripté ne survit pas au changement de scène */
   player_init();
   player_set_pos(dest_x, dest_y);
+  wdir = player_take_warp_dir(); /* direction d'arrivée (v0.16) */
+  player.dir = wdir ? wdir - 1 : pdir;
   actors_init();
   /* Déclencheur AUTO de la scène (spec §1.3 v0.6) : son script prend la
      main dès la première frame après le fondu */
@@ -118,12 +123,25 @@ int main(void)
     else
     {
       u8 wd, wx, wy;
+      u16 ce;
 
-      player_update(); /* inputs + mouvement + collision + interaction */
-      if (player_take_warp(&wd, &wx, &wy))
-        do_warp(wd, wx, wy);
-      else if (padsDown(0) & KEY_START)
-        sysmenu_open();
+      /* Common events AUTO (v0.16) : dès que la VM est libre, le premier
+         dont le switch est ON prend la main — et relance tant que le
+         switch reste ON (modèle RM2003 : c'est au script de l'éteindre). */
+      ce = vm_common_auto();
+      if (ce != SCRIPT_NONE)
+      {
+        vm_start(ce);
+        vm_was_active = 1;
+      }
+      else
+      {
+        player_update(); /* inputs + mouvement + collision + interaction */
+        if (player_take_warp(&wd, &wx, &wy))
+          do_warp(wd, wx, wy);
+        else if (padsDown(0) & KEY_START)
+          sysmenu_open();
+      }
     }
 
     if (!sysmenu_active())

@@ -45,6 +45,9 @@ void vm_init(void)
   vm.pc = 0;
   vm.wait_timer = 0;
   vm.script_actor = 0xFF;
+  vm.call_sp = 0;
+  for (i = 0; i < VM_CALL_DEPTH; i++)
+    vm.call_stack[i] = 0;
   for (i = 0; i < 64; i++)
   {
     vm.vars[i] = 0;
@@ -91,7 +94,29 @@ void vm_start(u16 offset)
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = offset;
   vm.script_actor = 0xFF; /* renseigné après coup par l'appelant (v0.12) */
+  vm.call_sp = 0;         /* pile d'appels vide (v0.16) */
   vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* brasse l'aléatoire */
+}
+
+/* Table des common events AUTO en tête du bloc scripts (spec §2 v0.16) :
+   [n][(switch u16)(offset u16) x n] à l'offset 0. */
+u16 vm_common_auto(void)
+{
+  u8 n, i;
+  u16 p, sw, ofs;
+
+  n = scene_ctx.scripts[0];
+  p = 1;
+  for (i = 0; i < n; i++)
+  {
+    sw = scene_ctx.scripts[p] | ((u16)scene_ctx.scripts[p + 1] << 8);
+    ofs = (u16)scene_ctx.scripts[p + 2] |
+          ((u16)scene_ctx.scripts[p + 3] << 8);
+    p += 4;
+    if (vm_switch_get(sw))
+      return ofs;
+  }
+  return SCRIPT_NONE;
 }
 
 u8 vm_active(void)
@@ -420,6 +445,21 @@ static void vm_step(void)
       var = fetch8();
       val = fetch8();
       screenfx_shake(var, val, fetch8());
+      break;
+
+    case VM_OP_CALL: /* appel d'un corps de common event (v0.16) */
+      ofs = fetch16();
+      if (vm.call_sp >= VM_CALL_DEPTH)
+        vm_halt(); /* récursion trop profonde : bug de données */
+      vm.call_stack[vm.call_sp++] = vm.pc;
+      vm.pc = ofs;
+      break;
+
+    case VM_OP_RET: /* retour de CALL — pile vide : fin de script */
+      if (vm.call_sp)
+        vm.pc = vm.call_stack[--vm.call_sp];
+      else
+        vm.active = 0;
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
