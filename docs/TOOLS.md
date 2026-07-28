@@ -277,6 +277,14 @@ les fontes/skins partagent la palette de la fonte 0. `project.json`
 accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
 datagen — layout.toml fait foi).
 
+**Phase 12 S2 (fonte par widget)** : un `[[node]]` RACINE accepte
+`font = "assets/....png"` (768x8 — erreur uigen si posé sur un enfant) :
+tout le texte du widget est dessiné avec cette fonte. Même plan VRAM
+dédupliqué que les fontes des styles (une fonte partagée entre style et
+widget ne compte qu'une fois) ; uigen émet la table par-primitive
+`ui_ov_font[]` (base du glyphe ' ', 1 = fonte du projet) dans
+ui_overlays.c.
+
 **v0.16 (common events)** : `project.json` porte `"common_events":
 [{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
 [...]}]` — des scripts globaux au projet, modèle RM2003.

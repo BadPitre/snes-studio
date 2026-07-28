@@ -130,7 +130,8 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   à l'import ; aperçu = texte d'exemple rendu avec la fonte + la bande
   des glyphes ; ★ = fonte du projet `assets.font`, non supprimable ;
   registre `fonts` de project.json ; renommer met à jour les styles de
-  dialogue qui la pointent, supprimer est refusé si un style l'utilise),
+  dialogue ET les widgets qui la pointent, supprimer est refusé si un
+  style ou un widget l'utilise),
   liste avec aperçu, et actions **Importer / Exporter / Renommer /
   Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export
@@ -310,7 +311,9 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   redimensionner. **Inspecteur** à droite : propriétés du sélectionné
   (↑↓ réordonner, 🗑 supprimer avec ses enfants, id, variable avec la
   liste nommée « … », vignettes d'icônes cliquables, cadre, max
-  constant ou variable, direction de jauge…). Un panneau façon Chrono
+  constant ou variable, direction de jauge…) ; sur une RACINE :
+  visibilité au démarrage et **« Fonte du widget »** (S2 — un FontSet
+  pour tout le texte du widget, le canvas la montre en direct). Un panneau façon Chrono
   Trigger = Fenêtre > Liste verticale > Boîtes horizontales > labels/
   valeurs/images. Les erreurs (mêmes règles que le compilateur —
   débordements, chevauchements avec les fenêtres de dialogue, icônes

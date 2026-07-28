@@ -1029,10 +1029,15 @@ export default function App() {
           ? { ...data.project.assets, font: newRel }
           : data.project.assets;
       await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      // les styles de dialogue qui pointaient l'ancienne fonte suivent
+      // les styles de dialogue ET les widgets qui pointaient l'ancienne
+      // fonte suivent (S2)
       const l = await loadUiLayout2(data.root);
-      if (l.styles.some((s) => s.font === oldRel)) {
+      if (
+        l.styles.some((s) => s.font === oldRel) ||
+        l.nodes.some((n) => n.font === oldRel)
+      ) {
         l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
+        l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
         await writeProjectText(data.root, "ui/layout.toml", layoutToToml(l));
       }
       const d2: ProjectData = {
@@ -1050,11 +1055,14 @@ export default function App() {
   async function deleteFont(rel: string) {
     if (!data || data.project.assets.font === rel) return; // fonte du projet ★
     try {
-      // refusé si un style de dialogue l'utilise (comme charset/chipset)
+      // refusé si un style de dialogue OU un widget l'utilise
       const l = await loadUiLayout2(data.root);
-      const users = l.styles.filter((s) => s.font === rel).map((s) => s.id);
+      const users = [
+        ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
+        ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
+      ];
       if (users.length) {
-        setStatus(`Fonte utilisée par le(s) style(s) : ${users.join(", ")} — changer d'abord dans Tools → UI.`);
+        setStatus(`Fonte utilisée par : ${users.join(", ")} — changer d'abord dans Tools → UI.`);
         return;
       }
       if (!confirm(`Supprimer la fonte « ${assetStem(rel)} » et son fichier ?`)) return;

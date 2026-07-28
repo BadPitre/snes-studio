@@ -19,5 +19,6 @@ const u8 ui_ov_widget[1] = { 0, };
 const u8 ui_ov_maxvar[1] = { 0, };
 const u8 ui_ov_maxlo[1] = { 0, };
 const u8 ui_ov_maxhi[1] = { 0, };
+const u8 ui_ov_font[1] = { 1, };
 const u8 ui_widget_vis[1] = { 0, };
 const char *const ui_ov_label[1] = { 0, };

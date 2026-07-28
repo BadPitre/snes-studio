@@ -98,6 +98,14 @@ fn main() -> Result<()> {
             }
         }
     }
+    // fontes des WIDGETS (S2) : dédupliquées avec celles des styles
+    for p in &ui_prims {
+        if let Some(f) = &p.font {
+            if !ui_fonts.contains(f) {
+                ui_fonts.push(f.clone());
+            }
+        }
+    }
     let ui_skin_base = |path: &Option<String>| -> usize {
         // base char d'un skin (0 = boite pleine) — theme si absent
         let p = path.as_ref().or(theme_skin.as_ref());
@@ -475,7 +483,13 @@ fn main() -> Result<()> {
                 ui::cfg_defines(layout, prims, &ui_widgets)
             ),
         )?;
-        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(prims, &ui_widgets))?;
+        let ui_ov_font_bases: Vec<usize> =
+            prims.iter().map(|p| ui_font_base(&p.font)).collect();
+        write_out(
+            &out_dir,
+            "ui_overlays.c",
+            ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases),
+        )?;
         write_out(&out_dir, "ui_styles.c", ui::emit_styles(&ui_style_rows))?;
         if !prims.is_empty() {
             println!("  ui : {} primitive(s) de widgets (designer D1)", prims.len());

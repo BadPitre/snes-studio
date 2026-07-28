@@ -42,6 +42,8 @@ extern const u8 ui_ov_dir[];
 extern const u8 ui_ov_pad[];
 extern const u8 ui_ov_bg[]; /* 1 = dans une window (fond du cadre) */
 extern const u8 ui_ov_widget[]; /* index de la RACINE (widget) de la prim */
+extern const u8 ui_ov_font[]; /* base du glyphe ' ' de la fonte du widget
+    (S2) — 1 = fonte du projet, sinon base de la fonte extra en VRAM */
 extern const u8 ui_widget_vis[]; /* visibilité INITIALE par widget */
 extern const u8 ui_ov_maxvar[]; /* 0xFF = max constant (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
@@ -50,6 +52,9 @@ extern const char *const ui_ov_label[];
 
 #define OV_ENTRY(c) ((u16)(c) | 0x3000) /* palette fonte + priorité */
 #define OV_CHAR(a) ((u16)(a) - 31)
+/* glyphe dans la FONTE DU WIDGET (S2) — fb = ui_ov_font[i], local à
+   ov_draw ; équivaut à OV_CHAR quand fb == 1 (fonte du projet) */
+#define OV_FCHAR(a) ((u16)fb + (a) - 32)
 #define OV_SKIN_BASE 97
 /* fond des cellules vides d'un widget posé DANS une window (D1) :
    centre du 9-slice — un 0 percerait le panneau jusqu'au jeu */
@@ -99,6 +104,7 @@ static void ov_draw(u8 i)
   u8 w = ui_ov_w[i];
   u8 h = ui_ov_h[i];
   u8 f = ui_ov_frame[i];
+  u8 fb = ui_ov_font[i]; /* base fonte du texte de la prim (S2) */
   u8 cx, cy, sy, d, cells, k, fill;
   u16 base, v, units;
   const char *l;
@@ -179,7 +185,7 @@ static void ov_draw(u8 i)
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w))
-      ui_map[base + cx++] = OV_ENTRY(OV_CHAR(*l++));
+      ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
     break;
 
   case 6: /* image : icônes consécutives de la planche */
@@ -201,14 +207,14 @@ static void ov_draw(u8 i)
       d = (u8)(w - 1);
     cx = (u8)(x + w - d);
     while (d)
-      ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+      ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
     break;
 
   default: /* variable_display / value : libellé puis valeur */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w - 1))
-      ui_map[base + cx++] = OV_ENTRY(OV_CHAR(*l++));
+      ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
     d = 0;
     do
     {
@@ -220,7 +226,7 @@ static void ov_draw(u8 i)
       /* align = "left" (D1) : la valeur COLLE au libellé — pas de trou
          devant les petits nombres */
       while (d && cx < (u8)(x + w))
-        ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
     }
     else
     {
@@ -229,7 +235,7 @@ static void ov_draw(u8 i)
         d = w;
       cx = (u8)(x + w - d);
       while (d)
-        ui_map[base + cx++] = OV_ENTRY(OV_CHAR(ov_num[--d]));
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
     }
     break;
   }

@@ -136,6 +136,33 @@ export default function UiThemeModal(props: Props) {
       void loadAssetPng(props.root, curStyle.font).then(setStFont).catch(() => setStFont(null));
     else setStFont(null);
   }, [curStyle?.font, props.root]);
+  // fontes des WIDGETS (S2) : bitmaps chargées pour la preview — la clé
+  // ne change que quand la liste des fontes utilisées change
+  const [fontMap, setFontMap] = useState<Record<string, ImageBitmap>>({});
+  const widgetFontKey = [
+    ...new Set((lay?.nodes ?? []).filter((n) => !n.parent && n.font).map((n) => n.font!)),
+  ]
+    .sort()
+    .join("|");
+  useEffect(() => {
+    let dead = false;
+    const wanted = widgetFontKey ? widgetFontKey.split("|") : [];
+    void Promise.all(
+      wanted.map(async (rel) => {
+        try {
+          return [rel, await loadAssetPng(props.root, rel)] as const;
+        } catch {
+          return null;
+        }
+      })
+    ).then((entries) => {
+      if (!dead)
+        setFontMap(Object.fromEntries(entries.filter((e): e is readonly [string, ImageBitmap] => !!e)));
+    });
+    return () => {
+      dead = true;
+    };
+  }, [widgetFontKey, props.root]);
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
   const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount]);
@@ -203,6 +230,8 @@ export default function UiThemeModal(props: Props) {
     // primitives dans l'ordre d'émission (les panneaux précèdent leurs
     // enfants — même z-order que le moteur)
     for (const p of flat.prims) {
+      // fonte du widget (S2) — celle du projet si absente/pas chargée
+      const pf = p.font ? fontMap[p.font] ?? font : font;
       const f = p.frame;
       if (f) win(p.x, p.y, p.w, p.h);
       else if (p.bg)
@@ -228,20 +257,20 @@ export default function UiThemeModal(props: Props) {
         case 3: {
           icon(p.icon, x0 * 8, y0 * 8);
           const val = String(72).padStart(p.pad, "0");
-          text(val, x0 + cw - val.length, y0, 5);
+          text(val, x0 + cw - val.length, y0, 5, pf);
           break;
         }
         case 5:
-          text(p.text, x0, y0, cw);
+          text(p.text, x0, y0, cw, pf);
           break;
         case 6:
           for (let k = 0; k < p.w; k++) icon(p.icon + k, (x0 + k) * 8, y0 * 8);
           break;
         case 0: {
-          text(p.text, x0, y0, cw - 1);
+          text(p.text, x0, y0, cw - 1, pf);
           const val = "42";
-          if (p.vertical) text(val, x0 + p.text.length, y0, 5); // align left
-          else text(val, x0 + cw - val.length, y0, 5);
+          if (p.vertical) text(val, x0 + p.text.length, y0, 5, pf); // align left
+          else text(val, x0 + cw - val.length, y0, 5, pf);
           break;
         }
       }
@@ -283,7 +312,7 @@ export default function UiThemeModal(props: Props) {
         ctx.strokeRect((r.x + r.w) * 8 - 4.5, (r.y + r.h) * 8 - 4.5, 5, 5);
       }
     }
-  }, [lay, flat, font, skin, icons, iconCount, selId, scope, styleIdx, stSkin, stFont, props.mode]);
+  }, [lay, flat, font, skin, icons, iconCount, selId, scope, styleIdx, stSkin, stFont, fontMap, props.mode]);
 
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
@@ -1010,6 +1039,29 @@ export default function UiThemeModal(props: Props) {
                       <input type="checkbox" checked={!!sel.visible}
                         onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
                       Visible au démarrage (sinon : commande « Afficher un widget UI »)
+                    </label>
+                  )}
+                  {!sel.parent && (
+                    <label>Fonte du widget
+                      <select
+                        value={sel.font ?? ""}
+                        onChange={(e) => patchNode(sel.id, { font: e.target.value || undefined })}
+                      >
+                        <option value="">(fonte du projet ★)</option>
+                        {props.fonts
+                          .filter((rel) => rel !== props.project.assets.font)
+                          .map((rel) => (
+                            <option key={rel} value={rel}>{assetStem(rel)}</option>
+                          ))}
+                        {sel.font &&
+                          sel.font !== props.project.assets.font &&
+                          !props.fonts.includes(sel.font) && (
+                            <option value={sel.font}>{assetStem(sel.font)} (hors registre)</option>
+                          )}
+                      </select>
+                      <span className="hint">
+                        Tout le texte du widget (import : Ressources → FontSet).
+                      </span>
                     </label>
                   )}
                   {sel.size && (

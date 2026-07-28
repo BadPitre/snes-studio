@@ -347,6 +347,20 @@ TOML — la communauté pourra en partager.
     select « Boîte de dialogue ». Ressource FontSet (import 768x8,
     EXPORT PNG, renommer — les styles suivent —, suppression bloquée
     si fonte du projet ★ ou utilisée par un style).
+- **Livré (Phase 12, S2 — fonte par widget)** : `font` sur la RACINE
+  d'un widget (`[[node]]` sans parent — erreur uigen sur un enfant) :
+  tout le texte du widget (labels, valeurs, compteurs) se dessine avec
+  cette fonte. Datagen : les fontes des widgets entrent dans le même
+  plan VRAM dédupliqué que celles des styles (une fonte partagée ne
+  coûte qu'une fois ses 96 chars) ; table `ui_ov_font[]` par PRIMITIVE
+  (base du glyphe ' ', 1 = fonte du projet) dans ui_overlays.c —
+  TOUJOURS émise. Moteur : `OV_FCHAR` = `ui_ov_font[i] + ascii - 32`
+  dans ov_draw (types 0/3/5, chiffres compris) — équivalent à l'ancien
+  `OV_CHAR` quand la table vaut 1, rendu inchangé pour les projets
+  sans fonte de widget. Éditeur : select « Fonte du widget » dans
+  l'inspecteur (racines seulement), canvas preview avec la fonte de
+  chaque widget ; renommage/suppression de FontSet tiennent compte des
+  widgets comme des styles.
 - **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
   écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4
   — l'objet liste deviendra NAVIGABLE, le designer le pose déjà),

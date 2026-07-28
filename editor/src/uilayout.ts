@@ -49,6 +49,8 @@ export interface UiNode {
   // racines : visible au démarrage (défaut FALSE — les widgets
   // s'affichent via la commande d'event « Afficher un widget UI »)
   visible?: boolean;
+  // racines : fonte du WIDGET (S2 — PNG 768x8, défaut : assets.font)
+  font?: string;
 }
 
 // Style de boîte de dialogue (S1) — style 0 (défaut) = thème + [message]
@@ -84,6 +86,7 @@ export interface Prim {
   bg: boolean;
   text: string;
   nodeId: string;
+  font?: string; // fonte de la racine (S2) — la preview la charge
 }
 
 export interface Flat {
@@ -207,6 +210,8 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
     ids.add(n.id);
     if (n.parent && !nodes.some((k) => k.id === n.parent))
       errors.push(`« ${n.id} » : parent « ${n.parent} » introuvable`);
+    if (n.parent && n.font)
+      errors.push(`« ${n.id} » : la fonte se pose sur la RACINE du widget`);
   }
 
   const needIcon = (n: UiNode, span: number) => {
@@ -216,9 +221,13 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       errors.push(`« ${n.id} » : icônes hors planche (${iconCount})`);
   };
 
+  // fonte de la racine en cours de placement (S2) — stampée sur chaque
+  // primitive pour que la preview dessine avec la bonne fonte
+  let curFont: string | undefined;
   const emit = (p: Prim) => {
     if (p.x < 0 || p.y < 0 || p.x + p.w > SCREEN_W || p.y + p.h > SCREEN_H)
       errors.push(`« ${p.nodeId} » : sort de l'écran 32x28`);
+    p.font = curFont;
     prims.push(p);
   };
 
@@ -359,6 +368,7 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         errors.push(`« ${r.id} » : chevauche la fenêtre ${name} (les dialogues l'écraseraient)`);
     }
     rootRects.push(rect);
+    curFont = r.font;
     place(r, r.pos[0], r.pos[1], false, 0);
   }
   if (prims.length > PRIM_MAX)
@@ -446,6 +456,7 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.pad) s += `pad = ${n.pad}\n`;
     if (n.align === "left") s += `align = "left"\n`;
     if (!n.parent && n.visible) s += `visible = true\n`;
+    if (!n.parent && n.font) s += `font = ${JSON.stringify(n.font)}\n`;
     for (const c of childrenOf(l.nodes, n.id)) emitNode(c);
   };
   for (const r of rootsOf(l.nodes)) emitNode(r);
