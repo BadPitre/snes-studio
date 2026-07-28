@@ -5,7 +5,7 @@
 // sauvegarde, génération des données moteur.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta, Warp } from "./types";
+import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta } from "./types";
 import {
   assetStem,
   charsetName,
@@ -60,20 +60,18 @@ import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ScenePanel from "./components/ScenePanel";
 import SceneTree from "./components/SceneTree";
-import EventsPanel from "./components/EventsPanel";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
+import TextsModal from "./components/TextsModal";
 import UiThemeModal, { loadUiLayout2 } from "./components/UiThemeModal";
 import { layoutToToml, rootsOf } from "./uilayout";
 import { loadDatabase, saveDatabase } from "./db";
 import type { Database } from "./db";
-import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
-import WarpsPanel from "./components/WarpsPanel";
 import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
@@ -85,7 +83,10 @@ import type { Diag } from "./diagnostics";
 import { scaffoldProject } from "./template";
 import pkg from "../package.json";
 
-type Tab = "scene" | "actors" | "warps" | "script" | "texts";
+// Acteurs / Warps / Textes ont quitté la sidebar (demande Bertrand) :
+// events et warps se gèrent sur la carte (double-clic, clic droit),
+// les textes dans Tools → Textes… (fenêtre à catégories)
+type Tab = "scene" | "script";
 
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
@@ -140,6 +141,8 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
+  // fenêtre Textes (Tools →) — remplace l'onglet de la sidebar
+  const [textsOpen, setTextsOpen] = useState(false);
   // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
   const [uiMode, setUiMode] = useState<null | "widgets" | "dialogs">(null);
   // widgets du layout (racines) — pour la commande « Afficher un widget UI »
@@ -1454,6 +1457,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Textes…",
+          action: () => setTextsOpen(true),
+          disabled: !data,
+        },
+        {
           label: "UI",
           disabled: !data,
           sub: [
@@ -1687,17 +1695,8 @@ export default function App() {
               <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
                 Scène
               </button>
-              <button className={tab === "actors" ? "active" : ""} onClick={() => setTab("actors")}>
-                Acteurs
-              </button>
-              <button className={tab === "warps" ? "active" : ""} onClick={() => setTab("warps")}>
-                Warps
-              </button>
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
-              </button>
-              <button className={tab === "texts" ? "active" : ""} onClick={() => setTab("texts")}>
-                Textes
               </button>
             </div>
             {tab === "scene" && (
@@ -1716,39 +1715,10 @@ export default function App() {
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
               />
             )}
-            {tab === "actors" && (
-              <EventsPanel
-                scene={scene}
-                selected={selEvent}
-                canImport={canWriteFiles()}
-                blockNames={blockNames}
-                onImportCharset={importCharset}
-                onSelect={setSelEvent}
-                onOpen={(i) => setEvEdit({ index: i, ev: scene.events[i] })}
-                onRemove={(i) => {
-                  setScene((sc) => removeEvent(sc, i));
-                  setSelEvent(null);
-                }}
-              />
-            )}
-            {tab === "warps" && (
-              <WarpsPanel
-                scene={scene}
-                sceneNames={data.project.scenes}
-                onUpdate={(i, patch: Partial<Warp>) => setScene((sc) => updateWarp(sc, i, patch))}
-                onRemove={(i) => setScene((sc) => removeWarp(sc, i))}
-              />
-            )}
             {tab === "script" && (
               <ScriptPanel
                 script={scene.script}
                 onChange={(script) => setScene((sc) => ({ ...sc, script }))}
-              />
-            )}
-            {tab === "texts" && (
-              <TextsPanel
-                texts={data.texts}
-                onChange={(texts) => mutate((d) => ({ ...d, texts }))}
               />
             )}
           </div>
@@ -2011,6 +1981,16 @@ export default function App() {
             setPrefabPickAt(null);
             setPrefabMgr(false);
           }}
+        />
+      )}
+      {textsOpen && data && (
+        <TextsModal
+          texts={data.texts}
+          onOk={(texts) => {
+            mutate((d) => ({ ...d, texts }));
+            setTextsOpen(false);
+          }}
+          onClose={() => setTextsOpen(false)}
         />
       )}
       {dbOpen && data && (

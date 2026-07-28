@@ -318,3 +318,11 @@ input, select, textarea {
 .warp-entry { border: 1px solid #000; border-radius: 6px; padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .warp-entry label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9aa0a8; }
 .warp-head { display: flex; justify-content: space-between; align-items: center; }
+
+/* Fenêtre Textes (Tools →) — catégories à gauche, textes à droite */
+.modal.textsmodal { width: 640px; }
+.textsmodal-list { max-height: 420px; display: flex; flex-direction: column; gap: 6px; }
+.textsmodal-list .text-entry { display: flex; flex-direction: column; gap: 3px; }
+.textsmodal-list .text-entry .row { align-items: center; }
+.textsmodal-list .text-entry .text-name { flex: 1; }
+.resmgr-cats .row { margin-top: 4px; }
