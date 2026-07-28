@@ -79,49 +79,64 @@ static void text_decode(u16 text_id, char *dst, u8 max)
 static char tb_text[176];
 static char tb_opts[4][28];
 
-/* Géométrie de la boîte (rangées de la map BG3 32x32) */
-#define TB_ROW 20       /* première rangée de la boîte (y = 160 px) */
-#define TB_ROWS 8       /* hauteur totale (64 px) */
-#define TB_TEXT_COL 2   /* marge gauche du texte */
-#define TB_TEXT_COLS 28 /* largeur utile en caractères */
-#define TB_TEXT_ROW 1   /* première ligne de texte (relative à TB_ROW) */
-#define TB_TEXT_ROWS 6  /* nombre de lignes de texte */
+/* Géométrie : fenêtres MESSAGE et CHOIX du layout uigen (ui_cfg.h,
+   positions/tailles EN TILES — docs/SPEC_SYSTEME_UI.md §3). Le shadow
+   couvre l'UNION des rangées des deux fenêtres (UI_SHADOW_*). */
+#define TB_TEXT_COLS (UI_MSG_W - 4) /* cadre : 2 tiles de marge par côté */
+#define TB_TEXT_ROWS (UI_MSG_H - 2) /* cadre : 1 rangée haut et bas */
+#define TB_CHC_COLS (UI_CHC_W - 4)
+#define TB_CHC_ROWS (UI_CHC_H - 2)
+/* cellule shadow (ligne de texte l, colonne c) de chaque fenêtre */
+#define TB_MSG_CELL(l, c) \
+  ((u16)(UI_MSG_ROW - UI_SHADOW_ROW + 1 + (l)) * 32 + UI_MSG_COL + 2 + (c))
+#define TB_CHC_CELL(l, c) \
+  ((u16)(UI_CHC_ROW - UI_SHADOW_ROW + 1 + (l)) * 32 + UI_CHC_COL + 2 + (c))
 
 /* Entrée BG3 : char 2bpp + palette 4 (CGRAM 16) + priorité (au-dessus de
    tout avec le bit BG3-prio du mode 1) */
 #define TB_ENTRY(c) ((u16)(c) | 0x3000)
 #define TB_CHAR(ascii) ((u16)(ascii) - 31) /* char 0 = transparent, 1 = espace */
+/* Tuile de fond d'une fenêtre (effacement du curseur de choix) */
+#if UI_HAS_SKIN
+#define TB_BG_CHAR (TB_SKIN_BASE + 4) /* centre du 9-slice */
+#else
+#define TB_BG_CHAR TB_CHAR(' ')
+#endif
 
-static u16 tb_shadow[32 * TB_ROWS];
+static u16 tb_shadow[32 * UI_SHADOW_H];
 static u8 tb_dirty;
 
 static void tb_fill(u16 entry)
 {
   u16 i;
 
-  for (i = 0; i < 32 * TB_ROWS; i++)
+  for (i = 0; i < 32 * UI_SHADOW_H; i++)
     tb_shadow[i] = entry;
 }
 
-/* Fond de boîte : cadre 9-slice du windowskin s'il existe, sinon la
-   boîte pleine historique (chars espace opaques) */
-static void tb_box(void)
+/* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans le shadow :
+   cadre 9-slice du windowskin s'il existe, sinon boîte pleine — le
+   reste du shadow redevient transparent. */
+static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
 {
-#if UI_HAS_SKIN
-  u8 x, y, sx, sy;
+  u8 x, y, sy;
+  u16 base;
 
-  for (y = 0; y < TB_ROWS; y++)
+  tb_fill(0);
+  for (y = 0; y < h; y++)
   {
-    sy = y == 0 ? 0 : (y == TB_ROWS - 1 ? 2 : 1);
-    for (x = 0; x < 32; x++)
+    base = (u16)(row - UI_SHADOW_ROW + y) * 32 + col;
+    sy = y == 0 ? 0 : (y == (u8)(h - 1) ? 2 : 1);
+    for (x = 0; x < w; x++)
     {
-      sx = x == 0 ? 0 : (x == 31 ? 2 : 1);
-      tb_shadow[(u16)y * 32 + x] = TB_ENTRY(TB_SKIN_BASE + sy * 3 + sx);
+#if UI_HAS_SKIN
+      tb_shadow[base + x] = TB_ENTRY(
+          TB_SKIN_BASE + sy * 3 + (x == 0 ? 0 : (x == (u8)(w - 1) ? 2 : 1)));
+#else
+      tb_shadow[base + x] = TB_ENTRY(TB_CHAR(' '));
+#endif
     }
   }
-#else
-  tb_fill(TB_ENTRY(TB_CHAR(' ')));
-#endif
 }
 
 /* Machine à écrire (UI_TEXT_SPEED frames par caractère, 0 = instantané).
@@ -139,7 +154,7 @@ static void tw_step(void)
   u16 wl;
 
   c = *tw_s;
-  if (!c || tw_row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+  if (!c || tw_row >= TB_TEXT_ROWS)
   {
     tw_active = 0;
     return;
@@ -161,13 +176,13 @@ static void tw_step(void)
   {
     tw_row++;
     tw_col = 0;
-    if (tw_row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+    if (tw_row >= TB_TEXT_ROWS)
     {
       tw_active = 0;
       return;
     }
   }
-  tb_shadow[(u16)tw_row * 32 + TB_TEXT_COL + tw_col] = TB_ENTRY(TB_CHAR(c));
+  tb_shadow[TB_MSG_CELL(tw_row, tw_col)] = TB_ENTRY(TB_CHAR(c));
   tw_col++;
   tw_s++;
   tb_dirty = 1;
@@ -214,12 +229,12 @@ void textbox_init(void)
   /* Map BG3 entièrement transparente (char 0) : le shadow ne couvre que la
      zone de la boîte, on l'utilise 4 fois pour effacer les 32 rangées */
   tb_fill(0);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP, 32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS, 32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 2,
-              32 * TB_ROWS * 2);
-  dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 3,
-              32 * TB_ROWS * 2);
+  {
+    u8 r;
+
+    for (r = 0; r < 32; r++)
+      dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + (u16)r * 32, 64);
+  }
   tb_dirty = 0;
 
   /* état machine à écrire — init EXPLICITE (statics tcc) */
@@ -235,11 +250,11 @@ void textbox_open(u16 text_id)
   text_decode(text_id, tb_text, sizeof(tb_text));
 #if UI_TEXT_SPEED
   /* machine à écrire : boîte vide, le texte se révèle via textbox_tick */
-  tb_box();
+  tb_box_at(UI_MSG_COL, UI_MSG_ROW, UI_MSG_W, UI_MSG_H);
   tw_active = 1;
   tw_timer = 0;
   tw_s = tb_text;
-  tw_row = TB_TEXT_ROW;
+  tw_row = 0;
   tw_col = 0;
   tb_dirty = 1;
 #else
@@ -256,13 +271,13 @@ void textbox_open_raw(const char *s)
   char c;
 
   tw_active = 0; /* un rendu instantané annule toute révélation en cours */
-  tb_box();
+  tb_box_at(UI_MSG_COL, UI_MSG_ROW, UI_MSG_W, UI_MSG_H);
 
   if (s)
   {
-    row = TB_TEXT_ROW;
+    row = 0; /* ligne de texte, relative à la fenêtre */
     col = 0;
-    while (*s && row < TB_TEXT_ROW + TB_TEXT_ROWS)
+    while (*s && row < TB_TEXT_ROWS)
     {
       c = *s;
       if (c == ' ')
@@ -283,10 +298,10 @@ void textbox_open_raw(const char *s)
       {
         row++;
         col = 0;
-        if (row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+        if (row >= TB_TEXT_ROWS)
           break;
       }
-      tb_shadow[(u16)row * 32 + TB_TEXT_COL + col] = TB_ENTRY(TB_CHAR(c));
+      tb_shadow[TB_MSG_CELL(row, col)] = TB_ENTRY(TB_CHAR(c));
       col++;
       s++;
     }
@@ -317,20 +332,19 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
   u8 i, col;
 
   tw_active = 0;
-  tb_box();
-  for (i = 0; i < count; i++)
+  tb_box_at(UI_CHC_COL, UI_CHC_ROW, UI_CHC_W, UI_CHC_H);
+  for (i = 0; i < count && i < TB_CHC_ROWS; i++)
   {
     s = options[i];
     col = 0;
-    while (s && *s && col < TB_TEXT_COLS - 2)
+    while (s && *s && col < TB_CHC_COLS - 2)
     {
-      tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL + 2 + col] =
-          TB_ENTRY(TB_CHAR(*s));
+      tb_shadow[TB_CHC_CELL(i, 2 + col)] = TB_ENTRY(TB_CHAR(*s));
       col++;
       s++;
     }
   }
-  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
+  tb_shadow[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
   tb_dirty = 1;
 }
 
@@ -339,10 +353,9 @@ void textbox_choice_cursor(u8 sel)
 {
   u8 i;
 
-  for (i = 0; i < TB_TEXT_ROWS; i++)
-    tb_shadow[(u16)(TB_TEXT_ROW + i) * 32 + TB_TEXT_COL] =
-        TB_ENTRY(TB_CHAR(' '));
-  tb_shadow[(u16)(TB_TEXT_ROW + sel) * 32 + TB_TEXT_COL] = TB_ENTRY(TB_CHAR('>'));
+  for (i = 0; i < TB_CHC_ROWS; i++)
+    tb_shadow[TB_CHC_CELL(i, 0)] = TB_ENTRY(TB_BG_CHAR);
+  tb_shadow[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
   tb_dirty = 1;
 }
 
@@ -358,7 +371,7 @@ void textbox_vblank(void)
   if (tb_dirty)
   {
     tb_dirty = 0;
-    dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + TB_ROW * 32,
-                32 * TB_ROWS * 2);
+    dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + UI_SHADOW_ROW * 32,
+                32 * UI_SHADOW_H * 2);
   }
 }

@@ -17,6 +17,7 @@
 #include "audio.h"
 #include "timer.h"
 #include "screenfx.h"
+#include "ui_overlay.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -80,6 +81,7 @@ int main(void)
   sysmenu_init();
   timer_init();
   screenfx_init();
+  overlay_init(); /* HUD permanent du layout uigen (Phase 11) */
   camera_init();
   player_init();
   actors_init();
@@ -153,6 +155,7 @@ int main(void)
     }
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
+    overlay_update();  /* HUD : redessin si une variable a changé */
     camera_update();
     map_update();  /* prépare le streaming de la fenêtre tilemap */
     player_draw(); /* shadow OAM — transféré par le NMI au VBlank */
@@ -166,6 +169,7 @@ int main(void)
     map_vblank();
     textbox_vblank();
     timer_vblank();
+    overlay_vblank();
     screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
     bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
     bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);

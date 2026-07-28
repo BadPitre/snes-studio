@@ -184,6 +184,17 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**Layouts uigen v1 (Phase 11, docs/SPEC_SYSTEME_UI.md §3)** :
+`ui/layout.toml` — positions/tailles EN TILES (écran 32x28). `[message]`
+et `[choice]` déplacent/retaillent les fenêtres de dialogue et de choix
+(`pos = [x, y]`, `size = [w, h]`, minimum 8x3 — absentes = boîte
+historique en bas pleine largeur). `[[overlay]]` déclare des fenêtres
+PERMANENTES (HUD) dans les 4 rangées du haut (8 max, sans chevauchement,
+content v1 : `variable_display` avec `var` + `label` ASCII) — redessinées
+dès que la variable change, même pendant les dialogues. uigen refuse
+l'invalide à la compilation (bornes, zone, chevauchements) et émet les
+defines de ui_cfg.h + ui_overlays.c.
+
 **Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md)** : `project.json`
 accepte `"ui": {"windowskin": "assets/....png", "text_speed": n}`. Le
 windowskin est un PNG **24x24** (9-slice : 3x3 tiles 8x8, indexes 0-3 =

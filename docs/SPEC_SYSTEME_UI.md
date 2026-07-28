@@ -210,3 +210,18 @@ TOML — la communauté pourra en partager.
 ---
 
 *Document généré le 28 juillet 2026 — à ranger dans `docs/`, à relire au démarrage de la Phase 4.*
+
+---
+
+## État d'implémentation (Phase 11)
+
+- **Livré (cran A)** : windowskin 9-slice (24x24, palette de la fonte,
+  chars BG3 97-105), thème v1 `project.json "ui"` (windowskin,
+  text_speed), machine à écrire (A révèle puis ferme).
+- **Livré (cran B)** : `ui/layout.toml` (uigen, module `ui.rs` de
+  datagen) — fenêtres `message`/`choice` déplaçables, contexte
+  **overlay** (4 rangées du haut, 8 fenêtres max, `variable_display`),
+  validation compile (bornes/zone/chevauchements), moteur `ui_overlay.c`.
+- **À venir** : thèmes multiples en table database + SET_THEME,
+  content types v2 (hp_bar, gold…), pile de scènes MENU (§5),
+  designer à grille (§7).

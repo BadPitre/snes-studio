@@ -1,0 +1,20 @@
+# Layout UI du projet (uigen v1 — docs/SPEC_SYSTEME_UI.md §3).
+# Positions et tailles EN TILES (unités de 8 px, écran 32x28).
+# Sans ce fichier : boîte historique en bas, pleine largeur.
+
+[message]          # fenêtre des dialogues
+pos = [0, 20]
+size = [32, 8]
+
+[choice]           # fenêtre des choix (défaut : comme message)
+pos = [0, 20]
+size = [32, 8]
+
+# Fenêtres PERMANENTES (HUD) — zone : les 4 rangées du haut, 8 max.
+# [[overlay]]
+# id = "quete"
+# pos = [1, 0]
+# size = [12, 3]
+# content = "variable_display"
+# var = 5
+# label = "Fleurs"

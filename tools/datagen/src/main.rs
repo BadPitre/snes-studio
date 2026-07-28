@@ -19,6 +19,7 @@ mod gfx;
 mod project;
 mod script;
 mod tileset;
+mod ui;
 
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -373,21 +374,28 @@ fn main() -> Result<()> {
         write_out(&out_dir, &name, content)?;
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
-    // Thème UI v1 (Phase 11) : le moteur lit la config via defines —
-    // même mécanisme qu'audio_cfg.h, toujours émis
+    // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
+    // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)
     {
         let (has_skin, speed) = match &project.ui {
             Some(u) => (u.windowskin.is_some() as u8, u.text_speed),
             None => (0, 0),
         };
+        let layout = ui::load(&proj_dir)?;
         write_out(
             &out_dir,
             "ui_cfg.h",
             format!(
-                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n",
-                has_skin, speed
+                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n{}",
+                has_skin,
+                speed,
+                ui::cfg_defines(&layout)
             ),
         )?;
+        write_out(&out_dir, "ui_overlays.c", ui::emit_overlays(&layout))?;
+        if !layout.overlay.is_empty() {
+            println!("  ui : {} overlay(s), fenetre message deplacable", layout.overlay.len());
+        }
     }
 
     // Database (Phase 10, docs/PLANNING_SYSTEME_DATABASE.md) : schémas +
