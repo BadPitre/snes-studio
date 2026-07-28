@@ -266,7 +266,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   l'event. **Tools → Prefabs…** gère la bibliothèque : renommer,
   recatégoriser, supprimer. Stockés dans project.json.
 - L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
-  warps s'éditent aussi au clic droit (mini-fenêtre scène cible/arrivée).
+  warps s'éditent au clic droit via la fenêtre **« Téléporter »** (v0.16,
+  calquée sur Transfer Player de RM2003) : arbre des scènes à gauche,
+  **aperçu de la scène cible** à droite (clic = tile d'arrivée, carré
+  blanc), zoom 1/1-1/2-1/4, et **Direction à l'arrivée** (Conserver /
+  Haut / Droite / Bas / Gauche — écrite dans les flags du warp, le héros
+  la prend en sortant du fondu).
 
 ## Lancer
 

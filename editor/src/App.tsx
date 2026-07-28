@@ -61,6 +61,7 @@ import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
+import TransferPlayerModal from "./components/TransferPlayerModal";
 import TextsPanel from "./components/TextsPanel";
 import ScriptPanel from "./components/ScriptPanel";
 import WarpsPanel from "./components/WarpsPanel";
@@ -1615,58 +1616,20 @@ export default function App() {
         />
       )}
       {warpEdit !== null && scene && data && scene.warps[warpEdit] && (
-        <div className="modal-backdrop" onClick={() => setWarpEdit(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-title">
-              Warp en ({scene.warps[warpEdit].x},{scene.warps[warpEdit].y})
-            </div>
-            <label>
-              Scène cible
-              <select
-                value={scene.warps[warpEdit].to}
-                onChange={(e) => {
-                  const d = data.scenes[e.target.value];
-                  setScene((sc) =>
-                    updateWarp(sc, warpEdit, {
-                      to: e.target.value,
-                      tx: d?.player_start[0] ?? 3,
-                      ty: d?.player_start[1] ?? 3,
-                    })
-                  );
-                }}
-              >
-                {data.project.scenes
-                  .filter((n) => n !== sceneName)
-                  .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <div className="row">
-              <label>
-                Arrivée x
-                <input
-                  type="number"
-                  min={0}
-                  value={scene.warps[warpEdit].tx}
-                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { tx: Number(e.target.value) }))}
-                />
-              </label>
-              <label>
-                Arrivée y
-                <input
-                  type="number"
-                  min={0}
-                  value={scene.warps[warpEdit].ty}
-                  onChange={(e) => setScene((sc) => updateWarp(sc, warpEdit, { ty: Number(e.target.value) }))}
-                />
-              </label>
-            </div>
-            <button onClick={() => setWarpEdit(null)}>Fermer</button>
-          </div>
-        </div>
+        <TransferPlayerModal
+          warp={scene.warps[warpEdit]}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          tilesets={tilesets}
+          autoImgs={autoImgs}
+          tilesetMeta={data.tilesetMeta}
+          defaultTileset={tilesetNames[0] ?? ""}
+          onOk={(patch) => {
+            setScene((sc) => updateWarp(sc, warpEdit, patch));
+            setWarpEdit(null);
+          }}
+          onClose={() => setWarpEdit(null)}
+        />
       )}
       {showAbout && (
         <div className="modal-backdrop" onClick={() => setShowAbout(false)}>

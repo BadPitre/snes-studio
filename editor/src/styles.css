@@ -195,6 +195,15 @@ input, select, textarea {
 .cmdpick-tabs button.active { background: #31547a; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; flex: 1; }
 .cmdpick-grid button { text-align: left; font-size: 12px; }
+/* Fenêtre Téléporter (Transfer Player RM2003, v0.16) */
+.modal.transfer { width: 780px; }
+.transfer-body { display: flex; gap: 10px; height: 380px; }
+.transfer-tree { width: 190px; overflow-y: auto; }
+.transfer-preview {
+  flex: 1; overflow: auto; background: #101216;
+  border: 1px solid #000; border-radius: 4px;
+}
+.transfer-preview canvas { display: block; cursor: crosshair; }
 /* Fenêtres Prefabs (bibliothèque par catégorie, v0.16) */
 .modal.prefabs { width: 560px; }
 .prefabs-body { display: flex; gap: 10px; height: 340px; }

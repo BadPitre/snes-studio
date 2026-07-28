@@ -254,6 +254,8 @@ export interface Warp {
   to: string; // scène cible
   tx: number;
   ty: number;
+  dir?: Direction; // v0.16 — direction du héros à l'arrivée (absente =
+  // conservée, « Retain » RM2003) — WarpDef.flags côté moteur
 }
 
 export interface Scene {
