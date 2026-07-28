@@ -277,6 +277,21 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
   database crée ses dossiers `schemas/`+`data/` à la première table.
+- **Fenêtre « UI / Thème »** (Tools →, Phase 11 — réf
+  `SPEC_SYSTEME_UI.md` §7) : tout l'habillage du jeu au même endroit,
+  avec une **preview 256x224 fidèle tiles** (fonte et windowskin réels
+  du projet, upscalée 2x pixelisée) qui se redessine à chaque frappe.
+  Thème : **« Importer un windowskin… »** (PNG 24x24 validé à l'import,
+  copié dans `assets/`, ✕ pour revenir à la boîte pleine) et **vitesse
+  du texte** (frames/caractère, 0 = instantané). Fenêtres : position et
+  taille EN TILES du message et du choix (x, y, largeur, hauteur —
+  écran 32x28). HUD permanent : jusqu'à 8 fenêtres `variable_display`
+  sur les 4 rangées du haut (id, libellé, variable, géométrie). La
+  fenêtre applique **les mêmes règles que uigen** (tailles minimales,
+  zone HUD, chevauchements, libellés ASCII bornés) : les erreurs
+  s'affichent en rouge et **OK reste bloqué** tant qu'il en reste — le
+  designer ne peut pas produire un layout que le build refuserait. OK
+  écrit `ui/layout.toml` + la section `"ui"` de project.json.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms

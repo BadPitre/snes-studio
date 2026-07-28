@@ -19,6 +19,36 @@ export interface Project {
   switches?: string[]; // noms des switches (éditeur seulement, index = n)
   variables?: string[]; // noms des variables 16-bit (éditeur seulement)
   common_events?: CommonEvent[]; // scripts globaux (v0.16, compilés par datagen)
+  // Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md) : windowskin 24x24
+  // (9-slice, palette de la fonte) + vitesse de la machine à écrire
+  ui?: { windowskin?: string; text_speed?: number };
+}
+
+// Layout uigen v1 (ui/layout.toml) — positions/tailles EN TILES
+export interface UiWin {
+  pos: [number, number];
+  size: [number, number];
+}
+export interface UiOverlay {
+  id: string;
+  pos: [number, number];
+  size: [number, number];
+  content: string; // v1 : "variable_display"
+  var?: number;
+  label: string;
+}
+export interface UiLayout {
+  message: UiWin;
+  choice: UiWin;
+  overlay: UiOverlay[];
+}
+// défauts historiques (sans fichier) — mêmes valeurs que uigen
+export function defaultUiLayout(): UiLayout {
+  return {
+    message: { pos: [0, 20], size: [32, 8] },
+    choice: { pos: [0, 20], size: [32, 8] },
+    overlay: [],
+  };
 }
 
 // stem d'un chemin d'asset ("assets/tileset_automne.png" -> "tileset_automne")

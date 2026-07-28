@@ -222,6 +222,12 @@ TOML — la communauté pourra en partager.
   datagen) — fenêtres `message`/`choice` déplaçables, contexte
   **overlay** (4 rangées du haut, 8 fenêtres max, `variable_display`),
   validation compile (bornes/zone/chevauchements), moteur `ui_overlay.c`.
+- **Livré (cran C)** : fenêtre éditeur « UI / Thème » (Tools →) —
+  import windowskin validé (24x24), vitesse du texte, layout complet
+  (message/choice/overlays) avec les MÊMES règles que uigen (OK bloqué
+  sur erreur, §9.3) et preview 256x224 fidèle tiles (fonte et skin
+  réels du projet). Écrit `ui/layout.toml` + `project.json "ui"`. Réf
+  `EDITOR.md`.
 - **À venir** : thèmes multiples en table database + SET_THEME,
   content types v2 (hp_bar, gold…), pile de scènes MENU (§5),
   designer à grille (§7).

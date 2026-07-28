@@ -63,6 +63,7 @@ import CommonEventsModal from "./components/CommonEventsModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
+import UiThemeModal from "./components/UiThemeModal";
 import { loadDatabase, saveDatabase } from "./db";
 import type { Database } from "./db";
 import TextsPanel from "./components/TextsPanel";
@@ -134,6 +135,7 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
+  const [uiOpen, setUiOpen] = useState(false); // fenêtre UI / Thème (Phase 11)
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -1089,6 +1091,11 @@ export default function App() {
           action: () => setDbOpen(true),
           disabled: !data,
         },
+        {
+          label: "UI / Thème…",
+          action: () => setUiOpen(true),
+          disabled: !data,
+        },
       ],
     },
     {
@@ -1620,6 +1627,19 @@ export default function App() {
               .catch((e) => setStatus(`Database : ${e}`));
           }}
           onClose={() => setDbOpen(false)}
+        />
+      )}
+      {uiOpen && data && (
+        <UiThemeModal
+          root={data.root}
+          project={data.project}
+          varNames={data.project.variables ?? []}
+          onOk={(ui) => {
+            mutate((d) => ({ ...d, project: { ...d.project, ui } }));
+            setUiOpen(false);
+            setStatus("UI / Thème sauvegardé (project.json + ui/layout.toml).");
+          }}
+          onClose={() => setUiOpen(false)}
         />
       )}
       {commonEvOpen && data && (

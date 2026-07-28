@@ -215,6 +215,17 @@ input, select, textarea {
 .db-list .evedit-cmds { overflow-y: auto; }
 .db-form { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .db-fields { display: flex; flex-direction: column; gap: 8px; }
+/* Fenêtre UI / Thème (Phase 11 — windowskin, layout uigen, preview) */
+.modal.uitheme { width: 1080px; }
+.uitheme-body { display: flex; gap: 12px; }
+.uitheme-form { width: 520px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 560px; }
+.uitheme-form .row input[type="number"] { width: 58px; flex: 0 0 auto; }
+.uitheme-preview { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.uitheme-preview canvas {
+  width: 512px; height: 448px; /* 2x — rendu tiles net */
+  image-rendering: pixelated;
+  border: 1px solid #000; border-radius: 4px; background: #101216;
+}
 /* Fenêtres Prefabs (bibliothèque par catégorie, v0.16) */
 .modal.prefabs { width: 560px; }
 .prefabs-body { display: flex; gap: 10px; height: 340px; }
