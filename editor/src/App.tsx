@@ -1882,6 +1882,10 @@ export default function App() {
           windowskins={projectWindowskins(data.project)}
           iconsets={projectIconsets(data.project)}
           varNames={data.project.variables ?? []}
+          switchNames={data.project.switches ?? []}
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
           onOk={(ui) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));
             setUiOpen(false);

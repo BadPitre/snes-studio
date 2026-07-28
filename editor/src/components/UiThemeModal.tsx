@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parse } from "smol-toml";
 import type { Project, UiLayout, UiOverlay, UiWin } from "../types";
 import { assetStem, defaultUiLayout, overlayFramed } from "../types";
+import VarListModal from "./VarListModal";
 import {
   ensureProjectDir,
   loadAssetPng,
@@ -22,6 +23,8 @@ interface Props {
   windowskins: string[]; // ressources importées (Gestionnaire de ressources)
   iconsets: string[]; // planches d'icônes importées (idem)
   varNames: string[];
+  switchNames: string[]; // pour la fenêtre Switches/Variables (picker)
+  onRenameVars: (switches: string[], variables: string[]) => void;
   // (ui du projet, layout écrit dans ui/layout.toml par la fenêtre)
   onOk: (ui: Project["ui"]) => void;
   onClose: () => void;
@@ -144,6 +147,8 @@ export default function UiThemeModal(props: Props) {
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
   const [selOv, setSelOv] = useState(0);
+  // sélection d'une variable dans la liste nommée (bouton « … »)
+  const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -430,8 +435,17 @@ export default function UiThemeModal(props: Props) {
                   </div>
                   <div className="row">
                     <label>Variable
-                      <input type="number" min={0} max={255} value={ov.var ?? 0}
-                        onChange={(e) => patchOv({ var: Number(e.target.value) })} />
+                      <div className="row" style={{ gap: 4 }}>
+                        <input type="number" min={0} max={255} value={ov.var ?? 0}
+                          onChange={(e) => patchOv({ var: Number(e.target.value) })} />
+                        <button className="browse" title="Choisir dans la liste des variables"
+                          onClick={() =>
+                            setVarPick({ current: ov.var ?? 0, cb: (n) => patchOv({ var: n }) })
+                          }>
+                          …
+                        </button>
+                      </div>
+                      <span className="hint">{props.varNames[ov.var ?? 0] || ""}</span>
                     </label>
                     {ov.content === "variable_display" && (
                       <label>Libellé
@@ -446,13 +460,27 @@ export default function UiThemeModal(props: Props) {
                             onChange={(e) => patchOv({ max: Number(e.target.value) })} />
                         </label>
                         <label>Max depuis var (vide = constante)
-                          <input type="number" min={0} max={255}
-                            value={ov.max_var ?? ""}
-                            onChange={(e) =>
-                              patchOv({
-                                max_var: e.target.value === "" ? undefined : Number(e.target.value),
-                              })
-                            } />
+                          <div className="row" style={{ gap: 4 }}>
+                            <input type="number" min={0} max={255}
+                              value={ov.max_var ?? ""}
+                              onChange={(e) =>
+                                patchOv({
+                                  max_var: e.target.value === "" ? undefined : Number(e.target.value),
+                                })
+                              } />
+                            <button className="browse" title="Choisir dans la liste des variables"
+                              onClick={() =>
+                                setVarPick({
+                                  current: ov.max_var ?? 0,
+                                  cb: (n) => patchOv({ max_var: n }),
+                                })
+                              }>
+                              …
+                            </button>
+                          </div>
+                          <span className="hint">
+                            {ov.max_var !== undefined ? props.varNames[ov.max_var] || "" : ""}
+                          </span>
                         </label>
                       </>
                     )}
@@ -515,9 +543,6 @@ export default function UiThemeModal(props: Props) {
                         </label>
                       ))
                     )}
-                    <span className="hint" style={{ alignSelf: "flex-end", paddingBottom: 5 }}>
-                      {props.varNames[ov.var ?? 0] || ""}
-                    </span>
                   </div>
                 </>
               )}
@@ -553,6 +578,21 @@ export default function UiThemeModal(props: Props) {
           </button>
           <button onClick={props.onClose}>Annuler</button>
         </div>
+        {varPick && (
+          <VarListModal
+            kind="var"
+            pick
+            initial={varPick.current}
+            switches={props.switchNames}
+            variables={props.varNames}
+            onClose={() => setVarPick(null)}
+            onOk={(r) => {
+              props.onRenameVars(r.switches, r.variables);
+              if (r.picked !== undefined) varPick.cb(r.picked);
+              setVarPick(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );
