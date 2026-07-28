@@ -224,6 +224,13 @@ input, select, textarea {
    hauteur) — demandé pour ne pas avoir à survoler les boîtes */
 .uitheme-num { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: #9aa0a8; flex: 0 0 auto; }
 .uitheme-num input[type="number"] { width: 58px; }
+/* Sélecteur visuel d'icône (W1) : la planche en vignettes cliquables —
+   la sélection en bleu, les 2 suivantes (demie/vide) en bleu doux */
+.iconpick { display: flex; flex-wrap: wrap; gap: 3px; }
+.iconpick button { padding: 2px; width: 32px; height: 32px; flex: 0 0 auto; background: #16181c; }
+.iconpick button.sel { background: #31547a; }
+.iconpick button.sel2 { background: #274058; }
+.iconpick img { width: 24px; height: 24px; image-rendering: pixelated; display: block; }
 .uitheme-preview { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .uitheme-preview canvas {
   width: 512px; height: 448px; /* 2x — rendu tiles net */

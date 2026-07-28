@@ -5,7 +5,7 @@
 // la MÊME validation que le compilateur, et une preview temps réel
 // fidèle tiles (fonte, windowskin et icônes réels du projet).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parse } from "smol-toml";
 import type { Project, UiLayout, UiOverlay, UiWin } from "../types";
 import { assetStem, defaultUiLayout, overlayFramed } from "../types";
@@ -163,6 +163,23 @@ export default function UiThemeModal(props: Props) {
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
   const errs = layout ? layoutErrors(layout, iconCount) : [];
+
+  // vignettes de la planche pour le sélecteur d'icônes (une <img> par
+  // icône — dessinées une fois, rendu pixelisé)
+  const iconUrls = useMemo(() => {
+    if (!icons) return [] as string[];
+    const urls: string[] = [];
+    const cv = document.createElement("canvas");
+    cv.width = 8;
+    cv.height = 8;
+    const ctx = cv.getContext("2d")!;
+    for (let i = 0; i < iconCount; i++) {
+      ctx.clearRect(0, 0, 8, 8);
+      ctx.drawImage(icons, i * 8, 0, 8, 8, 0, 0, 8, 8);
+      urls.push(cv.toDataURL());
+    }
+    return urls;
+  }, [icons, iconCount]);
 
   // ---- preview fidèle tiles (256x224, upscalée en CSS pixelisé) --------
   useEffect(() => {
@@ -439,12 +456,6 @@ export default function UiThemeModal(props: Props) {
                         </label>
                       </>
                     )}
-                    {ov.content !== "variable_display" && (
-                      <label>Icône n°
-                        <input type="number" min={0} max={63} value={ov.icon ?? 0}
-                          onChange={(e) => patchOv({ icon: Number(e.target.value) })} />
-                      </label>
-                    )}
                     {ov.content === "gauge" && (
                       <label>Direction
                         <select value={ov.dir ?? "h"}
@@ -463,10 +474,32 @@ export default function UiThemeModal(props: Props) {
                       </label>
                     )}
                   </div>
-                  {(ov.content === "gauge" || ov.content === "icon_row") && (
-                    <span className="hint">
-                      Icônes n, n+1, n+2 = pleine, demie, vide (3 consécutives dans la planche).
-                    </span>
+                  {ov.content !== "variable_display" && (
+                    <>
+                      <span className="hint">
+                        Icône : {ov.icon ?? 0}
+                        {ov.content !== "icon_value" &&
+                          ` (+ ${(ov.icon ?? 0) + 1} demie, ${(ov.icon ?? 0) + 2} vide — 3 consécutives)`}
+                        {iconCount === 0 && " — choisis d'abord une planche d'icônes (Thème)."}
+                      </span>
+                      {iconCount > 0 && (
+                        <div className="iconpick">
+                          {iconUrls.map((u, i) => {
+                            const span = ov.content === "icon_value" ? 1 : 3;
+                            const sel = i === (ov.icon ?? 0);
+                            const inSpan = i > (ov.icon ?? 0) && i < (ov.icon ?? 0) + span;
+                            return (
+                              <button key={i}
+                                className={sel ? "sel" : inSpan ? "sel2" : undefined}
+                                title={`icône ${i}`}
+                                onClick={() => patchOv({ icon: i })}>
+                                <img src={u} alt={`icône ${i}`} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
                   )}
                   <div className="row">
                     {(["pos", "size"] as const).map((axis) =>
