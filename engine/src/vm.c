@@ -56,6 +56,7 @@ void vm_init(void)
   }
   for (i = 0; i < VM_VAR16_COUNT; i++)
     vm.vars16[i] = 0;
+  vm_parallel_reset();
 }
 
 u8 vm_switch_get(u16 idx)
@@ -86,6 +87,7 @@ void vm_scene_reset(void)
   vm.wait_mode = VM_WAIT_NONE;
   for (i = 0; i < 64; i++)
     vm.vars[i] = 0;
+  vm_parallel_reset(); /* le contexte parallèle pointait l'ancien bloc */
 }
 
 void vm_start(u16 offset)
@@ -98,9 +100,11 @@ void vm_start(u16 offset)
   vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* brasse l'aléatoire */
 }
 
-/* Table des common events AUTO en tête du bloc scripts (spec §2 v0.16) :
-   [n][(switch u16)(offset u16) x n] à l'offset 0. */
-u16 vm_common_auto(void)
+/* Table des common events AUTO/PARALLEL en tête du bloc scripts (spec §2
+   v0.16) : [n] puis n x [type u8 : 0 autorun, 1 parallel][switch u16]
+   [offset u16] à l'offset 0. Renvoie l'offset du premier common event du
+   type demandé dont le switch est ON, ou SCRIPT_NONE. */
+static u16 common_lookup(u8 kind)
 {
   u8 n, i;
   u16 p, sw, ofs;
@@ -109,14 +113,66 @@ u16 vm_common_auto(void)
   p = 1;
   for (i = 0; i < n; i++)
   {
-    sw = scene_ctx.scripts[p] | ((u16)scene_ctx.scripts[p + 1] << 8);
-    ofs = (u16)scene_ctx.scripts[p + 2] |
-          ((u16)scene_ctx.scripts[p + 3] << 8);
-    p += 4;
-    if (vm_switch_get(sw))
+    sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
+    ofs = (u16)scene_ctx.scripts[p + 3] |
+          ((u16)scene_ctx.scripts[p + 4] << 8);
+    if (scene_ctx.scripts[p] == kind && vm_switch_get(sw))
       return ofs;
+    p += 5;
   }
   return SCRIPT_NONE;
+}
+
+u16 vm_common_auto(void)
+{
+  return common_lookup(0);
+}
+
+/* --- Contexte PARALLÈLE (v0.16) — un common event « Parallel process »
+   tourne en tâche de fond sans geler le joueur, relancé tant que son
+   switch est ON. Les variables/switches sont PARTAGÉS avec le script
+   principal ; seuls les champs d'exécution (pc, attentes, pile) sont
+   échangés (swap-in/swap-out) autour de vm_step. MSG/CHOICE y sont
+   interdits (datagen les refuse : pas d'UI depuis le fond). */
+static u8 p_active;
+static u16 p_pc;
+static u8 p_wait_mode;
+static u8 p_wait_timer;
+static u8 p_script_actor;
+static u8 p_call_sp;
+static u16 p_call_stack[VM_CALL_DEPTH];
+
+static void pvm_swap(void)
+{
+  u8 i, t8;
+  u16 t16;
+
+  t8 = vm.active;      vm.active = p_active;         p_active = t8;
+  t16 = vm.pc;         vm.pc = p_pc;                 p_pc = t16;
+  t8 = vm.wait_mode;   vm.wait_mode = p_wait_mode;   p_wait_mode = t8;
+  t8 = vm.wait_timer;  vm.wait_timer = p_wait_timer; p_wait_timer = t8;
+  t8 = vm.script_actor; vm.script_actor = p_script_actor; p_script_actor = t8;
+  t8 = vm.call_sp;     vm.call_sp = p_call_sp;       p_call_sp = t8;
+  for (i = 0; i < VM_CALL_DEPTH; i++)
+  {
+    t16 = vm.call_stack[i];
+    vm.call_stack[i] = p_call_stack[i];
+    p_call_stack[i] = t16;
+  }
+}
+
+void vm_parallel_reset(void)
+{
+  u8 i;
+
+  p_active = 0;
+  p_pc = 0;
+  p_wait_mode = VM_WAIT_NONE;
+  p_wait_timer = 0;
+  p_script_actor = 0xFF;
+  p_call_sp = 0;
+  for (i = 0; i < VM_CALL_DEPTH; i++)
+    p_call_stack[i] = 0;
 }
 
 u8 vm_active(void)
@@ -544,4 +600,59 @@ void vm_update(void)
     return;
   }
   vm_step();
+}
+
+/* Un pas du contexte PARALLÈLE (v0.16) — à appeler chaque frame hors
+   menu Système, que le script principal soit actif ou non. Lance le
+   premier common event « parallel » dont le switch est ON, gère ses
+   attentes non-UI, puis exécute ses opcodes par swap-in/swap-out. À la
+   fin du script (END), il repart du début tant que le switch reste ON. */
+void vm_parallel_update(void)
+{
+  u16 ofs;
+
+  if (!p_active)
+  {
+    ofs = common_lookup(1);
+    if (ofs == SCRIPT_NONE)
+      return;
+    p_active = 1;
+    p_pc = ofs;
+    p_wait_mode = VM_WAIT_NONE;
+    p_wait_timer = 0;
+    p_script_actor = 0xFF;
+    p_call_sp = 0;
+  }
+  if (p_wait_mode == VM_WAIT_ROUTE)
+  {
+    if (actors_routes_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_CAM)
+  {
+    if (camera_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_SCREEN)
+  {
+    if (screenfx_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_TIMER)
+  {
+    if (p_wait_timer)
+    {
+      p_wait_timer--;
+      return;
+    }
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode != VM_WAIT_NONE)
+    return; /* TEXTBOX/CHOICE : impossibles ici (datagen les refuse) */
+  pvm_swap();
+  vm_step();
+  pvm_swap();
 }

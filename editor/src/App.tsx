@@ -1028,11 +1028,6 @@ export default function App() {
           action: () => setPrefabMgr(true),
           disabled: !data,
         },
-        {
-          label: "Vérifier le projet…",
-          action: () => void openDiagnostics(),
-          disabled: !data,
-        },
       ],
     },
     {
@@ -1042,6 +1037,11 @@ export default function App() {
           label: "▶ Lancer le jeu",
           action: play,
           disabled: !data || !canBuild() || playing || building,
+        },
+        {
+          label: "Vérifier le projet…",
+          action: () => void openDiagnostics(),
+          disabled: !data,
         },
         {
           label: "Générer les données",

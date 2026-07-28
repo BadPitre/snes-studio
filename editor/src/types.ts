@@ -110,12 +110,14 @@ export type Command =
   | { c: "call"; n: number };
 
 // Common event (v0.16, modèle RM2003 Database → Common Events) : script
-// global au projet, appelable ({"c":"call"}) ou déclenché en auto par un
-// switch (relancé tant que le switch est ON — le script doit l'éteindre).
+// global au projet — appelable ({"c":"call"}), Autorun (relancé tant que
+// son switch est ON, gèle le joueur) ou Parallel process (tourne en
+// tâche de fond sans geler le joueur ; messages/choix interdits). Le
+// switch de condition est requis pour auto ET parallel.
 export interface CommonEvent {
   name: string;
-  trigger: "none" | "auto";
-  switch?: number; // requis si trigger == "auto"
+  trigger: "none" | "auto" | "parallel";
+  switch?: number; // requis si trigger != "none"
   commands: Command[];
 }
 

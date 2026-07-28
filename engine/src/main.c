@@ -149,6 +149,7 @@ int main(void)
       actors_update(); /* routes (même pendant un script — cinématiques) +
                           errance des PNJ (gelée pendant les scripts) */
       timer_tick();    /* le timer court aussi pendant les dialogues */
+      vm_parallel_update(); /* common events « parallel » (v0.16) */
     }
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */

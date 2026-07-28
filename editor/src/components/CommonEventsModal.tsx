@@ -101,29 +101,30 @@ export default function CommonEventsModal(props: Props) {
                         patch({
                           trigger: e.target.value as CommonEvent["trigger"],
                           switch:
-                            e.target.value === "auto" ? cur.switch ?? 0 : undefined,
+                            e.target.value === "none" ? undefined : cur.switch ?? 0,
                         })
                       }
                     >
-                      <option value="none">Aucun (appelé)</option>
-                      <option value="auto">Auto (switch ON)</option>
+                      <option value="none">None (appelé)</option>
+                      <option value="auto">Autorun</option>
+                      <option value="parallel">Parallel process</option>
                     </select>
                   </label>
-                  <label style={{ opacity: cur.trigger === "auto" ? 1 : 0.5 }}>
-                    Switch de condition
+                  <label style={{ opacity: cur.trigger !== "none" ? 1 : 0.5 }}>
+                    Condition switch
                     <span className="row" style={{ gap: 4 }}>
                       <input
                         type="number" min={0} max={511}
-                        disabled={cur.trigger !== "auto"}
+                        disabled={cur.trigger === "none"}
                         value={cur.switch ?? 0}
                         onChange={(e) => patch({ switch: Number(e.target.value) })}
                       />
                       <button className="browse" title="Choisir dans la liste"
-                        disabled={cur.trigger !== "auto"}
+                        disabled={cur.trigger === "none"}
                         onClick={() => setSwPick(true)}>…</button>
                     </span>
                     <span className="hint">
-                      {cur.trigger === "auto"
+                      {cur.trigger !== "none"
                         ? props.switchNames[cur.switch ?? 0] || ""
                         : ""}
                     </span>
@@ -131,8 +132,17 @@ export default function CommonEventsModal(props: Props) {
                 </div>
                 {cur.trigger === "auto" && (
                   <span className="hint">
-                    Relancé tant que le switch est ON (le joueur est gelé) —
-                    penser à l'éteindre à la fin du script.
+                    Autorun : relancé tant que le switch est ON, le joueur
+                    est gelé (cinématiques) — penser à éteindre le switch à
+                    la fin du script.
+                  </span>
+                )}
+                {cur.trigger === "parallel" && (
+                  <span className="hint">
+                    Parallel process : tourne en tâche de fond tant que le
+                    switch est ON, le joueur reste libre (timers, pièges,
+                    ambiances…). Messages et choix interdits ; rythmer avec
+                    « Attendre ».
                   </span>
                 )}
                 <div className="palette-title">Contenu</div>

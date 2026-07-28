@@ -185,16 +185,19 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 = cet event (résolu en index d'entrée par datagen, comme route).
 
 **v0.16 (common events)** : `project.json` porte `"common_events":
-[{"name","trigger":"none"|"auto","switch":n?,"commands":[...]}]` — des
-scripts globaux au projet, modèle RM2003. `{"c":"call","n":k}` les
-appelle depuis n'importe quel event (assembleur `CALL <label>` / `RET`,
-pile de 8 niveaux — un common peut en appeler un autre). Trigger
-`"auto"` (switch OBLIGATOIRE) : relancé tant que le switch est ON dès
-que la VM est libre (Autorun RM2003 — le script doit éteindre son
-switch). datagen n'émet dans chaque scène que les corps référencés
-(transitivement) et prépose la table `CETAB` en tête du bloc scripts
-(spec §2). Dans un common event, « cet event » désigne l'acteur qui a
-lancé le script appelant.
+[{"name","trigger":"none"|"auto"|"parallel","switch":n?,"commands":
+[...]}]` — des scripts globaux au projet, modèle RM2003.
+`{"c":"call","n":k}` les appelle depuis n'importe quel event (assembleur
+`CALL <label>` / `RET`, pile de 8 niveaux — un common peut en appeler un
+autre). Le switch de condition est OBLIGATOIRE pour `"auto"` et
+`"parallel"` : `"auto"` = Autorun RM2003, relancé tant que le switch est
+ON dès que la VM est libre (gèle le joueur — le script doit éteindre son
+switch) ; `"parallel"` = Parallel process, tourne en tâche de fond sans
+geler le joueur (messages et choix REFUSÉS par datagen, transitivement à
+travers les appels). datagen n'émet dans chaque scène que les corps
+référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
+<label>…` en tête du bloc scripts (spec §2). Dans un common event,
+« cet event » désigne l'acteur qui a lancé le script appelant.
 
 **v0.16 (warps)** : une entrée warp accepte `"dir":"down"|"up"|"left"|
 "right"` — direction du héros à l'arrivée ; absente = conservée

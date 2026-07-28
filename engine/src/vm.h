@@ -58,11 +58,18 @@ u8 vm_switch_get(u16 idx);
 void vm_switch_set(u16 idx, u8 on);
 
 /* Common events AUTO (v0.16) : le bloc scripts de chaque scène commence
-   par la table [n][(switch u16)(offset u16) x n] — renvoie l'offset du
-   premier common event dont le switch est ON, ou SCRIPT_NONE. À appeler
-   quand la VM est libre : le script relance tant que le switch reste ON
-   (modèle RM2003 — c'est au script d'éteindre son switch). */
+   par la table [n] puis n x [type u8][switch u16][offset u16] — renvoie
+   l'offset du premier common event AUTORUN (type 0) dont le switch est
+   ON, ou SCRIPT_NONE. À appeler quand la VM est libre : le script
+   relance tant que le switch reste ON (modèle RM2003 — c'est au script
+   d'éteindre son switch). */
 u16 vm_common_auto(void);
+
+/* Common events PARALLEL (type 1, v0.16) : un pas du contexte de fond —
+   chaque frame hors menu Système. Ne gèle pas le joueur ; relancé tant
+   que son switch est ON ; MSG/CHOICE interdits (datagen). */
+void vm_parallel_update(void);
+void vm_parallel_reset(void);
 
 /* À appeler chaque frame quand la VM est active : route les inputs vers la
    textbox si un opcode bloquant attend, sinon exécute les opcodes immédiats

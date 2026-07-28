@@ -415,17 +415,28 @@ wait_mode : `VM_WAIT_SCREEN` (7).
 | 0x22 | RET | — | retour du CALL ; pile vide : agit comme END |
 
 Le bloc scripts de CHAQUE scène commence désormais (offset 0) par la
-**table des common events AUTO** : `[n u8]` puis n × `[switch u16]
-[offset u16]` (directive datagen `CETAB`, table vide = un octet 0x00).
-Quand la VM est libre, le moteur lance le premier common event dont le
-switch est ON — et le RELANCE tant que le switch reste ON (sémantique
-Autorun de RM2003 : c'est au script d'éteindre son switch ; le joueur est
-gelé pendant ce temps). Les corps des common events référencés par la
-scène (appels — transitifs — et déclencheurs auto) sont émis par datagen
-dans le bloc scripts de la scène, terminés par RET ; les offsets 16-bit
-restent locaux à la scène. Un common event peut cibler « cet event »
+**table des common events AUTO/PARALLEL** : `[n u8]` puis n ×
+`[type u8][switch u16][offset u16]` (type 0 = Autorun, 1 = Parallel ;
+directive datagen `CETAB`, table vide = un octet 0x00).
+
+- **Autorun** (type 0) : quand la VM est libre, le moteur lance le
+  premier dont le switch est ON — et le RELANCE tant que le switch reste
+  ON (sémantique RM2003 : c'est au script d'éteindre son switch ; le
+  joueur est gelé pendant ce temps).
+- **Parallel process** (type 1, v0.16) : tourne en TÂCHE DE FOND chaque
+  frame hors menu Système, sans geler le joueur — un second contexte
+  d'exécution (pc, attentes, pile d'appels) échangé avec le principal
+  autour de l'interpréteur (swap-in/swap-out) ; variables et switches
+  PARTAGÉS. Relancé du début tant que son switch est ON. Les opcodes
+  d'UI (MSG, CHOICE) y sont interdits — datagen refuse un parallel qui
+  en contient, transitivement à travers les CALL.
+
+Les corps des common events référencés par la scène (appels — transitifs
+— et déclencheurs auto/parallel) sont émis par datagen dans le bloc
+scripts de la scène, terminés par RET ; les offsets 16-bit restent
+locaux à la scène. Un common event peut cibler « cet event »
 (ROUTE/SETPOS/SWAPPOS 0xFF) : résolu à l'exécution via `script_actor`,
-l'acteur qui a lancé le script appelant.
+l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 
 Pièges toolchain documentés au passage : un couple de paramètres
 `(u8, u16)` est corrompu par tcc-816 (timer_control l'a payé — API à

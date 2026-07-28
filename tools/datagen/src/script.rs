@@ -215,14 +215,14 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
-        // CETAB <sw0> <lbl0> <sw1> <lbl1> ... : table des common events
-        // AUTO (v0.16) — [n][(switch u16)(offset u16) x n], DONNÉES en
-        // TÊTE du bloc scripts (offset 0, lue par vm_common_auto)
+        // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
+        // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
+        // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
         "CETAB" => {
-            if argc % 2 != 0 {
-                bail!("CETAB <switch> <label> ... (paires)");
+            if argc % 3 != 0 {
+                bail!("CETAB <a|p> <switch> <label> ... (triplets)");
             }
-            1 + 2 * argc as u16
+            1 + 5 * (argc as u16 / 3)
         }
         // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
         "ROUTE" => {
@@ -493,18 +493,23 @@ pub fn assemble(
                 code.push(OP_RET);
             }
             "CETAB" => {
-                if argc % 2 != 0 { bail!("CETAB <switch> <label> ..."); }
-                code.push((argc / 2) as u8);
+                if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }
+                code.push((argc / 3) as u8);
                 let mut i = 0;
                 while i < argc {
-                    let sw: u16 = args[i]
+                    code.push(match args[i] {
+                        "a" => 0,
+                        "p" => 1,
+                        o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
+                    });
+                    let sw: u16 = args[i + 1]
                         .parse()
                         .ok()
                         .filter(|&n| n < 512)
-                        .with_context(|| format!("CETAB : switch invalide '{}'", args[i]))?;
+                        .with_context(|| format!("CETAB : switch invalide '{}'", args[i + 1]))?;
                     code.extend_from_slice(&sw.to_le_bytes());
-                    code.extend_from_slice(&label_of(args[i + 1])?.to_le_bytes());
-                    i += 2;
+                    code.extend_from_slice(&label_of(args[i + 2])?.to_le_bytes());
+                    i += 3;
                 }
             }
             // WARPV <vs> <vx> <vy> : téléport aux variables (v0.15)

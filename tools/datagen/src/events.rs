@@ -163,6 +163,51 @@ impl<'a> EventCompiler<'a> {
         Ok(toks)
     }
 
+    /// Un common event « parallel » tourne en tâche de fond : messages et
+    /// choix y sont interdits — transitivement, à travers les appels
+    /// (v0.16, pas d'UI hors du script principal).
+    fn check_no_ui(commons: &[CommonEvent], root: usize) -> Result<()> {
+        fn scan(
+            cmds: &[Value],
+            commons: &[CommonEvent],
+            seen: &mut Vec<bool>,
+            root_name: &str,
+        ) -> Result<()> {
+            for cmd in cmds {
+                let sub = |key: &str| -> &[Value] {
+                    cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
+                };
+                match cmd["c"].as_str().unwrap_or("") {
+                    "msg" | "choice" => bail!(
+                        "common event « {} » (parallel) : les messages et les \
+                         choix sont interdits dans un Parallel process (il \
+                         tourne en tache de fond, sans dialogue)",
+                        root_name
+                    ),
+                    "loop" => scan(sub("do"), commons, seen, root_name)?,
+                    "if" | "if_sw" | "if_var" => {
+                        scan(sub("then"), commons, seen, root_name)?;
+                        scan(sub("else"), commons, seen, root_name)?;
+                    }
+                    "call" => {
+                        if let Some(n) = cmd["n"].as_u64() {
+                            let n = n as usize;
+                            if n < commons.len() && !seen[n] {
+                                seen[n] = true;
+                                scan(&commons[n].commands, commons, seen, root_name)?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        let mut seen = vec![false; commons.len()];
+        seen[root] = true;
+        scan(&commons[root].commands, commons, &mut seen, &commons[root].name)
+    }
+
     /// Compile une liste de commandes en lignes d'assembleur (spec §2)
     fn compile_list(&mut self, cmds: &[Value], depth: usize, out: &mut Vec<String>) -> Result<()> {
         if depth > MAX_DEPTH {
@@ -722,21 +767,33 @@ impl<'a> EventCompiler<'a> {
         for (k, ce) in commons.iter().enumerate() {
             match ce.trigger.as_str() {
                 "none" => {}
-                "auto" => {
+                "auto" | "parallel" => {
                     let sw = ce.switch.filter(|&s| s < 512).with_context(|| {
                         format!(
-                            "common event {} « {} » : le declencheur auto demande \
+                            "common event {} « {} » : le declencheur {} demande \
                              un switch de condition (0-511) — sans lui le script \
                              relancerait pour toujours",
                             k + 1,
-                            ce.name
+                            ce.name,
+                            ce.trigger
                         )
                     })?;
+                    // un parallel tourne en tache de fond : pas d'UI dedans
+                    if ce.trigger == "parallel" {
+                        Self::check_no_ui(commons, k)?;
+                    }
                     self.used_commons[k] = true;
-                    cetab.push_str(&format!(" {} __ce{}_{}", sw, k, scene_name));
+                    cetab.push_str(&format!(
+                        " {} {} __ce{}_{}",
+                        if ce.trigger == "auto" { "a" } else { "p" },
+                        sw,
+                        k,
+                        scene_name
+                    ));
                 }
                 other => bail!(
-                    "common event {} « {} » : declencheur inconnu « {} » (none, auto)",
+                    "common event {} « {} » : declencheur inconnu « {} » \
+                     (none, auto, parallel)",
                     k + 1,
                     ce.name,
                     other
