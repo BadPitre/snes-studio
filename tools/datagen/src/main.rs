@@ -373,6 +373,22 @@ fn main() -> Result<()> {
         write_out(&out_dir, &name, content)?;
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
+    // Thème UI v1 (Phase 11) : le moteur lit la config via defines —
+    // même mécanisme qu'audio_cfg.h, toujours émis
+    {
+        let (has_skin, speed) = match &project.ui {
+            Some(u) => (u.windowskin.is_some() as u8, u.text_speed),
+            None => (0, 0),
+        };
+        write_out(
+            &out_dir,
+            "ui_cfg.h",
+            format!(
+                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n",
+                has_skin, speed
+            ),
+        )?;
+    }
 
     // Database (Phase 10, docs/PLANNING_SYSTEME_DATABASE.md) : schémas +
     // instances TOML → tables C byte-packed. Purge d'abord les db_* d'une
@@ -579,7 +595,21 @@ fn gen_font(proj_dir: &Path, project: &project::Project) -> Result<String> {
 
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
-    s.push_str(&emit::u8_array("font_gfx", &font.to_font()?, 16, false));
+    let mut gfx_bytes = font.to_font()?;
+
+    // Windowskin 9-slice (Phase 11, docs/SPEC_SYSTEME_UI.md) : 9 tiles
+    // 8x8 APRÈS la fonte (chars 97-105 de BG3), même palette qu'elle —
+    // aucun slot CGRAM nouveau. Ordre : HG H HD / G C D / BG B BD.
+    if let Some(ui) = &project.ui {
+        if let Some(skin_path) = &ui.windowskin {
+            let skin = gfx::load_indexed_png(&proj_dir.join(skin_path))
+                .with_context(|| format!("windowskin {}", skin_path))?;
+            gfx_bytes.extend(skin.to_windowskin().with_context(|| {
+                format!("windowskin {}", skin_path)
+            })?);
+        }
+    }
+    s.push_str(&emit::u8_array("font_gfx", &gfx_bytes, 16, false));
     s.push_str("\nconst u16 font_gfx_size = sizeof(font_gfx);\n\n");
     let mut pal = font.palette_n(4);
     pal[0] = 0; // index 0 : transparent

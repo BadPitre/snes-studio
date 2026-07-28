@@ -345,6 +345,13 @@ avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
 projet (~40 % de gain sur du texte français). Encodage v0 : ASCII simple
 (32-126, accents en v1 avec la fonte définitive).
 
+**Phase 11 — windowskin (docs/SPEC_SYSTEME_UI.md §1) :** quand le
+projet déclare un windowskin, ses 9 tiles 2bpp (9-slice HG H HD / G C D
+/ BG B BD) suivent la fonte dans les chars BG3 (chars 97-105, même
+palette CGRAM 16-19). La textbox les utilise pour se dessiner en cadre ;
+la machine à écrire (`text_speed` frames/caractère) révèle le texte
+pendant l'attente TEXTBOX de la VM — A complète, puis ferme.
+
 **v0.17 — afficher une variable (`\v[n]`, modèle RM2003) :** dans le
 texte SOURCE, `\v[n]` (n = variable 16-bit, 0-254) est encodé par
 datagen en `[0x01][n+1]` (jamais d'octet nul dans une chaîne ; les

@@ -20,7 +20,11 @@
     "assets/bourg.png"
   ],
   "charsets": [
-    "Héros",
+    "H\u00e9ros",
     "Villageois"
-  ]
+  ],
+  "ui": {
+    "windowskin": "assets/windowskin.png",
+    "text_speed": 2
+  }
 }

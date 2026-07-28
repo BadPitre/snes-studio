@@ -338,6 +338,27 @@ impl IndexedImage {
         Ok(out)
     }
 
+    /// Windowskin 9-slice (Phase 11, docs/SPEC_SYSTEME_UI.md) : PNG 24x24
+    /// indexé, 3x3 tiles 8x8 converties en 2bpp dans l'ordre ligne par
+    /// ligne (HG H HD / G C D / BG B BD). Mêmes 4 couleurs que la fonte
+    /// (0 transparent, 1 fond, 2 texte/bord, 3 accent).
+    pub fn to_windowskin(&self) -> Result<Vec<u8>> {
+        if self.width != 24 || self.height != 24 {
+            bail!("windowskin : attendu 24x24 (9-slice de tiles 8x8), recu {}x{}",
+                  self.width, self.height);
+        }
+        if self.pixels.iter().any(|&p| p > 3) {
+            bail!("windowskin : 4 couleurs max (indexes 0-3, palette de la fonte)");
+        }
+        let mut out = Vec::new();
+        for ty in 0..3 {
+            for tx in 0..3 {
+                out.extend_from_slice(&self.char2bpp(tx * 8, ty * 8));
+            }
+        }
+        Ok(out)
+    }
+
     /// Palette complétée/tronquée à n entrées BGR555
     pub fn palette_n(&self, n: usize) -> Vec<u16> {
         let mut p = self.palette.clone();

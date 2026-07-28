@@ -184,6 +184,16 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 échange deux events — assembleur `SWAPPOS <a|self> <b|self>`. `-1`/`self`
 = cet event (résolu en index d'entrée par datagen, comme route).
 
+**Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md)** : `project.json`
+accepte `"ui": {"windowskin": "assets/....png", "text_speed": n}`. Le
+windowskin est un PNG **24x24** (9-slice : 3x3 tiles 8x8, indexes 0-3 =
+transparent/fond/bord/accent — la palette de la FONTE) converti par
+datagen en 9 chars BG3 après la fonte ; la textbox et les choix se
+dessinent avec ce cadre (absent = boîte pleine historique).
+`text_speed` = frames par caractère de la machine à écrire (0 =
+instantané, défaut) ; en jeu, A révèle tout puis ferme. datagen émet
+`ui_cfg.h` (UI_HAS_SKIN, UI_TEXT_SPEED).
+
 **\v[n] dans les textes (v0.17)** : `{"c":"msg"}` (et les options de
 choix) acceptent `\v[n]` — la valeur de la variable 16-bit n (0-254)
 est insérée en décimal au moment de l'affichage (spec §2). Exemple :

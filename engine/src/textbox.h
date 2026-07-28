@@ -30,6 +30,13 @@ void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel);
 /* Déplace le curseur du CHOICE en cours. */
 void textbox_choice_cursor(u8 sel);
 
+/* Machine à écrire (Phase 11, thème UI_TEXT_SPEED > 0) : un pas de
+   révélation par frame (appelé pendant l'attente TEXTBOX de la VM),
+   1 si la révélation court encore, tout révéler d'un coup (touche A). */
+void textbox_tick(void);
+u8 textbox_busy(void);
+void textbox_finish(void);
+
 /* Efface la boîte (map redevient transparente au prochain VBlank). */
 void textbox_close(void);
 

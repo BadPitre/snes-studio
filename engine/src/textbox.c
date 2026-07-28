@@ -13,6 +13,11 @@
 #include "rom_layout.h"
 #include "vram.h"
 #include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
+#include "data/ui_cfg.h" /* theme UI v1 : windowskin + text_speed (Ph. 11) */
+
+/* Windowskin 9-slice (spec UI §1) : 9 chars 2bpp après la fonte —
+   HG H HD / G C D / BG B BD, même palette que la fonte */
+#define TB_SKIN_BASE 97
 
 /* Fonte + palette (data_font.c) */
 extern const u8 font_gfx[];
@@ -98,6 +103,98 @@ static void tb_fill(u16 entry)
     tb_shadow[i] = entry;
 }
 
+/* Fond de boîte : cadre 9-slice du windowskin s'il existe, sinon la
+   boîte pleine historique (chars espace opaques) */
+static void tb_box(void)
+{
+#if UI_HAS_SKIN
+  u8 x, y, sx, sy;
+
+  for (y = 0; y < TB_ROWS; y++)
+  {
+    sy = y == 0 ? 0 : (y == TB_ROWS - 1 ? 2 : 1);
+    for (x = 0; x < 32; x++)
+    {
+      sx = x == 0 ? 0 : (x == 31 ? 2 : 1);
+      tb_shadow[(u16)y * 32 + x] = TB_ENTRY(TB_SKIN_BASE + sy * 3 + sx);
+    }
+  }
+#else
+  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+#endif
+}
+
+/* Machine à écrire (UI_TEXT_SPEED frames par caractère, 0 = instantané).
+   État de la révélation en cours — init EXPLICITE (statics tcc). */
+static u8 tw_active;
+static u8 tw_timer;
+static const char *tw_s;
+static u8 tw_row, tw_col;
+
+/* Révèle UN caractère — même logique de wrap par mot que le rendu
+   instantané de textbox_open_raw */
+static void tw_step(void)
+{
+  char c;
+  u16 wl;
+
+  c = *tw_s;
+  if (!c || tw_row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+  {
+    tw_active = 0;
+    return;
+  }
+  if (c == ' ')
+  {
+    wl = 0;
+    while (tw_s[wl + 1] && tw_s[wl + 1] != ' ')
+      wl++;
+    if ((u16)tw_col + 1 + wl > TB_TEXT_COLS)
+    {
+      tw_row++;
+      tw_col = 0;
+      tw_s++;
+      return;
+    }
+  }
+  if (tw_col >= TB_TEXT_COLS)
+  {
+    tw_row++;
+    tw_col = 0;
+    if (tw_row >= TB_TEXT_ROW + TB_TEXT_ROWS)
+    {
+      tw_active = 0;
+      return;
+    }
+  }
+  tb_shadow[(u16)tw_row * 32 + TB_TEXT_COL + tw_col] = TB_ENTRY(TB_CHAR(c));
+  tw_col++;
+  tw_s++;
+  tb_dirty = 1;
+}
+
+void textbox_tick(void)
+{
+  if (!tw_active)
+    return;
+  tw_timer++;
+  if (tw_timer < UI_TEXT_SPEED)
+    return;
+  tw_timer = 0;
+  tw_step();
+}
+
+u8 textbox_busy(void)
+{
+  return tw_active;
+}
+
+void textbox_finish(void)
+{
+  while (tw_active)
+    tw_step();
+}
+
 /* Palette de la fonte : CGRAM 16-19 (palette BG 2bpp n°4). Ces slots sont
    RÉSERVÉS (spec §4) : datagen n'y place aucune couleur de tileset, et le
    chargement de scène (CGRAM BG complète) les écrase — à rappeler après
@@ -124,12 +221,30 @@ void textbox_init(void)
   dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + 32 * TB_ROWS * 3,
               32 * TB_ROWS * 2);
   tb_dirty = 0;
+
+  /* état machine à écrire — init EXPLICITE (statics tcc) */
+  tw_active = 0;
+  tw_timer = 0;
+  tw_s = 0;
+  tw_row = 0;
+  tw_col = 0;
 }
 
 void textbox_open(u16 text_id)
 {
   text_decode(text_id, tb_text, sizeof(tb_text));
+#if UI_TEXT_SPEED
+  /* machine à écrire : boîte vide, le texte se révèle via textbox_tick */
+  tb_box();
+  tw_active = 1;
+  tw_timer = 0;
+  tw_s = tb_text;
+  tw_row = TB_TEXT_ROW;
+  tw_col = 0;
+  tb_dirty = 1;
+#else
   textbox_open_raw(tb_text);
+#endif
 }
 
 /* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
@@ -140,8 +255,8 @@ void textbox_open_raw(const char *s)
   u8 row, col;
   char c;
 
-  /* Fond de boîte : chars "espace" opaques partout */
-  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+  tw_active = 0; /* un rendu instantané annule toute révélation en cours */
+  tb_box();
 
   if (s)
   {
@@ -201,7 +316,8 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
   const char *s;
   u8 i, col;
 
-  tb_fill(TB_ENTRY(TB_CHAR(' ')));
+  tw_active = 0;
+  tb_box();
   for (i = 0; i < count; i++)
   {
     s = options[i];
@@ -232,6 +348,7 @@ void textbox_choice_cursor(u8 sel)
 
 void textbox_close(void)
 {
+  tw_active = 0;
   tb_fill(0);
   tb_dirty = 1;
 }

@@ -565,10 +565,16 @@ void vm_update(void)
 
   if (vm.wait_mode == VM_WAIT_TEXTBOX)
   {
+    textbox_tick(); /* machine à écrire (Phase 11, thème text_speed) */
     if (padsDown(0) & KEY_A)
     {
-      textbox_close();
-      vm.wait_mode = VM_WAIT_NONE;
+      if (textbox_busy())
+        textbox_finish(); /* premier A : tout révéler */
+      else
+      {
+        textbox_close();
+        vm.wait_mode = VM_WAIT_NONE;
+      }
     }
     return; /* la VM reprend à la frame suivante */
   }
