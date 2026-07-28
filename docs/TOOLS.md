@@ -189,12 +189,13 @@ event sur (x,y) ou (`vars16[x]`, `vars16[y]`) — assembleur `SETPOS
 [...]}]` — des scripts globaux au projet, modèle RM2003.
 `{"c":"call","n":k}` les appelle depuis n'importe quel event (assembleur
 `CALL <label>` / `RET`, pile de 8 niveaux — un common peut en appeler un
-autre). Le switch de condition est OBLIGATOIRE pour `"auto"` et
-`"parallel"` : `"auto"` = Autorun RM2003, relancé tant que le switch est
-ON dès que la VM est libre (gèle le joueur — le script doit éteindre son
-switch) ; `"parallel"` = Parallel process, tourne en tâche de fond sans
-geler le joueur (messages et choix REFUSÉS par datagen, transitivement à
-travers les appels). datagen n'émet dans chaque scène que les corps
+autre). Le switch de condition est OPTIONNEL (absent = toujours actif,
+comme la case décochée de RM2003) : `"auto"` = Autorun RM2003, relancé
+tant que la condition passe dès que la VM est libre (gèle le joueur — le
+script doit éteindre son switch, ou tourner pour toujours si aucun) ;
+`"parallel"` = Parallel process, tourne en tâche de fond sans geler le
+joueur (messages et choix REFUSÉS par datagen, transitivement à travers
+les appels). datagen n'émet dans chaque scène que les corps
 référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
 <label>…` en tête du bloc scripts (spec §2). Dans un common event,
 « cet event » désigne l'acteur qui a lancé le script appelant.

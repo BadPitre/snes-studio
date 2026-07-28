@@ -117,7 +117,7 @@ export type Command =
 export interface CommonEvent {
   name: string;
   trigger: "none" | "auto" | "parallel";
-  switch?: number; // requis si trigger != "none"
+  switch?: number; // condition optionnelle (absente = toujours actif)
   commands: Command[];
 }
 

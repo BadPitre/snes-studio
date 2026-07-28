@@ -502,11 +502,18 @@ pub fn assemble(
                         "p" => 1,
                         o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
                     });
-                    let sw: u16 = args[i + 1]
-                        .parse()
-                        .ok()
-                        .filter(|&n| n < 512)
-                        .with_context(|| format!("CETAB : switch invalide '{}'", args[i + 1]))?;
+                    // « - » = pas de condition (toujours actif) -> 0xFFFF
+                    let sw: u16 = if args[i + 1] == "-" {
+                        0xFFFF
+                    } else {
+                        args[i + 1]
+                            .parse()
+                            .ok()
+                            .filter(|&n| n < 512)
+                            .with_context(|| {
+                                format!("CETAB : switch invalide '{}'", args[i + 1])
+                            })?
+                    };
                     code.extend_from_slice(&sw.to_le_bytes());
                     code.extend_from_slice(&label_of(args[i + 2])?.to_le_bytes());
                     i += 3;

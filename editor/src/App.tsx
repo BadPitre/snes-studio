@@ -126,6 +126,8 @@ export default function App() {
   const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
   const [prefabPickAt, setPrefabPickAt] = useState<{ tx: number; ty: number } | null>(null);
   const [prefabMgr, setPrefabMgr] = useState(false);
+  // curseur de CELLULE de la couche Événements (v0.16) : cible du Ctrl+V
+  const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
   // presse-papier d'événement (menu Edit + clic droit)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
@@ -411,7 +413,9 @@ export default function App() {
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (evClipboard) {
-          pasteEvent();
+          // colle sur la cellule sélectionnée (curseur), sinon près de
+          // l'origine de la copie
+          pasteEvent(evCursor?.[0], evCursor?.[1]);
           e.preventDefault();
         }
       } else if (e.key === "Delete") {
@@ -1006,6 +1010,11 @@ export default function App() {
     }
   }, [data, sceneName]);
 
+  // changement de scène : le curseur de cellule ne survit pas
+  useEffect(() => {
+    setEvCursor(null);
+  }, [sceneName]);
+
   // Barre de menus (façon RM2003)
   const menus = [
     {
@@ -1113,21 +1122,23 @@ export default function App() {
             <button
               className={layer === "lower" ? "active" : ""}
               onClick={() => setLayer("lower")}
+              title="Couche inférieure"
             >
-              <LayerIcon kind="lower" /> Couche inf.
+              <LayerIcon kind="lower" />
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
               onClick={() => setLayer("upper")}
+              title="Couche supérieure"
             >
-              <LayerIcon kind="upper" /> Couche sup.
+              <LayerIcon kind="upper" />
             </button>
             <button
               className={layer === "events" ? "active" : ""}
               onClick={() => setLayer("events")}
-              title="Couche des événements (RM2003) : events, warps, départ du joueur — clic droit pour créer, Ctrl+C/X/V et Suppr sur l'event sélectionné"
+              title="Couche des événements : events, warps, départ du joueur — clic droit pour créer, Ctrl+C/X/V et Suppr sur l'event sélectionné"
             >
-              <LayerIcon kind="events" /> Événements
+              <LayerIcon kind="events" />
             </button>
           </span>
         )}
@@ -1238,6 +1249,8 @@ export default function App() {
                 onHover={setHoverPos}
                 selectedEvent={selEvent}
                 onSelectEvent={setSelEvent}
+                cursor={layer === "events" ? evCursor : null}
+                onSelectCell={(tx, ty) => setEvCursor([tx, ty])}
                 onOpenEvent={(i) => {
                   setSelEvent(i);
                   setEvEdit({ index: i, ev: scene.events[i] });
@@ -1245,6 +1258,7 @@ export default function App() {
                 onEventMenu={(tx, ty, cx, cy) => {
                   const hit = eventAt(scene, tx, ty);
                   setSelEvent(hit >= 0 ? hit : null);
+                  setEvCursor([tx, ty]);
                   setEvMenu({ x: cx, y: cy, tx, ty });
                 }}
               />
@@ -1703,7 +1717,7 @@ function LayerIcon({ kind }: { kind: "lower" | "upper" | "events" }) {
   const top = kind === "upper" ? on : off;
   const bottom = kind === "lower" ? on : kind === "events" ? "#7fb0e0" : off;
   return (
-    <svg width="15" height="14" viewBox="0 0 15 14" style={{ verticalAlign: "-2px", marginRight: 2 }}>
+    <svg width="20" height="18" viewBox="0 0 15 14" style={{ verticalAlign: "-4px" }}>
       <polygon points="4.5,1 13.5,1 10.5,5.5 1.5,5.5" fill={top} stroke="#14161a" strokeWidth="1" />
       <polygon points="4.5,7.5 13.5,7.5 10.5,12 1.5,12" fill={bottom} stroke="#14161a" strokeWidth="1" />
       {kind === "events" && (

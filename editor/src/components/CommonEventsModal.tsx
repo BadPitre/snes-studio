@@ -100,8 +100,7 @@ export default function CommonEventsModal(props: Props) {
                       onChange={(e) =>
                         patch({
                           trigger: e.target.value as CommonEvent["trigger"],
-                          switch:
-                            e.target.value === "none" ? undefined : cur.switch ?? 0,
+                          switch: e.target.value === "none" ? undefined : cur.switch,
                         })
                       }
                     >
@@ -111,38 +110,49 @@ export default function CommonEventsModal(props: Props) {
                     </select>
                   </label>
                   <label style={{ opacity: cur.trigger !== "none" ? 1 : 0.5 }}>
-                    Condition switch
+                    <span className="checkline" style={{ marginBottom: 2 }}>
+                      <input
+                        type="checkbox"
+                        disabled={cur.trigger === "none"}
+                        checked={cur.switch !== undefined}
+                        onChange={(e) =>
+                          patch({ switch: e.target.checked ? 0 : undefined })
+                        }
+                      />
+                      Condition switch
+                    </span>
                     <span className="row" style={{ gap: 4 }}>
                       <input
                         type="number" min={0} max={511}
-                        disabled={cur.trigger === "none"}
+                        disabled={cur.trigger === "none" || cur.switch === undefined}
                         value={cur.switch ?? 0}
                         onChange={(e) => patch({ switch: Number(e.target.value) })}
                       />
                       <button className="browse" title="Choisir dans la liste"
-                        disabled={cur.trigger === "none"}
+                        disabled={cur.trigger === "none" || cur.switch === undefined}
                         onClick={() => setSwPick(true)}>…</button>
                     </span>
                     <span className="hint">
-                      {cur.trigger !== "none"
-                        ? props.switchNames[cur.switch ?? 0] || ""
+                      {cur.trigger !== "none" && cur.switch !== undefined
+                        ? props.switchNames[cur.switch] || ""
                         : ""}
                     </span>
                   </label>
                 </div>
                 {cur.trigger === "auto" && (
                   <span className="hint">
-                    Autorun : relancé tant que le switch est ON, le joueur
+                    Autorun : relancé tant que la condition passe, le joueur
                     est gelé (cinématiques) — penser à éteindre le switch à
-                    la fin du script.
+                    la fin du script. Sans condition switch, il tourne POUR
+                    TOUJOURS (fin de jeu, écran titre…).
                   </span>
                 )}
                 {cur.trigger === "parallel" && (
                   <span className="hint">
-                    Parallel process : tourne en tâche de fond tant que le
-                    switch est ON, le joueur reste libre (timers, pièges,
-                    ambiances…). Messages et choix interdits ; rythmer avec
-                    « Attendre ».
+                    Parallel process : tourne en tâche de fond, le joueur
+                    reste libre (timers, pièges, ambiances…) — sans
+                    condition switch, en permanence. Messages et choix
+                    interdits ; rythmer avec « Attendre ».
                   </span>
                 )}
                 <div className="palette-title">Contenu</div>

@@ -45,6 +45,9 @@ interface Props {
   // couche Événements : sélection, double-clic (éditer), menu contextuel
   selectedEvent: number | null;
   onSelectEvent: (index: number | null) => void;
+  // curseur de CELLULE de la couche Événements (v0.16) : cible du coller
+  cursor: [number, number] | null;
+  onSelectCell: (tx: number, ty: number) => void;
   onOpenEvent: (index: number) => void;
   onEventMenu: (tx: number, ty: number, cx: number, cy: number) => void;
 }
@@ -204,7 +207,20 @@ export default function MapCanvas(props: Props) {
       ctx.fillStyle = "#20c0ff";
       ctx.fillText("S", scene.player_start[0] * TS + TS / 2, scene.player_start[1] * TS + TS / 2 + 1);
     }
-  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS, props.selectedEvent]);
+    // curseur de cellule (v0.16) : cadre blanc/noir façon RM2003 — la
+    // cible du coller (Ctrl+V) sur la couche Événements
+    if (evLayer && props.cursor) {
+      const [cx, cy] = props.cursor;
+      if (cx >= 0 && cy >= 0 && cx < scene.width && cy < scene.height) {
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx * TS + 1, cy * TS + 1, TS - 2, TS - 2);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx * TS + 3, cy * TS + 3, TS - 6, TS - 6);
+      }
+    }
+  }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS, props.selectedEvent, props.cursor]);
 
   // --- calque d'interaction : survol encadré + aperçus --------------------
   useEffect(() => {
@@ -340,6 +356,7 @@ export default function MapCanvas(props: Props) {
       if (e.button === 0) {
         const hit = eventAt(props.scene, tx, ty);
         props.onSelectEvent(hit >= 0 ? hit : null);
+        props.onSelectCell(tx, ty); // cellule sélectionnée = cible du coller
       }
       return; // clic droit : menu contextuel (onContextMenu), pas de pipette
     }

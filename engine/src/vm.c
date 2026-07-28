@@ -116,7 +116,8 @@ static u16 common_lookup(u8 kind)
     sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
     ofs = (u16)scene_ctx.scripts[p + 3] |
           ((u16)scene_ctx.scripts[p + 4] << 8);
-    if (scene_ctx.scripts[p] == kind && vm_switch_get(sw))
+    /* switch 0xFFFF = pas de condition (case décochée) : toujours actif */
+    if (scene_ctx.scripts[p] == kind && (sw == 0xFFFF || vm_switch_get(sw)))
       return ofs;
     p += 5;
   }

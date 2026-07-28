@@ -238,8 +238,9 @@ Pas encore : animation des autotiles (eau), édition des gfx.
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou
-  **Parallel process**, avec **Condition switch** obligatoire pour les
-  deux derniers — et le Contenu, le même éditeur de commandes que
+  **Parallel process** — avec la **case « Condition switch »** (décochée
+  = toujours actif, façon RM2003) et le Contenu, le même éditeur de
+  commandes que
   l'Event Editor (double-clic, clic droit, Ctrl+C/V/Suppr, toutes les
   commandes). Un common event s'appelle depuis n'importe quel event avec
   **« Appeler un common event »** (onglet Autres). Autorun : relancé
@@ -270,9 +271,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   recatégoriser, supprimer. Stockés dans project.json.
 - Sur la couche Événements de la carte : **Ctrl+C / Ctrl+X / Ctrl+V /
   Suppr** sur l'event sélectionné (v0.16 — en plus du menu Edit et du
-  clic droit). Les boutons de couches portent les **icônes RM2003**
-  (piles de tuiles, la couche éditée en surbrillance). « Vérifier le
-  projet… » vit désormais dans le menu **Game**.
+  clic droit). Un clic pose le **curseur de cellule** (cadre blanc/noir,
+  façon RM2003) : Ctrl+V colle sur cette cellule. Les boutons de couches
+  sont des **icônes RM2003 seules** (piles de tuiles, la couche éditée
+  en surbrillance, info-bulle au survol). « Vérifier le projet… » vit
+  désormais dans le menu **Game**.
 - L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
   warps s'éditent au clic droit via la fenêtre **« Téléporter »** (v0.16,
   calquée sur Transfer Player de RM2003) : arbre des scènes à gauche,

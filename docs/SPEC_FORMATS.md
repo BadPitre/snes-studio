@@ -417,7 +417,10 @@ wait_mode : `VM_WAIT_SCREEN` (7).
 Le bloc scripts de CHAQUE scène commence désormais (offset 0) par la
 **table des common events AUTO/PARALLEL** : `[n u8]` puis n ×
 `[type u8][switch u16][offset u16]` (type 0 = Autorun, 1 = Parallel ;
-directive datagen `CETAB`, table vide = un octet 0x00).
+directive datagen `CETAB`, table vide = un octet 0x00). Switch `0xFFFF`
+= pas de condition (case décochée) : l'entrée est TOUJOURS active,
+comme RM2003 — un Autorun sans condition tourne pour toujours (écran
+titre, fin de jeu), un Parallel sans condition est permanent.
 
 - **Autorun** (type 0) : quand la VM est libre, le moteur lance le
   premier dont le switch est ON — et le RELANCE tant que le switch reste

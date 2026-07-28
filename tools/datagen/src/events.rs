@@ -768,16 +768,20 @@ impl<'a> EventCompiler<'a> {
             match ce.trigger.as_str() {
                 "none" => {}
                 "auto" | "parallel" => {
-                    let sw = ce.switch.filter(|&s| s < 512).with_context(|| {
-                        format!(
-                            "common event {} « {} » : le declencheur {} demande \
-                             un switch de condition (0-511) — sans lui le script \
-                             relancerait pour toujours",
+                    // switch optionnel (case decochee = toujours actif,
+                    // comme RM2003) — un autorun sans switch gele le jeu
+                    // pour toujours : c'est un choix d'auteur (cinematique
+                    // finale), pas une erreur
+                    let sw = match ce.switch {
+                        None => "-".to_string(),
+                        Some(s) if s < 512 => s.to_string(),
+                        Some(s) => bail!(
+                            "common event {} « {} » : switch {} hors limite (0-511)",
                             k + 1,
                             ce.name,
-                            ce.trigger
-                        )
-                    })?;
+                            s
+                        ),
+                    };
                     // un parallel tourne en tache de fond : pas d'UI dedans
                     if ce.trigger == "parallel" {
                         Self::check_no_ui(commons, k)?;
