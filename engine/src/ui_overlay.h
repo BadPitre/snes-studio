@@ -7,13 +7,11 @@
 
 #include <snes.h>
 
-/* Dessin initial (après textbox_init — la map BG3 doit être posée). */
+/* Dessin initial (après ui_screen_init — le tampon doit être posé). */
 void overlay_init(void);
 
-/* Redessine les fenêtres dont la variable a changé (chaque frame). */
+/* Redessine les fenêtres dont la variable a changé (chaque frame) —
+   dans ui_map, transfert centralisé par ui_screen_vblank (M1). */
 void overlay_update(void);
-
-/* Transfert VRAM si modifié — VBlank uniquement. */
-void overlay_vblank(void);
 
 #endif /* UI_OVERLAY_H */

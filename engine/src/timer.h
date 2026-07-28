@@ -19,10 +19,8 @@ void timer_display(u8 on);
 /* Secondes restantes (opcode VAROP, source « timer »). */
 u16 timer_secs(void);
 
-/* Un tick par frame (boucle principale, hors menu Système). */
+/* Un tick par frame (boucle principale, hors menu Système). L'affichage
+   est composé dans ui_map — transfert centralisé ui_screen_vblank (M1). */
 void timer_tick(void);
-
-/* Réécrit l'affichage si besoin — pendant le VBlank uniquement. */
-void timer_vblank(void);
 
 #endif /* TIMER_H */

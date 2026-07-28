@@ -4,7 +4,9 @@
  * BG3 reste toujours actif : sa map est remplie de char 0 (transparent)
  * quand la boîte est fermée — pas de bascule d'activation de layer.
  * Les glyphes ont un fond opaque (couleur 1), donc la boîte est le simple
- * rectangle des chars écrits. Écritures VRAM différées au VBlank.
+ * rectangle des chars écrits. Depuis M1 (Phase 12), le module compose
+ * dans le tampon d'écran partagé ui_map (ui_screen.c) — le transfert
+ * VRAM est centralisé au VBlank par ui_screen_vblank.
  */
 #include <snes.h>
 #include "formats.h"
@@ -13,6 +15,7 @@
 #include "rom_layout.h"
 #include "vram.h"
 #include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
+#include "ui_screen.h" /* tampon BG3 partagé (Phase 12 M1) */
 #include "data/ui_cfg.h" /* theme UI v1 : windowskin + text_speed (Ph. 11) */
 
 /* Windowskin 9-slice (spec UI §1) : 9 chars 2bpp après la fonte —
@@ -80,17 +83,18 @@ static char tb_text[176];
 static char tb_opts[4][28];
 
 /* Géométrie : fenêtres MESSAGE et CHOIX du layout uigen (ui_cfg.h,
-   positions/tailles EN TILES — docs/SPEC_SYSTEME_UI.md §3). Le shadow
-   couvre l'UNION des rangées des deux fenêtres (UI_SHADOW_*). */
+   positions/tailles EN TILES — docs/SPEC_SYSTEME_UI.md §3). Depuis M1,
+   l'adressage est ABSOLU dans ui_map ; UI_SHADOW_* ne sert plus qu'à
+   borner la bande à effacer (union des rangées des deux fenêtres). */
 #define TB_TEXT_COLS (UI_MSG_W - 4) /* cadre : 2 tiles de marge par côté */
 #define TB_TEXT_ROWS (UI_MSG_H - 2) /* cadre : 1 rangée haut et bas */
 #define TB_CHC_COLS (UI_CHC_W - 4)
 #define TB_CHC_ROWS (UI_CHC_H - 2)
-/* cellule shadow (ligne de texte l, colonne c) de chaque fenêtre */
+/* cellule ui_map (ligne de texte l, colonne c) de chaque fenêtre */
 #define TB_MSG_CELL(l, c) \
-  ((u16)(UI_MSG_ROW - UI_SHADOW_ROW + 1 + (l)) * 32 + UI_MSG_COL + 2 + (c))
+  ((u16)(UI_MSG_ROW + 1 + (l)) * 32 + UI_MSG_COL + 2 + (c))
 #define TB_CHC_CELL(l, c) \
-  ((u16)(UI_CHC_ROW - UI_SHADOW_ROW + 1 + (l)) * 32 + UI_CHC_COL + 2 + (c))
+  ((u16)(UI_CHC_ROW + 1 + (l)) * 32 + UI_CHC_COL + 2 + (c))
 
 /* Entrée BG3 : char 2bpp + palette 4 (CGRAM 16) + priorité (au-dessus de
    tout avec le bit BG3-prio du mode 1) */
@@ -103,37 +107,37 @@ static char tb_opts[4][28];
 #define TB_BG_CHAR TB_CHAR(' ')
 #endif
 
-static u16 tb_shadow[32 * UI_SHADOW_H];
-static u8 tb_dirty;
-
-static void tb_fill(u16 entry)
+/* Efface la BANDE du dialogue (union des rangées message/choix) dans le
+   tampon partagé — les autres zones de ui_map (HUD, timer) survivent. */
+static void tb_clear_band(void)
 {
   u16 i;
 
-  for (i = 0; i < 32 * UI_SHADOW_H; i++)
-    tb_shadow[i] = entry;
+  for (i = (u16)UI_SHADOW_ROW * 32; i < (u16)(UI_SHADOW_ROW + UI_SHADOW_H) * 32; i++)
+    ui_map[i] = 0;
+  ui_mark(UI_SHADOW_ROW, UI_SHADOW_H);
 }
 
-/* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans le shadow :
+/* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans ui_map :
    cadre 9-slice du windowskin s'il existe, sinon boîte pleine — le
-   reste du shadow redevient transparent. */
+   reste de la bande du dialogue redevient transparent. */
 static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
 {
   u8 x, y, sy;
   u16 base;
 
-  tb_fill(0);
+  tb_clear_band();
   for (y = 0; y < h; y++)
   {
-    base = (u16)(row - UI_SHADOW_ROW + y) * 32 + col;
+    base = (u16)(row + y) * 32 + col;
     sy = y == 0 ? 0 : (y == (u8)(h - 1) ? 2 : 1);
     for (x = 0; x < w; x++)
     {
 #if UI_HAS_SKIN
-      tb_shadow[base + x] = TB_ENTRY(
+      ui_map[base + x] = TB_ENTRY(
           TB_SKIN_BASE + sy * 3 + (x == 0 ? 0 : (x == (u8)(w - 1) ? 2 : 1)));
 #else
-      tb_shadow[base + x] = TB_ENTRY(TB_CHAR(' '));
+      ui_map[base + x] = TB_ENTRY(TB_CHAR(' '));
 #endif
     }
   }
@@ -182,10 +186,10 @@ static void tw_step(void)
       return;
     }
   }
-  tb_shadow[TB_MSG_CELL(tw_row, tw_col)] = TB_ENTRY(TB_CHAR(c));
+  ui_map[TB_MSG_CELL(tw_row, tw_col)] = TB_ENTRY(TB_CHAR(c));
+  ui_mark((u8)(UI_MSG_ROW + 1 + tw_row), 1);
   tw_col++;
   tw_s++;
-  tb_dirty = 1;
 }
 
 void textbox_tick(void)
@@ -221,21 +225,11 @@ void textbox_load_pal(void)
 
 void textbox_init(void)
 {
-  /* Fonte 2bpp + palette — écran éteint, transferts sûrs */
+  /* Fonte 2bpp + palette — écran éteint, transferts sûrs. Le nettoyage
+     de la map BG3 est fait par ui_screen_init (tampon partagé, M1). */
   bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
   textbox_load_pal();
   bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
-
-  /* Map BG3 entièrement transparente (char 0) : le shadow ne couvre que la
-     zone de la boîte, on l'utilise 4 fois pour effacer les 32 rangées */
-  tb_fill(0);
-  {
-    u8 r;
-
-    for (r = 0; r < 32; r++)
-      dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + (u16)r * 32, 64);
-  }
-  tb_dirty = 0;
 
   /* état machine à écrire — init EXPLICITE (statics tcc) */
   tw_active = 0;
@@ -256,7 +250,6 @@ void textbox_open(u16 text_id)
   tw_s = tb_text;
   tw_row = 0;
   tw_col = 0;
-  tb_dirty = 1;
 #else
   textbox_open_raw(tb_text);
 #endif
@@ -301,13 +294,11 @@ void textbox_open_raw(const char *s)
         if (row >= TB_TEXT_ROWS)
           break;
       }
-      tb_shadow[TB_MSG_CELL(row, col)] = TB_ENTRY(TB_CHAR(c));
+      ui_map[TB_MSG_CELL(row, col)] = TB_ENTRY(TB_CHAR(c));
       col++;
       s++;
     }
   }
-
-  tb_dirty = 1;
 }
 
 /* CHOICE (spec §2 v0.6) : 2-4 options, une par ligne, curseur '>' devant
@@ -339,13 +330,12 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
     col = 0;
     while (s && *s && col < TB_CHC_COLS - 2)
     {
-      tb_shadow[TB_CHC_CELL(i, 2 + col)] = TB_ENTRY(TB_CHAR(*s));
+      ui_map[TB_CHC_CELL(i, 2 + col)] = TB_ENTRY(TB_CHAR(*s));
       col++;
       s++;
     }
   }
-  tb_shadow[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
-  tb_dirty = 1;
+  ui_map[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
 }
 
 /* Déplace le curseur du CHOICE (redessine la colonne des '>') */
@@ -354,24 +344,13 @@ void textbox_choice_cursor(u8 sel)
   u8 i;
 
   for (i = 0; i < TB_CHC_ROWS; i++)
-    tb_shadow[TB_CHC_CELL(i, 0)] = TB_ENTRY(TB_BG_CHAR);
-  tb_shadow[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
-  tb_dirty = 1;
+    ui_map[TB_CHC_CELL(i, 0)] = TB_ENTRY(TB_BG_CHAR);
+  ui_map[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
+  ui_mark(UI_CHC_ROW + 1, TB_CHC_ROWS);
 }
 
 void textbox_close(void)
 {
   tw_active = 0;
-  tb_fill(0);
-  tb_dirty = 1;
-}
-
-void textbox_vblank(void)
-{
-  if (tb_dirty)
-  {
-    tb_dirty = 0;
-    dmaCopyVram((u8 *)tb_shadow, VRAM_BG3_MAP + UI_SHADOW_ROW * 32,
-                32 * UI_SHADOW_H * 2);
-  }
+  tb_clear_band();
 }

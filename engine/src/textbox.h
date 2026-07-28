@@ -6,8 +6,8 @@
 
 #include <snes.h>
 
-/* Charge la fonte + palette, initialise la map BG3 (vide/transparente).
-   À appeler écran éteint. */
+/* Charge la fonte + palette et pointe la map BG3. À appeler écran
+   éteint (le nettoyage de la map est fait par ui_screen_init — M1). */
 void textbox_init(void);
 
 /* Recharge la palette de la fonte (CGRAM 16-19, slots réservés spec §4) —
@@ -37,10 +37,8 @@ void textbox_tick(void);
 u8 textbox_busy(void);
 void textbox_finish(void);
 
-/* Efface la boîte (map redevient transparente au prochain VBlank). */
+/* Efface la boîte (la bande du dialogue redevient transparente au
+   prochain VBlank — transfert centralisé par ui_screen_vblank). */
 void textbox_close(void);
-
-/* Transfère la map BG3 si modifiée. À appeler pendant le VBlank. */
-void textbox_vblank(void);
 
 #endif /* TEXTBOX_H */

@@ -18,6 +18,7 @@
 #include "timer.h"
 #include "screenfx.h"
 #include "ui_overlay.h"
+#include "ui_screen.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -77,6 +78,7 @@ int main(void)
   scene_load(scene_boot_id());
   audio_play_music(scene_ctx.music_id);
   textbox_init();
+  ui_screen_init(); /* tampon BG3 partagé (M1) : map nettoyée écran éteint */
   vm_init();
   sysmenu_init();
   timer_init();
@@ -167,9 +169,7 @@ int main(void)
 
     /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement */
     map_vblank();
-    textbox_vblank();
-    timer_vblank();
-    overlay_vblank();
+    ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
     screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
     bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
     bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);

@@ -230,6 +230,14 @@ TOML — la communauté pourra en partager.
   sur erreur, §9.3) et preview 256x224 fidèle tiles (fonte et skin
   réels du projet). Écrit `ui/layout.toml` + `project.json "ui"`. Réf
   `EDITOR.md`.
-- **À venir** : thèmes multiples en table database + SET_THEME,
-  content types v2 (hp_bar, gold…), pile de scènes MENU (§5),
-  designer à grille (§7).
+- **Livré (Phase 12 M1)** : tampon d'écran UI unifié `ui_screen.c` —
+  ui_map[32*28] est LA vérité de BG3, textbox/overlay/timer y composent
+  hors VBlank (ui_mark), un seul DMA du span sale au VBlank. Prérequis
+  du placement libre des widgets et des écrans MENU. Réf
+  `PLANNING_SYSTEME_MENUS.md` (plan contractuel Phase 12).
+- **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
+  widgets Zelda W1 (gauge/icon_row/icon_value, frame=false, planche
+  IconSet, placement libre), écrans de menu déclaratifs M2, listes +
+  curseur + pile M3 (menu FF4), portraits/listes database/hp_bar M4,
+  thèmes multiples en table database + SET_THEME, designer à grille
+  (§7).
