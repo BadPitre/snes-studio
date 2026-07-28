@@ -138,7 +138,8 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
-  const [uiOpen, setUiOpen] = useState(false); // fenêtre UI (designer, Phase 12)
+  // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
+  const [uiMode, setUiMode] = useState<null | "widgets" | "dialogs">(null);
   // widgets du layout (racines) — pour la commande « Afficher un widget UI »
   const [uiWidgets, setUiWidgets] = useState<string[]>([]);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
@@ -1327,9 +1328,20 @@ export default function App() {
           disabled: !data,
         },
         {
-          label: "UI…",
-          action: () => setUiOpen(true),
+          label: "UI",
           disabled: !data,
+          sub: [
+            {
+              label: "Widgets…",
+              action: () => setUiMode("widgets"),
+              disabled: !data,
+            },
+            {
+              label: "Dialogues et choix…",
+              action: () => setUiMode("dialogs"),
+              disabled: !data,
+            },
+          ],
         },
       ],
     },
@@ -1883,9 +1895,10 @@ export default function App() {
           onClose={() => setDbOpen(false)}
         />
       )}
-      {uiOpen && data && (
+      {uiMode && data && (
         <UiThemeModal
           root={data.root}
+          mode={uiMode}
           project={data.project}
           windowskins={projectWindowskins(data.project)}
           iconsets={projectIconsets(data.project)}
@@ -1897,10 +1910,10 @@ export default function App() {
           onOk={(ui, widgets) => {
             mutate((d) => ({ ...d, project: { ...d.project, ui } }));
             setUiWidgets(widgets);
-            setUiOpen(false);
+            setUiMode(null);
             setStatus("UI sauvegardée (project.json + ui/layout.toml).");
           }}
-          onClose={() => setUiOpen(false)}
+          onClose={() => setUiMode(null)}
         />
       )}
       {commonEvOpen && data && (

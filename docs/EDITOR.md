@@ -289,7 +289,8 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
   database crée ses dossiers `schemas/`+`data/` à la première table.
-- **Fenêtre « UI »** (Tools → UI…, Phase 12, réf
+- **Fenêtres « UI »** (Tools → UI → **sous-menu** : « Widgets… » et
+  « Dialogues et choix… », Phase 12, réf
   `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.
   **Palette** à gauche (clic = ajouter) : Fenêtre (cadre 9-slice,
   conteneur), Liste verticale et Boîte horizontale (empilent leurs
@@ -308,10 +309,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Trigger = Fenêtre > Liste verticale > Boîtes horizontales > labels/
   valeurs/images. Les erreurs (mêmes règles que le compilateur —
   débordements, chevauchements avec les fenêtres de dialogue, icônes
-  manquantes) s'affichent sous le canvas et bloquent OK. La fenêtre
-  s'ouvre sur la page **« UI — Widgets »** : réglages du thème
-  (windowskin, planche d'icônes, vitesse du texte), géométrie des
-  fenêtres de dialogue, et la LISTE des widgets — 👁 = visible au
+  manquantes) s'affichent sous le canvas et bloquent OK. **« Dialogues
+  et choix »** regroupe le thème des dialogues (windowskin, vitesse du
+  texte), la géométrie des fenêtres message/choix et une preview fidèle
+  (les widgets affichés en contexte). **« Widgets »** s'ouvre sur la
+  page liste : la planche d'icônes et la LISTE des widgets — 👁 = visible au
   démarrage (par défaut un widget est CACHÉ et s'affiche par la
   commande d'event **« Afficher/cacher un widget UI »**, onglet
   Écran), **✎ Renommer** (les enfants suivent), Éditer…/double-clic

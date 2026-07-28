@@ -31,6 +31,9 @@ import VarListModal from "./VarListModal";
 
 interface Props {
   root: string;
+  // "widgets" : liste + designer des widgets ; "dialogs" : thème +
+  // fenêtres message/choix (Tools → UI, deux sous-menus)
+  mode: "widgets" | "dialogs";
   project: Project;
   windowskins: string[];
   iconsets: string[];
@@ -499,13 +502,17 @@ export default function UiThemeModal(props: Props) {
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal uitheme" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
-          {view === "list" ? "UI — Widgets" : `UI — Designer « ${scope ?? "écran"} »`}
+          {props.mode === "dialogs"
+            ? "UI — Dialogues et choix"
+            : view === "list"
+              ? "UI — Widgets"
+              : `UI — Designer « ${scope ?? "écran"} »`}
         </div>
-        {view === "list" && (
+        {props.mode === "dialogs" && (
           <div className="uitheme-listview">
             <div className="uitheme-listcol">
               <fieldset className="evedit-box">
-                <legend>Thème</legend>
+                <legend>Thème des dialogues</legend>
                 <label>
                   Windowskin
                   <select
@@ -519,28 +526,16 @@ export default function UiThemeModal(props: Props) {
                   </select>
                 </label>
                 <label>
-                  Planche d'icônes des widgets
-                  <select
-                    value={ui.icons ?? ""}
-                    onChange={(e) => setUi({ ...ui, icons: e.target.value || undefined })}
-                  >
-                    <option value="">(aucune)</option>
-                    {props.iconsets.map((rel) => (
-                      <option key={rel} value={rel}>{assetStem(rel)}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Vitesse du texte (0 = instantané)
+                  Vitesse du texte (frames/caractère, 0 = instantané)
                   <input
                     type="number" min={0} max={10} value={ui.text_speed ?? 0}
                     onChange={(e) => setUi({ ...ui, text_speed: Number(e.target.value) || undefined })}
                   />
                 </label>
-                <span className="hint">Import : Gestionnaire de ressources (WindowSkin / IconSet).</span>
+                <span className="hint">Import de windowskins : Gestionnaire de ressources.</span>
               </fieldset>
               <fieldset className="evedit-box">
-                <legend>Fenêtres du dialogue (tiles)</legend>
+                <legend>Fenêtres (en tiles — écran 32x28)</legend>
                 {(["message", "choice"] as const).map((k) => (
                   <div className="row" key={k}>
                     <span style={{ width: 62, alignSelf: "flex-end", paddingBottom: 5 }} className="hint">
@@ -554,6 +549,45 @@ export default function UiThemeModal(props: Props) {
                     )}
                   </div>
                 ))}
+                <span className="hint">
+                  Cadre compris (le texte garde une marge de 2 colonnes /
+                  1 rangée). Les widgets sont affichés en contexte — un
+                  chevauchement est une erreur.
+                </span>
+              </fieldset>
+            </div>
+            <div className="uitheme-preview">
+              <span className="hint">Preview (rendu tiles fidèle)</span>
+              <canvas ref={canvasRef} width={256} height={224} />
+              {flat.errors.length > 0 && (
+                <div className="hint uitheme-errors">
+                  {flat.errors.map((e, i) => (
+                    <div key={i}>⚠ {e}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {props.mode === "widgets" && view === "list" && (
+          <div className="uitheme-listview">
+            <div className="uitheme-listcol">
+              <fieldset className="evedit-box">
+                <legend>Planche d'icônes des widgets</legend>
+                <select
+                  value={ui.icons ?? ""}
+                  onChange={(e) => setUi({ ...ui, icons: e.target.value || undefined })}
+                >
+                  <option value="">(aucune)</option>
+                  {props.iconsets.map((rel) => (
+                    <option key={rel} value={rel}>{assetStem(rel)}</option>
+                  ))}
+                </select>
+                <span className="hint">
+                  Import : Gestionnaire de ressources (IconSet). Les
+                  dialogues et le windowskin s'éditent dans Tools → UI →
+                  Dialogues et choix.
+                </span>
               </fieldset>
             </div>
             <fieldset className="evedit-box uitheme-widgetlist">
@@ -651,7 +685,7 @@ export default function UiThemeModal(props: Props) {
             </fieldset>
           </div>
         )}
-        {view === "design" && (
+        {props.mode === "widgets" && view === "design" && (
         <div className="uitheme-body">
           {/* colonne gauche : retour + palette + structure */}
           <div className="uitheme-left">
