@@ -207,7 +207,9 @@ input, select, textarea {
 /* Fenêtre Database (Phase 10, UI générique pilotée par les schémas) */
 .modal.database { width: 980px; }
 .db-body { display: flex; gap: 10px; height: 500px; }
-.db-tables { width: 190px; overflow-y: auto; }
+.db-tablecol { width: 200px; display: flex; flex-direction: column; gap: 6px; }
+.db-tables { flex: 1; overflow-y: auto; }
+.modal.schemaedit { width: 720px; }
 .db-badge { float: right; color: #9aa0a8; font-size: 11px; }
 .db-list { width: 230px; display: flex; flex-direction: column; gap: 6px; }
 .db-list .evedit-cmds { overflow-y: auto; }

@@ -1086,9 +1086,8 @@ export default function App() {
         },
         {
           label: "Database…",
-          hint: db ? undefined : "ajouter schemas/",
           action: () => setDbOpen(true),
-          disabled: !data || !db,
+          disabled: !data,
         },
       ],
     },
@@ -1609,15 +1608,15 @@ export default function App() {
           }}
         />
       )}
-      {dbOpen && data && db && (
+      {dbOpen && data && (
         <DatabaseModal
-          db={db}
+          db={db ?? { schemas: [], entries: {} }}
           textNames={data.texts.map((t) => t.name)}
-          onOk={(next) => {
+          onOk={(next, removedTables) => {
             setDb(next);
             setDbOpen(false);
-            void saveDatabase(data.root, next)
-              .then(() => setStatus("Database sauvegardée (data/*.toml)."))
+            void saveDatabase(data.root, next, removedTables)
+              .then(() => setStatus("Database sauvegardée (schemas/ + data/)."))
               .catch((e) => setStatus(`Database : ${e}`));
           }}
           onClose={() => setDbOpen(false)}

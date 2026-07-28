@@ -8,11 +8,13 @@
 import { useState } from "react";
 import type { Database, DbEntry, DbField, DbSchema } from "../db";
 import { entrySize, fieldBounds, fieldSize, isSnake, refUsages, renameEntry } from "../db";
+import SchemaEditorModal from "./SchemaEditorModal";
 
 interface Props {
   db: Database;
   textNames: string[]; // banque de textes (champs text_id)
-  onOk: (db: Database) => void;
+  // removed : tables supprimées (leurs fichiers seront retirés du disque)
+  onOk: (db: Database, removed: string[]) => void;
   onClose: () => void;
 }
 
@@ -26,11 +28,52 @@ export default function DatabaseModal(props: Props) {
   const [table, setTable] = useState(0);
   const [sel, setSel] = useState(0);
   const [confirmDel, setConfirmDel] = useState<string[] | null>(null);
+  // création de table (l'utilisateur crée SES databases) + édition de
+  // structure + tables supprimées (fichiers retirés à la sauvegarde)
+  const [newTable, setNewTable] = useState<{ name: string; title: string } | null>(null);
+  const [schemaEdit, setSchemaEdit] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
 
   const sc: DbSchema | undefined = draft.schemas[table];
   const list: DbEntry[] = sc ? draft.entries[sc.name] ?? [] : [];
   const cur: DbEntry | undefined = list[sel];
   const commit = () => setDraft({ ...draft });
+
+  // tables dont des champs ref: visent celle-ci (suppression bloquée)
+  const tableRefs = (name: string) =>
+    draft.schemas
+      .filter((s) => s.name !== name && s.fields.some((f) => f.type === `ref:${name}`))
+      .map((s) => s.title || s.name);
+
+  function removeTable() {
+    if (!sc || tableRefs(sc.name).length) return;
+    setRemoved([...removed, sc.name]);
+    delete draft.entries[sc.name];
+    draft.schemas = draft.schemas.filter((s) => s.name !== sc.name);
+    setTable(Math.max(0, table - 1));
+    setSel(0);
+    commit();
+  }
+
+  // applique une nouvelle structure : renommages migrés, champs
+  // supprimés purgés des entrées
+  function applySchema(next: DbSchema, renames: [string, string][]) {
+    const keep = new Set(next.fields.map((f) => f.name));
+    for (const e of draft.entries[next.name] ?? []) {
+      for (const [oldN, newN] of renames) {
+        if (oldN in e) {
+          e[newN] = e[oldN];
+          delete e[oldN];
+        }
+      }
+      for (const k of Object.keys(e)) {
+        if (k !== "id" && k !== "name" && !keep.has(k)) delete e[k];
+      }
+    }
+    draft.schemas[table] = next;
+    setSchemaEdit(false);
+    commit();
+  }
 
   // id libre le plus proche (nouvel/dupliqué)
   function freeId(base: string): string {
@@ -199,22 +242,44 @@ export default function DatabaseModal(props: Props) {
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Database</div>
         <div className="db-body">
-          <div className="evedit-cmds db-tables">
-            {draft.schemas.map((s, i) => (
-              <div
-                key={s.name}
-                className={"evedit-line" + (i === table ? " active" : "")}
-                onClick={() => {
-                  setTable(i);
-                  setSel(0);
-                }}
+          <div className="db-tablecol">
+            <div className="evedit-cmds db-tables">
+              {draft.schemas.map((s, i) => (
+                <div
+                  key={s.name}
+                  className={"evedit-line" + (i === table ? " active" : "")}
+                  onClick={() => {
+                    setTable(i);
+                    setSel(0);
+                  }}
+                >
+                  {s.title || s.name}
+                  <span className="db-badge">
+                    {draft.entries[s.name]?.length ?? 0}/{s.max ?? 255}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
+              <button onClick={() => setNewTable({ name: "", title: "" })}>
+                ＋ Table
+              </button>
+              <button disabled={!sc} onClick={() => setSchemaEdit(true)}>
+                Structure…
+              </button>
+              <button
+                className="danger"
+                disabled={!sc || tableRefs(sc?.name ?? "").length > 0}
+                title={
+                  sc && tableRefs(sc.name).length
+                    ? `Visée par des ref: de ${tableRefs(sc.name).join(", ")} — retirer ces champs d'abord`
+                    : "Supprimer la table (schéma + données)"
+                }
+                onClick={removeTable}
               >
-                {s.title || s.name}
-                <span className="db-badge">
-                  {draft.entries[s.name]?.length ?? 0}/{s.max ?? 255}
-                </span>
-              </div>
-            ))}
+                🗑
+              </button>
+            </div>
           </div>
           <div className="db-list">
             <div className="evedit-cmds" style={{ flex: 1 }}>
@@ -310,13 +375,78 @@ export default function DatabaseModal(props: Props) {
               )
             )}
             title="Désactivé tant qu'un id est invalide ou en double"
-            onClick={() => props.onOk(draft)}
+            onClick={() => props.onOk(draft, removed)}
           >
             OK
           </button>
           <button onClick={props.onClose}>Annuler</button>
         </div>
       </div>
+      {newTable && (
+        <div className="modal-backdrop" onClick={() => setNewTable(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="palette-title">Nouvelle table</div>
+            <label>
+              Nom technique (snake_case — fichiers et constantes C)
+              <input
+                value={newTable.name}
+                autoFocus
+                placeholder="monstres"
+                style={
+                  newTable.name !== "" &&
+                  (!isSnake(newTable.name) ||
+                    draft.schemas.some((s) => s.name === newTable.name))
+                    ? { outline: "1px solid #ff7070" }
+                    : undefined
+                }
+                onChange={(e) => setNewTable({ ...newTable, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Titre affiché
+              <input
+                value={newTable.title}
+                placeholder="Monstres"
+                onChange={(e) => setNewTable({ ...newTable, title: e.target.value })}
+              />
+            </label>
+            <div className="row">
+              <button
+                disabled={
+                  !isSnake(newTable.name) ||
+                  draft.schemas.some((s) => s.name === newTable.name)
+                }
+                onClick={() => {
+                  draft.schemas.push({
+                    name: newTable.name,
+                    title: newTable.title || undefined,
+                    max: 255,
+                    fields: [{ name: "valeur", type: "u8", default: 0 }],
+                  });
+                  draft.entries[newTable.name] = [];
+                  setRemoved(removed.filter((n) => n !== newTable.name));
+                  setTable(draft.schemas.length - 1);
+                  setSel(0);
+                  setNewTable(null);
+                  setSchemaEdit(true); // enchaîner sur la structure
+                  commit();
+                }}
+              >
+                Créer
+              </button>
+              <button onClick={() => setNewTable(null)}>Annuler</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {schemaEdit && sc && (
+        <SchemaEditorModal
+          schema={sc}
+          tableNames={draft.schemas.map((s) => s.name)}
+          onOk={applySchema}
+          onClose={() => setSchemaEdit(false)}
+        />
+      )}
       {confirmDel && cur && (
         <div className="modal-backdrop" onClick={() => setConfirmDel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>

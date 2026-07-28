@@ -8,7 +8,7 @@
 
 import { parse } from "smol-toml";
 import { readDir } from "@tauri-apps/plugin-fs";
-import { readProjectText, writeProjectText } from "./io";
+import { ensureProjectDir, readProjectText, removePath, writeProjectText } from "./io";
 
 export interface DbField {
   name: string;
@@ -140,8 +140,40 @@ export function dataToToml(sc: DbSchema, list: DbEntry[]): string {
   return s;
 }
 
-export async function saveDatabase(root: string, db: Database): Promise<void> {
+// schemas/<table>.toml — clés dans un ordre FIXE (diffs Git stables) ;
+// relu tel quel par dbgen : l'éditeur et la main écrivent le même format
+export function schemaToToml(sc: DbSchema): string {
+  let s = `# Schema de la table « ${sc.name} » — docs/PLANNING_SYSTEME_DATABASE.md\nname  = ${tomlScalar(sc.name)}\n`;
+  if (sc.title) s += `title = ${tomlScalar(sc.title)}\n`;
+  if (sc.max !== undefined && sc.max !== 255) s += `max   = ${sc.max}\n`;
+  for (const f of sc.fields) {
+    s += `\n[[fields]]\nname = ${tomlScalar(f.name)}\ntype = ${tomlScalar(f.type)}\n`;
+    if (f.type === "flags8") s += `flags = ${tomlScalar(f.flags ?? [])}\n`;
+    if (f.optional) s += `optional = true\n`;
+    if (f.runtime_copy) s += `runtime_copy = true\n`;
+    if (f.default !== undefined) s += `default = ${tomlScalar(f.default)}\n`;
+    if (f.min !== undefined) s += `min = ${f.min}\n`;
+    if (f.max !== undefined) s += `max = ${f.max}\n`;
+  }
+  return s;
+}
+
+// Sauvegarde complète : schémas + instances + manifeste ; les fichiers
+// des tables supprimées dans l'éditeur sont retirés du disque.
+export async function saveDatabase(
+  root: string,
+  db: Database,
+  removedTables: string[] = []
+): Promise<void> {
+  await ensureProjectDir(root, "schemas"); // première table d'un projet
+  await ensureProjectDir(root, "data");
+  for (const n of removedTables) {
+    if (db.schemas.some((s) => s.name === n)) continue; // recréée depuis
+    await removePath(`${root}/schemas/${n}.toml`);
+    await removePath(`${root}/data/${n}.toml`);
+  }
   for (const sc of db.schemas) {
+    await writeProjectText(root, `schemas/${sc.name}.toml`, schemaToToml(sc));
     await writeProjectText(root, `data/${sc.name}.toml`, dataToToml(sc, db.entries[sc.name] ?? []));
   }
   // manifeste du mode navigateur (le dossier schemas/ fait foi en Tauri)

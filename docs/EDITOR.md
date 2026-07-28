@@ -263,6 +263,16 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   en bas. OK écrit `data/*.toml` (clés dans l'ordre du schéma — diffs
   Git stables) ; dbgen les compile au prochain build. Ajouter un onglet
   = ajouter un schéma, zéro code.
+  **Créer SES tables depuis l'éditeur** : « ＋ Table » (nom snake_case +
+  titre, enchaîne sur la structure), « Structure… » ouvre l'éditeur de
+  champs — nom, type (u8/u16/s8/s16, flags8 avec ses noms de bits, ref
+  vers une table au choix, text_id), défaut/min/max, optionnel, copie
+  runtime ⟳, réordonner (l'ordre des champs = le layout ROM). Renommer
+  un champ migre les valeurs des entrées ; le supprimer les retire ;
+  « 🗑 » supprime la table (bloqué tant que des `ref:` la visent) et ses
+  fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
+  écrits à la main, dbgen ne voit pas la différence. Un projet sans
+  database crée ses dossiers `schemas/`+`data/` à la première table.
 - **Fenêtre « Switches / Variables »** (Tools → Switches et variables…,
   calquée sur les dialogues Switch/Variable de RM2003) : tranches de 20 à
   gauche, liste numérotée à droite, champ Nom sous la liste — les noms
