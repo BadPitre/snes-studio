@@ -32,6 +32,7 @@ interface Props {
   db: Database | null; // database du projet (commande db_read, v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
+  pictures: string[]; // stems des images (S3) — commande pic_show
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -118,6 +119,10 @@ function labelOf(c: Command, ceNames?: string[]): string {
       return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
     case "sysmenu":
       return "Ouvrir le menu Système (sauvegarde)";
+    case "pic_show":
+      return `Afficher l'image « ${c.pic || "?"} »`;
+    case "pic_hide":
+      return "Effacer l'image (retour au jeu)";
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -177,6 +182,8 @@ function cmdTitle(c: Command["c"]): string {
     shake: "Secouer l'écran",
     call: "Appeler un common event",
     db_read: "Lire la database",
+    pic_show: "Afficher une image",
+    pic_hide: "Effacer l'image",
   };
   return titles[c] ?? "Options de la commande";
 }
@@ -255,6 +262,7 @@ export function CommandListEditor(props: {
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
+  pictures: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -417,6 +425,10 @@ export function CommandListEditor(props: {
         return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
       case "sysmenu":
         return { c: "sysmenu" };
+      case "pic_show":
+        return { c: "pic_show", pic: "" };
+      case "pic_hide":
+        return { c: "pic_hide" };
       case "scr_hide":
         return { c: "scr_hide", speed: 1 };
       case "scr_show":
@@ -495,6 +507,7 @@ export function CommandListEditor(props: {
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
+              pictures={props.pictures}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -902,6 +915,7 @@ export default function EventEditorModal(props: Props) {
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
+              pictures={props.pictures}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -972,6 +986,7 @@ function CommandForm(props: {
   commonNames: string[];
   uiWidgets: string[];
   uiStyles: string[];
+  pictures: string[];
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -1599,6 +1614,41 @@ function CommandForm(props: {
           termine. Le mapping START en dur a été retiré : mappe ta touche
           avec « Touche pressée » + une condition, ou appelle cette
           commande où tu veux.
+        </span>
+      );
+      break;
+    case "pic_show":
+      valid = cmd.pic !== "";
+      body = (
+        <>
+          <label>
+            Image (Gestionnaire de ressources → Picture)
+            <select
+              value={cmd.pic} autoFocus
+              onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+            >
+              <option value="">(choisir)</option>
+              {props.pictures.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+              {cmd.pic && !props.pictures.includes(cmd.pic) && (
+                <option value={cmd.pic}>{cmd.pic} (?)</option>
+              )}
+            </select>
+          </label>
+          <span className="hint">
+            L'image recouvre l'écran (fondu) — les messages et choix se
+            jouent PAR-DESSUS. Refermer avec « Effacer l'image » dans le
+            même script : le jeu revient intact.
+          </span>
+        </>
+      );
+      break;
+    case "pic_hide":
+      body = (
+        <span className="hint">
+          Referme l'image affichée (fondu) et rend l'écran au jeu — carte,
+          personnages et états inchangés. Sans image affichée : ignoré.
         </span>
       );
       break;

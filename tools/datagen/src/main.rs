@@ -147,6 +147,29 @@ fn main() -> Result<()> {
         ui_style_rows.push((m, c, ui_font_base(&st.font), ui_skin_base(&st.windowskin)));
     }
 
+    // Pictures (S3) : PNG indexés ≤ 16 couleurs compilés en chars 4bpp
+    // dédupliqués + tilemap + palette — les commandes pic_show les
+    // référencent par stem, chargés AVANT les scènes
+    let mut pic_names: Vec<String> = Vec::new();
+    let mut pic_data: Vec<(Vec<u8>, Vec<u16>, Vec<u16>)> = Vec::new();
+    for rel in &project.pictures {
+        let stem = Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("picture '{}' : nom illisible", rel))?
+            .to_string();
+        if pic_names.contains(&stem) {
+            bail!("picture '{}' : stem en double", stem);
+        }
+        let img = gfx::load_indexed_png(&proj_dir.join(rel))
+            .with_context(|| format!("picture '{}'", rel))?;
+        pic_data.push(img.to_picture().with_context(|| format!("picture '{}'", rel))?);
+        pic_names.push(stem);
+    }
+    if pic_names.len() > 32 {
+        bail!("{} pictures (max 32)", pic_names.len());
+    }
+
     let mut scenes = Vec::new();
     for name in &project.scenes {
         let mut scene: project::Scene =
@@ -176,6 +199,7 @@ fn main() -> Result<()> {
                 database.as_ref(),
                 &ui_widget_ids,
                 &ui_style_ids,
+                &pic_names,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -447,7 +471,9 @@ fn main() -> Result<()> {
     for entry in std::fs::read_dir(&out_dir)? {
         let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if (name.starts_with("data_gfx") || name.starts_with("data_sprites"))
+        if (name.starts_with("data_gfx")
+            || name.starts_with("data_sprites")
+            || name.starts_with("data_pic"))
             && !path.is_dir()
         {
             std::fs::remove_file(&path)
@@ -456,6 +482,15 @@ fn main() -> Result<()> {
     }
     for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
         write_out(&out_dir, &name, content)?;
+    }
+    // Pictures (S3) : un fichier par image (une section ROM = une bank)
+    // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
+    // picture.c inconditionnellement, tables factices si aucune image)
+    for (name, content) in gen_picture_files(&pic_names, &pic_data) {
+        write_out(&out_dir, &name, content)?;
+    }
+    if !pic_names.is_empty() {
+        println!("  pictures : {} image(s) plein ecran", pic_names.len());
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
@@ -694,6 +729,79 @@ fn gen_asset_tables(
     }
     s.push_str("};\n");
     s
+}
+
+/// Pictures (S3) : data_pic{i}.c par image (chars 4bpp + tilemap + palette,
+/// une section = une bank LoROM) + data_pictures.c, le registre de tables
+/// de pointeurs indexées par pic_id (pattern « scene_table »). Toujours
+/// émis — tables factices sans image (picture.c est inconditionnel).
+fn gen_picture_files(
+    names: &[String],
+    pics: &[(Vec<u8>, Vec<u16>, Vec<u16>)],
+) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+
+    for (i, (chars, map, pal)) in pics.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!("/* picture « {} » */\n", names[i]));
+        s.push_str(&emit::u8_array(&format!("pic{}_chars", i), chars, 16, false));
+        s.push_str(&format!(
+            "const u16 pic{}_chars_size = sizeof(pic{}_chars);\n\n",
+            i, i
+        ));
+        s.push_str(&emit::u16_array(&format!("pic{}_map", i), map));
+        s.push('\n');
+        s.push_str(&emit::u16_array(&format!("pic{}_pal", i), pal));
+        files.push((format!("data_pic{}.c", i), s));
+    }
+
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..pics.len() {
+        s.push_str(&format!(
+            "extern const u8 pic{i}_chars[];\nextern const u16 pic{i}_chars_size;\n\
+             extern const u16 pic{i}_map[];\nextern const u16 pic{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push_str(&format!("\nconst u8 pic_count = {};\n\n", pics.len()));
+    let n = pics.len().max(1);
+    s.push_str(&format!("const u8 *const pic_chars[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_chars, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_chars_sizes[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("&pic{}_chars_size, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_maps[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_map, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_pals[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_pal, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str("};\n");
+    files.push(("data_pictures.c".to_string(), s));
+    files
 }
 
 fn gen_font(

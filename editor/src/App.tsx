@@ -13,6 +13,7 @@ import {
   musicStem,
   projectFonts,
   projectIconsets,
+  projectPictures,
   projectTilesets,
   projectWindowskins,
   spriteBlockCount,
@@ -1085,6 +1086,127 @@ export default function App() {
     }
   }
 
+
+  // Pictures (S3) : PNG indexé <= 16 couleurs, <= 256x224 (multiples de
+  // 8) — affichées plein écran par « Afficher une image ». Registre
+  // project.pictures LU par datagen (l'ordre donne les pic_id).
+  async function importPicture() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une image (PNG indexé ≤ 16 couleurs, ≤ 256x224)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (
+        bmp.width === 0 || bmp.height === 0 ||
+        bmp.width > 256 || bmp.height > 224 ||
+        bmp.width % 8 !== 0 || bmp.height % 8 !== 0
+      ) {
+        setStatus(
+          `Image : attendu ≤ 256x224 avec dimensions multiples de 8, reçu ${bmp.width}x${bmp.height}`
+        );
+        return;
+      }
+      // comptage des couleurs (le PNG doit être INDEXÉ ≤ 16 couleurs —
+      // le canvas ne voit pas la palette, on vérifie au moins le nombre)
+      {
+        const cv = document.createElement("canvas");
+        cv.width = bmp.width;
+        cv.height = bmp.height;
+        const ctx = cv.getContext("2d")!;
+        ctx.drawImage(bmp, 0, 0);
+        const d4 = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+        const seen = new Set<number>();
+        for (let i = 0; i < d4.length; i += 4) {
+          seen.add((d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2]);
+          if (seen.size > 16) break;
+        }
+        if (seen.size > 16) {
+          setStatus(
+            "Image : plus de 16 couleurs — réduire la palette (PNG indexé 16 couleurs) avant l'import"
+          );
+          return;
+        }
+      }
+      const name = file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      if (!projectPictures(data.project).includes(rel)) {
+        mutate((d) => ({
+          ...d,
+          project: { ...d.project, pictures: [...projectPictures(d.project), rel] },
+        }));
+      }
+      setStatus(`Image importée : ${name} (${bmp.width}x${bmp.height})`);
+    } catch (e) {
+      setStatus(`Import image : ${e}`);
+    }
+  }
+
+  async function exportPicture(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter l'image (PNG)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Image exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export image : ${e}`);
+    }
+  }
+
+  async function renamePicture(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectPictures(data.project).includes(newRel)) {
+      setStatus(`Renommage : l'image « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const pictures = projectPictures(data.project).map((r) => (r === oldRel ? newRel : r));
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, pictures },
+      };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(
+        `Image renommée : ${assetStem(oldRel)} → ${newStem} — corriger les « Afficher une image » qui l'utilisaient (le build les signale)`
+      );
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deletePicture(rel: string) {
+    if (!data) return;
+    if (!confirm(`Supprimer l'image « ${assetStem(rel)} » et son fichier ? Les commandes « Afficher une image » qui l'utilisent seront signalées au build.`)) return;
+    const keep = sceneName;
+    try {
+      const pictures = projectPictures(data.project).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, pictures: pictures.length ? pictures : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Image supprimée : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1789,6 +1911,7 @@ export default function App() {
           activeIcons={data.project.ui?.icons}
           fonts={projectFonts(data.project)}
           defaultFont={data.project.assets.font}
+          pictures={projectPictures(data.project)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
@@ -1797,21 +1920,25 @@ export default function App() {
           onImportWindowskin={() => void importWindowskin()}
           onImportIconset={() => void importIconset()}
           onImportFont={() => void importFont()}
+          onImportPicture={() => void importPicture()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
           onExportWindowskin={(rel) => void exportWindowskin(rel)}
           onExportIconset={(rel) => void exportIconset(rel)}
           onExportFont={(rel) => void exportFont(rel)}
+          onExportPicture={(rel) => void exportPicture(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
           onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
           onRenameIconset={(rel, n) => void renameIconset(rel, n)}
           onRenameFont={(rel, n) => void renameFont(rel, n)}
+          onRenamePicture={(rel, n) => void renamePicture(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
           onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
           onDeleteIconset={(rel) => void deleteIconset(rel)}
           onDeleteFont={(rel) => void deleteFont(rel)}
+          onDeletePicture={(rel) => void deletePicture(rel)}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -2063,6 +2190,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map(assetStem)}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -2117,6 +2245,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map(assetStem)}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

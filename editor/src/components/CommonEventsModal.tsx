@@ -22,6 +22,7 @@ interface Props {
   db: Database | null; // commande db_read (v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
+  pictures: string[]; // stems des images (S3) — commande pic_show
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
   onClose: () => void;
@@ -175,6 +176,7 @@ export default function CommonEventsModal(props: Props) {
                   db={props.db}
                   uiWidgets={props.uiWidgets}
                   uiStyles={props.uiStyles}
+                  pictures={props.pictures}
                   onRenameVars={props.onRenameVars}
                 />
               </>

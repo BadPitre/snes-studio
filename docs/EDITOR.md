@@ -131,7 +131,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   des glyphes ; ★ = fonte du projet `assets.font`, non supprimable ;
   registre `fonts` de project.json ; renommer met à jour les styles de
   dialogue ET les widgets qui la pointent, supprimer est refusé si un
-  style ou un widget l'utilise),
+  style ou un widget l'utilise) et **Picture** (images S3 façon RM2003 —
+  PNG indexé ≤ 16 couleurs, ≤ 256x224 en multiples de 8, validé à
+  l'import avec comptage des couleurs ; aperçu réduit + dimensions ;
+  affichées en jeu par la commande d'event **« Afficher une image »**
+  (onglet Écran, avec « Effacer l'image ») — l'image recouvre l'écran
+  avec un fondu, les dialogues se jouent par-dessus, et la fermeture
+  rend la scène intacte ; registre `pictures` de project.json, LU par
+  datagen),
   liste avec aperçu, et actions **Importer / Exporter / Renommer /
   Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export

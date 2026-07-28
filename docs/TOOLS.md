@@ -277,6 +277,21 @@ les fontes/skins partagent la palette de la fonte 0. `project.json`
 accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
 datagen — layout.toml fait foi).
 
+**Phase 12 S3 (pictures, façon RM2003)** : `project.json` accepte
+`"pictures": ["assets/....png", ...]` — LU par datagen (l'ordre donne
+les pic_id). Chaque image : PNG **indexé ≤ 16 couleurs** (palette
+paddée tolérée : seuls les INDEX utilisés comptent), dimensions
+multiples de 8, max **256x224** (centrée sur la grille 32x28 si plus
+petite), **≤ 512 tiles 8x8 uniques** après dédoublonnage (la région
+VRAM des sprites, empruntée pendant l'affichage — aplats et motifs
+répétés dédupliquent très bien). datagen émet `data_pic{i}.c` (une
+section = une bank) + le registre `data_pictures.c` (toujours, tables
+factices sans image ; max 32 images). Commandes :
+`{"c":"pic_show","pic":"<stem>"}` (SHOWPIC, nom résolu — erreur avec la
+liste sinon) affiche l'image plein écran avec un fondu — les messages
+et choix se jouent PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la
+referme, scène et events INTACTS. Refermer dans le même script.
+
 **Phase 12 S2 (fonte par widget)** : un `[[node]]` RACINE accepte
 `font = "assets/....png"` (768x8 — erreur uigen si posé sur un enfant) :
 tout le texte du widget est dessiné avec cette fonte. Même plan VRAM

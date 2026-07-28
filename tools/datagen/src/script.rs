@@ -72,6 +72,8 @@ const OP_SHOWUI: u8 = 0x24;
 const OP_KEYIN: u8 = 0x25;
 const OP_SYSMENU: u8 = 0x26;
 const OP_DLGSTYLE: u8 = 0x27;
+const OP_SHOWPIC: u8 = 0x28;
+const OP_HIDEPIC: u8 = 0x29;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -228,6 +230,9 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SYSMENU" => 1,
         // DLGSTYLE <n> : style de la prochaine boite de dialogue (S1)
         "DLGSTYLE" => 2,
+        // SHOWPIC <pic> / HIDEPIC : picture plein ecran (S3)
+        "SHOWPIC" => 2,
+        "HIDEPIC" => 1,
         // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
         // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
         // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
@@ -536,6 +541,15 @@ pub fn assemble(
                 if argc != 1 { bail!("DLGSTYLE <style>"); }
                 code.push(OP_DLGSTYLE);
                 code.push(parse_u8(args[0])?);
+            }
+            "SHOWPIC" => {
+                if argc != 1 { bail!("SHOWPIC <pic>"); }
+                code.push(OP_SHOWPIC);
+                code.push(parse_u8(args[0])?);
+            }
+            "HIDEPIC" => {
+                if argc != 0 { bail!("HIDEPIC (sans argument)"); }
+                code.push(OP_HIDEPIC);
             }
             "CETAB" => {
                 if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }

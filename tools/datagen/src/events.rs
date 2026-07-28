@@ -54,6 +54,8 @@ pub struct EventCompiler<'a> {
     ui_widgets: Vec<String>,
     /// styles de dialogue (S1) — index 0 = défaut, 1.. = dialog_style
     ui_styles: Vec<String>,
+    /// pictures du projet (S3) — stems, résolus vers les pic_id
+    pictures: Vec<String>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -80,6 +82,7 @@ impl<'a> EventCompiler<'a> {
             db: None,
             ui_widgets: Vec::new(),
             ui_styles: Vec::new(),
+            pictures: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -434,6 +437,29 @@ impl<'a> EventCompiler<'a> {
                     let on = cmd["on"].as_bool().unwrap_or(true);
                     out.push(format!("  SHOWUI {} {}", idx, on as u8));
                 }
+                // S3 — pictures plein écran (façon RM2003) : nom résolu
+                // vers le pic_id de project.pictures
+                "pic_show" => {
+                    let name = cmd["pic"].as_str().unwrap_or("");
+                    let idx = self
+                        .pictures
+                        .iter()
+                        .position(|p| p == name)
+                        .with_context(|| {
+                            format!(
+                                "pic_show : image « {} » introuvable dans project.pictures \
+                                 (images : {})",
+                                name,
+                                if self.pictures.is_empty() {
+                                    "aucune — Gestionnaire de ressources > Picture".to_string()
+                                } else {
+                                    self.pictures.join(", ")
+                                }
+                            )
+                        })?;
+                    out.push(format!("  SHOWPIC {}", idx));
+                }
+                "pic_hide" => out.push("  HIDEPIC".to_string()),
                 // Phase 12 — Key Input Processing (RM2003) : le code de la
                 // touche pressée dans une variable (0 = aucune)
                 "key_input" => {
@@ -726,6 +752,7 @@ impl<'a> EventCompiler<'a> {
         db: Option<&'a Db>,
         ui_widgets: &[String],
         ui_styles: &[String],
+        pictures: &[String],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -736,6 +763,7 @@ impl<'a> EventCompiler<'a> {
         self.db = db;
         self.ui_widgets = ui_widgets.to_vec();
         self.ui_styles = ui_styles.to_vec();
+        self.pictures = pictures.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

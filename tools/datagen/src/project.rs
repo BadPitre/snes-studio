@@ -30,6 +30,11 @@ pub struct Project {
     /// Système UI (Phase 11, docs/SPEC_SYSTEME_UI.md) : thème v1
     #[serde(default)]
     pub ui: Option<UiConfig>,
+    /// Pictures (S3, façon RM2003) : PNG indexés ≤ 16 couleurs affichés
+    /// plein écran par la commande d'event « Afficher une image » —
+    /// l'ordre donne les pic_id, les commandes les référencent par stem
+    #[serde(default)]
+    pub pictures: Vec<String>,
 }
 
 /// Thème UI v1 (docs/SPEC_SYSTEME_UI.md §6 — la table database arrive

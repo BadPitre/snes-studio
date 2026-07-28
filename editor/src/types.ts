@@ -28,6 +28,10 @@ export interface Project {
   // (ui.windowskin) pointe l'un d'eux
   iconsets?: string[]; // planches d'icônes importées (même modèle)
   fonts?: string[]; // fontes importées (S1) — assets.font est la défaut ★
+  // pictures (S3) : PNG indexés ≤ 16 couleurs, ≤ 256x224 (multiples de
+  // 8) — LUES par datagen (l'ordre donne les pic_id), affichées par la
+  // commande d'event « Afficher une image »
+  pictures?: string[];
 }
 
 // windowskins du projet — le thème actif y figure toujours (migration des
@@ -43,6 +47,11 @@ export function projectIconsets(p: Project): string[] {
   const list = p.iconsets ?? [];
   const cur = p.ui?.icons;
   return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// pictures du projet (S3) — datagen lit ce registre tel quel
+export function projectPictures(p: Project): string[] {
+  return p.pictures ?? [];
 }
 
 // fontes du projet : assets.font (la défaut) toujours en tête
@@ -177,6 +186,11 @@ export type Command =
   // 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune)
   | { c: "key_input"; var: number; wait: boolean; keys: number[] }
   | { c: "sysmenu" } // menu Système (le mapping START en dur est retiré)
+  // S3 — pictures plein écran (façon RM2003) : l'image recouvre le jeu
+  // (BG3 reste : les dialogues se jouent DESSUS), pic = stem du registre
+  // project.pictures ; pic_hide referme et restaure la scène intacte
+  | { c: "pic_show"; pic: string }
+  | { c: "pic_hide" }
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }

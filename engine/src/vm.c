@@ -16,6 +16,7 @@
 #include "timer.h"
 #include "screenfx.h"
 #include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
+#include "picture.h" /* SHOWPIC/HIDEPIC : pictures plein écran (S3) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -615,6 +616,21 @@ static void vm_step(void)
                            mapping START en dur est retiré, l'auteur
                            ouvre le menu par cette commande */
       sysmenu_open();
+      break;
+
+    case VM_OP_SHOWPIC: /* picture plein écran (S3) — transition
+                             DIFFÉRÉE à la boucle principale (modèle du
+                             warp scripté), la VM marque une pause d'une
+                             frame pour que l'image précède la suite */
+      picture_request(1, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
+    case VM_OP_HIDEPIC:
+      picture_request(0, 0);
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
