@@ -377,6 +377,9 @@ export type Layer = "lower" | "upper" | "events";
 export interface TextEntry {
   name: string;
   text: string;
+  // catégorie de rangement (fenêtre Textes — éditeur seulement, datagen
+  // ignore les champs inconnus de texts.json)
+  cat?: string;
 }
 
 export interface ProjectData {

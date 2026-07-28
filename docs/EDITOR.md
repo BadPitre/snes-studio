@@ -109,14 +109,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
 - **Sprites 16x24** : les acteurs sont dessinés sur la map avec leur frame
   de repos (bloc × 12 + direction × 3), ancrée en bas de leur tile — la
   tête dépasse de 8 px au-dessus, comme dans RM2003 et en jeu.
-- **Charset (personnage)** : dans l'onglet Acteurs, le sprite d'un PNJ se
+- **Charset (personnage)** : dans l'Event Editor, le sprite d'un PNJ se
   choisit parmi les personnages du projet (nommés via `project.charsets`).
   Le projet n'est pas limité (64 blocs max) ; chaque **scène** peut en
   afficher **5 différents** (héros inclus — limite VRAM SNES, datagen
-  compile un sprite set par scène). L'onglet affiche le compteur
-  « Charsets de la scène : n/5 ».
-- **Import de charsets RM2003** : bouton « Charset RM2003… » (onglet
-  Acteurs ou Gestionnaire de ressources) → choisir un PNG 288x256
+  compile un sprite set par scène).
+- **Import de charsets RM2003** : bouton « Charset RM2003… »
+  (Gestionnaire de ressources) → choisir un PNG 288x256
   (8 personnages) ou 72x128 (un seul), cliquer le personnage dans
   l'aperçu, choisir le bloc de destination (existant ou nouveau) et un
   nom → `datagen import-charset` recadre les frames 24x32 en 16x24 et
@@ -374,13 +373,26 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   sont des **icônes RM2003 seules** (piles de tuiles, la couche éditée
   en surbrillance, info-bulle au survol). « Vérifier le projet… » vit
   désormais dans le menu **Game**.
-- L'onglet Acteurs devient **Événements** (liste + Event Editor) ; les
-  warps s'éditent au clic droit via la fenêtre **« Téléporter »** (v0.16,
-  calquée sur Transfer Player de RM2003) : arbre des scènes à gauche,
-  **aperçu de la scène cible** à droite (clic = tile d'arrivée, carré
-  blanc), zoom 1/1-1/2-1/4, et **Direction à l'arrivée** (Conserver /
-  Haut / Droite / Bas / Gauche — écrite dans les flags du warp, le héros
-  la prend en sortant du fondu).
+- Les warps s'éditent au clic droit via la fenêtre **« Téléporter »**
+  (v0.16, calquée sur Transfer Player de RM2003) : arbre des scènes à
+  gauche, **aperçu de la scène cible** à droite (clic = tile d'arrivée,
+  carré blanc), zoom 1/1-1/2-1/4, et **Direction à l'arrivée**
+  (Conserver / Haut / Droite / Bas / Gauche — écrite dans les flags du
+  warp, le héros la prend en sortant du fondu).
+- **Sidebar allégée (Phase 12, demande utilisateur)** : les onglets
+  **Acteurs**, **Warps** et **Textes** sont retirés — il ne reste que
+  **Scène** et **Script**. Tout passe par la carte (couche Événements :
+  double-clic = Event Editor, clic droit = créer/éditer/supprimer un
+  event ou un warp) et par le menu Tools.
+- **Fenêtre « Textes »** (Tools → Textes…) : la table des textes du
+  projet (référencés par NOM dans les scripts), rangée par
+  **catégories** — colonne de gauche : (tous), chaque catégorie avec
+  son compteur, (sans catégorie) ; ✧ Nouvelle catégorie, ✎ renommer
+  (ses textes suivent), 🗑 retirer (les textes deviennent « sans
+  catégorie », rien n'est supprimé). Chaque texte a un select de
+  catégorie ; « + Ajouter un texte » range le nouveau dans la catégorie
+  affichée. La catégorie est un champ `cat` de texts.json — éditeur
+  seulement, datagen l'ignore (les text_id suivent l'ordre du fichier).
 
 ## Lancer
 
