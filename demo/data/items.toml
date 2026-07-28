@@ -1,0 +1,13 @@
+[[entry]]
+id = "potion"
+name = "Potion"
+price = 20
+power = 30
+kind = ["soin", "consommable"]
+
+[[entry]]
+id = "epee_bois"
+name = "Épée en bois"
+price = 50
+power = 4
+kind = ["arme"]

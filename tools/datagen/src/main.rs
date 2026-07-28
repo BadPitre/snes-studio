@@ -12,6 +12,7 @@
 mod binbank;
 mod charset;
 mod chipset;
+mod db;
 mod emit;
 mod events;
 mod gfx;
@@ -365,6 +366,31 @@ fn main() -> Result<()> {
         write_out(&out_dir, &name, content)?;
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project)?)?;
+
+    // Database (Phase 10, docs/PLANNING_SYSTEME_DATABASE.md) : schémas +
+    // instances TOML → tables C byte-packed. Purge d'abord les db_* d'une
+    // génération précédente (table supprimée = symbole fantôme sinon).
+    for entry in std::fs::read_dir(&out_dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.starts_with("db_") && !path.is_dir() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("purge de {}", path.display()))?;
+        }
+    }
+    if let Some(database) = db::load(&proj_dir, &text_ids)? {
+        for (name, content) in db::emit_files(&database) {
+            write_out(&out_dir, &name, content)?;
+        }
+        for (ti, sc) in database.schemas.iter().enumerate() {
+            println!(
+                "  database : table {} — {} entree(s) x {} octets",
+                sc.name,
+                database.ids[ti].len(),
+                db::entry_size(sc)
+            );
+        }
+    }
 
     println!(
         "datagen : {} scenes, {} textes -> {}",

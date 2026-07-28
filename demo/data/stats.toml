@@ -1,0 +1,18 @@
+[[entry]]
+id = "heros"
+name = "Héros"
+max_hp = 30
+attack = 5
+defense = 3
+agility = 4
+elem_resist = []
+
+[[entry]]
+id = "slime"
+name = "Slime"
+max_hp = 12
+attack = 3
+defense = 1
+agility = -2
+elem_resist = ["eau"]
+drop_item = "potion"

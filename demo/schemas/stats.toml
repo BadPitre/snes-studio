@@ -1,0 +1,37 @@
+# Table des fiches de stats (héros et monstres)
+name  = "stats"
+title = "Stats"
+max   = 255
+
+[[fields]]
+name    = "max_hp"
+type    = "u16"
+default = 10
+runtime_copy = true
+
+[[fields]]
+name    = "attack"
+type    = "u8"
+default = 1
+
+[[fields]]
+name    = "defense"
+type    = "u8"
+default = 1
+
+[[fields]]
+name    = "agility"
+type    = "s8"
+default = 0
+min     = -50
+max     = 50
+
+[[fields]]
+name  = "elem_resist"
+type  = "flags8"
+flags = ["feu", "glace", "foudre", "eau"]
+
+[[fields]]
+name     = "drop_item"
+type     = "ref:items"
+optional = true

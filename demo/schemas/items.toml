@@ -1,0 +1,24 @@
+# Table des objets — docs/PLANNING_SYSTEME_DATABASE.md
+name  = "items"
+title = "Objets"
+max   = 255
+
+[[fields]]
+name    = "price"
+type    = "u16"
+default = 10
+
+[[fields]]
+name    = "power"
+type    = "u8"
+default = 0
+
+[[fields]]
+name  = "kind"
+type  = "flags8"
+flags = ["soin", "arme", "armure", "cle", "consommable"]
+
+[[fields]]
+name     = "descr"
+type     = "text_id"
+optional = true
