@@ -78,6 +78,7 @@ const OP_MOVEPIC: u8 = 0x2A;
 const OP_TINTG: u8 = 0x2B;
 const OP_WEATHER: u8 = 0x2C;
 const OP_WAVE: u8 = 0x2D;
+const OP_SKYGRAD: u8 = 0x2E;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -229,6 +230,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "WEATHER" => 3,
         // WAVE <power 0-7> <speed 1-8> — ondulation HDMA (S14)
         "WAVE" => 3,
+        // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> — degrade (S15)
+        "SKYGRAD" => 8,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -678,6 +681,24 @@ pub fn assemble(
                 code.push(OP_WAVE);
                 for t in args {
                     code.push(parse_u8(t)?);
+                }
+            }
+            // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> —
+            // degrade de ciel (S15) : teinte verticale haut -> bas
+            "SKYGRAD" => {
+                if argc != 7 { bail!("SKYGRAD <mode> <r0> <g0> <b0> <r1> <g1> <b1>"); }
+                code.push(OP_SKYGRAD);
+                let mode = match args[0] {
+                    "off" => 0u8,
+                    "add" => 1,
+                    "sub" => 2,
+                    m => bail!("SKYGRAD : mode invalide '{}' (off/add/sub)", m),
+                };
+                code.push(mode);
+                for t in &args[1..7] {
+                    let v = parse_u8(t)?;
+                    if v > 31 { bail!("SKYGRAD : canal > 31 : {}", v); }
+                    code.push(v);
                 }
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)

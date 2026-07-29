@@ -397,6 +397,12 @@ complet : nuages sombres + pluie + flash) ; **`{"c":"wave","power":
 <power> <speed>`, speed absent = 2) : le DÉCOR ondule (BG1 + BG2,
 couche d'effet comprise), les personnages, le texte et le HUD restent
 droits ; power 0 = stop, non bloquant, persiste entre les scènes ;
+**`{"c":"skygrad","mode":"off"|"add"|"sub","r","g","b","r2","g2",
+"b2"}` (S15)** — dégradé de ciel (`SKYGRAD <mode> <r0> <g0> <b0>
+<r1> <g1> <b1>`, canaux 0-31) : teinte VERTICALE du haut (r,g,b)
+vers le bas (r2,g2,b2), remplace la teinte plate (et `tint` retire
+le dégradé — même circuit color math) ; décor seulement, persiste
+entre les scènes, zéro coût par frame (table HDMA statique) ;
 `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop

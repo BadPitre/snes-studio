@@ -13,6 +13,16 @@
    vitesse de la houle. NON bloquant, persiste entre les scènes. */
 void hdmafx_wave(u8 power, u8 speed);
 
+/* Dégradé de ciel (SKYGRAD, S15) : teinte VERTICALE — couleur du haut,
+   couleur du bas (0-31 par canal) PUIS le mode (parade tcc : 3 u8 max
+   par appel). mode 0 = off, 1 = addition, 2 = soustraction. La table
+   COLDATA (canal 4) est bâtie ICI, une fois, à la commande — zéro
+   coût par frame. REMPLACE la teinte plate ; TINT/TINTG l'annule.
+   Persiste entre les scènes ; coupé sous mélange/flash/picture. */
+void hdmafx_grad_top(u8 r, u8 g, u8 b);
+void hdmafx_grad_bottom(u8 r, u8 g, u8 b);
+void hdmafx_grad(u8 mode);
+
 /* Un pas par frame (boucle principale, toujours) : reconstruit les
    tables d'offsets (bandes de 16 lignes) depuis les scrolls courants. */
 void hdmafx_update(void);

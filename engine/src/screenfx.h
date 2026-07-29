@@ -40,6 +40,21 @@ void screenfx_tint(u8 mode);
 void screenfx_tintg_rgb(u8 r, u8 g, u8 b);
 void screenfx_tintg(u8 mode, u8 frames);
 
+/* Dégradé de ciel (S15) : TEINTE VERTICALE — même circuit color math
+   que la teinte, mais la couleur fixe ($2132) est réécrite ligne à
+   ligne par le HDMA (canal 4, table statique bâtie par hdmafx_grad).
+   screenfx ne détient que le MODE (source de vérité) : il pose
+   CGWSEL/CGADSUB au VBlank et laisse COLDATA au HDMA. Un dégradé
+   REMPLACE la teinte plate ; TINT/TINTG l'annule (même registre).
+   mode 0 = off, 1 = addition, 2 = soustraction. */
+void screenfx_skygrad(u8 mode);
+u8 screenfx_skygrad_mode(void);
+
+/* État du circuit pour hdmafx (canal COLDATA coupé quand le circuit
+   est tenu par un mélange ou emprunté par un flash) */
+u8 screenfx_cm_held(void);
+u8 screenfx_flash_active(void);
+
 /* Flash : addition (r,g,b) qui décroît sur `frames` frames, puis la
    teinte courante est restaurée. Non bloquant (enchaîner avec WAIT). */
 void screenfx_flash(u8 r, u8 g, u8 b);

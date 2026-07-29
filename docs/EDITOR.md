@@ -326,7 +326,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   l'écran** (S14 — amplitude 0-7 px, vitesse 1-8 : le DÉCOR ondule
   (chaleur du désert, sous l'eau, rêve), les personnages, le texte et
   le HUD restent droits ; amplitude 0 arrête ; persiste entre les
-  scènes), **Flash d'écran** (traverse aussi les mélanges : l'éclair
+  scènes), **Dégradé d'écran (ciel)** (S15 — teinte VERTICALE :
+  couleur du haut → couleur du bas (RGB 0-31), éclaircir ou
+  assombrir ; coucher de soleil, aube, profondeur. Remplace la
+  teinte plate, et « Teinter l'écran » retire le dégradé — même
+  circuit console. Décor seulement, persiste entre les scènes,
+  aucun coût en jeu), **Flash d'écran** (traverse aussi les mélanges : l'éclair
   d'orage marche au-dessus des nuages semi-transparents) et **Secouer
   l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events

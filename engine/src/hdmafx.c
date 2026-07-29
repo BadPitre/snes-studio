@@ -1,21 +1,25 @@
 /*
- * hdmafx.c — effets HDMA scriptés (S14) : ONDULATION de l'écran.
+ * hdmafx.c — effets HDMA scriptés : ONDULATION de l'écran (S14) et
+ * DÉGRADÉ DE CIEL (S15).
  *
- * Le HDMA réécrit les registres de scroll horizontal BG1/BG2 à chaque
- * bande de 4 scanlines depuis des tables WRAM — l'écran ondule
+ * Ondulation : le HDMA réécrit les scrolls horizontaux BG1/BG2 par
+ * bandes de scanlines depuis des tables WRAM — l'écran ondule
  * (chaleur du désert, sous l'eau, rêve). Non bloquant, persiste entre
  * les scènes jusqu'à WAVE 0 (modèle des ambiances RM2003).
+ * Dégradé : le canal 4 réécrit la couleur fixe du color math ligne à
+ * ligne — teinte verticale (ciel de coucher de soleil, aube).
  *
- * Canaux réservés : 5 (BG2HOFS $210F) et 6 (BG1HOFS $210D), mode 02
- * (un registre écrit deux fois — les scrolls sont des registres à
- * double écriture). JAMAIS le canal 7 : le NMI PVSnesLib y fait le
- * DMA général de l'OAM à chaque VBlank (vblank.asm écrit $4370-75)
- * et écrase la config HDMA — sur une frame en dépassement, le canal
- * partait avec les réglages OAM (vague plate + écritures parasites,
- * observé au combo pluie+vague). CE MODULE EST LE SEUL PROPRIÉTAIRE
- * de $420C (HDMAEN) : les futurs effets HDMA (dégradé, spotlight)
- * s'ajoutent ICI et composent le même masque. Les canaux sont
- * reprogrammés à CHAQUE VBlank (robuste face aux DMA généraux).
+ * Canaux réservés : 4 (COLDATA $2132, mode 00), 5 (BG2HOFS $210F) et
+ * 6 (BG1HOFS $210D) en mode 02 (un registre écrit deux fois — les
+ * scrolls sont des registres à double écriture). JAMAIS le canal 7 :
+ * le NMI PVSnesLib y fait le DMA général de l'OAM à chaque VBlank
+ * (vblank.asm écrit $4370-75) et écrase la config HDMA — sur une
+ * frame en dépassement, le canal partait avec les réglages OAM
+ * (vague plate + écritures parasites, observé au combo pluie+vague).
+ * CE MODULE EST LE SEUL PROPRIÉTAIRE de $420C (HDMAEN) : les effets
+ * HDMA composent un masque unique (le spotlight s'ajoutera ICI). Les
+ * canaux sont reprogrammés à CHAQUE VBlank (robuste face aux DMA
+ * généraux).
  *
  * Tables : 14 entrées de [count=16][lo][hi] + terminateur — un pas de
  * sinus par bande, phase qui avance chaque frame. La table intègre la
@@ -33,7 +37,12 @@
 #include "screenfx.h"
 #include "effectlayer.h"
 
-/* registres des canaux 5 / 6 (le 7 appartient au DMA OAM du NMI) */
+/* registres des canaux 4 / 5 / 6 (le 7 appartient au DMA OAM du NMI) */
+#define DMAP4 (*(vuint8 *)0x4340)
+#define BBAD4 (*(vuint8 *)0x4341)
+#define A1T4L (*(vuint8 *)0x4342)
+#define A1T4H (*(vuint8 *)0x4343)
+#define A1B4 (*(vuint8 *)0x4344)
 #define DMAP5 (*(vuint8 *)0x4350)
 #define BBAD5 (*(vuint8 *)0x4351)
 #define A1T5L (*(vuint8 *)0x4352)
@@ -63,7 +72,7 @@ static u8 wv_pow = 0;
 static u8 wv_spd = 1;
 static u8 wv_phase = 0;
 static u8 wv_hdr = 0; /* en-têtes de tables posés (une fois) */
-static u8 wv_on = 0;  /* HDMAEN actuellement armé */
+static u8 hx_on = 0;  /* masque HDMAEN actuellement armé */
 static u8 wv_t1[WV_BANDS * 3 + 1]; /* BG1 : [count][lo][hi] par bande + 0 */
 static u8 wv_t2[WV_BANDS * 3 + 1]; /* BG2 */
 /* offsets PRÉCALCULÉS (sin x amplitude, >>5) — bâtis à hdmafx_wave :
@@ -130,42 +139,186 @@ void hdmafx_update(void)
   }
 }
 
+/*
+ * Dégradé de ciel (S15) : TEINTE VERTICALE — le canal 4 réécrit la
+ * couleur fixe ($2132) ligne à ligne (mode 0, un octet par entrée)
+ * depuis une table run-length STATIQUE bâtie ICI à la commande :
+ * zéro coût CPU par frame. Une entrée par CHANGEMENT de canal R/G/B
+ * (≤ 31 pas par canal), les plages stables sont sautées par le champ
+ * count. CGWSEL/CGADSUB restent la propriété de screenfx (le mode du
+ * dégradé y vit — même circuit que la teinte, qui l'annule).
+ */
+static u8 gr_tr = 0, gr_tg = 0, gr_tb = 0; /* couleur du HAUT */
+static u8 gr_br = 0, gr_bg = 0, gr_bb = 0; /* couleur du BAS */
+static u8 gr_tab[256]; /* ≤ ~100 entrées de [count][sel|val] + 0 */
+static u8 *gr_q;       /* curseur d'écriture (construction) */
+static u8 *gr_cnt;     /* octet count de l'entrée ouverte */
+static u8 gr_run;      /* lignes couvertes par l'entrée ouverte */
+
+/* ferme l'entrée ouverte — coupe les plages > 127 lignes (limite du
+   champ count HDMA hors mode repeat) en entrées de bourrage */
+static void gr_close(void)
+{
+  u8 v;
+
+  while (gr_run > 127)
+  {
+    v = gr_cnt[1];
+    *gr_cnt = 127;
+    gr_run -= 127;
+    gr_cnt = gr_q;
+    gr_q[1] = v;
+    gr_q += 2;
+  }
+  *gr_cnt = gr_run;
+  gr_run = 0;
+}
+
+static void gr_emit(u8 byte)
+{
+  if (gr_cnt)
+    gr_close();
+  gr_cnt = gr_q;
+  gr_q[1] = byte;
+  gr_q += 2;
+}
+
+/* pas 8.8 d'un canal du haut vers le bas — même parade que tg_step
+   (pas de signés) : magnitude + sens. Divisions à la COMMANDE. */
+static u16 gr_step(u8 top, u8 bot, u8 *neg)
+{
+  if (bot >= top)
+  {
+    *neg = 0;
+    return ((u16)(bot - top) << 8) / 224;
+  }
+  *neg = 1;
+  return ((u16)(top - bot) << 8) / 224;
+}
+
+void hdmafx_grad_top(u8 r, u8 g, u8 b)
+{
+  gr_tr = r & 31;
+  gr_tg = g & 31;
+  gr_tb = b & 31;
+}
+
+void hdmafx_grad_bottom(u8 r, u8 g, u8 b)
+{
+  gr_br = r & 31;
+  gr_bg = g & 31;
+  gr_bb = b & 31;
+}
+
+void hdmafx_grad(u8 mode)
+{
+  u16 ar, ag, ab, sr, sg, sb;
+  u8 nr, ng, nb; /* sens du pas (1 = décroît) */
+  u8 lr, lg, lb; /* dernière valeur émise par canal */
+  u8 v;
+  u16 line;
+
+  if (mode == 0 || mode > 2)
+  {
+    screenfx_skygrad(0); /* canal 4 coupé au prochain VBlank */
+    return;
+  }
+  ar = (u16)gr_tr << 8;
+  ag = (u16)gr_tg << 8;
+  ab = (u16)gr_tb << 8;
+  sr = gr_step(gr_tr, gr_br, &nr);
+  sg = gr_step(gr_tg, gr_bg, &ng);
+  sb = gr_step(gr_tb, gr_bb, &nb);
+  gr_q = gr_tab;
+  gr_cnt = 0;
+  gr_run = 0;
+  lr = 255; /* invalide : force l'émission des 3 canaux en haut d'écran */
+  lg = 255;
+  lb = 255;
+  for (line = 0; line < 224; line++)
+  {
+    /* UNE écriture COLDATA par ligne (mode 0) : un canal qui change en
+       même temps qu'un autre est décalé d'une ligne — invisible */
+    v = (u8)(ar >> 8);
+    if (v != lr)
+    {
+      gr_emit(0x20 | v);
+      lr = v;
+    }
+    else
+    {
+      v = (u8)(ag >> 8);
+      if (v != lg)
+      {
+        gr_emit(0x40 | v);
+        lg = v;
+      }
+      else
+      {
+        v = (u8)(ab >> 8);
+        if (v != lb)
+        {
+          gr_emit(0x80 | v);
+          lb = v;
+        }
+      }
+    }
+    gr_run++;
+    ar = nr ? ar - sr : ar + sr;
+    ag = ng ? ag - sg : ag + sg;
+    ab = nb ? ab - sb : ab + sb;
+  }
+  gr_close();
+  *gr_q = 0; /* terminateur */
+  screenfx_skygrad(mode); /* arme le circuit (et remplace la teinte) */
+}
+
 void hdmafx_vblank(void)
 {
   u16 a;
+  u8 m = 0;
 
-  if (!wv_pow)
+  if (wv_pow)
   {
-    if (wv_on)
-    {
-      REG_HDMAEN = 0;
-      wv_on = 0;
-    }
-    return;
+    DMAP6 = 0x02; /* un registre, écrit deux fois (scroll double write) */
+    BBAD6 = 0x0D; /* BG1HOFS */
+    a = (u16)(u8 *)wv_t1;
+    A1T6L = (u8)a;
+    A1T6H = (u8)(a >> 8);
+    A1B6 = 0x7E;
+    DMAP5 = 0x02;
+    BBAD5 = 0x0F; /* BG2HOFS */
+    a = (u16)(u8 *)wv_t2;
+    A1T5L = (u8)a;
+    A1T5H = (u8)(a >> 8);
+    A1B5 = 0x7E;
+    m = 0x60;
   }
-  DMAP6 = 0x02; /* un registre, écrit deux fois (scroll à double write) */
-  BBAD6 = 0x0D; /* BG1HOFS */
-  a = (u16)(u8 *)wv_t1;
-  A1T6L = (u8)a;
-  A1T6H = (u8)(a >> 8);
-  A1B6 = 0x7E;
-  DMAP5 = 0x02;
-  BBAD5 = 0x0F; /* BG2HOFS */
-  a = (u16)(u8 *)wv_t2;
-  A1T5L = (u8)a;
-  A1T5H = (u8)(a >> 8);
-  A1B5 = 0x7E;
-  REG_HDMAEN = 0x60;
-  wv_on = 1;
+  if (screenfx_skygrad_mode() && !screenfx_cm_held() &&
+      !screenfx_flash_active())
+  {
+    /* dégradé de ciel : coupé quand un mélange tient le circuit ou
+       qu'un flash l'emprunte (screenfx écrit COLDATA ces frames-là) */
+    DMAP4 = 0x00; /* un registre, un octet par entrée */
+    BBAD4 = 0x32; /* COLDATA */
+    a = (u16)(u8 *)gr_tab;
+    A1T4L = (u8)a;
+    A1T4H = (u8)(a >> 8);
+    A1B4 = 0x7E;
+    m |= 0x10;
+  }
+  if (m || hx_on)
+    REG_HDMAEN = m;
+  hx_on = m;
 }
 
 void hdmafx_suspend(void)
 {
-  /* branche PICTURE du VBlank : l'image plein écran ne doit pas
-     onduler — HDMA coupé tant qu'elle est là, réarmé au retour */
-  if (wv_on)
+  /* branche PICTURE du VBlank : l'image plein écran ne doit ni onduler
+     ni recevoir le dégradé — HDMA coupé tant qu'elle est là */
+  if (hx_on)
   {
     REG_HDMAEN = 0;
-    wv_on = 0;
+    hx_on = 0;
   }
 }

@@ -620,6 +620,19 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // S15 — degrade de ciel : teinte verticale haut -> bas
+                "skygrad" => {
+                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
+                        "add" => "add",
+                        "sub" => "sub",
+                        _ => "off",
+                    };
+                    let ch = |k: &str| cmd[k].as_u64().filter(|&v| v <= 31).unwrap_or(0);
+                    out.push(format!(
+                        "  SKYGRAD {} {} {} {} {} {} {}",
+                        mode, ch("r"), ch("g"), ch("b"), ch("r2"), ch("g2"), ch("b2")
+                    ));
+                }
                 // S14 — ondulation de l'écran (HDMA) : power 0 = stop
                 "wave" => {
                     let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);

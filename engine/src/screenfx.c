@@ -31,6 +31,11 @@ static u8 flash_timer, flash_dur;
 /* Secousse : offset horizontal ±power, alternance toutes speed frames */
 static u8 shake_power, shake_speed, shake_frames, shake_phase, shake_tick;
 
+/* Dégradé de ciel (S15) : mode de la teinte VERTICALE — la couleur
+   fixe est aux mains du HDMA (hdmafx, canal 4), screenfx ne pose que
+   CGWSEL/CGADSUB. Exclusif avec la teinte plate (même registre). */
+static u8 grad_mode;
+
 /* Teinte GRADUELLE (S12, jour/nuit) : interpolation 8.8 de la teinte
    courante vers une cible en N frames — non bloquante, persiste comme
    la teinte. Bascule add<->sub en DEUX phases (descente vers 0 puis
@@ -65,6 +70,7 @@ void screenfx_init(void)
   shake_frames = 0;
   shake_phase = 0;
   shake_tick = 0;
+  grad_mode = 0; /* dégradé de ciel (S15) */
   tg_left = 0; /* teinte graduelle (S12) — init explicite (tcc) */
   tg_mode = 0;
   tg_phase2 = 0;
@@ -114,6 +120,11 @@ void screenfx_cm_hold(u8 on)
     cm_dirty = 1; /* la teinte persistante reprend ses droits */
 }
 
+u8 screenfx_cm_held(void)
+{
+  return cm_hold;
+}
+
 void screenfx_warp_reset(void)
 {
   fade_level = 15; /* le fondu du warp laisse l'écran allumé */
@@ -152,9 +163,32 @@ void screenfx_tint_rgb(u8 r, u8 g, u8 b)
 void screenfx_tint(u8 mode)
 {
   tint_mode = mode <= 2 ? mode : 0;
-  tg_left = 0; /* une teinte IMMÉDIATE annule la graduelle en cours */
+  tg_left = 0;   /* une teinte IMMÉDIATE annule la graduelle en cours */
   tg_phase2 = 0;
+  grad_mode = 0; /* … et le dégradé de ciel (même circuit, S15) */
   cm_dirty = 1;
+}
+
+void screenfx_skygrad(u8 mode)
+{
+  grad_mode = mode <= 2 ? mode : 0;
+  if (grad_mode)
+  {
+    tint_mode = 0; /* le dégradé REMPLACE la teinte plate */
+    tg_left = 0;   /* et coupe une graduelle en cours */
+    tg_phase2 = 0;
+  }
+  cm_dirty = 1;
+}
+
+u8 screenfx_skygrad_mode(void)
+{
+  return grad_mode;
+}
+
+u8 screenfx_flash_active(void)
+{
+  return flash_timer != 0;
 }
 
 /* pas 8.8 d'un canal vers sa cible — une division par phase et par canal */
@@ -197,6 +231,7 @@ void screenfx_tintg(u8 mode, u8 frames)
 
   if (mode > 2)
     mode = 0;
+  grad_mode = 0; /* une teinte (même graduelle) annule le dégradé (S15) */
   if (mode == 0)
   {
     tg_fr = 0; /* « normale » : on fond la teinte courante vers zéro */
@@ -395,6 +430,14 @@ void screenfx_vblank(void)
     b = tint_b;
     REG_CGWSEL = 0x00;
     REG_CGADSUB = tint_mode == 2 ? 0xA3 : 0x23; /* bit 7 = soustraction */
+  }
+  else if (grad_mode)
+  {
+    /* dégradé de ciel (S15) : le circuit est armé ICI, mais COLDATA
+       appartient au HDMA (hdmafx, canal 4) — ne pas l'écrire */
+    REG_CGWSEL = 0x00;
+    REG_CGADSUB = grad_mode == 2 ? 0xA3 : 0x23;
+    return;
   }
   else
   {

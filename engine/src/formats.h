@@ -231,9 +231,18 @@
                               persiste entre les scènes (RM2003). */
 #define VM_OP_WAVE 0x2D /* power, speed (u8 x2) — ONDULATION de l'écran
                             (S14, HDMA) : scrolls BG1/BG2 sinusoïdaux par
-                            bandes de 4 lignes. power 0-7 px (0 = stop),
+                            bandes de 16 lignes. power 0-7 px (0 = stop),
                             speed 1-8. NON bloquant, persiste entre les
                             scènes ; suspendu pendant une picture. */
+#define VM_OP_SKYGRAD 0x2E /* mode, r0, g0, b0, r1, g1, b1 (u8 x7) —
+                              DÉGRADÉ de ciel (S15, HDMA) : teinte
+                              VERTICALE du haut (r0g0b0) vers le bas
+                              (r1g1b1), 0-31 par canal. mode 0 = off,
+                              1 = éclaircir, 2 = assombrir. REMPLACE la
+                              teinte plate (TINT/TINTG l'annule — même
+                              circuit color math). NON bloquant, persiste
+                              entre les scènes ; coupé sous mélange /
+                              flash / picture. */
 #define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
                             (S12, jour/nuit) : interpole la teinte
                             courante vers la cible en dur frames, NON

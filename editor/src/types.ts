@@ -236,6 +236,16 @@ export type Command =
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
   | { c: "wave"; power: number; speed?: number }
+  | {
+      c: "skygrad";
+      mode: "off" | "add" | "sub";
+      r: number;
+      g: number;
+      b: number;
+      r2: number;
+      g2: number;
+      b2: number;
+    }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)

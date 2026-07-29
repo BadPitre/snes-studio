@@ -543,6 +543,18 @@ static void vm_step(void)
       hdmafx_wave(var, fetch8());
       break;
 
+    case VM_OP_SKYGRAD: /* dégradé de ciel (S15) — couleurs PUIS mode
+                           (parade tcc : 3 u8 max par appel) */
+      var = fetch8();   /* mode */
+      val = fetch8();   /* r haut */
+      idx16 = fetch8(); /* g haut */
+      hdmafx_grad_top(val, (u8)idx16, fetch8());
+      val = fetch8();   /* r bas */
+      idx16 = fetch8(); /* g bas */
+      hdmafx_grad_bottom(val, (u8)idx16, fetch8());
+      hdmafx_grad(var);
+      break;
+
     case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */
       var = fetch8();
       weather_set(var, fetch8());
