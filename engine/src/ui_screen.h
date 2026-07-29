@@ -22,6 +22,11 @@ void ui_screen_init(void);
 /* Déclare les rangées [row, row+h) modifiées — après chaque écriture. */
 void ui_mark(u8 row, u8 h);
 
+/* Le span sale courant touche-t-il [row, row+h) ? Pour un module qui
+   veut rester AU-DESSUS des autres (panneau de debug S6) : re-blitter
+   seulement quand quelqu'un a repeint ses rangées cette frame. */
+u8 ui_dirty_overlap(u8 row, u8 h);
+
 /* DMA du span de rangées sales — VBlank uniquement. */
 void ui_screen_vblank(void);
 

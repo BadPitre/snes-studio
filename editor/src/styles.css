@@ -326,3 +326,8 @@ input, select, textarea {
 .textsmodal-list .text-entry .row { align-items: center; }
 .textsmodal-list .text-entry .text-name { flex: 1; }
 .resmgr-cats .row { margin-top: 4px; }
+
+/* Picker de transparence (S4) : TOUJOURS au-dessus des autres modales —
+   il s'ouvre par-dessus le Gestionnaire de ressources */
+.transpick-top { z-index: 80; }
+.modal.transpick { max-width: 560px; }

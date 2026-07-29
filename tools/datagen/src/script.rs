@@ -72,6 +72,9 @@ const OP_SHOWUI: u8 = 0x24;
 const OP_KEYIN: u8 = 0x25;
 const OP_SYSMENU: u8 = 0x26;
 const OP_DLGSTYLE: u8 = 0x27;
+const OP_SHOWPIC: u8 = 0x28;
+const OP_HIDEPIC: u8 = 0x29;
+const OP_MOVEPIC: u8 = 0x2A;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -228,6 +231,11 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SYSMENU" => 1,
         // DLGSTYLE <n> : style de la prochaine boite de dialogue (S1)
         "DLGSTYLE" => 2,
+        // SHOWPIC <pic> <x> <y> <flags> <dur> / HIDEPIC <dur> /
+        // MOVEPIC <x> <y> <flags> <dur> — pictures (S3/S5/S7)
+        "SHOWPIC" => 6,
+        "HIDEPIC" => 2,
+        "MOVEPIC" => 5,
         // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
         // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
         // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
@@ -536,6 +544,25 @@ pub fn assemble(
                 if argc != 1 { bail!("DLGSTYLE <style>"); }
                 code.push(OP_DLGSTYLE);
                 code.push(parse_u8(args[0])?);
+            }
+            "SHOWPIC" => {
+                if argc != 5 { bail!("SHOWPIC <pic> <x> <y> <flags> <dur>"); }
+                code.push(OP_SHOWPIC);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
+            }
+            "HIDEPIC" => {
+                if argc != 1 { bail!("HIDEPIC <dur>"); }
+                code.push(OP_HIDEPIC);
+                code.push(parse_u8(args[0])?);
+            }
+            "MOVEPIC" => {
+                if argc != 4 { bail!("MOVEPIC <x> <y> <flags> <dur>"); }
+                code.push(OP_MOVEPIC);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
             }
             "CETAB" => {
                 if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }

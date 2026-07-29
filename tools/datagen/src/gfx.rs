@@ -4,6 +4,7 @@
 
 use crate::tileset::dist555 as color_dist;
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Clone)]
@@ -168,6 +169,75 @@ impl IndexedImage {
             }
         }
         out
+    }
+
+    /// Picture plein écran (S3, façon RM2003) : PNG indexé ≤ 16 couleurs,
+    /// dimensions multiples de 8, max 256x224 — centré sur la grille
+    /// 32x28 si plus petit (cellules vides = couleur 0). Retourne
+    /// (chars 4bpp dédupliqués, tilemap 32x28 palette 0, palette 16
+    /// couleurs BGR555). Budget : 512 chars (le moteur recouvre la
+    /// région tileset BG1, rechargée à la fermeture).
+    /// `trans` (S4) : image à transparence — les entrées de tilemap
+    /// prennent la PALETTE BG 7 (réservée : le décor garde les palettes
+    /// 0-6) pour que la couche carte visible derrière reste correcte.
+    pub fn to_picture(&self, trans: bool) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
+        if self.width == 0 || self.height == 0
+            || self.width % 8 != 0 || self.height % 8 != 0
+            || self.width > 256 || self.height > 224
+        {
+            bail!(
+                "picture : attendu <= 256x224 avec dimensions multiples de 8, recu {}x{}",
+                self.width, self.height
+            );
+        }
+        // ce qui compte : les INDEX utilisés (les PNG ont souvent une
+        // palette paddée à 256 entrées — on la tronque à 16)
+        if let Some(&mx) = self.pixels.iter().max() {
+            if mx >= 16 {
+                bail!(
+                    "picture : index de couleur {} utilise (max 15 — image \
+                     indexee 16 couleurs)",
+                    mx
+                );
+            }
+        }
+        let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let tw = self.width / 8;
+        let th = self.height / 8;
+        // S5 : image calée en HAUT-GAUCHE de la carte — le moteur la
+        // positionne à l'écran par le scroll BG1 (commande pic_show).
+        // Carte 32x32 COMPLÈTE : au scroll vertical, les rangées 28-31
+        // deviennent visibles (wrap SC_32x32) — padding transparent.
+        let mut chars: Vec<u8> = Vec::new();
+        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
+        let mut map = vec![0u16; 32 * 32];
+        for ty in 0..32usize {
+            for tx in 0..32usize {
+                let ch: [u8; 32] = if tx < tw && ty < th {
+                    self.char4bpp_mapped(tx * 8, ty * 8, &identity)
+                } else {
+                    [0u8; 32] // hors image : couleur 0 (transparent/fond)
+                };
+                let n = seen.len() as u16;
+                let id = *seen.entry(ch).or_insert_with(|| {
+                    chars.extend_from_slice(&ch);
+                    n
+                });
+                // palette 0 (opaque) ou 7 (transparence S4), sans flip
+                map[ty * 32 + tx] = if trans { id | (7 << 10) } else { id };
+            }
+        }
+        if seen.len() > 512 {
+            bail!(
+                "picture : {} tiles 8x8 uniques (max 512 — la région VRAM des \
+                 sprites, empruntée pendant l'affichage) — simplifier l'image \
+                 (aplats, motifs répétés)",
+                seen.len()
+            );
+        }
+        let mut pal: Vec<u16> = self.palette.iter().copied().take(16).collect();
+        pal.resize(16, 0);
+        Ok((chars, map, pal))
     }
 
     /// Encode un char 8x8 en 2bpp planaire SNES (16 octets)

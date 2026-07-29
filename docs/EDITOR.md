@@ -83,6 +83,17 @@ consomme** : aucun format intermédiaire.
   lancement de l'émulateur sur le ROM compilé. Chemins du bash et de
   l'émulateur dans les réglages ⚙ (stockés sur la machine, pas dans le
   projet). PVSNESLIB_HOME doit être défini dans le profil MSYS2.
+  **Menu de debug (S6)** : la case « Menu de debug dans la ROM de
+  test » des réglages ⚙ passe `--debug` à datagen pour les ROMs de
+  test (Jouer et « Générer les données ») — JAMAIS pour le build
+  cartouche. En jeu, **Start + Select + R** affiche/cache un panneau
+  de 2 rangées en haut de l'écran : **FPS** (itérations de la boucle
+  par seconde), **LAG** (frames d'affichage manquées depuis le boot —
+  les fondus bloquants de warp/picture comptent dedans, c'est normal
+  de le voir grimper à ces moments-là), et l'occupation réelle des
+  banks **SCN** (scènes : maps + events + scripts) et **TXT**
+  (textes), en octets sur 32768. Le panneau ne coûte quasiment rien —
+  les valeurs qu'il affiche restent honnêtes.
 - **Modes de dessin** (comme RPG Maker 2003) : ✏ crayon, ▭ rectangle,
   ◯ ellipse, ▨ pot de peinture (zone connexe de même tile) — le motif du
   tampon se répète dans la forme, ancré au début du geste. Un geste = une
@@ -130,7 +141,42 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   des glyphes ; ★ = fonte du projet `assets.font`, non supprimable ;
   registre `fonts` de project.json ; renommer met à jour les styles de
   dialogue ET les widgets qui la pointent, supprimer est refusé si un
-  style ou un widget l'utilise),
+  style ou un widget l'utilise) et **Picture** (images S3 façon RM2003 —
+  PNG indexé ≤ 16 couleurs, ≤ 256x224 en multiples de 8, validé à
+  l'import avec comptage des couleurs ; aperçu réduit + dimensions ;
+  affichées en jeu par la commande d'event **« Afficher une image »**
+  (onglet Écran, avec « Effacer l'image ») — les dialogues se jouent
+  par-dessus, et la fermeture rend la scène intacte ; registre
+  `pictures` de project.json, LU par datagen. **Options S5/S7 (façon
+  Show Picture RM2003)** : le formulaire « Afficher une image » propose
+  l'**Image** (de la liste Picture), la **Position à l'écran** (Centrée,
+  Position X/Y en pixels — X 0-255, Y 0-216, validées par datagen —
+  ou position lue dans des VARIABLES), la **Transition** (Fondu avec
+  DURÉE en frames — 60 = 1 seconde — ou Instantanée) et le **Mélange
+  avec le décor (S8)** : Normal (opaque), Semi-transparent (50 %),
+  Additif (lueur) ou Soustractif (ombre) — le circuit couleur de la
+  console fond l'image avec le décor, les dialogues restent nets, la
+  teinte d'écran est suspendue le temps de l'image ; « Effacer
+  l'image » propose Transition + durée. Tout ce qui vient de variables
+  est recalé par le moteur aux dimensions réelles (jamais hors écran).
+  Le champ JSON `pic_var` (numéro d'image lu dans une variable) reste
+  accepté par datagen mais n'est plus exposé dans le formulaire (une
+  seule image à la fois). **« Déplacer l'image » (S7)** :
+  glisse l'image affichée vers une nouvelle position (constantes ou
+  variables) en N frames SANS bloquer le script (façon Move Picture
+  RM2003) — enchaîner avec « Attendre » pour attendre la fin. Champs
+  JSON : `x`/`y`, `x_var`/`y_var`, `pic_var`, `dur` (0 = instantané ;
+  `fade: false` = héritage S5).
+  **Transparence (S4)** : à l'import, le dialogue **« Import image »**
+  montre l'image — un CLIC désigne la couleur à rendre transparente
+  (aperçu en damier, ✕ pour retirer le choix), puis **Valider**
+  (sans couleur cliquée = import sans transparence) ou **Annuler** —
+  en jeu, le décor de
+  la carte se voit à travers les pixels percés, mais pas les
+  personnages ; ≤ 15 couleurs opaques dans ce cas. Le même sélecteur
+  s'ouvre à l'import des **IconSets** et **CharSets** : pratique pour
+  les planches à fond plein (blanc, magenta…) — la couleur cliquée
+  devient l'index 0 transparent sans passer par GIMP),
   liste avec aperçu, et actions **Importer / Exporter / Renommer /
   Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export

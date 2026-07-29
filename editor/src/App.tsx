@@ -13,6 +13,8 @@ import {
   musicStem,
   projectFonts,
   projectIconsets,
+  picPath,
+  projectPictures,
   projectTilesets,
   projectWindowskins,
   spriteBlockCount,
@@ -75,6 +77,8 @@ import ScriptPanel from "./components/ScriptPanel";
 import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
+import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
+import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
 import type { DatagenReport } from "./components/DiagnosticsModal";
@@ -102,6 +106,7 @@ export default function App() {
   const [playCfg, setPlayCfg] = useState<PlayConfig>(() => ({
     bash: localStorage.getItem("snesstudio.bash") ?? "C:\\msys64\\usr\\bin\\bash.exe",
     emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
+    debug: localStorage.getItem("snesstudio.debug") === "1",
   }));
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("scene");
@@ -120,6 +125,14 @@ export default function App() {
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
   // import de charset en cours (fichier choisi, en attente du personnage/bloc)
+  // Picker de couleur transparente à l'import (S4) : l'image validée
+  // attend le choix de la couleur (ou « sans transparence »)
+  const [transPick, setTransPick] = useState<null | {
+    kind: "iconset" | "picture" | "charset";
+    file: string;
+    bytes: Uint8Array;
+    bmp: ImageBitmap;
+  }>(null);
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
@@ -510,7 +523,8 @@ export default function App() {
         );
         return;
       }
-      setCharsetImport({ path: file, bmp });
+      const bytes = await readBinaryFile(file);
+      setTransPick({ kind: "charset", file, bytes, bmp });
     } catch (e) {
       setStatus(`Import charset : ${e}`);
     }
@@ -893,16 +907,7 @@ export default function App() {
         );
         return;
       }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectIconsets(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
-        }));
-      }
-      setStatus(`Planche d'icônes importée : ${name} (${bmp.width / 8} icônes)`);
+      setTransPick({ kind: "iconset", file, bytes, bmp });
     } catch (e) {
       setStatus(`Import planche d'icônes : ${e}`);
     }
@@ -1088,6 +1093,172 @@ export default function App() {
     }
   }
 
+
+  // Pictures (S3) : PNG indexé <= 16 couleurs, <= 256x224 (multiples de
+  // 8) — affichées plein écran par « Afficher une image ». Registre
+  // project.pictures LU par datagen (l'ordre donne les pic_id).
+  async function importPicture() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une image (PNG indexé ≤ 16 couleurs, ≤ 256x224)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(
+        new Blob([bytes as BlobPart], { type: "image/png" })
+      );
+      if (
+        bmp.width === 0 || bmp.height === 0 ||
+        bmp.width > 256 || bmp.height > 224 ||
+        bmp.width % 8 !== 0 || bmp.height % 8 !== 0
+      ) {
+        setStatus(
+          `Image : attendu ≤ 256x224 avec dimensions multiples de 8, reçu ${bmp.width}x${bmp.height}`
+        );
+        return;
+      }
+      setTransPick({ kind: "picture", file, bytes, bmp });
+    } catch (e) {
+      setStatus(`Import image : ${e}`);
+    }
+  }
+
+  // Phase 2 des imports à picker (S4) : la couleur transparente est
+  // connue — transformer (alpha 0), valider, écrire, enregistrer
+  async function finishTransPick(color: Rgb | null) {
+    const t = transPick;
+    setTransPick(null);
+    if (!data || !t) return;
+    try {
+      const bytes = color ? await applyTransparency(t.bytes, color) : t.bytes;
+      const name = t.file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      if (t.kind === "iconset") {
+        await writeBinaryFile(`${data.root}/${rel}`, bytes);
+        if (!projectIconsets(data.project).includes(rel)) {
+          mutate((d) => ({
+            ...d,
+            project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
+          }));
+        }
+        setStatus(`Planche d'icônes importée : ${name} (${t.bmp.width / 8} icônes)`);
+      } else if (t.kind === "picture") {
+        // comptage des couleurs OPAQUES restantes : ≤ 16 sans
+        // transparence (PNG indexé conservé tel quel), ≤ 15 avec (le
+        // PNG réécrit passe par l'indexation alpha de datagen, index 0
+        // réservé au transparent)
+        {
+          const cv = document.createElement("canvas");
+          cv.width = t.bmp.width;
+          cv.height = t.bmp.height;
+          const ctx = cv.getContext("2d")!;
+          ctx.drawImage(t.bmp, 0, 0);
+          const d4 = ctx.getImageData(0, 0, t.bmp.width, t.bmp.height).data;
+          const seen = new Set<number>();
+          for (let i = 0; i < d4.length; i += 4) {
+            if (d4[i + 3] < 128) continue;
+            const c = (d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2];
+            if (color && d4[i] === color[0] && d4[i + 1] === color[1] && d4[i + 2] === color[2])
+              continue;
+            seen.add(c);
+            if (seen.size > 16) break;
+          }
+          const max = color ? 15 : 16;
+          if (seen.size > max) {
+            setStatus(
+              `Image : plus de ${max} couleurs opaques${color ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
+            );
+            return;
+          }
+        }
+        await writeBinaryFile(`${data.root}/${rel}`, bytes);
+        const entry = color ? { path: rel, trans: true } : rel;
+        if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
+          mutate((d) => ({
+            ...d,
+            project: { ...d.project, pictures: [...projectPictures(d.project), entry] },
+          }));
+        }
+        setStatus(
+          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${color ? ", avec transparence — le décor se verra à travers" : ""})`
+        );
+      } else {
+        // charset : datagen import-charset lit un FICHIER — copie
+        // temporaire avec la transparence percée, consommée par la
+        // fenêtre d'import (remplacée à chaque import)
+        const tmp = `${data.root}/assets/_charset_import.png`;
+        await writeBinaryFile(tmp, bytes);
+        const bmp2 = color ? await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" })) : t.bmp;
+        setCharsetImport({ path: tmp, bmp: bmp2 });
+      }
+    } catch (e) {
+      setStatus(`Import : ${e}`);
+    }
+  }
+
+  async function exportPicture(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter l'image (PNG)", `${assetStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Image exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export image : ${e}`);
+    }
+  }
+
+  async function renamePicture(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === assetStem(oldRel)) return;
+    const newRel = `assets/${newStem}.png`;
+    if (projectPictures(data.project).some((e) => picPath(e) === newRel)) {
+      setStatus(`Renommage : l'image « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const pictures = projectPictures(data.project).map((e) =>
+        picPath(e) !== oldRel ? e : typeof e === "string" ? newRel : { ...e, path: newRel }
+      );
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, pictures },
+      };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(
+        `Image renommée : ${assetStem(oldRel)} → ${newStem} — corriger les « Afficher une image » qui l'utilisaient (le build les signale)`
+      );
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deletePicture(rel: string) {
+    if (!data) return;
+    if (!confirm(`Supprimer l'image « ${assetStem(rel)} » et son fichier ? Les commandes « Afficher une image » qui l'utilisent seront signalées au build.`)) return;
+    const keep = sceneName;
+    try {
+      const pictures = projectPictures(data.project).filter((e) => picPath(e) !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, pictures: pictures.length ? pictures : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Image supprimée : ${assetStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1113,7 +1284,7 @@ export default function App() {
     setBuilding(true);
     setStatus("datagen en cours…");
     try {
-      const res = await runDatagen(data.root);
+      const res = await runDatagen(data.root, playCfg.debug);
       setStatus(
         res.ok
           ? "Données moteur regénérées — reste « make » dans engine/."
@@ -1179,7 +1350,7 @@ export default function App() {
     try {
       await save();
       setStatus("datagen…");
-      const gen = await runDatagen(data.root);
+      const gen = await runDatagen(data.root, playCfg.debug);
       if (!gen.ok) {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
@@ -1254,6 +1425,7 @@ export default function App() {
     setPlayCfg(c);
     localStorage.setItem("snesstudio.bash", c.bash);
     localStorage.setItem("snesstudio.emulator", c.emulator);
+    localStorage.setItem("snesstudio.debug", c.debug ? "1" : "0");
     setShowSettings(false);
   }
 
@@ -1745,6 +1917,16 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+      {transPick && data && (
+        <TransparencyPickModal
+          bmp={transPick.bmp}
+          onOk={(color) => void finishTransPick(color)}
+          onClose={() => {
+            setTransPick(null);
+            setStatus("Import annulé.");
+          }}
+        />
+      )}
       {showResources && data && (
         <ResourceManagerModal
           root={data.root}
@@ -1759,6 +1941,7 @@ export default function App() {
           activeIcons={data.project.ui?.icons}
           fonts={projectFonts(data.project)}
           defaultFont={data.project.assets.font}
+          pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
@@ -1767,21 +1950,25 @@ export default function App() {
           onImportWindowskin={() => void importWindowskin()}
           onImportIconset={() => void importIconset()}
           onImportFont={() => void importFont()}
+          onImportPicture={() => void importPicture()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
           onExportWindowskin={(rel) => void exportWindowskin(rel)}
           onExportIconset={(rel) => void exportIconset(rel)}
           onExportFont={(rel) => void exportFont(rel)}
+          onExportPicture={(rel) => void exportPicture(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
           onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
           onRenameIconset={(rel, n) => void renameIconset(rel, n)}
           onRenameFont={(rel, n) => void renameFont(rel, n)}
+          onRenamePicture={(rel, n) => void renamePicture(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
           onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
           onDeleteIconset={(rel) => void deleteIconset(rel)}
           onDeleteFont={(rel) => void deleteFont(rel)}
+          onDeletePicture={(rel) => void deletePicture(rel)}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -2043,6 +2230,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -2097,6 +2285,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

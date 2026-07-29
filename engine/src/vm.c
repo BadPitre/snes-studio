@@ -16,6 +16,7 @@
 #include "timer.h"
 #include "screenfx.h"
 #include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
+#include "picture.h" /* SHOWPIC/HIDEPIC : pictures plein écran (S3) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -615,6 +616,47 @@ static void vm_step(void)
                            mapping START en dur est retiré, l'auteur
                            ouvre le menu par cette commande */
       sysmenu_open();
+      break;
+
+    case VM_OP_SHOWPIC: /* picture (S3/S5/S7) — transition DIFFÉRÉE à la
+                             boucle principale (modèle du warp scripté),
+                             la VM marque une pause d'une frame pour que
+                             l'image précède la suite. Les VARIABLES
+                             (flags bits 0-1) sont résolues ICI. */
+      var = fetch8(); /* pic_id ou index de variable */
+      val = fetch8(); /* x écran ou index de variable */
+      idx16 = fetch8(); /* y écran ou index de variable */
+      ofs = fetch8(); /* flags */
+      if (ofs & 1)
+        var = (u8)vm.vars16[var];
+      if (ofs & 2)
+      {
+        val = (u8)vm.vars16[val];
+        idx16 = (u8)vm.vars16[(u8)idx16];
+      }
+      picture_request(1, var, val, (u8)idx16, (u8)ofs, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
+    case VM_OP_HIDEPIC:
+      picture_request(0, 0, 0, 0, 0, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
+    case VM_OP_MOVEPIC: /* glisse l'image affichée (S7) — NON-bloquant :
+                             état seulement, le scroll avance frame par
+                             frame dans picture_apply */
+      val = fetch8(); /* x ou index de variable */
+      idx16 = fetch8(); /* y ou index de variable */
+      ofs = fetch8(); /* flags */
+      if (ofs & 2)
+      {
+        val = (u8)vm.vars16[val];
+        idx16 = (u8)vm.vars16[(u8)idx16];
+      }
+      picture_move(val, (u8)idx16, (u8)ofs, fetch8());
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */

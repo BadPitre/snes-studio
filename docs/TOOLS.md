@@ -28,6 +28,19 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine
 make data
 ```
 
+**`--debug` (S6)** : grave le drapeau du menu de debug dans
+`engine/src/data/data_debug.c` (TOUJOURS émis : `dbg_enabled` +
+`dbg_scn_used`/`dbg_txt_used`/`dbg_bank_cap`, les octets réellement
+occupés dans les banks scènes/textes — le moteur inclut `debug.c`
+inconditionnellement, inerte sans le drapeau). En jeu,
+**Start+Select+R** bascule le panneau (FPS, LAG, budgets). Le drapeau
+vient de la case « Menu de debug » des réglages de l'éditeur (ROMs de
+test uniquement) — le build cartouche ne le passe jamais. Piège
+documenté dans debug.c : le panneau ne fait AUCUNE division et ne
+réécrit que les cellules qui changent (re-blit étalé sur 4 frames),
+sinon il devient lui-même le lag qu'il mesure sur une boucle de jeu
+déjà pleine.
+
 ### Build cartouche (flashcart)
 
 ```bash
@@ -276,6 +289,47 @@ chaque windowskin 9, les icônes 2×N, chaque fonte supplémentaire 96
 les fontes/skins partagent la palette de la fonte 0. `project.json`
 accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
 datagen — layout.toml fait foi).
+
+**Phase 12 S3 (pictures, façon RM2003)** : `project.json` accepte
+`"pictures": ["assets/....png", ...]` — LU par datagen (l'ordre donne
+les pic_id). Chaque image : PNG **indexé ≤ 16 couleurs** (palette
+paddée tolérée : seuls les INDEX utilisés comptent), dimensions
+multiples de 8, max **256x224** (calée en HAUT-GAUCHE d'une carte
+32x32 complétée de padding transparent — le placement écran se fait
+par scroll), **≤ 512 tiles 8x8 uniques** après dédoublonnage (la
+région VRAM des sprites, empruntée pendant l'affichage — aplats et
+motifs répétés dédupliquent très bien). datagen émet `data_pic{i}.c`
+(une section = une bank) + le registre `data_pictures.c` (toujours,
+tables factices sans image ; max 32 images). Commandes :
+`{"c":"pic_show","pic":"<stem>"}` (SHOWPIC, nom résolu — erreur avec
+la liste sinon) affiche l'image — les messages et choix se jouent
+PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la referme, scène et
+events INTACTS. Refermer dans le même script. **Options S5/S7 (façon
+Show/Move Picture RM2003)** : `pic_show` accepte `"x"`/`"y"` (position
+écran en pixels, défaut = image centrée — datagen calcule avec les
+dimensions du PNG et valide x+w ≤ 256, y+h ≤ 224), `"pic_var"` (numéro
+d'image lu dans une variable — remplace `"pic"`, flags bit 0),
+`"x_var"`/`"y_var"` (position lue dans des variables, flags bit 1 —
+le MOTEUR clampe alors aux dims réelles, tables `pic_wt`/`pic_ht` du
+registre) et `"dur"` (frames de CHAQUE fondu, 0 = instantané, défaut
+16 ; `"fade": false` = héritage S5, équivaut à dur 0). `pic_hide`
+accepte `"dur"`. **`"blend"` (S8)** : `"half"` (semi-transparent 50 %),
+`"add"` (additif) ou `"sub"` (soustractif) — l'image se fond avec le
+décor par le color math (flags bits 3-4) ; absent = opaque. La teinte
+d'écran est suspendue le temps de l'image (même circuit). **`pic_move` (S7)** : glisse l'image affichée vers
+`x`/`y` (ou `x_var`/`y_var`) en `"dur"` frames, SANS bloquer le script
+(0 = saut) — absent = centre. Émis en `SHOWPIC id x y flags dur` /
+`HIDEPIC dur` / `MOVEPIC x y flags dur` (flags : bit 0 image-variable,
+bit 1 position-variables, bit 2 centrage moteur).
+**Transparence (S4)** : une entrée `{"path": "...", "trans": true}`
+marque une image à TRANSPARENCE (pixels d'alpha < 128, percés par le
+sélecteur de couleur de l'éditeur à l'import) — en jeu, la couche
+DÉCOR de la carte reste visible derrière les pixels percés (pas les
+personnages : leur mémoire vidéo porte l'image). Ces images vivent sur
+la **palette BG 7** (entrées de tilemap marquées par datagen, couleurs
+113-127 — les palettes 0-6 et la couleur de fond de la scène sont
+préservées) ; ≤ 15 couleurs opaques. Si un tileset occupe déjà la
+palette 7, datagen l'avertit : le décor serait faux dans SES scènes.
 
 **Phase 12 S2 (fonte par widget)** : un `[[node]]` RACINE accepte
 `font = "assets/....png"` (768x8 — erreur uigen si posé sur un enfant) :

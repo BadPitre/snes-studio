@@ -28,6 +28,20 @@ export interface Project {
   // (ui.windowskin) pointe l'un d'eux
   iconsets?: string[]; // planches d'icônes importées (même modèle)
   fonts?: string[]; // fontes importées (S1) — assets.font est la défaut ★
+  // pictures (S3) : PNG ≤ 16 couleurs, ≤ 256x224 (multiples de 8) —
+  // LUES par datagen (l'ordre donne les pic_id), affichées par la
+  // commande d'event « Afficher une image ». Entrée objet (S4) :
+  // { path, trans: true } = image à TRANSPARENCE (le décor de la carte
+  // se voit à travers les pixels percés à l'import)
+  pictures?: PictureEntry[];
+}
+
+export type PictureEntry = string | { path: string; trans?: boolean };
+export function picPath(e: PictureEntry): string {
+  return typeof e === "string" ? e : e.path;
+}
+export function picTrans(e: PictureEntry): boolean {
+  return typeof e !== "string" && !!e.trans;
 }
 
 // windowskins du projet — le thème actif y figure toujours (migration des
@@ -43,6 +57,11 @@ export function projectIconsets(p: Project): string[] {
   const list = p.iconsets ?? [];
   const cur = p.ui?.icons;
   return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// pictures du projet (S3) — datagen lit ce registre tel quel
+export function projectPictures(p: Project): PictureEntry[] {
+  return p.pictures ?? [];
 }
 
 // fontes du projet : assets.font (la défaut) toujours en tête
@@ -177,6 +196,33 @@ export type Command =
   // 8 X, 9 L, 10 R, 11 Select, 12 Start ; 0 = aucune)
   | { c: "key_input"; var: number; wait: boolean; keys: number[] }
   | { c: "sysmenu" } // menu Système (le mapping START en dur est retiré)
+  // S3 — pictures plein écran (façon RM2003) : l'image recouvre le jeu
+  // (BG3 reste : les dialogues se jouent DESSUS), pic = stem du registre
+  // project.pictures ; pic_hide referme et restaure la scène intacte
+  // x/y : position écran en pixels (absents = centré) — S5. S7 :
+  // pic_var = numéro d'image lu dans une variable (remplace pic),
+  // x_var/y_var = position lue dans des variables, dur = frames de
+  // fondu/glissement (0 = instantané, défaut 16) ; fade: false =
+  // héritage S5 (équivaut à dur 0). pic_move glisse l'image affichée
+  // vers la cible en dur frames, SANS bloquer le script.
+  // blend (S8) : mélange color math avec le décor — half = semi-
+  // transparent (50 %), add = additif (lueur), sub = soustractif
+  // (ombre). Absent = image opaque. pic_var reste accepté par datagen
+  // mais n'est plus exposé dans le formulaire (une image à la fois).
+  | {
+      c: "pic_show";
+      pic: string;
+      pic_var?: number;
+      x?: number;
+      y?: number;
+      x_var?: number;
+      y_var?: number;
+      dur?: number;
+      fade?: boolean;
+      blend?: "half" | "add" | "sub";
+    }
+  | { c: "pic_hide"; dur?: number; fade?: boolean }
+  | { c: "pic_move"; x?: number; y?: number; x_var?: number; y_var?: number; dur?: number }
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }

@@ -19,6 +19,8 @@
 #include "screenfx.h"
 #include "ui_overlay.h"
 #include "ui_screen.h"
+#include "picture.h"
+#include "debug.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -33,6 +35,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   setFadeEffect(FADE_OUT);
   setScreenOff();
 
+  picture_reset(); /* warp pendant une image : scene_load recharge tout */
   scene_load(dest_scene);
   textbox_load_pal(); /* scene_load écrase la CGRAM 16-19 (fonte, spec §4) */
   vm_scene_reset();
@@ -149,6 +152,9 @@ int main(void)
       }
     }
 
+    picture_apply(); /* SHOWPIC/HIDEPIC différés (S3) — transition
+                            écran depuis la boucle, comme do_warp */
+
     if (!sysmenu_active())
     {
       actors_update(); /* routes (même pendant un script — cinématiques) +
@@ -159,21 +165,35 @@ int main(void)
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
     overlay_update();  /* HUD : redessin si une variable a changé */
+    debug_update();    /* panneau Start+Select+R (S6) — inerte sans le
+                          drapeau --debug de datagen ; APRÈS overlay */
     camera_update();
-    map_update();  /* prépare le streaming de la fenêtre tilemap */
-    player_draw(); /* shadow OAM — transféré par le NMI au VBlank */
+    if (!picture_active())
+      map_update(); /* prépare le streaming de la fenêtre tilemap */
+    player_draw();  /* shadow OAM — transféré par le NMI au VBlank */
     actors_draw();
 
     audio_process(); /* flux musique -> SPC */
 
     WaitForVBlank();
 
-    /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement */
-    map_vblank();
-    ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
-    screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
-    bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
-    bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
+    /* Transferts VRAM + registres de scroll : pendant le VBlank uniquement.
+       Picture affichée (S3) : BG1 porte l'image, carte 32x32 scrollée à
+       0 — pas de streaming ni de scroll caméra tant qu'elle est là. */
+    if (picture_active())
+    {
+      ui_screen_vblank();
+      screenfx_vblank();
+      picture_vblank(); /* scroll BG1 = position de l'image (S5) */
+    }
+    else
+    {
+      map_vblank();
+      ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
+      screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
+      bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
+      bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
+    }
   }
   return 0;
 }

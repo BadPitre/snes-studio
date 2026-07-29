@@ -44,9 +44,14 @@ fn main() -> Result<()> {
         let bloc: usize = args[5].parse().context("bloc : nombre attendu")?;
         return charset::import(Path::new(&args[2]), Path::new(&args[3]), perso, bloc);
     }
+    // --debug (S6) : grave le drapeau du menu de debug dans la ROM —
+    // passé par le bouton « Jouer » de l'éditeur, jamais par le build
+    // cartouche (une cartouche ne doit pas embarquer le menu)
+    let debug_rom = args.iter().any(|a| a == "--debug");
+    let args: Vec<String> = args.into_iter().filter(|a| a != "--debug").collect();
     if args.len() != 3 {
         bail!(
-            "usage : datagen <dossier_projet> <dossier_engine>\n\
+            "usage : datagen <dossier_projet> <dossier_engine> [--debug]\n\
              \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
              \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
         );
@@ -147,6 +152,35 @@ fn main() -> Result<()> {
         ui_style_rows.push((m, c, ui_font_base(&st.font), ui_skin_base(&st.windowskin)));
     }
 
+    // Pictures (S3) : PNG indexés ≤ 16 couleurs compilés en chars 4bpp
+    // dédupliqués + tilemap + palette — les commandes pic_show les
+    // référencent par stem, chargés AVANT les scènes
+    let mut pic_names: Vec<String> = Vec::new();
+    let mut pic_dims: Vec<(usize, usize)> = Vec::new();
+    let mut pic_trans: Vec<bool> = Vec::new();
+    let mut pic_data: Vec<(Vec<u8>, Vec<u16>, Vec<u16>)> = Vec::new();
+    for entry in &project.pictures {
+        let rel = entry.path();
+        let stem = Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("picture '{}' : nom illisible", rel))?
+            .to_string();
+        if pic_names.contains(&stem) {
+            bail!("picture '{}' : stem en double", stem);
+        }
+        let img = gfx::load_indexed_png(&proj_dir.join(rel))
+            .with_context(|| format!("picture '{}'", rel))?;
+        pic_dims.push((img.width, img.height));
+        pic_data
+            .push(img.to_picture(entry.trans()).with_context(|| format!("picture '{}'", rel))?);
+        pic_names.push(stem);
+        pic_trans.push(entry.trans());
+    }
+    if pic_names.len() > 32 {
+        bail!("{} pictures (max 32)", pic_names.len());
+    }
+
     let mut scenes = Vec::new();
     for name in &project.scenes {
         let mut scene: project::Scene =
@@ -176,6 +210,8 @@ fn main() -> Result<()> {
                 database.as_ref(),
                 &ui_widget_ids,
                 &ui_style_ids,
+                &pic_names,
+                &pic_dims,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -440,6 +476,29 @@ fn main() -> Result<()> {
     write_bin(&out_dir, "texts.bin", &text_bank)?;
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
 
+    // Menu de debug (S6) : drapeau + budgets RÉELS des banks, gravés dans
+    // les données — TOUJOURS émis (le moteur inclut debug.c
+    // inconditionnellement, inerte sans le drapeau)
+    {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!(
+            "/* menu de debug en jeu (Start+Select+R) — S6 */\n\
+             const u8 dbg_enabled = {};\n\
+             const u16 dbg_scn_used = {}; /* bank scenes ($82) */\n\
+             const u16 dbg_txt_used = {}; /* bank textes ($86) */\n\
+             const u16 dbg_bank_cap = {};\n",
+            debug_rom as u8,
+            scene_bank.len(),
+            text_bank.len(),
+            binbank::BANK_CAPACITY
+        ));
+        write_out(&out_dir, "data_debug.c", s)?;
+    }
+    if debug_rom {
+        println!("  debug : menu Start+Select+R actif dans cette ROM");
+    }
+
     // Assets gfx (representation C v0 — pas de format binaire en spec).
     // Un fichier par set (section ROM insécable = 32 Ko max) : purger
     // d'abord les data_gfx*/data_sprites* d'une génération précédente,
@@ -447,15 +506,42 @@ fn main() -> Result<()> {
     for entry in std::fs::read_dir(&out_dir)? {
         let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if (name.starts_with("data_gfx") || name.starts_with("data_sprites"))
+        if (name.starts_with("data_gfx")
+            || name.starts_with("data_sprites")
+            || name.starts_with("data_pic"))
             && !path.is_dir()
         {
             std::fs::remove_file(&path)
                 .with_context(|| format!("purge de {}", path.display()))?;
         }
     }
+    // S4 : les images à transparence vivent sur la palette BG 7 — si un
+    // tileset l'occupe aussi, le décor visible derrière l'image serait
+    // faux DANS SES scènes (avertissement, pas une erreur : l'auteur
+    // peut ne jamais montrer l'image là-bas)
+    if pic_trans.iter().any(|&t| t) {
+        for (i, g) in gfx_sets.iter().enumerate() {
+            if g.pal[112..128].iter().any(|&c| c != 0) {
+                println!(
+                    "  attention : le gfx set {} occupe la palette BG 7 — le \
+                     decor derriere une image a TRANSPARENCE sera faux dans \
+                     les scenes qui l'utilisent",
+                    i
+                );
+            }
+        }
+    }
     for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
         write_out(&out_dir, &name, content)?;
+    }
+    // Pictures (S3) : un fichier par image (une section ROM = une bank)
+    // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
+    // picture.c inconditionnellement, tables factices si aucune image)
+    for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
+        write_out(&out_dir, &name, content)?;
+    }
+    if !pic_names.is_empty() {
+        println!("  pictures : {} image(s) plein ecran", pic_names.len());
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
@@ -694,6 +780,105 @@ fn gen_asset_tables(
     }
     s.push_str("};\n");
     s
+}
+
+/// Pictures (S3) : data_pic{i}.c par image (chars 4bpp + tilemap + palette,
+/// une section = une bank LoROM) + data_pictures.c, le registre de tables
+/// de pointeurs indexées par pic_id (pattern « scene_table »). Toujours
+/// émis — tables factices sans image (picture.c est inconditionnel).
+fn gen_picture_files(
+    names: &[String],
+    pics: &[(Vec<u8>, Vec<u16>, Vec<u16>)],
+    trans: &[bool],
+    dims: &[(usize, usize)],
+) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+
+    for (i, (chars, map, pal)) in pics.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!("/* picture « {} » */\n", names[i]));
+        s.push_str(&emit::u8_array(&format!("pic{}_chars", i), chars, 16, false));
+        s.push_str(&format!(
+            "const u16 pic{}_chars_size = sizeof(pic{}_chars);\n\n",
+            i, i
+        ));
+        s.push_str(&emit::u16_array(&format!("pic{}_map", i), map));
+        s.push('\n');
+        s.push_str(&emit::u16_array(&format!("pic{}_pal", i), pal));
+        files.push((format!("data_pic{}.c", i), s));
+    }
+
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..pics.len() {
+        s.push_str(&format!(
+            "extern const u8 pic{i}_chars[];\nextern const u16 pic{i}_chars_size;\n\
+             extern const u16 pic{i}_map[];\nextern const u16 pic{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push_str(&format!("\nconst u8 pic_count = {};\n\n", pics.len()));
+    // dimensions en tiles (S7) : clamp/centrage RUNTIME par le moteur —
+    // obligatoire dès que la position ou l'image sortent de variables
+    {
+        let n = pics.len().max(1);
+        s.push_str(&format!("const u8 pic_wt[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", dims.get(i).map(|d| d.0 / 8).unwrap_or(0)));
+        }
+        s.push_str(&format!("}};\nconst u8 pic_ht[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", dims.get(i).map(|d| d.1 / 8).unwrap_or(0)));
+        }
+        s.push_str("};\n\n");
+    }
+    // drapeaux par image (S4) : bit 0 = transparence (le moteur laisse la
+    // couche décor visible et préserve la couleur de fond de la scène)
+    {
+        let n = pics.len().max(1);
+        s.push_str(&format!("const u8 pic_flags[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", trans.get(i).map(|&t| t as u8).unwrap_or(0)));
+        }
+        s.push_str("};\n\n");
+    }
+    let n = pics.len().max(1);
+    s.push_str(&format!("const u8 *const pic_chars[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_chars, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_chars_sizes[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("&pic{}_chars_size, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_maps[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_map, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const pic_pals[{}] = {{ ", n));
+    for i in 0..n {
+        if i < pics.len() {
+            s.push_str(&format!("pic{}_pal, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str("};\n");
+    files.push(("data_pictures.c".to_string(), s));
+    files
 }
 
 fn gen_font(

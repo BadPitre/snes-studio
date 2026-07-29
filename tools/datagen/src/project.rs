@@ -30,6 +30,38 @@ pub struct Project {
     /// Système UI (Phase 11, docs/SPEC_SYSTEME_UI.md) : thème v1
     #[serde(default)]
     pub ui: Option<UiConfig>,
+    /// Pictures (S3, façon RM2003) : PNG ≤ 16 couleurs affichés plein
+    /// écran par la commande d'event « Afficher une image » — l'ordre
+    /// donne les pic_id, les commandes les référencent par stem.
+    /// Entrée objet (S4) : { path, trans: true } = image à TRANSPARENCE
+    /// (pixels alpha percés à l'import — le décor se voit à travers)
+    #[serde(default)]
+    pub pictures: Vec<PicEntry>,
+}
+
+/// Entrée du registre pictures : chemin nu, ou objet avec le drapeau de
+/// transparence (S4)
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum PicEntry {
+    Path(String),
+    Obj {
+        path: String,
+        #[serde(default)]
+        trans: bool,
+    },
+}
+
+impl PicEntry {
+    pub fn path(&self) -> &str {
+        match self {
+            PicEntry::Path(p) => p,
+            PicEntry::Obj { path, .. } => path,
+        }
+    }
+    pub fn trans(&self) -> bool {
+        matches!(self, PicEntry::Obj { trans: true, .. })
+    }
 }
 
 /// Thème UI v1 (docs/SPEC_SYSTEME_UI.md §6 — la table database arrive
