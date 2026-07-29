@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
+import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -33,6 +33,8 @@ interface Props {
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   pictures: string[]; // stems des images (S3) — commande pic_show
+  tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
+  onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -299,6 +301,8 @@ export function CommandListEditor(props: {
   uiWidgets: string[];
   uiStyles: string[];
   pictures: string[];
+  tintPresets: TintPreset[];
+  onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -546,6 +550,8 @@ export function CommandListEditor(props: {
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
               pictures={props.pictures}
+              tintPresets={props.tintPresets}
+              onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -954,6 +960,8 @@ export default function EventEditorModal(props: Props) {
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
               pictures={props.pictures}
+              tintPresets={props.tintPresets}
+              onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -1025,6 +1033,8 @@ function CommandForm(props: {
   uiWidgets: string[];
   uiStyles: string[];
   pictures: string[];
+  tintPresets: TintPreset[];
+  onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -1034,6 +1044,8 @@ function CommandForm(props: {
   const { cmd, onChange } = props;
   // fenêtre Itinéraire (commande « Déplacer un event »)
   const [routeOpen, setRouteOpen] = useState(false);
+  // nom du preset de teinte à enregistrer (S12b)
+  const [presetName, setPresetName] = useState("");
   const varField = (v: string, set: (s: string) => void) => (
     <label>
       Variable (v0-v63 scène, g0-g63 globale)
@@ -1932,26 +1944,81 @@ function CommandForm(props: {
       body = (
         <>
           <label>
-            Moment de la journée (preset — remplit les champs)
+            Preset (remplit les champs)
             <select
               value=""
               onChange={(e) => {
-                const p = {
-                  jour: { mode: "off" as const, r: 0, g: 0, b: 0 },
-                  matin: { mode: "sub" as const, r: 6, g: 3, b: 0 },
-                  soir: { mode: "sub" as const, r: 0, g: 6, b: 14 },
-                  nuit: { mode: "sub" as const, r: 16, g: 12, b: 4 },
-                }[e.target.value as "jour" | "matin" | "soir" | "nuit"];
-                if (p) onChange({ ...cmd, ...p });
+                const std: Record<string, { mode: "off" | "add" | "sub"; r: number; g: number; b: number }> = {
+                  "*jour": { mode: "off", r: 0, g: 0, b: 0 },
+                  "*matin": { mode: "sub", r: 6, g: 3, b: 0 },
+                  "*soir": { mode: "sub", r: 0, g: 6, b: 14 },
+                  "*nuit": { mode: "sub", r: 16, g: 12, b: 4 },
+                };
+                const v = e.target.value;
+                if (std[v]) {
+                  onChange({ ...cmd, ...std[v] });
+                  return;
+                }
+                const p = props.tintPresets.find((t) => t.name === v);
+                if (p) onChange({ ...cmd, mode: p.mode, r: p.r, g: p.g, b: p.b });
               }}
             >
               <option value="">(choisir un preset…)</option>
-              <option value="matin">Matin (bleuté pâle)</option>
-              <option value="jour">Jour (normale)</option>
-              <option value="soir">Soir (orangé)</option>
-              <option value="nuit">Nuit (bleu sombre)</option>
+              <optgroup label="Standards">
+                <option value="*matin">Matin (bleuté pâle)</option>
+                <option value="*jour">Jour (normale)</option>
+                <option value="*soir">Soir (orangé)</option>
+                <option value="*nuit">Nuit (bleu sombre)</option>
+              </optgroup>
+              {props.tintPresets.length > 0 && (
+                <optgroup label="Du projet">
+                  {props.tintPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
+          <div className="row">
+            <label>
+              Enregistrer les valeurs comme preset
+              <input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="ex. Crépuscule violet"
+                maxLength={24}
+              />
+            </label>
+            <button
+              disabled={presetName.trim() === ""}
+              title="Enregistre mode + RGB actuels sous ce nom (écrase un preset du même nom) — stocké dans le projet"
+              onClick={() => {
+                const name = presetName.trim();
+                props.onTintPresets([
+                  ...props.tintPresets.filter((t) => t.name !== name),
+                  { name, mode: cmd.mode, r: cmd.r, g: cmd.g, b: cmd.b },
+                ]);
+                setPresetName("");
+              }}
+            >
+              💾 Enregistrer
+            </button>
+          </div>
+          {props.tintPresets.length > 0 && (
+            <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
+              {props.tintPresets.map((p) => (
+                <button
+                  key={p.name}
+                  title={`Supprimer le preset « ${p.name} » du projet`}
+                  onClick={() =>
+                    props.onTintPresets(props.tintPresets.filter((t) => t.name !== p.name))
+                  }
+                >
+                  🗑 {p.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="row" style={{ flexWrap: "wrap" }}>
             <label>
               Mode

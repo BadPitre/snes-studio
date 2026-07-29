@@ -34,6 +34,8 @@ export interface Project {
   // { path, trans: true } = image à TRANSPARENCE (le décor de la carte
   // se voit à travers les pixels percés à l'import)
   pictures?: PictureEntry[];
+  // presets de teinte nommés (S12b — éditeur seulement, voir TintPreset)
+  tint_presets?: TintPreset[];
 }
 
 export type PictureEntry = string | { path: string; trans?: boolean };
@@ -409,6 +411,17 @@ export interface Scene {
   // pic = stem d'une image à TRANSPARENCE de project.pictures ;
   // dx/dy en px par seconde ; blend = mélange color math en jeu.
   effect?: SceneEffect;
+}
+
+// Presets de teinte du projet (S12b) : créés/nommés/supprimés depuis la
+// commande « Teinter l'écran » — stockés dans project.json (éditeur
+// seulement, ignorés par datagen)
+export interface TintPreset {
+  name: string;
+  mode: "off" | "add" | "sub";
+  r: number;
+  g: number;
+  b: number;
 }
 
 export interface SceneEffect {

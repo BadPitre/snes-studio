@@ -2258,6 +2258,10 @@ export default function App() {
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                tintPresets={data.project.tint_presets ?? []}
+                onTintPresets={(list) =>
+                  mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+                }
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -2313,6 +2317,10 @@ export default function App() {
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                tintPresets={data.project.tint_presets ?? []}
+                onTintPresets={(list) =>
+                  mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+                }
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

@@ -315,7 +315,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   **Cacher / Montrer l'écran** (fondu bloquant), **Teinter l'écran**
   (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
   personnages et le texte gardent leurs couleurs ; **S12** : presets
-  Matin/Jour/Soir/Nuit et champ **Transition** en frames — 0 =
+  Matin/Jour/Soir/Nuit, **presets PERSONNALISÉS du projet (S12b)** —
+  nommer et enregistrer les valeurs courantes (💾), supprimer (🗑),
+  stockés dans project.json (registre tint_presets, éditeur seulement)
+  — et champ **Transition** en frames — 0 =
   immédiate, sinon la teinte évolue graduellement, non bloquant :
   c'est le cycle jour/nuit scriptable), **Flash d'écran** et
   **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
