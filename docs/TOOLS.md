@@ -291,6 +291,15 @@ factices sans image ; max 32 images). Commandes :
 liste sinon) affiche l'image plein écran avec un fondu — les messages
 et choix se jouent PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la
 referme, scène et events INTACTS. Refermer dans le même script.
+**Transparence (S4)** : une entrée `{"path": "...", "trans": true}`
+marque une image à TRANSPARENCE (pixels d'alpha < 128, percés par le
+sélecteur de couleur de l'éditeur à l'import) — en jeu, la couche
+DÉCOR de la carte reste visible derrière les pixels percés (pas les
+personnages : leur mémoire vidéo porte l'image). Ces images vivent sur
+la **palette BG 7** (entrées de tilemap marquées par datagen, couleurs
+113-127 — les palettes 0-6 et la couleur de fond de la scène sont
+préservées) ; ≤ 15 couleurs opaques. Si un tileset occupe déjà la
+palette 7, datagen l'avertit : le décor serait faux dans SES scènes.
 
 **Phase 12 S2 (fonte par widget)** : un `[[node]]` RACINE accepte
 `font = "assets/....png"` (768x8 — erreur uigen si posé sur un enfant) :

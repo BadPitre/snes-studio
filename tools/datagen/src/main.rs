@@ -151,8 +151,10 @@ fn main() -> Result<()> {
     // dédupliqués + tilemap + palette — les commandes pic_show les
     // référencent par stem, chargés AVANT les scènes
     let mut pic_names: Vec<String> = Vec::new();
+    let mut pic_trans: Vec<bool> = Vec::new();
     let mut pic_data: Vec<(Vec<u8>, Vec<u16>, Vec<u16>)> = Vec::new();
-    for rel in &project.pictures {
+    for entry in &project.pictures {
+        let rel = entry.path();
         let stem = Path::new(rel)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -163,8 +165,10 @@ fn main() -> Result<()> {
         }
         let img = gfx::load_indexed_png(&proj_dir.join(rel))
             .with_context(|| format!("picture '{}'", rel))?;
-        pic_data.push(img.to_picture().with_context(|| format!("picture '{}'", rel))?);
+        pic_data
+            .push(img.to_picture(entry.trans()).with_context(|| format!("picture '{}'", rel))?);
         pic_names.push(stem);
+        pic_trans.push(entry.trans());
     }
     if pic_names.len() > 32 {
         bail!("{} pictures (max 32)", pic_names.len());
@@ -480,13 +484,29 @@ fn main() -> Result<()> {
                 .with_context(|| format!("purge de {}", path.display()))?;
         }
     }
+    // S4 : les images à transparence vivent sur la palette BG 7 — si un
+    // tileset l'occupe aussi, le décor visible derrière l'image serait
+    // faux DANS SES scènes (avertissement, pas une erreur : l'auteur
+    // peut ne jamais montrer l'image là-bas)
+    if pic_trans.iter().any(|&t| t) {
+        for (i, g) in gfx_sets.iter().enumerate() {
+            if g.pal[112..128].iter().any(|&c| c != 0) {
+                println!(
+                    "  attention : le gfx set {} occupe la palette BG 7 — le \
+                     decor derriere une image a TRANSPARENCE sera faux dans \
+                     les scenes qui l'utilisent",
+                    i
+                );
+            }
+        }
+    }
     for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
         write_out(&out_dir, &name, content)?;
     }
     // Pictures (S3) : un fichier par image (une section ROM = une bank)
     // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
     // picture.c inconditionnellement, tables factices si aucune image)
-    for (name, content) in gen_picture_files(&pic_names, &pic_data) {
+    for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans) {
         write_out(&out_dir, &name, content)?;
     }
     if !pic_names.is_empty() {
@@ -738,6 +758,7 @@ fn gen_asset_tables(
 fn gen_picture_files(
     names: &[String],
     pics: &[(Vec<u8>, Vec<u16>, Vec<u16>)],
+    trans: &[bool],
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
@@ -766,6 +787,16 @@ fn gen_picture_files(
         ));
     }
     s.push_str(&format!("\nconst u8 pic_count = {};\n\n", pics.len()));
+    // drapeaux par image (S4) : bit 0 = transparence (le moteur laisse la
+    // couche décor visible et préserve la couleur de fond de la scène)
+    {
+        let n = pics.len().max(1);
+        s.push_str(&format!("const u8 pic_flags[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", trans.get(i).map(|&t| t as u8).unwrap_or(0)));
+        }
+        s.push_str("};\n\n");
+    }
     let n = pics.len().max(1);
     s.push_str(&format!("const u8 *const pic_chars[{}] = {{ ", n));
     for i in 0..n {

@@ -33,6 +33,7 @@ extern const u8 *const pic_chars[];
 extern const u16 *const pic_chars_sizes[];
 extern const u16 *const pic_maps[];
 extern const u16 *const pic_pals[];
+extern const u8 pic_flags[]; /* bit 0 = transparence (S4) */
 
 /* Palettes BG des scènes + chars sprites (data_assets.c) — restauration */
 extern const u16 *const gfx_pals[];
@@ -45,6 +46,8 @@ extern u8 videoMode; /* miroir PVSnesLib de REG_TM ($212C) */
    Constante du MOTEUR, réaffirmée plutôt que lue (fiable). */
 #define PIC_TM_GAME 0x17
 #define PIC_TM_PIC 0x05 /* BG1 (image) + BG3 (dialogues par-dessus) */
+#define PIC_TM_TRANS 0x07 /* + BG2 : le DÉCOR se voit par les pixels
+    transparents (S4) — pas les sprites, leur VRAM porte l'image */
 
 static u8 pic_on = 0;
 /* Requête différée (SHOWPIC/HIDEPIC) : la transition s'exécute depuis
@@ -82,15 +85,25 @@ void picture_show(u8 id)
   setFadeEffect(FADE_OUT);
   setScreenOff();
   pic_on = 1;
-  videoMode = PIC_TM_PIC;
-  REG_TM = PIC_TM_PIC;
+  /* image à transparence (S4) : la couche décor (BG2, couche inf.)
+     reste visible derrière les pixels percés */
+  videoMode = (pic_flags[id] & 1) ? PIC_TM_TRANS : PIC_TM_PIC;
+  REG_TM = videoMode;
   /* BG1 rebasé sur la région OBJ (chars) + carte 32x32 en zone libre —
      le tileset et les maps de la scène restent intacts en VRAM */
   bgSetGfxPtr(0, VRAM_OBJ_GFX);
   bgSetMapPtr(0, VRAM_PIC_MAP, SC_32x32);
   dmaCopyVram((u8 *)pic_chars[id], VRAM_OBJ_GFX, *pic_chars_sizes[id]);
   dmaCopyVram((u8 *)pic_maps[id], VRAM_PIC_MAP, 32 * 28 * 2);
-  dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* couleurs 0-15 seulement */
+  if (pic_flags[id] & 1)
+  {
+    /* transparence : l'image vit sur la PALETTE BG 7 (réservée, entrées
+       de carte marquées par datagen) — les palettes 0-6 du décor et la
+       couleur de fond restent celles de la scène */
+    dmaCopyCGram((u8 *)pic_pals[id] + 2, 113, 30);
+  }
+  else
+    dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* couleurs 0-15 */
   bgSetScroll(0, 0, 0);
   screenfx_warp_reset(); /* fondu scripté resynchronisé (recette warp) */
   setScreenOn();

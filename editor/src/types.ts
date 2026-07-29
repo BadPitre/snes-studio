@@ -28,10 +28,20 @@ export interface Project {
   // (ui.windowskin) pointe l'un d'eux
   iconsets?: string[]; // planches d'icônes importées (même modèle)
   fonts?: string[]; // fontes importées (S1) — assets.font est la défaut ★
-  // pictures (S3) : PNG indexés ≤ 16 couleurs, ≤ 256x224 (multiples de
-  // 8) — LUES par datagen (l'ordre donne les pic_id), affichées par la
-  // commande d'event « Afficher une image »
-  pictures?: string[];
+  // pictures (S3) : PNG ≤ 16 couleurs, ≤ 256x224 (multiples de 8) —
+  // LUES par datagen (l'ordre donne les pic_id), affichées par la
+  // commande d'event « Afficher une image ». Entrée objet (S4) :
+  // { path, trans: true } = image à TRANSPARENCE (le décor de la carte
+  // se voit à travers les pixels percés à l'import)
+  pictures?: PictureEntry[];
+}
+
+export type PictureEntry = string | { path: string; trans?: boolean };
+export function picPath(e: PictureEntry): string {
+  return typeof e === "string" ? e : e.path;
+}
+export function picTrans(e: PictureEntry): boolean {
+  return typeof e !== "string" && !!e.trans;
 }
 
 // windowskins du projet — le thème actif y figure toujours (migration des
@@ -50,7 +60,7 @@ export function projectIconsets(p: Project): string[] {
 }
 
 // pictures du projet (S3) — datagen lit ce registre tel quel
-export function projectPictures(p: Project): string[] {
+export function projectPictures(p: Project): PictureEntry[] {
   return p.pictures ?? [];
 }
 

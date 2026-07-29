@@ -13,6 +13,7 @@ import {
   musicStem,
   projectFonts,
   projectIconsets,
+  picPath,
   projectPictures,
   projectTilesets,
   projectWindowskins,
@@ -76,6 +77,8 @@ import ScriptPanel from "./components/ScriptPanel";
 import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
+import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
+import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
 import type { DatagenReport } from "./components/DiagnosticsModal";
@@ -121,6 +124,14 @@ export default function App() {
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
   // import de charset en cours (fichier choisi, en attente du personnage/bloc)
+  // Picker de couleur transparente à l'import (S4) : l'image validée
+  // attend le choix de la couleur (ou « sans transparence »)
+  const [transPick, setTransPick] = useState<null | {
+    kind: "iconset" | "picture" | "charset";
+    file: string;
+    bytes: Uint8Array;
+    bmp: ImageBitmap;
+  }>(null);
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
@@ -511,7 +522,8 @@ export default function App() {
         );
         return;
       }
-      setCharsetImport({ path: file, bmp });
+      const bytes = await readBinaryFile(file);
+      setTransPick({ kind: "charset", file, bytes, bmp });
     } catch (e) {
       setStatus(`Import charset : ${e}`);
     }
@@ -894,16 +906,7 @@ export default function App() {
         );
         return;
       }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectIconsets(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
-        }));
-      }
-      setStatus(`Planche d'icônes importée : ${name} (${bmp.width / 8} icônes)`);
+      setTransPick({ kind: "iconset", file, bytes, bmp });
     } catch (e) {
       setStatus(`Import planche d'icônes : ${e}`);
     }
@@ -1112,39 +1115,82 @@ export default function App() {
         );
         return;
       }
-      // comptage des couleurs (le PNG doit être INDEXÉ ≤ 16 couleurs —
-      // le canvas ne voit pas la palette, on vérifie au moins le nombre)
-      {
-        const cv = document.createElement("canvas");
-        cv.width = bmp.width;
-        cv.height = bmp.height;
-        const ctx = cv.getContext("2d")!;
-        ctx.drawImage(bmp, 0, 0);
-        const d4 = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
-        const seen = new Set<number>();
-        for (let i = 0; i < d4.length; i += 4) {
-          seen.add((d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2]);
-          if (seen.size > 16) break;
-        }
-        if (seen.size > 16) {
-          setStatus(
-            "Image : plus de 16 couleurs — réduire la palette (PNG indexé 16 couleurs) avant l'import"
-          );
-          return;
-        }
-      }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectPictures(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: { ...d.project, pictures: [...projectPictures(d.project), rel] },
-        }));
-      }
-      setStatus(`Image importée : ${name} (${bmp.width}x${bmp.height})`);
+      setTransPick({ kind: "picture", file, bytes, bmp });
     } catch (e) {
       setStatus(`Import image : ${e}`);
+    }
+  }
+
+  // Phase 2 des imports à picker (S4) : la couleur transparente est
+  // connue — transformer (alpha 0), valider, écrire, enregistrer
+  async function finishTransPick(color: Rgb | null) {
+    const t = transPick;
+    setTransPick(null);
+    if (!data || !t) return;
+    try {
+      const bytes = color ? await applyTransparency(t.bytes, color) : t.bytes;
+      const name = t.file.split(/[\\/]/).pop()!;
+      const rel = `assets/${name}`;
+      if (t.kind === "iconset") {
+        await writeBinaryFile(`${data.root}/${rel}`, bytes);
+        if (!projectIconsets(data.project).includes(rel)) {
+          mutate((d) => ({
+            ...d,
+            project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
+          }));
+        }
+        setStatus(`Planche d'icônes importée : ${name} (${t.bmp.width / 8} icônes)`);
+      } else if (t.kind === "picture") {
+        // comptage des couleurs OPAQUES restantes : ≤ 16 sans
+        // transparence (PNG indexé conservé tel quel), ≤ 15 avec (le
+        // PNG réécrit passe par l'indexation alpha de datagen, index 0
+        // réservé au transparent)
+        {
+          const cv = document.createElement("canvas");
+          cv.width = t.bmp.width;
+          cv.height = t.bmp.height;
+          const ctx = cv.getContext("2d")!;
+          ctx.drawImage(t.bmp, 0, 0);
+          const d4 = ctx.getImageData(0, 0, t.bmp.width, t.bmp.height).data;
+          const seen = new Set<number>();
+          for (let i = 0; i < d4.length; i += 4) {
+            if (d4[i + 3] < 128) continue;
+            const c = (d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2];
+            if (color && d4[i] === color[0] && d4[i + 1] === color[1] && d4[i + 2] === color[2])
+              continue;
+            seen.add(c);
+            if (seen.size > 16) break;
+          }
+          const max = color ? 15 : 16;
+          if (seen.size > max) {
+            setStatus(
+              `Image : plus de ${max} couleurs opaques${color ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
+            );
+            return;
+          }
+        }
+        await writeBinaryFile(`${data.root}/${rel}`, bytes);
+        const entry = color ? { path: rel, trans: true } : rel;
+        if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
+          mutate((d) => ({
+            ...d,
+            project: { ...d.project, pictures: [...projectPictures(d.project), entry] },
+          }));
+        }
+        setStatus(
+          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${color ? ", avec transparence — le décor se verra à travers" : ""})`
+        );
+      } else {
+        // charset : datagen import-charset lit un FICHIER — copie
+        // temporaire avec la transparence percée, consommée par la
+        // fenêtre d'import (remplacée à chaque import)
+        const tmp = `${data.root}/assets/_charset_import.png`;
+        await writeBinaryFile(tmp, bytes);
+        const bmp2 = color ? await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" })) : t.bmp;
+        setCharsetImport({ path: tmp, bmp: bmp2 });
+      }
+    } catch (e) {
+      setStatus(`Import : ${e}`);
     }
   }
 
@@ -1165,13 +1211,15 @@ export default function App() {
     const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
     if (!newStem || newStem === assetStem(oldRel)) return;
     const newRel = `assets/${newStem}.png`;
-    if (projectPictures(data.project).includes(newRel)) {
+    if (projectPictures(data.project).some((e) => picPath(e) === newRel)) {
       setStatus(`Renommage : l'image « ${newStem} » existe déjà`);
       return;
     }
     const keep = sceneName;
     try {
-      const pictures = projectPictures(data.project).map((r) => (r === oldRel ? newRel : r));
+      const pictures = projectPictures(data.project).map((e) =>
+        picPath(e) !== oldRel ? e : typeof e === "string" ? newRel : { ...e, path: newRel }
+      );
       await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
       const d2: ProjectData = {
         ...data,
@@ -1192,7 +1240,7 @@ export default function App() {
     if (!confirm(`Supprimer l'image « ${assetStem(rel)} » et son fichier ? Les commandes « Afficher une image » qui l'utilisent seront signalées au build.`)) return;
     const keep = sceneName;
     try {
-      const pictures = projectPictures(data.project).filter((r) => r !== rel);
+      const pictures = projectPictures(data.project).filter((e) => picPath(e) !== rel);
       const d2: ProjectData = {
         ...data,
         project: { ...data.project, pictures: pictures.length ? pictures : undefined },
@@ -1867,6 +1915,28 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+      {transPick && data && (
+        <TransparencyPickModal
+          title={
+            transPick.kind === "picture"
+              ? "Import d'image — couleur transparente ?"
+              : transPick.kind === "iconset"
+                ? "Import de planche d'icônes — couleur transparente ?"
+                : "Import de charset — couleur transparente ?"
+          }
+          bmp={transPick.bmp}
+          hint={
+            transPick.kind === "picture"
+              ? "En jeu, le DÉCOR de la carte se verra à travers (mais pas les personnages)."
+              : "Les pixels percés deviennent l'index 0 transparent."
+          }
+          onOk={(color) => void finishTransPick(color)}
+          onClose={() => {
+            setTransPick(null);
+            setStatus("Import annulé.");
+          }}
+        />
+      )}
       {showResources && data && (
         <ResourceManagerModal
           root={data.root}
@@ -1881,7 +1951,7 @@ export default function App() {
           activeIcons={data.project.ui?.icons}
           fonts={projectFonts(data.project)}
           defaultFont={data.project.assets.font}
-          pictures={projectPictures(data.project)}
+          pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
@@ -2170,7 +2240,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
-          pictures={projectPictures(data.project).map(assetStem)}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -2225,7 +2295,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
-          pictures={projectPictures(data.project).map(assetStem)}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

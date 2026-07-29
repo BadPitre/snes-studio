@@ -137,7 +137,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   (onglet Écran, avec « Effacer l'image ») — l'image recouvre l'écran
   avec un fondu, les dialogues se jouent par-dessus, et la fermeture
   rend la scène intacte ; registre `pictures` de project.json, LU par
-  datagen),
+  datagen. **Transparence (S4)** : à l'import, un dialogue montre
+  l'image et un CLIC désigne la couleur à rendre transparente (aperçu
+  en damier, « Sans transparence » pour passer) — en jeu, le décor de
+  la carte se voit à travers les pixels percés, mais pas les
+  personnages ; ≤ 15 couleurs opaques dans ce cas. Le même sélecteur
+  s'ouvre à l'import des **IconSets** et **CharSets** : pratique pour
+  les planches à fond plein (blanc, magenta…) — la couleur cliquée
+  devient l'index 0 transparent sans passer par GIMP),
   liste avec aperçu, et actions **Importer / Exporter / Renommer /
   Supprimer** sur chaque catégorie.
   Export charset au format RM2003 (72x128, PNG transparent) ; export

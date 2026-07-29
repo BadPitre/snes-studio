@@ -177,7 +177,10 @@ impl IndexedImage {
     /// (chars 4bpp dédupliqués, tilemap 32x28 palette 0, palette 16
     /// couleurs BGR555). Budget : 512 chars (le moteur recouvre la
     /// région tileset BG1, rechargée à la fermeture).
-    pub fn to_picture(&self) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
+    /// `trans` (S4) : image à transparence — les entrées de tilemap
+    /// prennent la PALETTE BG 7 (réservée : le décor garde les palettes
+    /// 0-6) pour que la couche carte visible derrière reste correcte.
+    pub fn to_picture(&self, trans: bool) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
         if self.width == 0 || self.height == 0
             || self.width % 8 != 0 || self.height % 8 != 0
             || self.width > 256 || self.height > 224
@@ -218,7 +221,8 @@ impl IndexedImage {
                     chars.extend_from_slice(&ch);
                     n
                 });
-                map[ty * 32 + tx] = id; // palette 0, pas de flip ni priorité
+                // palette 0 (opaque) ou 7 (transparence S4), sans flip
+                map[ty * 32 + tx] = if trans { id | (7 << 10) } else { id };
             }
         }
         if seen.len() > 512 {
