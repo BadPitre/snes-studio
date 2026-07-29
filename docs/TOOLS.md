@@ -292,7 +292,7 @@ datagen — layout.toml fait foi).
 
 **Couche d'effet (S9, « nuages sur le village »)** : une scène accepte
 `"effect": {"pic": "<stem>", "dx": px/s, "dy": px/s, "blend":
-"half"|"add"|"sub"}` — un MOTIF (image à TRANSPARENCE de
+"half"|"add"|"sub", "parallax": "half"|"quarter"}` — un MOTIF (image à TRANSPARENCE de
 project.pictures, ≤ 256 tiles uniques) dérive au-dessus du jeu pendant
 qu'il se joue (personnages visibles, dialogues nets). Le plan BG1
 porte le motif : la COUCHE SUP de ces scènes est ignorée
@@ -300,7 +300,10 @@ porte le motif : la COUCHE SUP de ces scènes est ignorée
 au creux $1C00 (après la map BG3) ; entrées avec bit de
 priorité (motif DEVANT les sprites) ; en mélange, sub screen BG2+OBJ
 et teinte/flash suspendus (screenfx_cm_hold). Vitesses converties en
-pas 8.8 par frame ; datagen émet `data_effects.c` (toujours — 0xFF =
+pas 8.8 par frame ; **parallax (S11)** : le scroll du motif reçoit
+en plus `camera >> 1` (half) ou `camera >> 2` (quarter) — le motif
+glisse à une fraction du décor quand la caméra bouge (profondeur),
+absent = fixe à l'écran ; datagen émet `data_effects.c` (toujours — 0xFF =
 scène sans effet). Le motif étant ≤ 224 px de haut, le défilement
 vertical montre une bande vide de 32 px par période (motifs épars :
 invisible). **Cellule vide (S10)** : `-1` est accepté sur les DEUX

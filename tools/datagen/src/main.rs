@@ -550,6 +550,7 @@ fn main() -> Result<()> {
         let n = scenes.len().max(1);
         let mut e_pic = vec![0xFFu8; n];
         let mut e_blend = vec![0u8; n];
+        let mut e_par = vec![0u8; n];
         let mut e_dx = vec![0u16; n];
         let mut e_dy = vec![0u16; n];
         for (i, sc) in scenes.iter().enumerate() {
@@ -592,6 +593,13 @@ fn main() -> Result<()> {
                 Some("sub") => 3,
                 Some(o) => bail!("scene '{}' : blend d'effet inconnu « {} »", sc.name, o),
             };
+            // S11 : suivi caméra = décalage binaire (camera >> n) — 1 = ½, 2 = ¼
+            e_par[i] = match eff.parallax.as_deref() {
+                None | Some("none") => 0,
+                Some("half") => 1,
+                Some("quarter") => 2,
+                Some(o) => bail!("scene '{}' : parallax d'effet inconnu « {} »", sc.name, o),
+            };
             let to_fp = |v: f64, what: &str| -> Result<u16> {
                 let f = (v * 256.0 / 60.0).round();
                 if !(-32768.0..=32767.0).contains(&f) {
@@ -625,6 +633,7 @@ fn main() -> Result<()> {
         };
         s.push_str(&dump_u8("eff_pic", &e_pic));
         s.push_str(&dump_u8("eff_blend", &e_blend));
+        s.push_str(&dump_u8("eff_par", &e_par));
         s.push_str(&dump_u16("eff_dx", &e_dx));
         s.push_str(&dump_u16("eff_dy", &e_dy));
         write_out(&out_dir, "data_effects.c", s)?;

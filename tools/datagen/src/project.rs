@@ -157,6 +157,10 @@ pub struct Effect {
     /// "half" (semi-transparent), "add", "sub" — absent = opaque
     #[serde(default)]
     pub blend: Option<String>,
+    /// Suivi caméra (S11) : "half" (½) ou "quarter" (¼) — absent = le
+    /// motif est fixe à l'écran (très lointain), seule la dérive bouge
+    #[serde(default)]
+    pub parallax: Option<String>,
 }
 
 #[derive(Deserialize)]

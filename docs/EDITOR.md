@@ -193,7 +193,8 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   une fenêtre 9-slice d'exemple, ★ marque le thème actif (suppression
   bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
-- **Couche d'effet (S9)** : dans l'onglet Scène — un MOTIF (image à
+- **Couche d'effet (S9/S11)** : ONGLET DÉDIÉ (Scène / Couche d'effet /
+  Script) — un MOTIF (image à
   transparence du Gestionnaire, ≤ 256 tiles uniques) dérive au-dessus
   du jeu pendant qu'il se joue : nuages, brume, ombres portées.
   Vitesses X/Y en px/s (négatif = gauche/haut, décimales acceptées) et
@@ -202,7 +203,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   motif est choisi, la **couche supérieure de la scène est
   désactivée** (bouton grisé, peinture bloquée) : le plan qui la
   portait affiche le motif. En mélange, la teinte d'écran est
-  suspendue dans ces scènes. « — aucune — » rend la couche sup.
+  suspendue dans ces scènes. **Suivi de la caméra (S11)** : Aucun
+  (fixe à l'écran, très lointain), ¼ ou ½ de la caméra — en marchant,
+  le motif glisse à une fraction du décor (profondeur immédiate) ; se
+  combine avec la dérive. « — aucune — » rend la couche sup.
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
   déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
   script quand le héros marche sur la tile — marqueur orange « C » sur la

@@ -30,11 +30,13 @@
 #include <snes.h>
 #include "effectlayer.h"
 #include "screenfx.h"
+#include "camera.h"
 #include "vram.h"
 
 /* data_effects.c (toujours émis par datagen) — indexé par scene_id */
 extern const u8 eff_pic[];   /* index picture, 0xFF = pas d'effet */
 extern const u8 eff_blend[]; /* 0 opaque, 1 semi, 2 additif, 3 soustractif */
+extern const u8 eff_par[];   /* suivi caméra (S11) : camera >> n, 0 = fixe */
 extern const u16 eff_dx[];   /* dérive 8.8 par frame (complément à 2) */
 extern const u16 eff_dy[];
 
@@ -48,6 +50,7 @@ extern const u16 *const pic_pals[];
 static u8 eff_on = 0;
 static u8 eff_cur = 0;  /* id picture du motif (posé par effect_load) */
 static u8 eff_bl = 0;   /* mode de mélange de la scène courante */
+static u8 eff_pr = 0;   /* parallaxe : scroll += camera >> eff_pr (0 = non) */
 static u16 eff_vx = 0;  /* dérive par frame (8.8) */
 static u16 eff_vy = 0;
 static u16 eff_x8 = 0;  /* position accumulée (8.8) — wrap 256 px */
@@ -100,6 +103,7 @@ void effect_load(u8 scene_id)
   eff_on = 1;
   eff_cur = p;
   eff_bl = eff_blend[scene_id];
+  eff_pr = eff_par[scene_id];
   eff_vx = eff_dx[scene_id];
   eff_vy = eff_dy[scene_id];
   dmaCopyVram((u8 *)pic_chars[p], VRAM_EFF_GFX, *pic_chars_sizes[p]);
@@ -127,5 +131,16 @@ void effect_update(void)
 
 void effect_vblank(void)
 {
-  bgSetScroll(0, eff_x8 >> 8, eff_y8 >> 8);
+  u16 x = eff_x8 >> 8;
+  u16 y = eff_y8 >> 8;
+
+  /* suivi caméra (S11) : le motif glisse à une FRACTION du décor
+     (camera >> n) — profondeur. La carte 32x32 boucle sur 256 px, le
+     scroll peut déborder sans danger. */
+  if (eff_pr)
+  {
+    x += camera.x >> eff_pr;
+    y += camera.y >> eff_pr;
+  }
+  bgSetScroll(0, x, y);
 }

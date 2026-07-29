@@ -61,6 +61,7 @@ import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ScenePanel from "./components/ScenePanel";
+import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
@@ -90,7 +91,7 @@ import pkg from "../package.json";
 // Acteurs / Warps / Textes ont quitté la sidebar (demande Bertrand) :
 // events et warps se gèrent sur la carte (double-clic, clic droit),
 // les textes dans Tools → Textes… (fenêtre à catégories)
-type Tab = "scene" | "script";
+type Tab = "scene" | "effect" | "script";
 
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
@@ -1880,6 +1881,9 @@ export default function App() {
               <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
                 Scène
               </button>
+              <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
+                Couche d'effet
+              </button>
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
               </button>
@@ -1894,15 +1898,20 @@ export default function App() {
                 passMode={passMode}
                 onSelectTileset={setSceneTileset}
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
+                onImport={importTileset}
+                onImportChipset={importChipset}
+                onPassMode={setPassMode}
+                onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
+              />
+            )}
+            {tab === "effect" && (
+              <EffectPanel
+                scene={scene}
                 pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
                 onSetEffect={(eff) => {
                   if (eff && layer === "upper") setLayer("lower");
                   setScene((sc) => ({ ...sc, effect: eff }));
                 }}
-                onImport={importTileset}
-                onImportChipset={importChipset}
-                onPassMode={setPassMode}
-                onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
               />
             )}
             {tab === "script" && (
