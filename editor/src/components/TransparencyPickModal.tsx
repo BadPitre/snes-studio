@@ -96,7 +96,7 @@ export default function TransparencyPickModal(props: Props) {
   );
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop transpick-top" onClick={props.onClose}>
       <div className="modal transpick" onClick={(e) => e.stopPropagation()}>
         <div className="panel-title">{props.title}</div>
         <span className="hint">
