@@ -1145,7 +1145,11 @@ export default function App() {
         // comptage des couleurs OPAQUES restantes : ≤ 16 sans
         // transparence (PNG indexé conservé tel quel), ≤ 15 avec (le
         // PNG réécrit passe par l'indexation alpha de datagen, index 0
-        // réservé au transparent)
+        // réservé au transparent). Un PNG DÉJÀ troué (pixels alpha)
+        // est une image à transparence même sans couleur cliquée —
+        // sinon le drapeau trans manquait et la couche d'effet (S9) ou
+        // le décor-au-travers refusaient l'image au build.
+        let trans = !!color;
         {
           const cv = document.createElement("canvas");
           cv.width = t.bmp.width;
@@ -1155,23 +1159,25 @@ export default function App() {
           const d4 = ctx.getImageData(0, 0, t.bmp.width, t.bmp.height).data;
           const seen = new Set<number>();
           for (let i = 0; i < d4.length; i += 4) {
-            if (d4[i + 3] < 128) continue;
+            if (d4[i + 3] < 128) {
+              trans = true; // trou alpha : transparence automatique
+              continue;
+            }
             const c = (d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2];
             if (color && d4[i] === color[0] && d4[i + 1] === color[1] && d4[i + 2] === color[2])
               continue;
             seen.add(c);
-            if (seen.size > 16) break;
           }
-          const max = color ? 15 : 16;
+          const max = trans ? 15 : 16;
           if (seen.size > max) {
             setStatus(
-              `Image : plus de ${max} couleurs opaques${color ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
+              `Image : plus de ${max} couleurs opaques${trans ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
             );
             return;
           }
         }
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        const entry = color ? { path: rel, trans: true } : rel;
+        const entry = trans ? { path: rel, trans: true } : rel;
         if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
           mutate((d) => ({
             ...d,
@@ -1179,7 +1185,7 @@ export default function App() {
           }));
         }
         setStatus(
-          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${color ? ", avec transparence — le décor se verra à travers" : ""})`
+          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${trans ? ", avec transparence — le décor se verra à travers" : ""})`
         );
       } else {
         // charset : datagen import-charset lit un FICHIER — copie
