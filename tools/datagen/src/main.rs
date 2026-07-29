@@ -151,6 +151,7 @@ fn main() -> Result<()> {
     // dédupliqués + tilemap + palette — les commandes pic_show les
     // référencent par stem, chargés AVANT les scènes
     let mut pic_names: Vec<String> = Vec::new();
+    let mut pic_dims: Vec<(usize, usize)> = Vec::new();
     let mut pic_trans: Vec<bool> = Vec::new();
     let mut pic_data: Vec<(Vec<u8>, Vec<u16>, Vec<u16>)> = Vec::new();
     for entry in &project.pictures {
@@ -165,6 +166,7 @@ fn main() -> Result<()> {
         }
         let img = gfx::load_indexed_png(&proj_dir.join(rel))
             .with_context(|| format!("picture '{}'", rel))?;
+        pic_dims.push((img.width, img.height));
         pic_data
             .push(img.to_picture(entry.trans()).with_context(|| format!("picture '{}'", rel))?);
         pic_names.push(stem);
@@ -204,6 +206,7 @@ fn main() -> Result<()> {
                 &ui_widget_ids,
                 &ui_style_ids,
                 &pic_names,
+                &pic_dims,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);

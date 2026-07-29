@@ -134,12 +134,20 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   PNG indexé ≤ 16 couleurs, ≤ 256x224 en multiples de 8, validé à
   l'import avec comptage des couleurs ; aperçu réduit + dimensions ;
   affichées en jeu par la commande d'event **« Afficher une image »**
-  (onglet Écran, avec « Effacer l'image ») — l'image recouvre l'écran
-  avec un fondu, les dialogues se jouent par-dessus, et la fermeture
-  rend la scène intacte ; registre `pictures` de project.json, LU par
-  datagen. **Transparence (S4)** : à l'import, un dialogue montre
-  l'image et un CLIC désigne la couleur à rendre transparente (aperçu
-  en damier, « Sans transparence » pour passer) — en jeu, le décor de
+  (onglet Écran, avec « Effacer l'image ») — les dialogues se jouent
+  par-dessus, et la fermeture rend la scène intacte ; registre
+  `pictures` de project.json, LU par datagen. **Options S5 (façon Show
+  Picture RM2003)** : le formulaire « Afficher une image » propose la
+  **Position à l'écran** (Centrée, ou Position X/Y en pixels — X
+  0-255, Y 0-216, validées contre les dimensions de l'image par
+  datagen) et la **Transition** (Fondu ou Instantanée) ; « Effacer
+  l'image » propose aussi la Transition. Champs JSON : `x`/`y`
+  (absents = centrée) et `fade: false` (absent = fondu).
+  **Transparence (S4)** : à l'import, le dialogue **« Import image »**
+  montre l'image — un CLIC désigne la couleur à rendre transparente
+  (aperçu en damier, ✕ pour retirer le choix), puis **Valider**
+  (sans couleur cliquée = import sans transparence) ou **Annuler** —
+  en jeu, le décor de
   la carte se voit à travers les pixels percés, mais pas les
   personnages ; ≤ 15 couleurs opaques dans ce cas. Le même sélecteur
   s'ouvre à l'import des **IconSets** et **CharSets** : pratique pour

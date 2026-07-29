@@ -230,9 +230,9 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SYSMENU" => 1,
         // DLGSTYLE <n> : style de la prochaine boite de dialogue (S1)
         "DLGSTYLE" => 2,
-        // SHOWPIC <pic> / HIDEPIC : picture plein ecran (S3)
-        "SHOWPIC" => 2,
-        "HIDEPIC" => 1,
+        // SHOWPIC <pic> <x> <y> <flags> / HIDEPIC <flags> — picture (S3/S5)
+        "SHOWPIC" => 5,
+        "HIDEPIC" => 2,
         // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
         // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
         // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
@@ -543,13 +543,16 @@ pub fn assemble(
                 code.push(parse_u8(args[0])?);
             }
             "SHOWPIC" => {
-                if argc != 1 { bail!("SHOWPIC <pic>"); }
+                if argc != 4 { bail!("SHOWPIC <pic> <x> <y> <flags>"); }
                 code.push(OP_SHOWPIC);
-                code.push(parse_u8(args[0])?);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
             }
             "HIDEPIC" => {
-                if argc != 0 { bail!("HIDEPIC (sans argument)"); }
+                if argc != 1 { bail!("HIDEPIC <flags>"); }
                 code.push(OP_HIDEPIC);
+                code.push(parse_u8(args[0])?);
             }
             "CETAB" => {
                 if argc % 3 != 0 { bail!("CETAB <a|p> <switch> <label> ..."); }

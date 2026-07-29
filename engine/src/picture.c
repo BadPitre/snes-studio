@@ -2,7 +2,9 @@
  * picture.c — pictures plein écran (S3, façon RM2003).
  *
  * Une picture est compilée par datagen (data_pic{i}.c) : chars 4bpp
- * dédupliqués (≤ 512), tilemap 32x28 (palette 0) et palette 16 couleurs.
+ * dédupliqués (≤ 512), tilemap 32x32 complète (image calée en haut-
+ * gauche, padding transparent — wrap sûr au scroll) et palette 16
+ * couleurs.
  *
  * Plan VRAM SANS reconstruction : l'image emprunte la RÉGION OBJ
  * ($4000-$6000 words, 512 chars — les sprites sont masqués pendant
@@ -55,16 +57,25 @@ static u8 pic_on = 0;
    vm_update. 0 = rien, 1 = show, 2 = hide. */
 static u8 pic_req = 0;
 static u8 pic_req_id = 0;
+static u8 pic_req_x = 0;
+static u8 pic_req_y = 0;
+static u8 pic_req_cut = 0;
+/* scroll BG1 de l'image affichée (position S5) */
+static u16 pic_hx = 0;
+static u16 pic_vy = 0;
 
 u8 picture_active(void)
 {
   return pic_on;
 }
 
-void picture_request(u8 show, u8 id)
+void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags)
 {
   pic_req = show ? 1 : 2;
   pic_req_id = id;
+  pic_req_x = x;
+  pic_req_y = y;
+  pic_req_cut = flags & 1;
 }
 
 void picture_apply(void)
@@ -82,7 +93,8 @@ void picture_show(u8 id)
 {
   if (id >= pic_count)
     return;
-  setFadeEffect(FADE_OUT);
+  if (!pic_req_cut)
+    setFadeEffect(FADE_OUT);
   setScreenOff();
   pic_on = 1;
   /* image à transparence (S4) : la couche décor (BG2, couche inf.)
@@ -94,7 +106,7 @@ void picture_show(u8 id)
   bgSetGfxPtr(0, VRAM_OBJ_GFX);
   bgSetMapPtr(0, VRAM_PIC_MAP, SC_32x32);
   dmaCopyVram((u8 *)pic_chars[id], VRAM_OBJ_GFX, *pic_chars_sizes[id]);
-  dmaCopyVram((u8 *)pic_maps[id], VRAM_PIC_MAP, 32 * 28 * 2);
+  dmaCopyVram((u8 *)pic_maps[id], VRAM_PIC_MAP, 32 * 32 * 2);
   if (pic_flags[id] & 1)
   {
     /* transparence : l'image vit sur la PALETTE BG 7 (réservée, entrées
@@ -104,17 +116,24 @@ void picture_show(u8 id)
   }
   else
     dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* couleurs 0-15 */
-  bgSetScroll(0, 0, 0);
+  /* position écran (S5) : image calée en haut-gauche de sa carte,
+     placée par le scroll (SC_32x32, wrap sans danger — padding
+     transparent émis par datagen jusqu'à la rangée 31) */
+  pic_hx = (u16)(0x100 - pic_req_x) & 0xFF;
+  pic_vy = (u16)(0x100 - pic_req_y) & 0xFF;
+  bgSetScroll(0, pic_hx, pic_vy);
   screenfx_warp_reset(); /* fondu scripté resynchronisé (recette warp) */
   setScreenOn();
-  setFadeEffect(FADE_IN);
+  if (!pic_req_cut)
+    setFadeEffect(FADE_IN);
 }
 
 void picture_hide(void)
 {
   if (!pic_on)
     return;
-  setFadeEffect(FADE_OUT);
+  if (!pic_req_cut)
+    setFadeEffect(FADE_OUT);
   setScreenOff();
   /* Registres BG1 de la scène (chars + map jamais écrasés) */
   bgSetGfxPtr(0, VRAM_BG1_GFX);
@@ -132,7 +151,13 @@ void picture_hide(void)
   pic_on = 0;
   screenfx_warp_reset();
   setScreenOn();
-  setFadeEffect(FADE_IN);
+  if (!pic_req_cut)
+    setFadeEffect(FADE_IN);
+}
+
+void picture_vblank(void)
+{
+  bgSetScroll(0, pic_hx, pic_vy);
 }
 
 void picture_reset(void)

@@ -56,6 +56,8 @@ pub struct EventCompiler<'a> {
     ui_styles: Vec<String>,
     /// pictures du projet (S3) — stems, résolus vers les pic_id
     pictures: Vec<String>,
+    /// dimensions (w, h) en pixels de chaque picture (S5 : position)
+    pic_dims: Vec<(usize, usize)>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -83,6 +85,7 @@ impl<'a> EventCompiler<'a> {
             ui_widgets: Vec::new(),
             ui_styles: Vec::new(),
             pictures: Vec::new(),
+            pic_dims: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -457,9 +460,30 @@ impl<'a> EventCompiler<'a> {
                                 }
                             )
                         })?;
-                    out.push(format!("  SHOWPIC {}", idx));
+                    // S5 : position en pixels (défaut = centré) + transition
+                    let (w, h) = self.pic_dims[idx];
+                    let x = match cmd["x"].as_i64() {
+                        Some(v) => v,
+                        None => ((256 - w) / 2) as i64,
+                    };
+                    let y = match cmd["y"].as_i64() {
+                        Some(v) => v,
+                        None => ((224 - h) / 2) as i64,
+                    };
+                    if x < 0 || y < 0 || x as usize + w > 256 || y as usize + h > 224 {
+                        bail!(
+                            "pic_show « {} » : position ({}, {}) hors écran pour une \
+                             image {}x{} (0 <= x <= {}, 0 <= y <= {})",
+                            name, x, y, w, h, 256 - w, 224 - h
+                        );
+                    }
+                    let cut = !cmd["fade"].as_bool().unwrap_or(true);
+                    out.push(format!("  SHOWPIC {} {} {} {}", idx, x, y, cut as u8));
                 }
-                "pic_hide" => out.push("  HIDEPIC".to_string()),
+                "pic_hide" => {
+                    let cut = !cmd["fade"].as_bool().unwrap_or(true);
+                    out.push(format!("  HIDEPIC {}", cut as u8));
+                }
                 // Phase 12 — Key Input Processing (RM2003) : le code de la
                 // touche pressée dans une variable (0 = aucune)
                 "key_input" => {
@@ -753,6 +777,7 @@ impl<'a> EventCompiler<'a> {
         ui_widgets: &[String],
         ui_styles: &[String],
         pictures: &[String],
+        pic_dims: &[(usize, usize)],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -764,6 +789,7 @@ impl<'a> EventCompiler<'a> {
         self.ui_widgets = ui_widgets.to_vec();
         self.ui_styles = ui_styles.to_vec();
         self.pictures = pictures.to_vec();
+        self.pic_dims = pic_dims.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

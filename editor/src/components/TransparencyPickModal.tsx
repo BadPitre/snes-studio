@@ -9,10 +9,8 @@ import { useEffect, useRef, useState } from "react";
 export type Rgb = [number, number, number];
 
 interface Props {
-  title: string;
   bmp: ImageBitmap;
-  hint?: string;
-  // couleur choisie, ou null = importer sans transparence
+  // couleur cliquée (ou null = sans transparence) — Valider envoie l'état
   onOk: (color: Rgb | null) => void;
   onClose: () => void; // annule l'import
 }
@@ -98,12 +96,7 @@ export default function TransparencyPickModal(props: Props) {
   return (
     <div className="modal-backdrop transpick-top" onClick={props.onClose}>
       <div className="modal transpick" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">{props.title}</div>
-        <span className="hint">
-          Clique la couleur de l'image à rendre TRANSPARENTE (aperçu en
-          damier) — ou « Sans transparence » pour l'importer telle quelle.
-          {props.hint ? ` ${props.hint}` : ""}
-        </span>
+        <div className="panel-title">Import image</div>
         <div style={{ alignSelf: "center", maxWidth: "100%", overflow: "auto" }}>
           <canvas
             ref={canvasRef}
@@ -128,11 +121,8 @@ export default function TransparencyPickModal(props: Props) {
           )}
         </div>
         <div className="row">
-          <button disabled={!sel} onClick={() => props.onOk(sel)}>
-            OK — cette couleur est transparente
-          </button>
-          <button onClick={() => props.onOk(null)}>Sans transparence</button>
-          <button onClick={props.onClose}>Annuler l'import</button>
+          <button onClick={() => props.onOk(sel)}>Valider</button>
+          <button onClick={props.onClose}>Annuler</button>
         </div>
       </div>
     </div>

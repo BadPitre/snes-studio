@@ -202,11 +202,15 @@
                                windowskin et fonte par style (tables
                                ui_styles.c). Émis par datagen avant
                                CHAQUE msg/choice (champ "style"). */
-#define VM_OP_SHOWPIC 0x28 /* pic_id (u8) — picture plein écran (S3) :
+#define VM_OP_SHOWPIC 0x28 /* pic_id, x, y, flags (u8 x4) — picture (S3) :
                               BG2/OBJ masqués, BG3 reste (dialogues SUR
-                              l'image). Id hors bornes : ignoré. */
-#define VM_OP_HIDEPIC 0x29 /* referme la picture : tileset + palettes de
-                              la scène rechargés, events intacts (S3) */
+                              l'image). x/y = position écran en pixels
+                              (S5, appliquée par scroll BG1), flags
+                              bit 0 = transition instantanée (sans
+                              fondu). Id hors bornes : ignoré. */
+#define VM_OP_HIDEPIC 0x29 /* flags (u8, bit 0 = instantané) — referme la
+                              picture : tileset + palettes de la scène
+                              rechargés, events intacts (S3/S5) */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

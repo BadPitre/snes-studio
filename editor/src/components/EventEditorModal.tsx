@@ -120,9 +120,11 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "sysmenu":
       return "Ouvrir le menu Système (sauvegarde)";
     case "pic_show":
-      return `Afficher l'image « ${c.pic || "?"} »`;
+      return `Afficher l'image « ${c.pic || "?"} »${
+        c.x !== undefined || c.y !== undefined ? ` en (${c.x ?? 0},${c.y ?? 0})` : ""
+      }${c.fade === false ? " (instantané)" : ""}`;
     case "pic_hide":
-      return "Effacer l'image (retour au jeu)";
+      return `Effacer l'image${c.fade === false ? " (instantané)" : ""}`;
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -1636,20 +1638,76 @@ function CommandForm(props: {
               )}
             </select>
           </label>
+          <label>
+            Position à l'écran
+            <select
+              value={cmd.x !== undefined || cmd.y !== undefined ? "xy" : "center"}
+              onChange={(e) =>
+                onChange(
+                  e.target.value === "center"
+                    ? { ...cmd, x: undefined, y: undefined }
+                    : { ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0 }
+                )
+              }
+            >
+              <option value="center">Centrée</option>
+              <option value="xy">Position X/Y (pixels)</option>
+            </select>
+          </label>
+          {(cmd.x !== undefined || cmd.y !== undefined) && (
+            <div className="row">
+              <label>
+                X (0-255)
+                <input type="number" min={0} max={255} value={cmd.x ?? 0}
+                  onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
+              </label>
+              <label>
+                Y (0-216)
+                <input type="number" min={0} max={216} value={cmd.y ?? 0}
+                  onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
+              </label>
+            </div>
+          )}
+          <label>
+            Transition
+            <select
+              value={cmd.fade === false ? "cut" : "fade"}
+              onChange={(e) =>
+                onChange({ ...cmd, fade: e.target.value === "cut" ? false : undefined })
+              }
+            >
+              <option value="fade">Fondu</option>
+              <option value="cut">Instantanée</option>
+            </select>
+          </label>
           <span className="hint">
-            L'image recouvre l'écran (fondu) — les messages et choix se
-            jouent PAR-DESSUS. Refermer avec « Effacer l'image » dans le
-            même script : le jeu revient intact.
+            Les messages et choix se jouent PAR-DESSUS l'image. Le build
+            vérifie que l'image tient à l'écran à cette position.
+            Refermer avec « Effacer l'image » dans le même script.
           </span>
         </>
       );
       break;
     case "pic_hide":
       body = (
-        <span className="hint">
-          Referme l'image affichée (fondu) et rend l'écran au jeu — carte,
-          personnages et états inchangés. Sans image affichée : ignoré.
-        </span>
+        <>
+          <label>
+            Transition
+            <select
+              value={cmd.fade === false ? "cut" : "fade"}
+              onChange={(e) =>
+                onChange({ ...cmd, fade: e.target.value === "cut" ? false : undefined })
+              }
+            >
+              <option value="fade">Fondu</option>
+              <option value="cut">Instantanée</option>
+            </select>
+          </label>
+          <span className="hint">
+            Referme l'image et rend l'écran au jeu — carte, personnages et
+            états inchangés. Sans image affichée : ignoré.
+          </span>
+        </>
       );
       break;
     case "ui_show":

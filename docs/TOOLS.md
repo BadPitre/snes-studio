@@ -281,16 +281,23 @@ datagen — layout.toml fait foi).
 `"pictures": ["assets/....png", ...]` — LU par datagen (l'ordre donne
 les pic_id). Chaque image : PNG **indexé ≤ 16 couleurs** (palette
 paddée tolérée : seuls les INDEX utilisés comptent), dimensions
-multiples de 8, max **256x224** (centrée sur la grille 32x28 si plus
-petite), **≤ 512 tiles 8x8 uniques** après dédoublonnage (la région
-VRAM des sprites, empruntée pendant l'affichage — aplats et motifs
-répétés dédupliquent très bien). datagen émet `data_pic{i}.c` (une
-section = une bank) + le registre `data_pictures.c` (toujours, tables
-factices sans image ; max 32 images). Commandes :
-`{"c":"pic_show","pic":"<stem>"}` (SHOWPIC, nom résolu — erreur avec la
-liste sinon) affiche l'image plein écran avec un fondu — les messages
-et choix se jouent PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la
-referme, scène et events INTACTS. Refermer dans le même script.
+multiples de 8, max **256x224** (calée en HAUT-GAUCHE d'une carte
+32x32 complétée de padding transparent — le placement écran se fait
+par scroll), **≤ 512 tiles 8x8 uniques** après dédoublonnage (la
+région VRAM des sprites, empruntée pendant l'affichage — aplats et
+motifs répétés dédupliquent très bien). datagen émet `data_pic{i}.c`
+(une section = une bank) + le registre `data_pictures.c` (toujours,
+tables factices sans image ; max 32 images). Commandes :
+`{"c":"pic_show","pic":"<stem>"}` (SHOWPIC, nom résolu — erreur avec
+la liste sinon) affiche l'image — les messages et choix se jouent
+PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la referme, scène et
+events INTACTS. Refermer dans le même script. **Options S5 (façon
+Show Picture RM2003)** : `pic_show` accepte `"x"`/`"y"` (position
+écran en pixels, défaut = image centrée — datagen calcule avec les
+dimensions du PNG et valide x+w ≤ 256, y+h ≤ 224) et `"fade": false`
+(transition instantanée — les DEUX commandes l'acceptent ; absent ou
+`true` = fondu). Émis en `SHOWPIC id x y flags` / `HIDEPIC flags`
+(flags bit 0 = instantané).
 **Transparence (S4)** : une entrée `{"path": "...", "trans": true}`
 marque une image à TRANSPARENCE (pixels d'alpha < 128, percés par le
 sélecteur de couleur de l'éditeur à l'import) — en jeu, la couche

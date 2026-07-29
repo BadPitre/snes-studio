@@ -181,7 +181,7 @@ int main(void)
     {
       ui_screen_vblank();
       screenfx_vblank();
-      bgSetScroll(0, 0, 0);
+      picture_vblank(); /* scroll BG1 = position de l'image (S5) */
     }
     else
     {

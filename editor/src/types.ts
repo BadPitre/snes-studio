@@ -199,8 +199,10 @@ export type Command =
   // S3 — pictures plein écran (façon RM2003) : l'image recouvre le jeu
   // (BG3 reste : les dialogues se jouent DESSUS), pic = stem du registre
   // project.pictures ; pic_hide referme et restaure la scène intacte
-  | { c: "pic_show"; pic: string }
-  | { c: "pic_hide" }
+  // x/y : position écran en pixels (absents = centré) ; fade : false =
+  // transition instantanée (défaut : fondu) — S5
+  | { c: "pic_show"; pic: string; x?: number; y?: number; fade?: boolean }
+  | { c: "pic_hide"; fade?: boolean }
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }

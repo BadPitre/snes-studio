@@ -1917,19 +1917,7 @@ export default function App() {
       )}
       {transPick && data && (
         <TransparencyPickModal
-          title={
-            transPick.kind === "picture"
-              ? "Import d'image — couleur transparente ?"
-              : transPick.kind === "iconset"
-                ? "Import de planche d'icônes — couleur transparente ?"
-                : "Import de charset — couleur transparente ?"
-          }
           bmp={transPick.bmp}
-          hint={
-            transPick.kind === "picture"
-              ? "En jeu, le DÉCOR de la carte se verra à travers (mais pas les personnages)."
-              : "Les pixels percés deviennent l'index 0 transparent."
-          }
           onOk={(color) => void finishTransPick(color)}
           onClose={() => {
             setTransPick(null);

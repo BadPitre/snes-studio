@@ -204,17 +204,19 @@ impl IndexedImage {
         let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
         let tw = self.width / 8;
         let th = self.height / 8;
-        let ox0 = (32 - tw) / 2;
-        let oy0 = (28 - th) / 2;
+        // S5 : image calée en HAUT-GAUCHE de la carte — le moteur la
+        // positionne à l'écran par le scroll BG1 (commande pic_show).
+        // Carte 32x32 COMPLÈTE : au scroll vertical, les rangées 28-31
+        // deviennent visibles (wrap SC_32x32) — padding transparent.
         let mut chars: Vec<u8> = Vec::new();
         let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
-        let mut map = vec![0u16; 32 * 28];
-        for ty in 0..28usize {
+        let mut map = vec![0u16; 32 * 32];
+        for ty in 0..32usize {
             for tx in 0..32usize {
-                let ch: [u8; 32] = if tx >= ox0 && tx < ox0 + tw && ty >= oy0 && ty < oy0 + th {
-                    self.char4bpp_mapped((tx - ox0) * 8, (ty - oy0) * 8, &identity)
+                let ch: [u8; 32] = if tx < tw && ty < th {
+                    self.char4bpp_mapped(tx * 8, ty * 8, &identity)
                 } else {
-                    [0u8; 32] // hors image : couleur 0 (fond)
+                    [0u8; 32] // hors image : couleur 0 (transparent/fond)
                 };
                 let n = seen.len() as u16;
                 let id = *seen.entry(ch).or_insert_with(|| {

@@ -618,17 +618,20 @@ static void vm_step(void)
       sysmenu_open();
       break;
 
-    case VM_OP_SHOWPIC: /* picture plein écran (S3) — transition
-                             DIFFÉRÉE à la boucle principale (modèle du
-                             warp scripté), la VM marque une pause d'une
-                             frame pour que l'image précède la suite */
-      picture_request(1, fetch8());
+    case VM_OP_SHOWPIC: /* picture (S3/S5) — transition DIFFÉRÉE à la
+                             boucle principale (modèle du warp scripté),
+                             la VM marque une pause d'une frame pour que
+                             l'image précède la suite */
+      var = fetch8(); /* pic_id */
+      val = fetch8(); /* x écran */
+      idx16 = fetch8(); /* y écran */
+      picture_request(1, var, val, (u8)idx16, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;
 
     case VM_OP_HIDEPIC:
-      picture_request(0, 0);
+      picture_request(0, 0, 0, 0, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;
