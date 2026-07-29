@@ -620,6 +620,18 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // S13 — météo en particules (Weather Effects RM2003) :
+                // persiste entre les scènes jusqu'au prochain changement
+                "weather" => {
+                    let kind = match cmd["kind"].as_str().unwrap_or("off") {
+                        "off" => 0u8,
+                        "rain" => 1,
+                        "snow" => 2,
+                        o => bail!("weather : type inconnu « {} » (off, rain, snow)", o),
+                    };
+                    let pow = cmd["power"].as_u64().filter(|&v| (1..=3).contains(&v)).unwrap_or(2);
+                    out.push(format!("  WEATHER {} {}", kind, pow));
+                }
                 "flash" => {
                     let comp = |key: &str| -> u64 {
                         cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(31)

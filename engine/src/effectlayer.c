@@ -71,11 +71,14 @@ static void eff_regs(void)
   dmaCopyCGram((u8 *)pic_pals[eff_cur] + 2, 113, 30);
   if (eff_bl)
   {
+    u8 adsub = eff_bl == 1 ? 0x41 /* semi-transparent */
+                           : (eff_bl == 2 ? 0x01 /* additif */
+                                          : 0x81 /* soustractif */);
+
     REG_TS = 0x12; /* BG2 + OBJ en sub : décor ET personnages visibles */
     REG_CGWSEL = 0x02;
-    REG_CGADSUB = eff_bl == 1 ? 0x41 /* semi-transparent */
-                              : (eff_bl == 2 ? 0x01 /* additif */
-                                             : 0x81 /* soustractif */);
+    REG_CGADSUB = adsub;
+    screenfx_cm_hold_regs(0x12, 0x02, adsub); /* l'éclair les repose (S13) */
     screenfx_cm_hold(1);
   }
   else

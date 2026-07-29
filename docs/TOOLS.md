@@ -387,7 +387,12 @@ référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
 (jour/nuit) : la teinte interpole de la valeur courante vers la cible,
 NON bloquant (`TINTG <mode> <r> <g> <b> <dur>` — dur absent/0 =
 bytecode TINT inchangé), add ↔ sub passe par zéro en deux phases,
-presets Matin/Jour/Soir/Nuit côté éditeur ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+presets Matin/Jour/Soir/Nuit côté éditeur ; **`{"c":"weather","kind":
+"off"|"rain"|"snow","power":1-3}` (S13)** — météo en particules
+(`WEATHER <type> <pow>`), non bloquant, persiste entre les scènes ;
+les particules (sprites, `data_weather.c` toujours émis) tombent
+DEVANT la couche d'effet, et le flash traverse les mélanges (orage
+complet : nuages sombres + pluie + flash) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop
 (`SHAKE`). La teinte et le flash ne touchent ni le texte ni les

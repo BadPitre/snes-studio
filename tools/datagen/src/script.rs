@@ -76,6 +76,7 @@ const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
 const OP_MOVEPIC: u8 = 0x2A;
 const OP_TINTG: u8 = 0x2B;
+const OP_WEATHER: u8 = 0x2C;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -223,6 +224,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "TINT" | "FLASH" => 5,
         // TINTG <off|add|sub> <r> <g> <b> <dur> — teinte graduelle (S12)
         "TINTG" => 6,
+        // WEATHER <0-2> <1-3> — météo en particules (S13)
+        "WEATHER" => 3,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -664,6 +667,14 @@ pub fn assemble(
                         .filter(|&v| v >= 1)
                         .with_context(|| format!("duree invalide : '{}' (1-255)", args[4]))?;
                     code.push(d);
+                }
+            }
+            // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
+            "WEATHER" => {
+                if argc != 2 { bail!("WEATHER <0-2> <1-3>"); }
+                code.push(OP_WEATHER);
+                for t in args {
+                    code.push(parse_u8(t)?);
                 }
             }
             // FLASH <r> <g> <b> <frames 1-255>

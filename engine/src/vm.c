@@ -536,6 +536,11 @@ static void vm_step(void)
       screenfx_tint(var);
       break;
 
+    case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */
+      var = fetch8();
+      weather_set(var, fetch8());
+      break;
+
     case VM_OP_TINTG: /* teinte GRADUELLE (S12) — rgb puis (mode, dur),
                          même parade tcc que TINT (3 u8 max par appel) */
       var = fetch8();   /* mode */

@@ -36,6 +36,7 @@
 #include "textbox.h"
 #include "screenfx.h"
 #include "effectlayer.h"
+#include "weather.h"
 #include "vram.h"
 
 /* Registre généré par datagen (data_pictures.c — toujours émis) */
@@ -278,11 +279,13 @@ void picture_show(u8 id)
   x = (pic_req_fl >> 3) & 3;
   if (x)
   {
+    y = x == 1 ? 0x41 /* semi-transparent (add + half) */
+               : (x == 2 ? 0x01 /* additif */
+                         : 0x81 /* soustractif */);
     REG_TS = 0x02; /* BG2 seul en sub — JAMAIS OBJ (chars = l'image) */
     REG_CGWSEL = 0x02;
-    REG_CGADSUB = x == 1 ? 0x41 /* semi-transparent (add + half) */
-                         : (x == 2 ? 0x01 /* additif */
-                                   : 0x81 /* soustractif */);
+    REG_CGADSUB = y;
+    screenfx_cm_hold_regs(0x02, 0x02, y); /* l'éclair les repose (S13) */
     screenfx_cm_hold(1);
   }
   else
@@ -306,6 +309,7 @@ void picture_hide(void)
      scène (l'image a écrasé CGRAM 0-15) */
   dmaCopyVram((u8 *)sprite_chars[scene_ctx.sprite_set_id], VRAM_OBJ_GFX,
               *sprite_chars_sizes[scene_ctx.sprite_set_id]);
+  weather_load(); /* chars météo (S13) — la picture a occupé la région OBJ */
   dmaCopyCGram((u8 *)gfx_pals[scene_ctx.tileset_id], 0, 128 * 2);
   {
     u16 black = 0; /* fond (CGRAM 0) réaffirmé NOIR (S10 — comme scene_load) */

@@ -22,6 +22,7 @@
 #include "picture.h"
 #include "debug.h"
 #include "effectlayer.h"
+#include "weather.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -169,6 +170,7 @@ int main(void)
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
     effect_update();   /* dérive de la couche d'effet (S9) */
+    weather_update();  /* particules météo (S13) */
     overlay_update();  /* HUD : redessin si une variable a changé */
     debug_update();    /* panneau Start+Select+R (S6) — inerte sans le
                           drapeau --debug de datagen ; APRÈS overlay */
@@ -177,6 +179,7 @@ int main(void)
       map_update(); /* prépare le streaming de la fenêtre tilemap */
     player_draw();  /* shadow OAM — transféré par le NMI au VBlank */
     actors_draw();
+    weather_draw(); /* particules météo — entrées OAM hautes (S13) */
 
     audio_process(); /* flux musique -> SPC */
 

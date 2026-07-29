@@ -643,6 +643,70 @@ fn main() -> Result<()> {
                 e_pic.iter().filter(|&&p| p != 0xFF).count());
         }
     }
+    // Météo (S13) : data_weather.c TOUJOURS émis — chars 4bpp des
+    // particules (pluie/neige, blocs 16x16 : TL,TR puis BL,BR) +
+    // palette OBJ 7 (4 couleurs). Zéro donnée en dur dans le moteur.
+    {
+        // encode un char 8x8 (indices 0-15) en 4bpp planaire SNES
+        let pack_char = |px: &dyn Fn(usize, usize) -> u8| -> [u8; 32] {
+            let mut out = [0u8; 32];
+            for y in 0..8 {
+                let (mut p0, mut p1, mut p2, mut p3) = (0u8, 0u8, 0u8, 0u8);
+                for x in 0..8 {
+                    let v = px(x, y);
+                    let bit = 0x80 >> x;
+                    if v & 1 != 0 { p0 |= bit; }
+                    if v & 2 != 0 { p1 |= bit; }
+                    if v & 4 != 0 { p2 |= bit; }
+                    if v & 8 != 0 { p3 |= bit; }
+                }
+                out[y * 2] = p0;
+                out[y * 2 + 1] = p1;
+                out[16 + y * 2] = p2;
+                out[16 + y * 2 + 1] = p3;
+            }
+            out
+        };
+        // bloc 16x16 -> 128 octets (TL, TR, BL, BR)
+        let pack_block = |bm: &[[u8; 16]; 16]| -> Vec<u8> {
+            let mut out = Vec::with_capacity(128);
+            for (qy, qx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
+                out.extend_from_slice(&pack_char(&|x, y| bm[qy + y][qx + x]));
+            }
+            out
+        };
+        // pluie : trait diagonal 2 px (tête blanche, traîne bleutée)
+        let mut rain = [[0u8; 16]; 16];
+        for i in 0..12usize {
+            let x = 11 - i / 2;
+            let y = 2 + i;
+            rain[y][x] = if i < 4 { 1 } else { 2 };
+            if i % 2 == 0 && x + 1 < 16 {
+                rain[y][x + 1] = 2;
+            }
+        }
+        // neige : flocon (croix blanche + pointes bleutées)
+        let mut snow = [[0u8; 16]; 16];
+        for (x, y, c) in [
+            (8, 8, 1u8), (7, 8, 1), (9, 8, 1), (8, 7, 1), (8, 9, 1),
+            (6, 8, 2), (10, 8, 2), (8, 6, 2), (8, 10, 2),
+            (7, 7, 2), (9, 9, 2), (9, 7, 2), (7, 9, 2),
+        ] {
+            snow[y][x] = c;
+        }
+        // palette OBJ 7 : transparent, blanc, bleu clair, (libre)
+        let bgr = |r: u16, g: u16, b: u16| -> u16 { (b << 10) | (g << 5) | r };
+        let pal = [0u16, bgr(31, 31, 31), bgr(22, 26, 31), 0];
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n/* particules meteo (S13) — blocs 16x16 4bpp, palette OBJ 7 */\n");
+        s.push_str(&emit::u8_array("wea_rain", &pack_block(&rain), 16, false));
+        s.push_str(&emit::u8_array("wea_snow", &pack_block(&snow), 16, false));
+        s.push_str(&format!(
+            "const u16 wea_pal[4] = {{ {}, {}, {}, {} }};\n",
+            pal[0], pal[1], pal[2], pal[3]
+        ));
+        write_out(&out_dir, "data_weather.c", s)?;
+    }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
     // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)

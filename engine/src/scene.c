@@ -13,6 +13,7 @@
 #include "vram.h"
 #include "map.h"
 #include "effectlayer.h"
+#include "weather.h"
 
 /* GFX sets (data_assets.c) — compilés PAR SCÈNE par datagen (v0.4 : seules
    les tiles utilisées par la scène sont en VRAM, palettes multiples bakées
@@ -153,8 +154,11 @@ void scene_load(u8 scene_id)
   map_set_metatiles(gfx_metas[scene_ctx.tileset_id],
                     gfx_prios[scene_ctx.tileset_id]);
   /* Couche d'effet (S9) : si la scène en a une, BG1 est rebasé sur le
-     motif (chars $0000, carte $0C00) — la couche sup est ignorée */
+     motif — la couche sup est ignorée */
   effect_load(scene_id);
+  /* météo (S13) : chars + palette rechargés par player_init — sa
+     oamInitGfxSet écrase les 128 couleurs OBJ, y compris la palette 7
+     des particules ; l'appel doit donc venir APRÈS */
 }
 
 u8 scene_collision(u8 tx, u8 ty)

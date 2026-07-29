@@ -224,6 +224,11 @@
                               saut), NON-bloquant (le script continue,
                               façon Move Picture RM2003). flags bits 1-2
                               comme SHOWPIC. Sans image : ignoré (S7). */
+#define VM_OP_WEATHER 0x2C /* type, pow (u8 x2) — météo en particules
+                              (S13) : 0 aucune, 1 pluie, 2 neige ; pow
+                              1-3 = 8/16/24 sprites (OAM 100-123, chars
+                              OBJ 484+, palette OBJ 7). État GLOBAL,
+                              persiste entre les scènes (RM2003). */
 #define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
                             (S12, jour/nuit) : interpole la teinte
                             courante vers la cible en dur frames, NON

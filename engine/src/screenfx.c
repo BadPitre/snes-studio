@@ -91,6 +91,21 @@ void screenfx_init(void)
 static u8 cm_hold = 0; /* init explicite (tcc) — screenfx_init n'y touche
     PAS : au boot, effect_load (scene_load) pose le hold AVANT
     screenfx_init, et main réaffirme l'effet après setMode */
+/* registres du mélange détenteur du hold (S13) : mémorisés pour que
+   l'ÉCLAIR (flash) puisse emprunter le circuit le temps de sa
+   décroissance puis les reposer — l'orage complet : nuages mélangés
+   + pluie + flash */
+static u8 hold_ts = 0;
+static u8 hold_wsel = 0;
+static u8 hold_adsub = 0;
+static u8 cm_flash = 0; /* un flash a emprunté le circuit sous hold */
+
+void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub)
+{
+  hold_ts = ts;
+  hold_wsel = wsel;
+  hold_adsub = adsub;
+}
 
 void screenfx_cm_hold(u8 on)
 {
@@ -333,7 +348,34 @@ void screenfx_vblank(void)
     REG_INIDISP = fade_level; /* bit 7 = 0 : écran allumé */
   }
   if (cm_hold)
-    return; /* le mélange picture (S8) possède le color math */
+  {
+    /* le mélange (S8/S9) possède le color math — SAUF l'éclair (S13) :
+       un flash l'emprunte le temps de sa décroissance, puis les
+       registres du mélange sont reposés tels que mémorisés */
+    if (flash_timer)
+    {
+      r = (u8)(((u16)flash_r * flash_timer) / flash_dur);
+      g = (u8)(((u16)flash_g * flash_timer) / flash_dur);
+      b = (u8)(((u16)flash_b * flash_timer) / flash_dur);
+      REG_CGWSEL = 0x00;
+      REG_CGADSUB = 0x23;
+      REG_COLDATA = 0x20 | r;
+      REG_COLDATA = 0x40 | g;
+      REG_COLDATA = 0x80 | b;
+      cm_flash = 1;
+    }
+    else if (cm_flash)
+    {
+      cm_flash = 0;
+      REG_TS = hold_ts;
+      REG_CGWSEL = hold_wsel;
+      REG_CGADSUB = hold_adsub;
+      REG_COLDATA = 0x20; /* couleur fixe rendue à zéro (les 3 plans) */
+      REG_COLDATA = 0x40;
+      REG_COLDATA = 0x80;
+    }
+    return;
+  }
   if (!cm_dirty)
     return;
   cm_dirty = 0;

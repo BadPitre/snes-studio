@@ -320,8 +320,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   stockés dans project.json (registre tint_presets, éditeur seulement)
   — et champ **Transition** en frames — 0 =
   immédiate, sinon la teinte évolue graduellement, non bloquant :
-  c'est le cycle jour/nuit scriptable), **Flash d'écran** et
-  **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
+  c'est le cycle jour/nuit scriptable), **Météo (pluie / neige)** (S13 —
+  intensité 1-3, persiste entre les scènes, les particules tombent
+  devant la couche d'effet ; « Aucune » arrête), **Flash d'écran**
+  (traverse aussi les mélanges : l'éclair d'orage marche au-dessus
+  des nuages semi-transparents) et **Secouer l'écran** (non bloquants
+  — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

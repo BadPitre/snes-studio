@@ -168,6 +168,10 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "weather":
+      return c.kind === "off"
+        ? "Météo : aucune"
+        : `Météo : ${c.kind === "rain" ? "pluie" : "neige"} (intensité ${c.power ?? 2})`;
     case "flash":
       return `Flash d'écran (${c.r},${c.g},${c.b}) ${c.frames} frames`;
     case "shake":
@@ -215,6 +219,7 @@ function cmdTitle(c: Command["c"]): string {
     scr_hide: "Cacher l'écran",
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
+    weather: "Météo (pluie / neige)",
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
     call: "Appeler un common event",
@@ -477,6 +482,8 @@ export function CommandListEditor(props: {
         return { c: "scr_show", speed: 1 };
       case "tint":
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
+      case "weather":
+        return { c: "weather", kind: "rain", power: 2 };
       case "flash":
         return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
       case "shake":
@@ -2057,6 +2064,44 @@ function CommandForm(props: {
             finir. Teinte le décor, pas les personnages ni le texte
             (limite hardware). Suspendue à l'écran pendant un mélange de
             couche d'effet ou d'image.
+          </span>
+        </>
+      );
+      break;
+    case "weather":
+      body = (
+        <>
+          <label>
+            Météo
+            <select
+              value={cmd.kind}
+              onChange={(e) =>
+                onChange({ ...cmd, kind: e.target.value as "off" | "rain" | "snow" })
+              }
+            >
+              <option value="off">Aucune (arrêter)</option>
+              <option value="rain">Pluie</option>
+              <option value="snow">Neige</option>
+            </select>
+          </label>
+          {cmd.kind !== "off" && (
+            <label>
+              Intensité
+              <select
+                value={cmd.power ?? 2}
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              >
+                <option value={1}>Légère (8 particules)</option>
+                <option value={2}>Normale (16)</option>
+                <option value={3}>Forte (24)</option>
+              </select>
+            </label>
+          )}
+          <span className="hint">
+            Non bloquant — persiste entre les scènes jusqu'au prochain
+            changement (modèle RM2003). Les particules tombent DEVANT la
+            couche d'effet : orage complet = nuages sombres (soustractif)
+            + Pluie + « Flash d'écran » pour les éclairs.
           </span>
         </>
       );

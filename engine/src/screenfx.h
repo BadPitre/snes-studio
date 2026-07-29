@@ -53,9 +53,14 @@ void screenfx_shake(u8 power, u8 speed, u8 frames);
    scroll BG1/BG2 par la boucle principale. */
 u16 screenfx_shake_x(void);
 
-/* Mélange picture (S8) : hold posé = screenfx ne touche plus le color
-   math ($2130-$2132) — l'image possède le circuit (teinte et flash
-   suspendus). Relâcher réaffirme la teinte persistante. */
+/* Mélange picture/couche d'effet (S8/S9) : hold posé = screenfx ne
+   touche plus le color math ($2130-$2132) — le mélange possède le
+   circuit (teinte suspendue). EXCEPTION (S13) : un FLASH l'emprunte le
+   temps de sa décroissance puis repose les registres mémorisés par
+   screenfx_cm_hold_regs (à appeler AVANT cm_hold(1)) — l'éclair
+   d'orage traverse les nuages mélangés. Relâcher le hold réaffirme la
+   teinte persistante. */
+void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub);
 void screenfx_cm_hold(u8 on);
 
 /* Un pas d'effet par frame (boucle principale, toujours). */
