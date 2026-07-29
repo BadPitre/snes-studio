@@ -202,15 +202,24 @@
                                windowskin et fonte par style (tables
                                ui_styles.c). Émis par datagen avant
                                CHAQUE msg/choice (champ "style"). */
-#define VM_OP_SHOWPIC 0x28 /* pic_id, x, y, flags (u8 x4) — picture (S3) :
-                              BG2/OBJ masqués, BG3 reste (dialogues SUR
-                              l'image). x/y = position écran en pixels
-                              (S5, appliquée par scroll BG1), flags
-                              bit 0 = transition instantanée (sans
-                              fondu). Id hors bornes : ignoré. */
-#define VM_OP_HIDEPIC 0x29 /* flags (u8, bit 0 = instantané) — referme la
-                              picture : tileset + palettes de la scène
-                              rechargés, events intacts (S3/S5) */
+#define VM_OP_SHOWPIC 0x28 /* pic_id, x, y, flags, dur (u8 x5) — picture
+                              (S3) : BG2/OBJ masqués, BG3 reste
+                              (dialogues SUR l'image). x/y = position
+                              écran en pixels (S5, scroll BG1). flags
+                              (S7) : bit 0 = pic_id est un INDEX DE
+                              VARIABLE, bit 1 = x/y sont des index de
+                              variables, bit 2 = centrer (moteur). dur
+                              = frames de CHAQUE fondu (0 = instantané).
+                              Position clampée aux dims réelles ; id
+                              hors bornes : ignoré. */
+#define VM_OP_HIDEPIC 0x29 /* dur (u8, frames de fondu, 0 = instantané) —
+                              referme la picture : tileset + palettes de
+                              la scène rechargés, events intacts (S3/S7) */
+#define VM_OP_MOVEPIC 0x2A /* x, y, flags, dur (u8 x4) — GLISSE l'image
+                              affichée vers (x,y) en dur frames (0 =
+                              saut), NON-bloquant (le script continue,
+                              façon Move Picture RM2003). flags bits 1-2
+                              comme SHOWPIC. Sans image : ignoré (S7). */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

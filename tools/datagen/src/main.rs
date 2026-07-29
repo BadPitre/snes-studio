@@ -537,7 +537,7 @@ fn main() -> Result<()> {
     // Pictures (S3) : un fichier par image (une section ROM = une bank)
     // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
     // picture.c inconditionnellement, tables factices si aucune image)
-    for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans) {
+    for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
         write_out(&out_dir, &name, content)?;
     }
     if !pic_names.is_empty() {
@@ -790,6 +790,7 @@ fn gen_picture_files(
     names: &[String],
     pics: &[(Vec<u8>, Vec<u16>, Vec<u16>)],
     trans: &[bool],
+    dims: &[(usize, usize)],
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
@@ -818,6 +819,20 @@ fn gen_picture_files(
         ));
     }
     s.push_str(&format!("\nconst u8 pic_count = {};\n\n", pics.len()));
+    // dimensions en tiles (S7) : clamp/centrage RUNTIME par le moteur —
+    // obligatoire dès que la position ou l'image sortent de variables
+    {
+        let n = pics.len().max(1);
+        s.push_str(&format!("const u8 pic_wt[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", dims.get(i).map(|d| d.0 / 8).unwrap_or(0)));
+        }
+        s.push_str(&format!("}};\nconst u8 pic_ht[{}] = {{ ", n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", dims.get(i).map(|d| d.1 / 8).unwrap_or(0)));
+        }
+        s.push_str("};\n\n");
+    }
     // drapeaux par image (S4) : bit 0 = transparence (le moteur laisse la
     // couche décor visible et préserve la couleur de fond de la scène)
     {

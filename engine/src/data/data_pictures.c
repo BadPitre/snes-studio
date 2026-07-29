@@ -7,6 +7,9 @@
 
 const u8 pic_count = 0;
 
+const u8 pic_wt[1] = { 0, };
+const u8 pic_ht[1] = { 0, };
+
 const u8 pic_flags[1] = { 0, };
 
 const u8 *const pic_chars[1] = { 0, };

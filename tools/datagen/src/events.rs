@@ -152,6 +152,70 @@ impl<'a> EventCompiler<'a> {
         Ok(s)
     }
 
+    /// S7 — position d'une commande picture : variables (x_var/y_var,
+    /// flags bit 1), constantes (validées si les dims sont connues), ou
+    /// absente = centrage (précalculé si dims connues — bytecode S5
+    /// inchangé — sinon flags bit 2 : le moteur centre avec les dims)
+    fn pic_pos(
+        cmd: &Value,
+        flags: &mut u8,
+        dims: Option<(usize, usize)>,
+        what: &str,
+    ) -> Result<(u8, u8)> {
+        let xv = cmd["x_var"].as_u64();
+        let yv = cmd["y_var"].as_u64();
+        if xv.is_some() || yv.is_some() {
+            let (a, b) = match (xv, yv) {
+                (Some(a), Some(b)) if a < 256 && b < 256 => (a, b),
+                _ => bail!("{} : x_var ET y_var requis ensemble (0-255)", what),
+            };
+            *flags |= 2;
+            return Ok((a as u8, b as u8));
+        }
+        match (cmd["x"].as_i64(), cmd["y"].as_i64()) {
+            (None, None) => match dims {
+                Some((w, h)) => Ok((((256 - w) / 2) as u8, ((224 - h) / 2) as u8)),
+                None => {
+                    *flags |= 4; // centrage RUNTIME (image par variable)
+                    Ok((0, 0))
+                }
+            },
+            (x, y) => {
+                let x = x.unwrap_or(0);
+                let y = y.unwrap_or(0);
+                if let Some((w, h)) = dims {
+                    if x < 0 || y < 0 || x as usize + w > 256 || y as usize + h > 224 {
+                        bail!(
+                            "{} : position ({}, {}) hors écran pour une image {}x{} \
+                             (0 <= x <= {}, 0 <= y <= {})",
+                            what, x, y, w, h, 256 - w, 224 - h
+                        );
+                    }
+                } else if !(0..=255).contains(&x) || !(0..=216).contains(&y) {
+                    bail!(
+                        "{} : position ({}, {}) hors écran (x 0-255, y 0-216) — \
+                         le moteur recale ensuite aux dims réelles de l'image",
+                        what, x, y
+                    );
+                }
+                Ok((x as u8, y as u8))
+            }
+        }
+    }
+
+    /// S7 — durée de fondu/glissement en frames (0 = instantané, 60 =
+    /// 1 seconde). Héritage S5 : "fade": false => 0 ; défaut : 16.
+    fn pic_dur(cmd: &Value) -> Result<u8> {
+        if cmd["fade"].as_bool() == Some(false) && cmd["dur"].is_null() {
+            return Ok(0);
+        }
+        match cmd["dur"].as_u64() {
+            None => Ok(16),
+            Some(d) if d <= 255 => Ok(d as u8),
+            Some(d) => bail!("durée de transition invalide : {} (0-255 frames)", d),
+        }
+    }
+
     fn idx_field(cmd: &Value, key: &str, max: u64) -> Result<u16> {
         cmd[key]
             .as_u64()
@@ -443,46 +507,52 @@ impl<'a> EventCompiler<'a> {
                 // S3 — pictures plein écran (façon RM2003) : nom résolu
                 // vers le pic_id de project.pictures
                 "pic_show" => {
-                    let name = cmd["pic"].as_str().unwrap_or("");
-                    let idx = self
-                        .pictures
-                        .iter()
-                        .position(|p| p == name)
-                        .with_context(|| {
-                            format!(
-                                "pic_show : image « {} » introuvable dans project.pictures \
-                                 (images : {})",
-                                name,
-                                if self.pictures.is_empty() {
-                                    "aucune — Gestionnaire de ressources > Picture".to_string()
-                                } else {
-                                    self.pictures.join(", ")
-                                }
-                            )
-                        })?;
-                    // S5 : position en pixels (défaut = centré) + transition
-                    let (w, h) = self.pic_dims[idx];
-                    let x = match cmd["x"].as_i64() {
-                        Some(v) => v,
-                        None => ((256 - w) / 2) as i64,
+                    // S7 : image de la liste OU numéro lu dans une variable
+                    let mut flags: u8 = 0;
+                    let (id, dims) = match cmd["pic_var"].as_u64() {
+                        Some(v) => {
+                            if v > 255 {
+                                bail!("pic_show : pic_var = 0-255");
+                            }
+                            flags |= 1;
+                            (v as usize, None)
+                        }
+                        None => {
+                            let name = cmd["pic"].as_str().unwrap_or("");
+                            let idx = self
+                                .pictures
+                                .iter()
+                                .position(|p| p == name)
+                                .with_context(|| {
+                                    format!(
+                                        "pic_show : image « {} » introuvable dans \
+                                         project.pictures (images : {})",
+                                        name,
+                                        if self.pictures.is_empty() {
+                                            "aucune — Gestionnaire de ressources > Picture"
+                                                .to_string()
+                                        } else {
+                                            self.pictures.join(", ")
+                                        }
+                                    )
+                                })?;
+                            (idx, Some(self.pic_dims[idx]))
+                        }
                     };
-                    let y = match cmd["y"].as_i64() {
-                        Some(v) => v,
-                        None => ((224 - h) / 2) as i64,
-                    };
-                    if x < 0 || y < 0 || x as usize + w > 256 || y as usize + h > 224 {
-                        bail!(
-                            "pic_show « {} » : position ({}, {}) hors écran pour une \
-                             image {}x{} (0 <= x <= {}, 0 <= y <= {})",
-                            name, x, y, w, h, 256 - w, 224 - h
-                        );
-                    }
-                    let cut = !cmd["fade"].as_bool().unwrap_or(true);
-                    out.push(format!("  SHOWPIC {} {} {} {}", idx, x, y, cut as u8));
+                    let (x, y) = Self::pic_pos(cmd, &mut flags, dims, "pic_show")?;
+                    let dur = Self::pic_dur(cmd)?;
+                    out.push(format!("  SHOWPIC {} {} {} {} {}", id, x, y, flags, dur));
                 }
                 "pic_hide" => {
-                    let cut = !cmd["fade"].as_bool().unwrap_or(true);
-                    out.push(format!("  HIDEPIC {}", cut as u8));
+                    out.push(format!("  HIDEPIC {}", Self::pic_dur(cmd)?));
+                }
+                // S7 — glisse l'image affichée (Move Picture RM2003) vers
+                // (x,y) en dur frames : NON-bloquant, le script continue
+                "pic_move" => {
+                    let mut flags: u8 = 0;
+                    let (x, y) = Self::pic_pos(cmd, &mut flags, None, "pic_move")?;
+                    let dur = Self::pic_dur(cmd)?;
+                    out.push(format!("  MOVEPIC {} {} {} {}", x, y, flags, dur));
                 }
                 // Phase 12 — Key Input Processing (RM2003) : le code de la
                 // touche pressée dans une variable (0 = aucune)

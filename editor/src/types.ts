@@ -199,10 +199,25 @@ export type Command =
   // S3 — pictures plein écran (façon RM2003) : l'image recouvre le jeu
   // (BG3 reste : les dialogues se jouent DESSUS), pic = stem du registre
   // project.pictures ; pic_hide referme et restaure la scène intacte
-  // x/y : position écran en pixels (absents = centré) ; fade : false =
-  // transition instantanée (défaut : fondu) — S5
-  | { c: "pic_show"; pic: string; x?: number; y?: number; fade?: boolean }
-  | { c: "pic_hide"; fade?: boolean }
+  // x/y : position écran en pixels (absents = centré) — S5. S7 :
+  // pic_var = numéro d'image lu dans une variable (remplace pic),
+  // x_var/y_var = position lue dans des variables, dur = frames de
+  // fondu/glissement (0 = instantané, défaut 16) ; fade: false =
+  // héritage S5 (équivaut à dur 0). pic_move glisse l'image affichée
+  // vers la cible en dur frames, SANS bloquer le script.
+  | {
+      c: "pic_show";
+      pic: string;
+      pic_var?: number;
+      x?: number;
+      y?: number;
+      x_var?: number;
+      y_var?: number;
+      dur?: number;
+      fade?: boolean;
+    }
+  | { c: "pic_hide"; dur?: number; fade?: boolean }
+  | { c: "pic_move"; x?: number; y?: number; x_var?: number; y_var?: number; dur?: number }
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }

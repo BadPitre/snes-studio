@@ -304,13 +304,20 @@ tables factices sans image ; max 32 images). Commandes :
 `{"c":"pic_show","pic":"<stem>"}` (SHOWPIC, nom résolu — erreur avec
 la liste sinon) affiche l'image — les messages et choix se jouent
 PAR-DESSUS (BG3) ; `{"c":"pic_hide"}` (HIDEPIC) la referme, scène et
-events INTACTS. Refermer dans le même script. **Options S5 (façon
-Show Picture RM2003)** : `pic_show` accepte `"x"`/`"y"` (position
+events INTACTS. Refermer dans le même script. **Options S5/S7 (façon
+Show/Move Picture RM2003)** : `pic_show` accepte `"x"`/`"y"` (position
 écran en pixels, défaut = image centrée — datagen calcule avec les
-dimensions du PNG et valide x+w ≤ 256, y+h ≤ 224) et `"fade": false`
-(transition instantanée — les DEUX commandes l'acceptent ; absent ou
-`true` = fondu). Émis en `SHOWPIC id x y flags` / `HIDEPIC flags`
-(flags bit 0 = instantané).
+dimensions du PNG et valide x+w ≤ 256, y+h ≤ 224), `"pic_var"` (numéro
+d'image lu dans une variable — remplace `"pic"`, flags bit 0),
+`"x_var"`/`"y_var"` (position lue dans des variables, flags bit 1 —
+le MOTEUR clampe alors aux dims réelles, tables `pic_wt`/`pic_ht` du
+registre) et `"dur"` (frames de CHAQUE fondu, 0 = instantané, défaut
+16 ; `"fade": false` = héritage S5, équivaut à dur 0). `pic_hide`
+accepte `"dur"`. **`pic_move` (S7)** : glisse l'image affichée vers
+`x`/`y` (ou `x_var`/`y_var`) en `"dur"` frames, SANS bloquer le script
+(0 = saut) — absent = centre. Émis en `SHOWPIC id x y flags dur` /
+`HIDEPIC dur` / `MOVEPIC x y flags dur` (flags : bit 0 image-variable,
+bit 1 position-variables, bit 2 centrage moteur).
 **Transparence (S4)** : une entrée `{"path": "...", "trans": true}`
 marque une image à TRANSPARENCE (pixels d'alpha < 128, percés par le
 sélecteur de couleur de l'éditeur à l'import) — en jeu, la couche

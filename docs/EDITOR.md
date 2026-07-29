@@ -147,13 +147,21 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   affichées en jeu par la commande d'event **« Afficher une image »**
   (onglet Écran, avec « Effacer l'image ») — les dialogues se jouent
   par-dessus, et la fermeture rend la scène intacte ; registre
-  `pictures` de project.json, LU par datagen. **Options S5 (façon Show
-  Picture RM2003)** : le formulaire « Afficher une image » propose la
-  **Position à l'écran** (Centrée, ou Position X/Y en pixels — X
-  0-255, Y 0-216, validées contre les dimensions de l'image par
-  datagen) et la **Transition** (Fondu ou Instantanée) ; « Effacer
-  l'image » propose aussi la Transition. Champs JSON : `x`/`y`
-  (absents = centrée) et `fade: false` (absent = fondu).
+  `pictures` de project.json, LU par datagen. **Options S5/S7 (façon
+  Show Picture RM2003)** : le formulaire « Afficher une image » propose
+  l'**Image** (de la liste, ou NUMÉRO lu dans une variable — 0 = la
+  première de la liste Picture), la **Position à l'écran** (Centrée,
+  Position X/Y en pixels — X 0-255, Y 0-216, validées par datagen —
+  ou position lue dans des VARIABLES) et la **Transition** (Fondu avec
+  DURÉE en frames — 60 = 1 seconde — ou Instantanée) ; « Effacer
+  l'image » propose Transition + durée. Tout ce qui vient de variables
+  est recalé par le moteur aux dimensions réelles (jamais hors écran ;
+  numéro d'image inexistant = ignoré). **« Déplacer l'image » (S7)** :
+  glisse l'image affichée vers une nouvelle position (constantes ou
+  variables) en N frames SANS bloquer le script (façon Move Picture
+  RM2003) — enchaîner avec « Attendre » pour attendre la fin. Champs
+  JSON : `x`/`y`, `x_var`/`y_var`, `pic_var`, `dur` (0 = instantané ;
+  `fade: false` = héritage S5).
   **Transparence (S4)** : à l'import, le dialogue **« Import image »**
   montre l'image — un CLIC désigne la couleur à rendre transparente
   (aperçu en damier, ✕ pour retirer le choix), puis **Valider**

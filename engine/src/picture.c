@@ -20,6 +20,14 @@
  * widgets se jouent SUR l'image. Transitions à la recette do_warp
  * (fondu sortant, écran éteint, fondu entrant), exécutées depuis la
  * BOUCLE PRINCIPALE via picture_apply (jamais depuis vm_update).
+ *
+ * S7 : durée de fondu par commande (frames, 0 = instantané — fondu
+ * MAISON sur $2100, une seule division par transition), position
+ * clampée aux dims réelles (pic_wt/pic_ht, centrage moteur possible),
+ * et MOVEPIC : glissement NON-bloquant vers une cible en N frames
+ * (pas 8.8 fixé à la commande, avancé chaque frame par picture_apply
+ * — le scroll part au VBlank via picture_vblank, rien d'autre à
+ * synchroniser).
  */
 #include <snes.h>
 #include "picture.h"
@@ -36,6 +44,8 @@ extern const u16 *const pic_chars_sizes[];
 extern const u16 *const pic_maps[];
 extern const u16 *const pic_pals[];
 extern const u8 pic_flags[]; /* bit 0 = transparence (S4) */
+extern const u8 pic_wt[];    /* largeur en tiles (S7 — clamp/centrage) */
+extern const u8 pic_ht[];    /* hauteur en tiles */
 
 /* Palettes BG des scènes + chars sprites (data_assets.c) — restauration */
 extern const u16 *const gfx_pals[];
@@ -52,6 +62,7 @@ extern u8 videoMode; /* miroir PVSnesLib de REG_TM ($212C) */
     transparents (S4) — pas les sprites, leur VRAM porte l'image */
 
 static u8 pic_on = 0;
+static u8 pic_cur = 0; /* id affiché (clamp du MOVEPIC) */
 /* Requête différée (SHOWPIC/HIDEPIC) : la transition s'exécute depuis
    la BOUCLE PRINCIPALE — même position que do_warp — jamais depuis
    vm_update. 0 = rien, 1 = show, 2 = hide. */
@@ -59,23 +70,98 @@ static u8 pic_req = 0;
 static u8 pic_req_id = 0;
 static u8 pic_req_x = 0;
 static u8 pic_req_y = 0;
-static u8 pic_req_cut = 0;
-/* scroll BG1 de l'image affichée (position S5) */
+static u8 pic_req_fl = 0;
+static u8 pic_req_dur = 0;
+/* position courante de l'image en 8.8 (glissement S7) + scroll BG1 */
+static u16 pic_px8 = 0;
+static u16 pic_py8 = 0;
 static u16 pic_hx = 0;
 static u16 pic_vy = 0;
+/* glissement MOVEPIC : pas 8.8 par axe (magnitude + sens), cible */
+static u8 mv_frames = 0;
+static u16 mv_sx = 0;
+static u16 mv_sy = 0;
+static u8 mv_xneg = 0;
+static u8 mv_yneg = 0;
+static u8 mv_tx = 0;
+static u8 mv_ty = 0;
 
 u8 picture_active(void)
 {
   return pic_on;
 }
 
-void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags)
+void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags, u8 dur)
 {
   pic_req = show ? 1 : 2;
   pic_req_id = id;
   pic_req_x = x;
   pic_req_y = y;
-  pic_req_cut = flags & 1;
+  pic_req_fl = flags;
+  pic_req_dur = dur;
+}
+
+/* position demandée -> position affichable : centrage (flags bit 2) et
+   clamp aux dims réelles — indispensable quand x/y sortent de VARIABLES
+   (datagen ne peut pas les vérifier à la compilation) */
+static u8 pic_fit(u8 want, u8 center, u16 size, u16 max)
+{
+  u16 lim = max - size;
+
+  if (center)
+    return (u8)(lim >> 1);
+  if ((u16)want > lim)
+    return (u8)lim;
+  return want;
+}
+
+static void pic_place(u8 x, u8 y)
+{
+  pic_px8 = (u16)x << 8;
+  pic_py8 = (u16)y << 8;
+  pic_hx = (u16)(0x100 - x) & 0xFF;
+  pic_vy = (u16)(0x100 - y) & 0xFF;
+}
+
+/* Fondus MAISON sur $2100 (S7) : durée en frames — bloquants, comme la
+   recette do_warp (setFadeEffect = 16 frames figées ; ici l'auteur
+   choisit). UNE division par transition, puis un pas 8.8 par frame. */
+static void pic_fade_out(u8 dur)
+{
+  u16 step, lvl;
+  u8 f;
+
+  if (!dur)
+    return;
+  step = 0x0F00 / dur;
+  lvl = 0x0F00;
+  for (f = 0; f < dur; f++)
+  {
+    lvl = lvl > step ? lvl - step : 0;
+    WaitForVBlank();
+    REG_INIDISP = (u8)(lvl >> 8);
+  }
+}
+
+static void pic_fade_in(u8 dur)
+{
+  u16 step, lvl;
+  u8 f;
+
+  if (!dur)
+    return;
+  step = 0x0F00 / dur;
+  lvl = 0;
+  REG_INIDISP = 0; /* pas de flash plein écran avant le premier pas */
+  for (f = 0; f < dur; f++)
+  {
+    lvl += step;
+    if (lvl > 0x0F00)
+      lvl = 0x0F00;
+    WaitForVBlank();
+    REG_INIDISP = (u8)(lvl >> 8);
+  }
+  REG_INIDISP = 0x0F; /* luminosité pleine réaffirmée (arrondi du pas) */
 }
 
 void picture_apply(void)
@@ -87,16 +173,78 @@ void picture_apply(void)
     picture_show(pic_req_id);
   else if (r == 2)
     picture_hide();
+  /* glissement MOVEPIC (S7) : un pas par frame, snap sur la cible à la
+     dernière — le scroll part au prochain VBlank (picture_vblank) */
+  if (pic_on && mv_frames)
+  {
+    mv_frames--;
+    if (!mv_frames)
+    {
+      pic_px8 = (u16)mv_tx << 8;
+      pic_py8 = (u16)mv_ty << 8;
+    }
+    else
+    {
+      pic_px8 = mv_xneg ? pic_px8 - mv_sx : pic_px8 + mv_sx;
+      pic_py8 = mv_yneg ? pic_py8 - mv_sy : pic_py8 + mv_sy;
+    }
+    pic_hx = (u16)(0x100 - (pic_px8 >> 8)) & 0xFF;
+    pic_vy = (u16)(0x100 - (pic_py8 >> 8)) & 0xFF;
+  }
+}
+
+void picture_move(u8 x, u8 y, u8 flags, u8 dur)
+{
+  u16 t8;
+
+  if (!pic_on)
+    return;
+  x = pic_fit(x, flags & 4, (u16)pic_wt[pic_cur] << 3, 256);
+  y = pic_fit(y, flags & 4, (u16)pic_ht[pic_cur] << 3, 224);
+  if (!dur)
+  {
+    mv_frames = 0;
+    pic_place(x, y);
+    return;
+  }
+  mv_tx = x;
+  mv_ty = y;
+  t8 = (u16)x << 8;
+  if (t8 >= pic_px8)
+  {
+    mv_xneg = 0;
+    mv_sx = (t8 - pic_px8) / dur;
+  }
+  else
+  {
+    mv_xneg = 1;
+    mv_sx = (pic_px8 - t8) / dur;
+  }
+  t8 = (u16)y << 8;
+  if (t8 >= pic_py8)
+  {
+    mv_yneg = 0;
+    mv_sy = (t8 - pic_py8) / dur;
+  }
+  else
+  {
+    mv_yneg = 1;
+    mv_sy = (pic_py8 - t8) / dur;
+  }
+  mv_frames = dur;
 }
 
 void picture_show(u8 id)
 {
+  u8 x, y;
+
   if (id >= pic_count)
     return;
-  if (!pic_req_cut)
-    setFadeEffect(FADE_OUT);
+  pic_fade_out(pic_req_dur);
   setScreenOff();
   pic_on = 1;
+  pic_cur = id;
+  mv_frames = 0;
   /* image à transparence (S4) : la couche décor (BG2, couche inf.)
      reste visible derrière les pixels percés */
   videoMode = (pic_flags[id] & 1) ? PIC_TM_TRANS : PIC_TM_PIC;
@@ -116,24 +264,22 @@ void picture_show(u8 id)
   }
   else
     dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* couleurs 0-15 */
-  /* position écran (S5) : image calée en haut-gauche de sa carte,
-     placée par le scroll (SC_32x32, wrap sans danger — padding
-     transparent émis par datagen jusqu'à la rangée 31) */
-  pic_hx = (u16)(0x100 - pic_req_x) & 0xFF;
-  pic_vy = (u16)(0x100 - pic_req_y) & 0xFF;
+  /* position écran (S5/S7) : centrage/clamp aux dims réelles — les
+     coordonnées peuvent sortir de variables, jamais de confiance */
+  x = pic_fit(pic_req_x, pic_req_fl & 4, (u16)pic_wt[id] << 3, 256);
+  y = pic_fit(pic_req_y, pic_req_fl & 4, (u16)pic_ht[id] << 3, 224);
+  pic_place(x, y);
   bgSetScroll(0, pic_hx, pic_vy);
   screenfx_warp_reset(); /* fondu scripté resynchronisé (recette warp) */
   setScreenOn();
-  if (!pic_req_cut)
-    setFadeEffect(FADE_IN);
+  pic_fade_in(pic_req_dur);
 }
 
 void picture_hide(void)
 {
   if (!pic_on)
     return;
-  if (!pic_req_cut)
-    setFadeEffect(FADE_OUT);
+  pic_fade_out(pic_req_dur);
   setScreenOff();
   /* Registres BG1 de la scène (chars + map jamais écrasés) */
   bgSetGfxPtr(0, VRAM_BG1_GFX);
@@ -149,10 +295,10 @@ void picture_hide(void)
   videoMode = PIC_TM_GAME;
   REG_TM = PIC_TM_GAME;
   pic_on = 0;
+  mv_frames = 0;
   screenfx_warp_reset();
   setScreenOn();
-  if (!pic_req_cut)
-    setFadeEffect(FADE_IN);
+  pic_fade_in(pic_req_dur);
 }
 
 void picture_vblank(void)
@@ -167,4 +313,5 @@ void picture_reset(void)
   videoMode = PIC_TM_GAME;
   REG_TM = PIC_TM_GAME;
   pic_on = 0; /* scene_load (warp) recharge tileset, sprites et scrolls */
+  mv_frames = 0;
 }

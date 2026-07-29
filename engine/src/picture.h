@@ -22,10 +22,18 @@ void picture_hide(void);
    appliquée par la boucle principale via picture_apply() — même modèle
    que le warp scripté (player_take_warp). x/y : position ÉCRAN en
    pixels (S5, l'image est calée en haut-gauche de sa carte et placée
-   par le scroll BG1) ; flags bit 0 = transition instantanée (pas de
-   fondu). */
-void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags);
+   par le scroll BG1), clampée aux dims réelles de l'image. flags (S7) :
+   bit 2 = centrer (le moteur calcule avec les dims). dur = frames de
+   CHAQUE fondu (0 = instantané). La VM résout les variables (bits 0-1
+   de l'opcode) AVANT l'appel. */
+void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags, u8 dur);
 void picture_apply(void);
+
+/* Glisse l'image affichée vers (x,y) en dur frames (0 = saut) — pose
+   un état seulement (sûr depuis vm_update), le scroll avance frame par
+   frame dans picture_apply : NON-bloquant, façon Move Picture RM2003.
+   flags bit 2 = centrer. Sans image affichée : ignoré (S7). */
+void picture_move(u8 x, u8 y, u8 flags, u8 dur);
 
 /* Scroll BG1 de l'image (position S5) — appelé chaque VBlank par la
    boucle principale tant que picture_active(). */

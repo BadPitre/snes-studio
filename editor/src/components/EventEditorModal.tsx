@@ -49,6 +49,14 @@ interface Line {
   comment?: boolean; // commande « Commentaire » — style vert RM2003
 }
 
+// suffixe de transition des commandes picture (S7) : dur 0 / fade false
+// = instantané, 16 = défaut (rien à dire), sinon la durée
+function picDurLabel(dur?: number, fade?: boolean): string {
+  const d = fade === false && dur === undefined ? 0 : dur ?? 16;
+  if (d === 0) return " (instantané)";
+  return d === 16 ? "" : ` (fondu ${d}f)`;
+}
+
 function labelOf(c: Command, ceNames?: string[]): string {
   switch (c.c) {
     case "msg":
@@ -120,11 +128,25 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "sysmenu":
       return "Ouvrir le menu Système (sauvegarde)";
     case "pic_show":
-      return `Afficher l'image « ${c.pic || "?"} »${
-        c.x !== undefined || c.y !== undefined ? ` en (${c.x ?? 0},${c.y ?? 0})` : ""
-      }${c.fade === false ? " (instantané)" : ""}`;
+      return `Afficher l'image ${
+        c.pic_var !== undefined ? `n°[${c.pic_var}]` : `« ${c.pic || "?"} »`
+      }${
+        c.x_var !== undefined
+          ? ` en ([${c.x_var}],[${c.y_var}])`
+          : c.x !== undefined || c.y !== undefined
+            ? ` en (${c.x ?? 0},${c.y ?? 0})`
+            : ""
+      }${picDurLabel(c.dur, c.fade)}`;
+    case "pic_move":
+      return `Déplacer l'image vers ${
+        c.x_var !== undefined
+          ? `([${c.x_var}],[${c.y_var}])`
+          : c.x !== undefined || c.y !== undefined
+            ? `(${c.x ?? 0},${c.y ?? 0})`
+            : "le centre"
+      } en ${c.dur ?? 16} frames`;
     case "pic_hide":
-      return `Effacer l'image${c.fade === false ? " (instantané)" : ""}`;
+      return `Effacer l'image${picDurLabel(c.dur, c.fade)}`;
     case "scr_hide":
       return `Cacher l'écran (vitesse ${c.speed})`;
     case "scr_show":
@@ -185,6 +207,7 @@ function cmdTitle(c: Command["c"]): string {
     call: "Appeler un common event",
     db_read: "Lire la database",
     pic_show: "Afficher une image",
+    pic_move: "Déplacer l'image",
     pic_hide: "Effacer l'image",
   };
   return titles[c] ?? "Options de la commande";
@@ -429,6 +452,8 @@ export function CommandListEditor(props: {
         return { c: "sysmenu" };
       case "pic_show":
         return { c: "pic_show", pic: "" };
+      case "pic_move":
+        return { c: "pic_move", x: 0, y: 0, dur: 30 };
       case "pic_hide":
         return { c: "pic_hide" };
       case "scr_hide":
@@ -1619,42 +1644,77 @@ function CommandForm(props: {
         </span>
       );
       break;
-    case "pic_show":
-      valid = cmd.pic !== "";
+    case "pic_show": {
+      valid = cmd.pic_var !== undefined || cmd.pic !== "";
+      const posMode =
+        cmd.x_var !== undefined
+          ? "vars"
+          : cmd.x !== undefined || cmd.y !== undefined
+            ? "xy"
+            : "center";
+      const cut = (cmd.fade === false && cmd.dur === undefined) || cmd.dur === 0;
       body = (
         <>
           <label>
-            Image (Gestionnaire de ressources → Picture)
+            Image
             <select
-              value={cmd.pic} autoFocus
-              onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
-            >
-              <option value="">(choisir)</option>
-              {props.pictures.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-              {cmd.pic && !props.pictures.includes(cmd.pic) && (
-                <option value={cmd.pic}>{cmd.pic} (?)</option>
-              )}
-            </select>
-          </label>
-          <label>
-            Position à l'écran
-            <select
-              value={cmd.x !== undefined || cmd.y !== undefined ? "xy" : "center"}
+              value={cmd.pic_var !== undefined ? "var" : "list"}
               onChange={(e) =>
                 onChange(
-                  e.target.value === "center"
-                    ? { ...cmd, x: undefined, y: undefined }
-                    : { ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0 }
+                  e.target.value === "var"
+                    ? { ...cmd, pic: "", pic_var: cmd.pic_var ?? 0 }
+                    : { ...cmd, pic_var: undefined }
                 )
               }
             >
-              <option value="center">Centrée</option>
-              <option value="xy">Position X/Y (pixels)</option>
+              <option value="list">De la liste (Gestionnaire → Picture)</option>
+              <option value="var">Numéro lu dans une variable</option>
             </select>
           </label>
-          {(cmd.x !== undefined || cmd.y !== undefined) && (
+          {cmd.pic_var !== undefined ? (
+            <label>
+              Variable (0-255) — sa valeur = numéro de l'image (ordre de la
+              liste Picture, 0 = la première)
+              <input type="number" min={0} max={255} value={cmd.pic_var}
+                onChange={(e) => onChange({ ...cmd, pic_var: Number(e.target.value) })} />
+            </label>
+          ) : (
+            <label>
+              Quelle image ?
+              <select
+                value={cmd.pic} autoFocus
+                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+              >
+                <option value="">(choisir)</option>
+                {props.pictures.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+                {cmd.pic && !props.pictures.includes(cmd.pic) && (
+                  <option value={cmd.pic}>{cmd.pic} (?)</option>
+                )}
+              </select>
+            </label>
+          )}
+          <label>
+            Position à l'écran
+            <select
+              value={posMode}
+              onChange={(e) => {
+                const m = e.target.value;
+                if (m === "center")
+                  onChange({ ...cmd, x: undefined, y: undefined, x_var: undefined, y_var: undefined });
+                else if (m === "xy")
+                  onChange({ ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0, x_var: undefined, y_var: undefined });
+                else
+                  onChange({ ...cmd, x: undefined, y: undefined, x_var: cmd.x_var ?? 0, y_var: cmd.y_var ?? 1 });
+              }}
+            >
+              <option value="center">Centrée</option>
+              <option value="xy">Position X/Y (pixels)</option>
+              <option value="vars">Position lue dans des variables</option>
+            </select>
+          </label>
+          {posMode === "xy" && (
             <div className="row">
               <label>
                 X (0-255)
@@ -1668,41 +1728,138 @@ function CommandForm(props: {
               </label>
             </div>
           )}
+          {posMode === "vars" && (
+            <div className="row">
+              <label>
+                Variable X (0-255)
+                <input type="number" min={0} max={255} value={cmd.x_var ?? 0}
+                  onChange={(e) => onChange({ ...cmd, x_var: Number(e.target.value) })} />
+              </label>
+              <label>
+                Variable Y (0-255)
+                <input type="number" min={0} max={255} value={cmd.y_var ?? 1}
+                  onChange={(e) => onChange({ ...cmd, y_var: Number(e.target.value) })} />
+              </label>
+            </div>
+          )}
           <label>
             Transition
             <select
-              value={cmd.fade === false ? "cut" : "fade"}
+              value={cut ? "cut" : "fade"}
               onChange={(e) =>
-                onChange({ ...cmd, fade: e.target.value === "cut" ? false : undefined })
+                onChange({ ...cmd, fade: undefined, dur: e.target.value === "cut" ? 0 : 16 })
               }
             >
               <option value="fade">Fondu</option>
               <option value="cut">Instantanée</option>
             </select>
           </label>
+          {!cut && (
+            <label>
+              Durée du fondu (frames — 60 = 1 seconde)
+              <input type="number" min={1} max={255} value={cmd.dur ?? 16}
+                onChange={(e) =>
+                  onChange({ ...cmd, fade: undefined, dur: Number(e.target.value) })
+                } />
+            </label>
+          )}
           <span className="hint">
-            Les messages et choix se jouent PAR-DESSUS l'image. Le build
-            vérifie que l'image tient à l'écran à cette position.
-            Refermer avec « Effacer l'image » dans le même script.
+            Les messages et choix se jouent PAR-DESSUS l'image. Position et
+            numéro venus de variables sont recalés par le moteur aux
+            dimensions réelles (jamais hors écran) ; un numéro d'image
+            inexistant est ignoré. Refermer avec « Effacer l'image » dans
+            le même script.
           </span>
         </>
       );
       break;
-    case "pic_hide":
+    }
+    case "pic_move": {
+      const posMode = cmd.x_var !== undefined ? "vars" : "xy";
+      body = (
+        <>
+          <label>
+            Nouvelle position
+            <select
+              value={posMode}
+              onChange={(e) =>
+                onChange(
+                  e.target.value === "vars"
+                    ? { ...cmd, x: undefined, y: undefined, x_var: cmd.x_var ?? 0, y_var: cmd.y_var ?? 1 }
+                    : { ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0, x_var: undefined, y_var: undefined }
+                )
+              }
+            >
+              <option value="xy">Position X/Y (pixels)</option>
+              <option value="vars">Position lue dans des variables</option>
+            </select>
+          </label>
+          {posMode === "xy" ? (
+            <div className="row">
+              <label>
+                X (0-255)
+                <input type="number" min={0} max={255} value={cmd.x ?? 0} autoFocus
+                  onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
+              </label>
+              <label>
+                Y (0-216)
+                <input type="number" min={0} max={216} value={cmd.y ?? 0}
+                  onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
+              </label>
+            </div>
+          ) : (
+            <div className="row">
+              <label>
+                Variable X (0-255)
+                <input type="number" min={0} max={255} value={cmd.x_var ?? 0}
+                  onChange={(e) => onChange({ ...cmd, x_var: Number(e.target.value) })} />
+              </label>
+              <label>
+                Variable Y (0-255)
+                <input type="number" min={0} max={255} value={cmd.y_var ?? 1}
+                  onChange={(e) => onChange({ ...cmd, y_var: Number(e.target.value) })} />
+              </label>
+            </div>
+          )}
+          <label>
+            Durée du déplacement (frames — 0 = immédiat, 60 = 1 seconde)
+            <input type="number" min={0} max={255} value={cmd.dur ?? 30}
+              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })} />
+          </label>
+          <span className="hint">
+            Glisse l'image affichée vers la cible SANS bloquer le script
+            (façon Move Picture RM2003) — enchaîne avec « Attendre » si tu
+            veux attendre la fin. Sans image affichée : ignoré.
+          </span>
+        </>
+      );
+      break;
+    }
+    case "pic_hide": {
+      const cut = (cmd.fade === false && cmd.dur === undefined) || cmd.dur === 0;
       body = (
         <>
           <label>
             Transition
             <select
-              value={cmd.fade === false ? "cut" : "fade"}
+              value={cut ? "cut" : "fade"}
               onChange={(e) =>
-                onChange({ ...cmd, fade: e.target.value === "cut" ? false : undefined })
+                onChange({ ...cmd, fade: undefined, dur: e.target.value === "cut" ? 0 : 16 })
               }
             >
               <option value="fade">Fondu</option>
               <option value="cut">Instantanée</option>
             </select>
           </label>
+          {!cut && (
+            <label>
+              Durée du fondu (frames — 60 = 1 seconde)
+              <input type="number" min={1} max={255} value={cmd.dur ?? 16}
+                onChange={(e) =>
+                  onChange({ ...cmd, fade: undefined, dur: Number(e.target.value) })
+                } />
+            </label>
+          )}
           <span className="hint">
             Referme l'image et rend l'écran au jeu — carte, personnages et
             états inchangés. Sans image affichée : ignoré.
@@ -1710,6 +1867,7 @@ function CommandForm(props: {
         </>
       );
       break;
+    }
     case "ui_show":
       valid = cmd.widget !== "";
       body = (
