@@ -84,6 +84,15 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Écran composé",
+    items: [
+      { c: "stage_open", label: "Ouvrir un écran composé" },
+      { c: "stage_pose", label: "Poser une image (slot)" },
+      { c: "stage_clear", label: "Retirer une image (slot)" },
+      { c: "stage_close", label: "Fermer l'écran composé" },
+    ],
+  },
+  {
     title: "Caméra",
     items: [
       { c: "campan", label: "Déplacer la caméra" },

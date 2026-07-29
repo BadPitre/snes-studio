@@ -236,6 +236,10 @@ export type Command =
   // entre les scènes jusqu'au prochain changement
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
+  | { c: "stage_open"; pic: string; dur?: number }
+  | { c: "stage_pose"; slot: number; pic: string; x: number; y: number }
+  | { c: "stage_clear"; slot: number }
+  | { c: "stage_close"; dur?: number }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }
   | { c: "wave"; power: number; speed?: number }

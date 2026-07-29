@@ -20,6 +20,7 @@
 #include "weather.h" /* WEATHER : météo en particules (S13) */
 #include "hdmafx.h"  /* WAVE : ondulation de l'écran (S14) */
 #include "audio.h"   /* PLAYSFX / PLAYBGM : sons et musique (B1) */
+#include "stage.h"   /* écran composé (B3) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -561,6 +562,33 @@ static void vm_step(void)
       hdmafx_spot(var, fetch8());
       break;
 
+    case VM_OP_STAGEOPEN: /* écran composé (B3) — différé à la boucle,
+                             1 frame de pause (recette SHOWPIC) */
+      var = fetch8();
+      stage_request_open(var, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
+    case VM_OP_STAGEPOSE: /* pose une image — BLOQUANT (transfert étalé) */
+      var = fetch8();   /* slot */
+      val = fetch8();   /* pic */
+      idx16 = fetch8(); /* tx */
+      stage_pose(var, val, (u8)idx16, fetch8());
+      vm.wait_mode = VM_WAIT_STAGE;
+      break;
+
+    case VM_OP_STAGECLEAR: /* retire l'image du slot — BLOQUANT (court) */
+      stage_clear(fetch8());
+      vm.wait_mode = VM_WAIT_STAGE;
+      break;
+
+    case VM_OP_STAGECLOSE: /* ferme l'écran (warp interne) — 1 frame */
+      stage_request_close(fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
     case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */
       audio_play_sfx(fetch8());
       break;
@@ -765,6 +793,13 @@ void vm_update(void)
     else
       return;
   }
+  if (vm.wait_mode == VM_WAIT_STAGE)
+  {
+    if (!stage_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
   if (vm.wait_mode == VM_WAIT_TIMER)
   {
     if (vm.wait_timer)
@@ -842,6 +877,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_SCREEN)
   {
     if (screenfx_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_STAGE)
+  {
+    if (stage_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

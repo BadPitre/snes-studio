@@ -626,6 +626,63 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // B3 — écran composé : fond + images posées multi-slots
+                "stage_open" => {
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    let pic = cmd["pic"].as_str().unwrap_or("");
+                    let id = if pic.is_empty() {
+                        255
+                    } else {
+                        self.pictures
+                            .iter()
+                            .position(|p| p == pic)
+                            .with_context(|| {
+                                format!(
+                                    "stage_open : image '{}' introuvable \
+                                     (supprimée ou renommée ?)",
+                                    pic
+                                )
+                            })? as u64
+                    };
+                    out.push(format!("  STAGEOPEN {} {}", id, dur));
+                }
+                "stage_pose" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "stage_pose : slot 1-5".to_string())?;
+                    let pic = cmd["pic"].as_str().unwrap_or("");
+                    let id = self
+                        .pictures
+                        .iter()
+                        .position(|p| p == pic)
+                        .with_context(|| {
+                            format!(
+                                "stage_pose : image '{}' introuvable \
+                                 (supprimée ou renommée ?)",
+                                pic
+                            )
+                        })?;
+                    // position en PIXELS côté auteur, en TILES (x8) au
+                    // format binaire — arrondie à la tile
+                    let tx = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(0) / 8;
+                    let ty = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(0) / 8;
+                    out.push(format!(
+                        "  STAGEPOSE {} {} {} {}",
+                        slot - 1, id, tx, ty
+                    ));
+                }
+                "stage_clear" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "stage_clear : slot 1-5".to_string())?;
+                    out.push(format!("  STAGECLEAR {}", slot - 1));
+                }
+                "stage_close" => {
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    out.push(format!("  STAGECLOSE {}", dur));
+                }
                 // B1 — jouer un son (effet BRR, non bloquant)
                 "sfx" => {
                     let name = cmd["sound"].as_str().unwrap_or("");

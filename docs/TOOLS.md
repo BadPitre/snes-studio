@@ -417,6 +417,16 @@ non bloquant, par-dessus la musique ;
 (`PLAYBGM <id|255>`, "" = silence) : non bloquant, PAS instantané
 (module streamé vers le SPC), la musique de la scène reprend au
 prochain warp ;
+**écran composé (B3)** : `{"c":"stage_open","pic":"stem"|"",
+"dur"}` — ouvre l'écran composé (fond = picture du projet, "" = noir,
+fondu dur frames par sens, `STAGEOPEN <pic|255> <dur>`) ;
+`{"c":"stage_pose","slot":1-5,"pic":"stem","x":0-255,"y":0-216}` —
+pose une image (position en pixels, arrondie à la tile de 8,
+`STAGEPOSE <slot-1> <pic> <x/8> <y/8>`), BLOQUANT le temps du
+transfert ; `{"c":"stage_clear","slot":1-5}` — retire l'image ;
+`{"c":"stage_close","dur"}` — referme (warp interne : la scène et sa
+musique reviennent, les PNJ déplacés reprennent leur position de
+page) ; budget ~511 tuiles par écran, pas de chevauchement de slots ;
 `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop

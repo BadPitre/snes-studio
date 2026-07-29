@@ -350,6 +350,19 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   **Flash d'écran** (traverse aussi les mélanges : l'éclair
   d'orage marche au-dessus des nuages semi-transparents) et **Secouer
   l'écran** (non bloquants — enchaîner avec « Attendre »).
+- **Commandes « Écran composé » (B3)** — le picker gagne une
+  catégorie dédiée : **Ouvrir un écran composé** (fond = une Picture
+  plein écran, opaque de préférence, ou noir ; fondu réglable),
+  **Poser une image (slot)** (1-5 — une image à transparence par slot,
+  position en pixels arrondie à 8 ; chaque slot a SA palette, donc les
+  effets par image ne toucheront que lui ; l'image apparaît en
+  quelques frames, le script attend la fin ; re-poser la même image =
+  déplacement), **Retirer une image (slot)** et **Fermer l'écran
+  composé** (restaure la scène complète, musique comprise). C'est
+  l'écran de combat façon FF — fond + monstres — mais générique :
+  plateau, carte, scène illustrée. Budget ~511 tuiles par écran ;
+  éviter de faire se chevaucher deux images (couche unique). Les
+  dialogues, choix et widgets fonctionnent par-dessus l'écran.
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

@@ -170,6 +170,16 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "stage_open":
+      return c.pic === ""
+        ? "Écran composé : ouvrir (fond noir)"
+        : `Écran composé : ouvrir (fond « ${c.pic} »)`;
+    case "stage_pose":
+      return `Poser « ${c.pic} » (slot ${c.slot}) en ${c.x},${c.y}`;
+    case "stage_clear":
+      return `Retirer l'image du slot ${c.slot}`;
+    case "stage_close":
+      return "Écran composé : fermer";
     case "sfx":
       return `Jouer le son « ${c.sound} »`;
     case "bgm":
@@ -240,6 +250,10 @@ function cmdTitle(c: Command["c"]): string {
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
+    stage_open: "Ouvrir un écran composé",
+    stage_pose: "Poser une image (slot)",
+    stage_clear: "Retirer une image (slot)",
+    stage_close: "Fermer l'écran composé",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
     wave: "Ondulation de l'écran",
@@ -511,6 +525,14 @@ export function CommandListEditor(props: {
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
         return { c: "weather", kind: "rain", power: 2 };
+      case "stage_open":
+        return { c: "stage_open", pic: "", dur: 20 };
+      case "stage_pose":
+        return { c: "stage_pose", slot: 1, pic: "", x: 16, y: 40 };
+      case "stage_clear":
+        return { c: "stage_clear", slot: 1 };
+      case "stage_close":
+        return { c: "stage_close", dur: 20 };
       case "sfx":
         return { c: "sfx", sound: "" };
       case "bgm":
@@ -2236,6 +2258,138 @@ function CommandForm(props: {
             (même circuit console). Les personnages et le texte restent
             visibles partout (limite matérielle, comme la teinte).
             Immédiat, non bloquant, persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "stage_open":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Fond (image plein écran, opaque de préférence)
+              <select
+                value={cmd.pic}
+                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+              >
+                <option value="">(aucun — fond noir)</option>
+                {props.pictures.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fondu (frames par sens — 0 = instantané)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Remplace la vue de la scène par un ÉCRAN COMPOSÉ : le fond
+            sur une couche, jusqu'à 5 images posées par-dessus (slots),
+            les dialogues et widgets par-dessus tout. C'est l'écran de
+            combat façon FF (fond + monstres) — ou un plateau, une carte,
+            une scène illustrée. Les personnages de la map sont cachés
+            le temps de l'écran. Fermer l'écran restaure la scène ET sa
+            musique (les PNJ déplacés reviennent à leur position de
+            page, comme après une téléportation).
+          </span>
+        </>
+      );
+      break;
+    case "stage_pose":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-5)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Image (à transparence pour un monstre)
+              <select
+                value={cmd.pic}
+                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+              >
+                <option value="">(choisir une image…)</option>
+                {props.pictures.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="row">
+            <label>
+              X (px, arrondi à 8)
+              <input
+                type="number" min={0} max={255} step={8} value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Y (px, arrondi à 8)
+              <input
+                type="number" min={0} max={216} step={8} value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Pose l'image sur l'écran composé, avec SA palette (une par
+            slot — le clignotement d'un monstre ne touche pas les
+            autres). L'image apparaît en quelques frames (transfert
+            progressif), le script attend la fin. Re-poser la même
+            image dans le même slot = déplacement instantané. Budget
+            partagé : ~511 tuiles pour l'écran — au-delà, la pose est
+            ignorée (simplifier les images, ou fermer/rouvrir).
+            Éviter le chevauchement de deux images (couche unique).
+          </span>
+        </>
+      );
+      break;
+    case "stage_clear":
+      body = (
+        <>
+          <label>
+            Slot à retirer (1-5)
+            <select
+              value={cmd.slot}
+              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+            >
+              {[1, 2, 3, 4, 5].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <span className="hint">
+            Efface l'image du slot (mort d'un monstre, objet ramassé).
+            Re-poser la même image plus tard ne recoûte rien.
+          </span>
+        </>
+      );
+      break;
+    case "stage_close":
+      body = (
+        <>
+          <label>
+            Fondu (frames par sens — 0 = instantané)
+            <input
+              type="number" min={0} max={255} value={cmd.dur ?? 20}
+              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+            />
+          </label>
+          <span className="hint">
+            Referme l'écran composé et restaure la scène complète :
+            décor, personnages, ambiances et musique de la scène.
           </span>
         </>
       );
