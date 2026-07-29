@@ -44,9 +44,14 @@ fn main() -> Result<()> {
         let bloc: usize = args[5].parse().context("bloc : nombre attendu")?;
         return charset::import(Path::new(&args[2]), Path::new(&args[3]), perso, bloc);
     }
+    // --debug (S6) : grave le drapeau du menu de debug dans la ROM —
+    // passé par le bouton « Jouer » de l'éditeur, jamais par le build
+    // cartouche (une cartouche ne doit pas embarquer le menu)
+    let debug_rom = args.iter().any(|a| a == "--debug");
+    let args: Vec<String> = args.into_iter().filter(|a| a != "--debug").collect();
     if args.len() != 3 {
         bail!(
-            "usage : datagen <dossier_projet> <dossier_engine>\n\
+            "usage : datagen <dossier_projet> <dossier_engine> [--debug]\n\
              \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
              \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
         );
@@ -470,6 +475,29 @@ fn main() -> Result<()> {
     write_bin(&out_dir, "scenes.bin", &scene_bank)?;
     write_bin(&out_dir, "texts.bin", &text_bank)?;
     write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
+
+    // Menu de debug (S6) : drapeau + budgets RÉELS des banks, gravés dans
+    // les données — TOUJOURS émis (le moteur inclut debug.c
+    // inconditionnellement, inerte sans le drapeau)
+    {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!(
+            "/* menu de debug en jeu (Start+Select+R) — S6 */\n\
+             const u8 dbg_enabled = {};\n\
+             const u16 dbg_scn_used = {}; /* bank scenes ($82) */\n\
+             const u16 dbg_txt_used = {}; /* bank textes ($86) */\n\
+             const u16 dbg_bank_cap = {};\n",
+            debug_rom as u8,
+            scene_bank.len(),
+            text_bank.len(),
+            binbank::BANK_CAPACITY
+        ));
+        write_out(&out_dir, "data_debug.c", s)?;
+    }
+    if debug_rom {
+        println!("  debug : menu Start+Select+R actif dans cette ROM");
+    }
 
     // Assets gfx (representation C v0 — pas de format binaire en spec).
     // Un fichier par set (section ROM insécable = 32 Ko max) : purger

@@ -7,6 +7,9 @@ import { pickFile } from "../io";
 export interface PlayConfig {
   bash: string;
   emulator: string;
+  /* S6 : « Jouer » compile une ROM de test avec le menu de debug
+     (Start+Select+R en jeu) — jamais appliqué au build cartouche */
+  debug: boolean;
 }
 
 interface Props {
@@ -18,6 +21,7 @@ interface Props {
 export default function SettingsModal({ config, onSave, onClose }: Props) {
   const [bash, setBash] = useState(config.bash);
   const [emulator, setEmulator] = useState(config.emulator);
+  const [debug, setDebug] = useState(config.debug);
 
   async function browse(setter: (v: string) => void, title: string) {
     const f = await pickFile(title, "Exécutable", ["exe", "*"]);
@@ -64,8 +68,21 @@ export default function SettingsModal({ config, onSave, onClose }: Props) {
           « Jouer » enchaîne datagen → make (MSYS2) → émulateur sur le ROM
           compilé. PVSNESLIB_HOME doit être défini dans ton profil MSYS2.
         </p>
+        <label className="row" style={{ alignItems: "center", gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={debug}
+            onChange={(e) => setDebug(e.target.checked)}
+          />
+          Menu de debug dans la ROM de test
+        </label>
+        <p className="hint">
+          En jeu, <b>Start + Select + R</b> affiche/cache le panneau : FPS,
+          frames de retard (lag) et occupation des banks scènes/textes.
+          Jamais inclus dans le build cartouche.
+        </p>
         <div className="row">
-          <button onClick={() => onSave({ bash, emulator })}>Enregistrer</button>
+          <button onClick={() => onSave({ bash, emulator, debug })}>Enregistrer</button>
           <button onClick={onClose}>Annuler</button>
         </div>
       </div>

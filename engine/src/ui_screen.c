@@ -44,6 +44,17 @@ void ui_mark(u8 row, u8 h)
     ui_hi = hi;
 }
 
+u8 ui_dirty_overlap(u8 row, u8 h)
+{
+  if (ui_lo > ui_hi)
+    return 0;
+  if ((u8)(row + h - 1) < ui_lo)
+    return 0;
+  if (row > ui_hi)
+    return 0;
+  return 1;
+}
+
 void ui_screen_vblank(void)
 {
   u16 ofs;

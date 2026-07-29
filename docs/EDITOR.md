@@ -83,6 +83,17 @@ consomme** : aucun format intermédiaire.
   lancement de l'émulateur sur le ROM compilé. Chemins du bash et de
   l'émulateur dans les réglages ⚙ (stockés sur la machine, pas dans le
   projet). PVSNESLIB_HOME doit être défini dans le profil MSYS2.
+  **Menu de debug (S6)** : la case « Menu de debug dans la ROM de
+  test » des réglages ⚙ passe `--debug` à datagen pour les ROMs de
+  test (Jouer et « Générer les données ») — JAMAIS pour le build
+  cartouche. En jeu, **Start + Select + R** affiche/cache un panneau
+  de 2 rangées en haut de l'écran : **FPS** (itérations de la boucle
+  par seconde), **LAG** (frames d'affichage manquées depuis le boot —
+  les fondus bloquants de warp/picture comptent dedans, c'est normal
+  de le voir grimper à ces moments-là), et l'occupation réelle des
+  banks **SCN** (scènes : maps + events + scripts) et **TXT**
+  (textes), en octets sur 32768. Le panneau ne coûte quasiment rien —
+  les valeurs qu'il affiche restent honnêtes.
 - **Modes de dessin** (comme RPG Maker 2003) : ✏ crayon, ▭ rectangle,
   ◯ ellipse, ▨ pot de peinture (zone connexe de même tile) — le motif du
   tampon se répète dans la forme, ancré au début du geste. Un geste = une

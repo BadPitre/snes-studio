@@ -28,6 +28,19 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- demo engine
 make data
 ```
 
+**`--debug` (S6)** : grave le drapeau du menu de debug dans
+`engine/src/data/data_debug.c` (TOUJOURS émis : `dbg_enabled` +
+`dbg_scn_used`/`dbg_txt_used`/`dbg_bank_cap`, les octets réellement
+occupés dans les banks scènes/textes — le moteur inclut `debug.c`
+inconditionnellement, inerte sans le drapeau). En jeu,
+**Start+Select+R** bascule le panneau (FPS, LAG, budgets). Le drapeau
+vient de la case « Menu de debug » des réglages de l'éditeur (ROMs de
+test uniquement) — le build cartouche ne le passe jamais. Piège
+documenté dans debug.c : le panneau ne fait AUCUNE division et ne
+réécrit que les cellules qui changent (re-blit étalé sur 4 frames),
+sinon il devient lui-même le lag qu'il mesure sur une boucle de jeu
+déjà pleine.
+
 ### Build cartouche (flashcart)
 
 ```bash

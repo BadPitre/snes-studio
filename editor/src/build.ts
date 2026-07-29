@@ -148,10 +148,12 @@ export async function runImportCharset(
   return { ok: out.code === 0, output };
 }
 
-export async function runDatagen(projectRoot: string): Promise<BuildResult> {
+// debug = ROM de test avec menu Start+Select+R (réglages ⚙, S6) — le
+// build cartouche passe toujours debug=false
+export async function runDatagen(projectRoot: string, debug = false): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
   const repo = parentDir(projectRoot);
-  const cmd = Command.create("cargo", [
+  const args = [
     "run",
     "--release",
     "--manifest-path",
@@ -161,7 +163,9 @@ export async function runDatagen(projectRoot: string): Promise<BuildResult> {
     "--",
     projectRoot,
     `${repo}/engine`,
-  ]);
+  ];
+  if (debug) args.push("--debug");
+  const cmd = Command.create("cargo", args);
   const out = await cmd.execute();
   const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
   return { ok: out.code === 0, output };

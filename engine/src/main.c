@@ -20,6 +20,7 @@
 #include "ui_overlay.h"
 #include "ui_screen.h"
 #include "picture.h"
+#include "debug.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -164,6 +165,8 @@ int main(void)
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
     overlay_update();  /* HUD : redessin si une variable a changé */
+    debug_update();    /* panneau Start+Select+R (S6) — inerte sans le
+                          drapeau --debug de datagen ; APRÈS overlay */
     camera_update();
     if (!picture_active())
       map_update(); /* prépare le streaming de la fenêtre tilemap */

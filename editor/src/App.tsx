@@ -106,6 +106,7 @@ export default function App() {
   const [playCfg, setPlayCfg] = useState<PlayConfig>(() => ({
     bash: localStorage.getItem("snesstudio.bash") ?? "C:\\msys64\\usr\\bin\\bash.exe",
     emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
+    debug: localStorage.getItem("snesstudio.debug") === "1",
   }));
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("scene");
@@ -1283,7 +1284,7 @@ export default function App() {
     setBuilding(true);
     setStatus("datagen en cours…");
     try {
-      const res = await runDatagen(data.root);
+      const res = await runDatagen(data.root, playCfg.debug);
       setStatus(
         res.ok
           ? "Données moteur regénérées — reste « make » dans engine/."
@@ -1349,7 +1350,7 @@ export default function App() {
     try {
       await save();
       setStatus("datagen…");
-      const gen = await runDatagen(data.root);
+      const gen = await runDatagen(data.root, playCfg.debug);
       if (!gen.ok) {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
@@ -1424,6 +1425,7 @@ export default function App() {
     setPlayCfg(c);
     localStorage.setItem("snesstudio.bash", c.bash);
     localStorage.setItem("snesstudio.emulator", c.emulator);
+    localStorage.setItem("snesstudio.debug", c.debug ? "1" : "0");
     setShowSettings(false);
   }
 
