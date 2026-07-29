@@ -149,14 +149,19 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   par-dessus, et la fermeture rend la scène intacte ; registre
   `pictures` de project.json, LU par datagen. **Options S5/S7 (façon
   Show Picture RM2003)** : le formulaire « Afficher une image » propose
-  l'**Image** (de la liste, ou NUMÉRO lu dans une variable — 0 = la
-  première de la liste Picture), la **Position à l'écran** (Centrée,
+  l'**Image** (de la liste Picture), la **Position à l'écran** (Centrée,
   Position X/Y en pixels — X 0-255, Y 0-216, validées par datagen —
-  ou position lue dans des VARIABLES) et la **Transition** (Fondu avec
-  DURÉE en frames — 60 = 1 seconde — ou Instantanée) ; « Effacer
+  ou position lue dans des VARIABLES), la **Transition** (Fondu avec
+  DURÉE en frames — 60 = 1 seconde — ou Instantanée) et le **Mélange
+  avec le décor (S8)** : Normal (opaque), Semi-transparent (50 %),
+  Additif (lueur) ou Soustractif (ombre) — le circuit couleur de la
+  console fond l'image avec le décor, les dialogues restent nets, la
+  teinte d'écran est suspendue le temps de l'image ; « Effacer
   l'image » propose Transition + durée. Tout ce qui vient de variables
-  est recalé par le moteur aux dimensions réelles (jamais hors écran ;
-  numéro d'image inexistant = ignoré). **« Déplacer l'image » (S7)** :
+  est recalé par le moteur aux dimensions réelles (jamais hors écran).
+  Le champ JSON `pic_var` (numéro d'image lu dans une variable) reste
+  accepté par datagen mais n'est plus exposé dans le formulaire (une
+  seule image à la fois). **« Déplacer l'image » (S7)** :
   glisse l'image affichée vers une nouvelle position (constantes ou
   variables) en N frames SANS bloquer le script (façon Move Picture
   RM2003) — enchaîner avec « Attendre » pour attendre la fin. Champs

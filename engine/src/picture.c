@@ -269,6 +269,26 @@ void picture_show(u8 id)
   x = pic_fit(pic_req_x, pic_req_fl & 4, (u16)pic_wt[id] << 3, 256);
   y = pic_fit(pic_req_y, pic_req_fl & 4, (u16)pic_ht[id] << 3, 224);
   pic_place(x, y);
+  /* mélange (S8, flags bits 3-4) : l'image se fond avec le DÉCOR par
+     le color math — BG2 passe en sub screen, opération sur BG1 seul
+     (les dialogues BG3 restent nets). Teinte/flash suspendus le temps
+     de l'image (même circuit — screenfx_cm_hold). Sub screen vide :
+     le hardware retombe sur la couleur fixe SANS division. */
+  x = (pic_req_fl >> 3) & 3;
+  if (x)
+  {
+    REG_TS = 0x02; /* BG2 seul en sub — JAMAIS OBJ (chars = l'image) */
+    REG_CGWSEL = 0x02;
+    REG_CGADSUB = x == 1 ? 0x41 /* semi-transparent (add + half) */
+                         : (x == 2 ? 0x01 /* additif */
+                                   : 0x81 /* soustractif */);
+    screenfx_cm_hold(1);
+  }
+  else
+  {
+    REG_TS = 0;
+    screenfx_cm_hold(0);
+  }
   bgSetScroll(0, pic_hx, pic_vy);
   screenfx_warp_reset(); /* fondu scripté resynchronisé (recette warp) */
   setScreenOn();
@@ -294,6 +314,8 @@ void picture_hide(void)
   bgSetScroll(1, camera.x, camera.y);
   videoMode = PIC_TM_GAME;
   REG_TM = PIC_TM_GAME;
+  REG_TS = 0; /* mélange S8 : sub screen rendu, teinte réaffirmée */
+  screenfx_cm_hold(0);
   pic_on = 0;
   mv_frames = 0;
   screenfx_warp_reset();
@@ -312,6 +334,8 @@ void picture_reset(void)
     return;
   videoMode = PIC_TM_GAME;
   REG_TM = PIC_TM_GAME;
+  REG_TS = 0; /* mélange S8 relâché — do_warp réaffirme la teinte */
+  screenfx_cm_hold(0);
   pic_on = 0; /* scene_load (warp) recharge tileset, sprites et scrolls */
   mv_frames = 0;
 }

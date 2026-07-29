@@ -205,6 +205,10 @@ export type Command =
   // fondu/glissement (0 = instantané, défaut 16) ; fade: false =
   // héritage S5 (équivaut à dur 0). pic_move glisse l'image affichée
   // vers la cible en dur frames, SANS bloquer le script.
+  // blend (S8) : mélange color math avec le décor — half = semi-
+  // transparent (50 %), add = additif (lueur), sub = soustractif
+  // (ombre). Absent = image opaque. pic_var reste accepté par datagen
+  // mais n'est plus exposé dans le formulaire (une image à la fois).
   | {
       c: "pic_show";
       pic: string;
@@ -215,6 +219,7 @@ export type Command =
       y_var?: number;
       dur?: number;
       fade?: boolean;
+      blend?: "half" | "add" | "sub";
     }
   | { c: "pic_hide"; dur?: number; fade?: boolean }
   | { c: "pic_move"; x?: number; y?: number; x_var?: number; y_var?: number; dur?: number }

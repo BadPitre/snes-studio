@@ -44,6 +44,11 @@ void screenfx_shake(u8 power, u8 speed, u8 frames);
    scroll BG1/BG2 par la boucle principale. */
 u16 screenfx_shake_x(void);
 
+/* Mélange picture (S8) : hold posé = screenfx ne touche plus le color
+   math ($2130-$2132) — l'image possède le circuit (teinte et flash
+   suspendus). Relâcher réaffirme la teinte persistante. */
+void screenfx_cm_hold(u8 on);
+
 /* Un pas d'effet par frame (boucle principale, toujours). */
 void screenfx_update(void);
 

@@ -54,6 +54,18 @@ void screenfx_init(void)
   shake_tick = 0;
 }
 
+/* Mélange picture actif (S8) : le color math appartient à l'image —
+   screenfx_vblank ne touche plus $2130-$2132 tant que le hold est posé
+   (teinte ET flash suspendus, même circuit). Relâcher = réaffirmer. */
+static u8 cm_hold;
+
+void screenfx_cm_hold(u8 on)
+{
+  cm_hold = on;
+  if (!on)
+    cm_dirty = 1; /* la teinte persistante reprend ses droits */
+}
+
 void screenfx_warp_reset(void)
 {
   fade_level = 15; /* le fondu du warp laisse l'écran allumé */
@@ -171,6 +183,8 @@ void screenfx_vblank(void)
     fade_dirty = 0;
     REG_INIDISP = fade_level; /* bit 7 = 0 : écran allumé */
   }
+  if (cm_hold)
+    return; /* le mélange picture (S8) possède le color math */
   if (!cm_dirty)
     return;
   cm_dirty = 0;

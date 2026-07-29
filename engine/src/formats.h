@@ -208,7 +208,11 @@
                               écran en pixels (S5, scroll BG1). flags
                               (S7) : bit 0 = pic_id est un INDEX DE
                               VARIABLE, bit 1 = x/y sont des index de
-                              variables, bit 2 = centrer (moteur). dur
+                              variables, bit 2 = centrer (moteur) ;
+                              (S8) bits 3-4 = mélange color math avec
+                              le décor (0 opaque, 1 semi-transparent,
+                              2 additif, 3 soustractif — teinte/flash
+                              suspendus le temps de l'image). dur
                               = frames de CHAQUE fondu (0 = instantané).
                               Position clampée aux dims réelles ; id
                               hors bornes : ignoré. */

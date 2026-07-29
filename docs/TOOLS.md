@@ -313,7 +313,10 @@ d'image lu dans une variable — remplace `"pic"`, flags bit 0),
 le MOTEUR clampe alors aux dims réelles, tables `pic_wt`/`pic_ht` du
 registre) et `"dur"` (frames de CHAQUE fondu, 0 = instantané, défaut
 16 ; `"fade": false` = héritage S5, équivaut à dur 0). `pic_hide`
-accepte `"dur"`. **`pic_move` (S7)** : glisse l'image affichée vers
+accepte `"dur"`. **`"blend"` (S8)** : `"half"` (semi-transparent 50 %),
+`"add"` (additif) ou `"sub"` (soustractif) — l'image se fond avec le
+décor par le color math (flags bits 3-4) ; absent = opaque. La teinte
+d'écran est suspendue le temps de l'image (même circuit). **`pic_move` (S7)** : glisse l'image affichée vers
 `x`/`y` (ou `x_var`/`y_var`) en `"dur"` frames, SANS bloquer le script
 (0 = saut) — absent = centre. Émis en `SHOWPIC id x y flags dur` /
 `HIDEPIC dur` / `MOVEPIC x y flags dur` (flags : bit 0 image-variable,

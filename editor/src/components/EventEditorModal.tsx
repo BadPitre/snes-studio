@@ -136,6 +136,14 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : c.x !== undefined || c.y !== undefined
             ? ` en (${c.x ?? 0},${c.y ?? 0})`
             : ""
+      }${
+        c.blend === "half"
+          ? " ◐ semi-transp."
+          : c.blend === "add"
+            ? " ◐ additif"
+            : c.blend === "sub"
+              ? " ◐ soustractif"
+              : ""
       }${picDurLabel(c.dur, c.fade)}`;
     case "pic_move":
       return `Déplacer l'image vers ${
@@ -1656,45 +1664,20 @@ function CommandForm(props: {
       body = (
         <>
           <label>
-            Image
+            Image (Gestionnaire de ressources → Picture)
             <select
-              value={cmd.pic_var !== undefined ? "var" : "list"}
-              onChange={(e) =>
-                onChange(
-                  e.target.value === "var"
-                    ? { ...cmd, pic: "", pic_var: cmd.pic_var ?? 0 }
-                    : { ...cmd, pic_var: undefined }
-                )
-              }
+              value={cmd.pic} autoFocus
+              onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
             >
-              <option value="list">De la liste (Gestionnaire → Picture)</option>
-              <option value="var">Numéro lu dans une variable</option>
+              <option value="">(choisir)</option>
+              {props.pictures.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+              {cmd.pic && !props.pictures.includes(cmd.pic) && (
+                <option value={cmd.pic}>{cmd.pic} (?)</option>
+              )}
             </select>
           </label>
-          {cmd.pic_var !== undefined ? (
-            <label>
-              Variable (0-255) — sa valeur = numéro de l'image (ordre de la
-              liste Picture, 0 = la première)
-              <input type="number" min={0} max={255} value={cmd.pic_var}
-                onChange={(e) => onChange({ ...cmd, pic_var: Number(e.target.value) })} />
-            </label>
-          ) : (
-            <label>
-              Quelle image ?
-              <select
-                value={cmd.pic} autoFocus
-                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
-              >
-                <option value="">(choisir)</option>
-                {props.pictures.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-                {cmd.pic && !props.pictures.includes(cmd.pic) && (
-                  <option value={cmd.pic}>{cmd.pic} (?)</option>
-                )}
-              </select>
-            </label>
-          )}
           <label>
             Position à l'écran
             <select
@@ -1763,12 +1746,32 @@ function CommandForm(props: {
                 } />
             </label>
           )}
+          <label>
+            Mélange avec le décor
+            <select
+              value={cmd.blend ?? "none"}
+              onChange={(e) =>
+                onChange({
+                  ...cmd,
+                  blend:
+                    e.target.value === "none"
+                      ? undefined
+                      : (e.target.value as "half" | "add" | "sub"),
+                })
+              }
+            >
+              <option value="none">Normal (opaque)</option>
+              <option value="half">Semi-transparent (50 %)</option>
+              <option value="add">Additif (lueur)</option>
+              <option value="sub">Soustractif (ombre)</option>
+            </select>
+          </label>
           <span className="hint">
-            Les messages et choix se jouent PAR-DESSUS l'image. Position et
-            numéro venus de variables sont recalés par le moteur aux
-            dimensions réelles (jamais hors écran) ; un numéro d'image
-            inexistant est ignoré. Refermer avec « Effacer l'image » dans
-            le même script.
+            Les messages et choix se jouent PAR-DESSUS l'image et restent
+            nets même en mélange. Le mélange fond l'image avec le décor
+            (circuit couleur de la console) et suspend la teinte d'écran
+            le temps de l'image. Refermer avec « Effacer l'image » dans le
+            même script.
           </span>
         </>
       );

@@ -540,6 +540,17 @@ impl<'a> EventCompiler<'a> {
                         }
                     };
                     let (x, y) = Self::pic_pos(cmd, &mut flags, dims, "pic_show")?;
+                    // S8 : mélange color math avec le décor (flags bits 3-4)
+                    flags |= match cmd["blend"].as_str() {
+                        None => 0,
+                        Some("half") => 1 << 3,
+                        Some("add") => 2 << 3,
+                        Some("sub") => 3 << 3,
+                        Some(o) => bail!(
+                            "pic_show : blend inconnu « {} » (half, add ou sub)",
+                            o
+                        ),
+                    };
                     let dur = Self::pic_dur(cmd)?;
                     out.push(format!("  SHOWPIC {} {} {} {} {}", id, x, y, flags, dur));
                 }
