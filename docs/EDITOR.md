@@ -322,10 +322,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   immédiate, sinon la teinte évolue graduellement, non bloquant :
   c'est le cycle jour/nuit scriptable), **Météo (pluie / neige)** (S13 —
   intensité 1-3, persiste entre les scènes, les particules tombent
-  devant la couche d'effet ; « Aucune » arrête), **Flash d'écran**
-  (traverse aussi les mélanges : l'éclair d'orage marche au-dessus
-  des nuages semi-transparents) et **Secouer l'écran** (non bloquants
-  — enchaîner avec « Attendre »).
+  devant la couche d'effet ; « Aucune » arrête), **Ondulation de
+  l'écran** (S14 — amplitude 0-7 px, vitesse 1-8 : le DÉCOR ondule
+  (chaleur du désert, sous l'eau, rêve), les personnages, le texte et
+  le HUD restent droits ; amplitude 0 arrête ; persiste entre les
+  scènes), **Flash d'écran** (traverse aussi les mélanges : l'éclair
+  d'orage marche au-dessus des nuages semi-transparents) et **Secouer
+  l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

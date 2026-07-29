@@ -234,6 +234,8 @@ export type Command =
   // Météo en particules (S13, façon Weather Effects RM2003) : persiste
   // entre les scènes jusqu'au prochain changement
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
+  // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
+  | { c: "wave"; power: number; speed?: number }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)

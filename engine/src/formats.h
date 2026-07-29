@@ -229,6 +229,11 @@
                               1-3 = 8/16/24 sprites (OAM 100-123, chars
                               OBJ 484+, palette OBJ 7). État GLOBAL,
                               persiste entre les scènes (RM2003). */
+#define VM_OP_WAVE 0x2D /* power, speed (u8 x2) — ONDULATION de l'écran
+                            (S14, HDMA) : scrolls BG1/BG2 sinusoïdaux par
+                            bandes de 4 lignes. power 0-7 px (0 = stop),
+                            speed 1-8. NON bloquant, persiste entre les
+                            scènes ; suspendu pendant une picture. */
 #define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
                             (S12, jour/nuit) : interpole la teinte
                             courante vers la cible en dur frames, NON

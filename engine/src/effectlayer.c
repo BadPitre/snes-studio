@@ -132,20 +132,25 @@ void effect_update(void)
   eff_y8 += eff_vy;
 }
 
-void effect_vblank(void)
+/* scroll X courant du motif (dérive + suivi caméra S11) — exporté pour
+   l'ondulation HDMA (S14), qui doit onduler autour de la même base */
+u16 effect_hofs(void)
 {
   u16 x = eff_x8 >> 8;
+
+  if (eff_pr)
+    x += camera.x >> (eff_pr == 3 ? 0 : eff_pr);
+  return x;
+}
+
+void effect_vblank(void)
+{
   u16 y = eff_y8 >> 8;
 
   /* suivi caméra (S11) : le motif glisse à une FRACTION du décor
      (camera >> n ; 3 = COLLÉ au décor, pleine vitesse — ombres au sol).
      La carte 32x32 boucle sur 256 px, le scroll déborde sans danger. */
   if (eff_pr)
-  {
-    u8 sh = eff_pr == 3 ? 0 : eff_pr;
-
-    x += camera.x >> sh;
-    y += camera.y >> sh;
-  }
-  bgSetScroll(0, x, y);
+    y += camera.y >> (eff_pr == 3 ? 0 : eff_pr);
+  bgSetScroll(0, effect_hofs(), y);
 }

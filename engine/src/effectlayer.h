@@ -26,4 +26,8 @@ void effect_update(void);
 /* Scroll BG1 = dérive du motif — VBlank uniquement. */
 void effect_vblank(void);
 
+/* Scroll X courant du motif (dérive + suivi caméra) — base de
+   l'ondulation HDMA (S14) quand une couche d'effet est active. */
+u16 effect_hofs(void);
+
 #endif /* EFFECTLAYER_H */

@@ -168,6 +168,10 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "wave":
+      return c.power === 0
+        ? "Ondulation : stop"
+        : `Ondulation de l'écran (amplitude ${c.power}, vitesse ${c.speed ?? 2})`;
     case "weather":
       return c.kind === "off"
         ? "Météo : aucune"
@@ -220,6 +224,7 @@ function cmdTitle(c: Command["c"]): string {
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
+    wave: "Ondulation de l'écran",
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
     call: "Appeler un common event",
@@ -484,6 +489,8 @@ export function CommandListEditor(props: {
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
         return { c: "weather", kind: "rain", power: 2 };
+      case "wave":
+        return { c: "wave", power: 3, speed: 2 };
       case "flash":
         return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
       case "shake":
@@ -2068,6 +2075,43 @@ function CommandForm(props: {
         </>
       );
       break;
+    case "wave": {
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Amplitude (px — 0 = arrêter)
+              <select
+                value={cmd.power}
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              >
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((v) => (
+                  <option key={v} value={v}>{v === 0 ? "0 (stop)" : v}</option>
+                ))}
+              </select>
+            </label>
+            {cmd.power > 0 && (
+              <label>
+                Vitesse de la houle (1-8)
+                <input
+                  type="number" min={1} max={8} value={cmd.speed ?? 2}
+                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            L'écran ondule ligne par ligne (chaleur du désert, sous l'eau,
+            rêve) — non bloquant, persiste entre les scènes jusqu'à
+            « 0 (stop) ». Le DÉCOR ondule ; les personnages, le texte
+            et le HUD restent droits (les sprites ne passent pas par les
+            scrolls — matériel). Suspendue pendant une image plein
+            écran.
+          </span>
+        </>
+      );
+      break;
+    }
     case "weather":
       body = (
         <>

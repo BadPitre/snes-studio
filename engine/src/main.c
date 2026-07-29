@@ -23,6 +23,7 @@
 #include "debug.h"
 #include "effectlayer.h"
 #include "weather.h"
+#include "hdmafx.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -170,7 +171,7 @@ int main(void)
 
     screenfx_update(); /* fondu/flash/secousse scriptés (v0.15) */
     effect_update();   /* dérive de la couche d'effet (S9) */
-    weather_update();  /* particules météo (S13) */
+    hdmafx_update();   /* ondulation : tables HDMA (S14) */
     overlay_update();  /* HUD : redessin si une variable a changé */
     debug_update();    /* panneau Start+Select+R (S6) — inerte sans le
                           drapeau --debug de datagen ; APRÈS overlay */
@@ -179,7 +180,7 @@ int main(void)
       map_update(); /* prépare le streaming de la fenêtre tilemap */
     player_draw();  /* shadow OAM — transféré par le NMI au VBlank */
     actors_draw();
-    weather_draw(); /* particules météo — entrées OAM hautes (S13) */
+    weather_draw(); /* météo : simulation + sprites en une passe (S13) */
 
     audio_process(); /* flux musique -> SPC */
 
@@ -193,6 +194,7 @@ int main(void)
       ui_screen_vblank();
       screenfx_vblank();
       picture_vblank(); /* scroll BG1 = position de l'image (S5) */
+      hdmafx_suspend(); /* pas d'ondulation sur une image plein écran */
     }
     else
     {
@@ -204,6 +206,7 @@ int main(void)
       else
         bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
       bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
+      hdmafx_vblank(); /* ondulation (S14) — écrase HOFS ligne à ligne */
     }
   }
   return 0;

@@ -392,7 +392,12 @@ presets Matin/Jour/Soir/Nuit côté éditeur ; **`{"c":"weather","kind":
 (`WEATHER <type> <pow>`), non bloquant, persiste entre les scènes ;
 les particules (sprites, `data_weather.c` toujours émis) tombent
 DEVANT la couche d'effet, et le flash traverse les mélanges (orage
-complet : nuages sombres + pluie + flash) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+complet : nuages sombres + pluie + flash) ; **`{"c":"wave","power":
+0-7,"speed":1-8}` (S14)** — ondulation de l'écran par HDMA (`WAVE
+<power> <speed>`, speed absent = 2) : le DÉCOR ondule (BG1 + BG2,
+couche d'effet comprise), les personnages, le texte et le HUD restent
+droits ; power 0 = stop, non bloquant, persiste entre les scènes ;
+`{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop
 (`SHAKE`). La teinte et le flash ne touchent ni le texte ni les

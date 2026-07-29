@@ -86,49 +86,14 @@ void weather_set(u8 type, u8 pow)
   }
 }
 
-void weather_update(void)
-{
-  u8 i;
-
-  if (!w_type)
-    return;
-  w_frm++;
-  if (w_type == 1)
-  {
-    /* pluie : chute rapide en diagonale, deux vitesses entremêlées */
-    for (i = 0; i < w_count; i++)
-    {
-      wy[i] += (wv[i] & 1) ? 5 : 4;
-      wx[i] -= 2;
-      if (wy[i] >= 224)
-      {
-        wy[i] = 0;
-        wx[i] = (u8)w_lcg();
-      }
-    }
-  }
-  else
-  {
-    /* neige : descente lente, oscillation douce par phase */
-    for (i = 0; i < w_count; i++)
-    {
-      if ((w_frm ^ wv[i]) & 1)
-        wy[i]++;
-      if (((w_frm + wv[i]) & 15) == 0)
-        wx[i] += (wv[i] & 2) ? 1 : 0xFF; /* +1 ou -1 (wrap u8) */
-      if (wy[i] >= 224)
-      {
-        wy[i] = 0;
-        wx[i] = (u8)w_lcg();
-      }
-    }
-  }
-}
-
 void weather_draw(void)
 {
-  u8 i;
-  u16 ch;
+  u8 i, x, y, v;
+  u8 chlo, attr;
+  u8 *om;
+  u8 *px;
+  u8 *py;
+  u8 *pv;
 
   if (!w_type)
   {
@@ -138,13 +103,71 @@ void weather_draw(void)
     w_shown = 0;
     return;
   }
-  ch = w_type == 1 ? WEA_CHAR_RAIN : WEA_CHAR_SNOW;
-  for (i = 0; i < w_count; i++)
+  /* simulation ET dessin en UNE passe à POINTEURS, écrite DIRECTEMENT
+     dans le shadow OAM (oamMemory) : la version en deux boucles
+     indexées (update puis draw) relisait wx/wy avec des indexations
+     u16 — cumulée à l'ondulation S14, la frame débordait (60 -> 30
+     FPS au panneau S6). 4 octets par particule : x, y, char bas,
+     attr (vhoo pppc : prio 3, palette 7, 9e bit de char) */
+  w_frm++;
+  chlo = w_type == 1 ? (u8)WEA_CHAR_RAIN : (u8)WEA_CHAR_SNOW;
+  attr = 0x30 | (7 << 1) | 1; /* prio 3, pal 7, char 256+ */
+  om = oamMemory + ((u16)100 << 2);
+  px = wx;
+  py = wy;
+  pv = wv;
+  if (w_type == 1)
   {
-    oamSet(WEA_OAM(i), wx[i], wy[i], WEA_PRIO, 0, 0, ch, 7);
-    if (i >= w_shown)
-      oamSetEx(WEA_OAM(i), OBJ_SMALL, OBJ_SHOW); /* taille posée UNE fois
-        (oamSetEx écrase le 9e bit de X — cf actors.c) */
+    /* pluie : chute rapide en diagonale, deux vitesses entremêlées */
+    for (i = 0; i < w_count; i++)
+    {
+      v = *pv++;
+      x = *px - 2;
+      y = *py + ((v & 1) ? 5 : 4);
+      if (y >= 224)
+      {
+        y = 0;
+        x = (u8)w_lcg();
+      }
+      *px++ = x;
+      *py++ = y;
+      om[0] = x;
+      om[1] = y;
+      om[2] = chlo;
+      om[3] = attr;
+      om += 4;
+      if (i >= w_shown)
+        oamSetEx(WEA_OAM(i), OBJ_SMALL, OBJ_SHOW); /* taille + X9, UNE
+          fois (oamSetEx écrase le 9e bit de X — cf actors.c) */
+    }
+  }
+  else
+  {
+    /* neige : descente lente, oscillation douce par phase */
+    for (i = 0; i < w_count; i++)
+    {
+      v = *pv++;
+      x = *px;
+      y = *py;
+      if ((w_frm ^ v) & 1)
+        y++;
+      if (((u8)(w_frm + v) & 15) == 0)
+        x += (v & 2) ? 1 : 0xFF; /* +1 ou -1 (wrap u8) */
+      if (y >= 224)
+      {
+        y = 0;
+        x = (u8)w_lcg();
+      }
+      *px++ = x;
+      *py++ = y;
+      om[0] = x;
+      om[1] = y;
+      om[2] = chlo;
+      om[3] = attr;
+      om += 4;
+      if (i >= w_shown)
+        oamSetEx(WEA_OAM(i), OBJ_SMALL, OBJ_SHOW);
+    }
   }
   for (i = w_count; i < w_shown; i++)
     oamSetVisible(WEA_OAM(i), OBJ_HIDE); /* intensité réduite */

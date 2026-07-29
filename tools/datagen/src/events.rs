@@ -620,6 +620,12 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // S14 — ondulation de l'écran (HDMA) : power 0 = stop
+                "wave" => {
+                    let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);
+                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!("  WAVE {} {}", pow, spd));
+                }
                 // S13 — météo en particules (Weather Effects RM2003) :
                 // persiste entre les scènes jusqu'au prochain changement
                 "weather" => {
