@@ -31,6 +31,15 @@ u8 screenfx_busy(void);
 void screenfx_tint_rgb(u8 r, u8 g, u8 b);
 void screenfx_tint(u8 mode);
 
+/* Teinte GRADUELLE (S12, jour/nuit) : poser la cible rgb PUIS lancer
+   (mode, frames) — même parade tcc que tint_rgb/tint. Non bloquante
+   (enchaîner avec WAIT pour attendre), persiste entre les scènes,
+   frames 0 = immédiat. mode 0 : fond la teinte courante vers zéro.
+   add <-> sub passe par zéro en deux phases (moitié/moitié). Une
+   teinte immédiate (TINT) annule la graduelle en cours. */
+void screenfx_tintg_rgb(u8 r, u8 g, u8 b);
+void screenfx_tintg(u8 mode, u8 frames);
+
 /* Flash : addition (r,g,b) qui décroît sur `frames` frames, puis la
    teinte courante est restaurée. Non bloquant (enchaîner avec WAIT). */
 void screenfx_flash(u8 r, u8 g, u8 b);

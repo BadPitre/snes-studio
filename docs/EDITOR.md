@@ -314,7 +314,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   gagne la source **N° de la scène courante**. Onglet **Écran** :
   **Cacher / Montrer l'écran** (fondu bloquant), **Teinter l'écran**
   (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
-  personnages et le texte gardent leurs couleurs), **Flash d'écran** et
+  personnages et le texte gardent leurs couleurs ; **S12** : presets
+  Matin/Jour/Soir/Nuit et champ **Transition** en frames — 0 =
+  immédiate, sinon la teinte évolue graduellement, non bloquant :
+  c'est le cycle jour/nuit scriptable), **Flash d'écran** et
   **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),

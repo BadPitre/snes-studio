@@ -226,7 +226,9 @@ export type Command =
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }
-  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
+  // dur (S12) : frames de transition GRADUELLE (jour/nuit) — absent ou
+  // 0 = teinte immédiate (bytecode TINT inchangé)
+  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number; dur?: number }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)

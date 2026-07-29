@@ -602,10 +602,23 @@ impl<'a> EventCompiler<'a> {
                     let comp = |key: &str| -> u64 {
                         cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
                     };
-                    out.push(format!(
-                        "  TINT {} {} {} {}",
-                        mode, comp("r"), comp("g"), comp("b")
-                    ));
+                    // S12 : "dur" en frames = teinte GRADUELLE (TINTG) ;
+                    // absent ou 0 = TINT immédiat (bytecode inchangé)
+                    match cmd["dur"].as_u64() {
+                        Some(d) if d > 0 => {
+                            if d > 255 {
+                                bail!("tint : durée invalide {} (1-255 frames)", d);
+                            }
+                            out.push(format!(
+                                "  TINTG {} {} {} {} {}",
+                                mode, comp("r"), comp("g"), comp("b"), d
+                            ));
+                        }
+                        _ => out.push(format!(
+                            "  TINT {} {} {} {}",
+                            mode, comp("r"), comp("g"), comp("b")
+                        )),
+                    }
                 }
                 "flash" => {
                     let comp = |key: &str| -> u64 {

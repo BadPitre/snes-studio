@@ -224,6 +224,14 @@
                               saut), NON-bloquant (le script continue,
                               façon Move Picture RM2003). flags bits 1-2
                               comme SHOWPIC. Sans image : ignoré (S7). */
+#define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
+                            (S12, jour/nuit) : interpole la teinte
+                            courante vers la cible en dur frames, NON
+                            bloquant, persiste entre les scènes. dur 0 =
+                            TINT immédiat ; add<->sub passe par zéro en
+                            deux phases. Suspendue à l'écran pendant un
+                            mélange (couche d'effet/picture — cm_hold),
+                            mais l'interpolation continue. */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1

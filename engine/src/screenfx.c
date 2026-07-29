@@ -31,6 +31,19 @@ static u8 flash_timer, flash_dur;
 /* Secousse : offset horizontal ±power, alternance toutes speed frames */
 static u8 shake_power, shake_speed, shake_frames, shake_phase, shake_tick;
 
+/* Teinte GRADUELLE (S12, jour/nuit) : interpolation 8.8 de la teinte
+   courante vers une cible en N frames — non bloquante, persiste comme
+   la teinte. Bascule add<->sub en DEUX phases (descente vers 0 puis
+   montée : le circuit ne connaît qu'un sens à la fois). */
+static u8 tg_left;             /* frames restantes de la phase courante */
+static u8 tg_mode;             /* mode FINAL (posé en fin de phase) */
+static u8 tg_phase2;           /* frames de la phase 2 (0 = une phase) */
+static u8 tg_tr, tg_tg, tg_tb; /* cible rgb de la PHASE courante */
+static u8 tg_fr, tg_fg, tg_fb; /* cible rgb FINALE (screenfx_tintg_rgb) */
+static u16 tg_r8, tg_g8, tg_b8; /* teinte courante en 8.8 */
+static u16 tg_sr, tg_sg, tg_sb; /* pas par frame (magnitude 8.8) */
+static u8 tg_rn, tg_gn, tg_bn;  /* sens du pas (1 = décroît) */
+
 void screenfx_init(void)
 {
   fade_level = 15; /* init EXPLICITE de tous les statics (tcc) */
@@ -52,6 +65,24 @@ void screenfx_init(void)
   shake_frames = 0;
   shake_phase = 0;
   shake_tick = 0;
+  tg_left = 0; /* teinte graduelle (S12) — init explicite (tcc) */
+  tg_mode = 0;
+  tg_phase2 = 0;
+  tg_tr = 0;
+  tg_tg = 0;
+  tg_tb = 0;
+  tg_fr = 0;
+  tg_fg = 0;
+  tg_fb = 0;
+  tg_r8 = 0;
+  tg_g8 = 0;
+  tg_b8 = 0;
+  tg_sr = 0;
+  tg_sg = 0;
+  tg_sb = 0;
+  tg_rn = 0;
+  tg_gn = 0;
+  tg_bn = 0;
 }
 
 /* Mélange picture actif (S8) : le color math appartient à l'image —
@@ -106,7 +137,90 @@ void screenfx_tint_rgb(u8 r, u8 g, u8 b)
 void screenfx_tint(u8 mode)
 {
   tint_mode = mode <= 2 ? mode : 0;
+  tg_left = 0; /* une teinte IMMÉDIATE annule la graduelle en cours */
+  tg_phase2 = 0;
   cm_dirty = 1;
+}
+
+/* pas 8.8 d'un canal vers sa cible — une division par phase et par canal */
+static u16 tg_step(u8 cur, u8 tgt, u8 frames, u8 *neg)
+{
+  u16 c = (u16)cur << 8;
+  u16 t = (u16)tgt << 8;
+
+  if (t >= c)
+  {
+    *neg = 0;
+    return (t - c) / frames;
+  }
+  *neg = 1;
+  return (c - t) / frames;
+}
+
+/* lance une phase depuis la teinte courante (tint_r/g/b) vers tg_t* */
+static void tg_launch(u8 frames)
+{
+  tg_r8 = (u16)tint_r << 8;
+  tg_g8 = (u16)tint_g << 8;
+  tg_b8 = (u16)tint_b << 8;
+  tg_sr = tg_step(tint_r, tg_tr, frames, &tg_rn);
+  tg_sg = tg_step(tint_g, tg_tg, frames, &tg_gn);
+  tg_sb = tg_step(tint_b, tg_tb, frames, &tg_bn);
+  tg_left = frames;
+}
+
+void screenfx_tintg_rgb(u8 r, u8 g, u8 b)
+{
+  tg_fr = r & 31;
+  tg_fg = g & 31;
+  tg_fb = b & 31;
+}
+
+void screenfx_tintg(u8 mode, u8 frames)
+{
+  u8 half;
+
+  if (mode > 2)
+    mode = 0;
+  if (mode == 0)
+  {
+    tg_fr = 0; /* « normale » : on fond la teinte courante vers zéro */
+    tg_fg = 0;
+    tg_fb = 0;
+  }
+  if (!frames)
+  {
+    screenfx_tint_rgb(tg_fr, tg_fg, tg_fb); /* durée 0 = TINT immédiat */
+    screenfx_tint(mode);
+    return;
+  }
+  if (tint_mode == 0)
+  {
+    /* pas de teinte affichée : partir de zéro dans le mode cible */
+    tint_mode = mode ? mode : tint_mode;
+    tint_r = 0;
+    tint_g = 0;
+    tint_b = 0;
+  }
+  tg_mode = mode;
+  if (mode && tint_mode && mode != tint_mode)
+  {
+    /* add <-> sub : phase 1 vers zéro (moitié), bascule, phase 2 */
+    half = frames >> 1;
+    if (!half)
+      half = 1;
+    tg_phase2 = frames - half;
+    tg_tr = 0;
+    tg_tg = 0;
+    tg_tb = 0;
+    tg_launch(half);
+    return;
+  }
+  tg_phase2 = 0;
+  tg_tr = tg_fr;
+  tg_tg = tg_fg;
+  tg_tb = tg_fb;
+  tg_launch(frames);
 }
 
 void screenfx_flash(u8 r, u8 g, u8 b)
@@ -156,6 +270,39 @@ void screenfx_update(void)
                      ? fade_level - fade_speed
                      : fade_target;
     fade_dirty = 1;
+  }
+  if (tg_left)
+  {
+    /* teinte graduelle (S12) : un pas 8.8 par frame, snap en fin de
+       phase — puis phase 2 éventuelle (bascule add<->sub) */
+    tg_left--;
+    if (tg_left)
+    {
+      tg_r8 = tg_rn ? tg_r8 - tg_sr : tg_r8 + tg_sr;
+      tg_g8 = tg_gn ? tg_g8 - tg_sg : tg_g8 + tg_sg;
+      tg_b8 = tg_bn ? tg_b8 - tg_sb : tg_b8 + tg_sb;
+      tint_r = (u8)(tg_r8 >> 8);
+      tint_g = (u8)(tg_g8 >> 8);
+      tint_b = (u8)(tg_b8 >> 8);
+    }
+    else
+    {
+      tint_r = tg_tr;
+      tint_g = tg_tg;
+      tint_b = tg_tb;
+      if (tg_phase2)
+      {
+        tint_mode = tg_mode; /* bascule à zéro : l'autre sens démarre */
+        tg_tr = tg_fr;
+        tg_tg = tg_fg;
+        tg_tb = tg_fb;
+        tg_launch(tg_phase2);
+        tg_phase2 = 0;
+      }
+      else
+        tint_mode = tg_mode; /* cible atteinte (mode 0 = teinte retirée) */
+    }
+    cm_dirty = 1;
   }
   if (flash_timer)
   {

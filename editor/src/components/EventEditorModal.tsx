@@ -160,9 +160,12 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "scr_show":
       return `Montrer l'écran (vitesse ${c.speed})`;
     case "tint":
-      return c.mode === "off"
-        ? "Teinte : normale"
-        : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`;
+      return (
+        (c.mode === "off"
+          ? "Teinte : normale"
+          : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
+        (c.dur ? ` en ${c.dur}f` : "")
+      );
     case "flash":
       return `Flash d'écran (${c.r},${c.g},${c.b}) ${c.frames} frames`;
     case "shake":
@@ -1928,6 +1931,27 @@ function CommandForm(props: {
       valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
       body = (
         <>
+          <label>
+            Moment de la journée (preset — remplit les champs)
+            <select
+              value=""
+              onChange={(e) => {
+                const p = {
+                  jour: { mode: "off" as const, r: 0, g: 0, b: 0 },
+                  matin: { mode: "sub" as const, r: 6, g: 3, b: 0 },
+                  soir: { mode: "sub" as const, r: 0, g: 6, b: 14 },
+                  nuit: { mode: "sub" as const, r: 16, g: 12, b: 4 },
+                }[e.target.value as "jour" | "matin" | "soir" | "nuit"];
+                if (p) onChange({ ...cmd, ...p });
+              }}
+            >
+              <option value="">(choisir un preset…)</option>
+              <option value="matin">Matin (bleuté pâle)</option>
+              <option value="jour">Jour (normale)</option>
+              <option value="soir">Soir (orangé)</option>
+              <option value="nuit">Nuit (bleu sombre)</option>
+            </select>
+          </label>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <label>
               Mode
@@ -1951,10 +1975,21 @@ function CommandForm(props: {
                 </label>
               ))}
           </div>
+          <label>
+            Transition (frames — 0 = immédiate, 180 = 3 secondes)
+            <input
+              type="number" min={0} max={255} value={cmd.dur ?? 0}
+              onChange={(e) =>
+                onChange({ ...cmd, dur: Number(e.target.value) || undefined })
+              }
+            />
+          </label>
           <span className="hint">
-            Immédiate, persiste entre les scènes. Teinte le décor — pas les
-            personnages ni le texte (limite hardware SNES). Nuit :
-            assombrir (12,12,4).
+            Persiste entre les scènes ; la transition graduelle (S12) est
+            NON bloquante — enchaîner avec « Attendre » pour la laisser
+            finir. Teinte le décor, pas les personnages ni le texte
+            (limite hardware). Suspendue à l'écran pendant un mélange de
+            couche d'effet ou d'image.
           </span>
         </>
       );

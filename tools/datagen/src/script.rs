@@ -75,6 +75,7 @@ const OP_DLGSTYLE: u8 = 0x27;
 const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
 const OP_MOVEPIC: u8 = 0x2A;
+const OP_TINTG: u8 = 0x2B;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -220,6 +221,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SWAPPOS" => 3,
         "SCRHIDE" | "SCRSHOW" => 2,
         "TINT" | "FLASH" => 5,
+        // TINTG <off|add|sub> <r> <g> <b> <dur> — teinte graduelle (S12)
+        "TINTG" => 6,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -631,16 +634,20 @@ pub fn assemble(
                 code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
                 code.push(speed);
             }
-            // TINT <off|add|sub> <r> <g> <b> (0-31)
-            "TINT" => {
-                if argc != 4 { bail!("TINT <off|add|sub> <r> <g> <b>"); }
+            // TINT <off|add|sub> <r> <g> <b> (0-31) ; TINTG + <dur 1-255>
+            "TINT" | "TINTG" => {
+                let want = if op == "TINTG" { 5 } else { 4 };
+                if argc != want {
+                    bail!("{} <off|add|sub> <r> <g> <b>{}", op,
+                          if want == 5 { " <dur>" } else { "" });
+                }
                 let mode = match args[0] {
                     "off" => 0u8,
                     "add" => 1,
                     "sub" => 2,
-                    o => bail!("TINT : mode inconnu '{}' (off, add, sub)", o),
+                    o => bail!("{} : mode inconnu '{}' (off, add, sub)", op, o),
                 };
-                code.push(OP_TINT);
+                code.push(if op == "TINTG" { OP_TINTG } else { OP_TINT });
                 code.push(mode);
                 for t in &args[1..4] {
                     let v: u8 = t
@@ -649,6 +656,14 @@ pub fn assemble(
                         .filter(|&v| v <= 31)
                         .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
                     code.push(v);
+                }
+                if op == "TINTG" {
+                    let d: u8 = args[4]
+                        .parse()
+                        .ok()
+                        .filter(|&v| v >= 1)
+                        .with_context(|| format!("duree invalide : '{}' (1-255)", args[4]))?;
+                    code.push(d);
                 }
             }
             // FLASH <r> <g> <b> <frames 1-255>

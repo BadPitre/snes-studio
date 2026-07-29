@@ -383,7 +383,11 @@ référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
 "speed"}` — fondu sortant/entrant bloquant (assembleur `SCRHIDE`/
 `SCRSHOW <vitesse>`) ; `{"c":"tint","mode":"off"|"add"|"sub","r","g",
 "b"}` (0-31) — teinte du décor, immédiate et persistante (`TINT <mode>
-<r> <g> <b>`) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+<r> <g> <b>`) ; **`"dur"` en frames (S12)** = transition GRADUELLE
+(jour/nuit) : la teinte interpole de la valeur courante vers la cible,
+NON bloquant (`TINTG <mode> <r> <g> <b> <dur>` — dur absent/0 =
+bytecode TINT inchangé), add ↔ sub passe par zéro en deux phases,
+presets Matin/Jour/Soir/Nuit côté éditeur ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop
 (`SHAKE`). La teinte et le flash ne touchent ni le texte ni les

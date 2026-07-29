@@ -536,6 +536,15 @@ static void vm_step(void)
       screenfx_tint(var);
       break;
 
+    case VM_OP_TINTG: /* teinte GRADUELLE (S12) — rgb puis (mode, dur),
+                         même parade tcc que TINT (3 u8 max par appel) */
+      var = fetch8();   /* mode */
+      val = fetch8();   /* r */
+      idx16 = fetch8(); /* g */
+      screenfx_tintg_rgb(val, (u8)idx16, fetch8());
+      screenfx_tintg(var, fetch8());
+      break;
+
     case VM_OP_FLASH: /* flash additif décroissant — NON bloquant */
       val = fetch8();
       idx16 = fetch8();
