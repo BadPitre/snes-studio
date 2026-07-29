@@ -37,7 +37,7 @@
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
 use crate::db::Db;
-use crate::project::{Actor, CommonEvent, Event, TextEntry};
+use crate::project::{Actor, CommonEvent, Event, ScreenDef, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -64,6 +64,8 @@ pub struct EventCompiler<'a> {
     musics: Vec<String>,
     /// vignettes du projet (B5) — stems, résolus vers les vig_id
     vignettes: Vec<String>,
+    /// écrans composés (B6bis) — déroulés par la commande "screen"
+    screens: Vec<ScreenDef>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -95,6 +97,7 @@ impl<'a> EventCompiler<'a> {
             sounds: Vec::new(),
             musics: Vec::new(),
             vignettes: Vec::new(),
+            screens: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -629,6 +632,49 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // B6bis — « Aller à l'écran » : la composition faite à
+                // la souris (screens/<nom>.json) est DÉROULÉE ici en
+                // commandes stage + le script de l'écran inline — le
+                // moteur ne voit rien de nouveau (sucre d'éditeur,
+                // comme les autotiles). MAX_DEPTH protège des écrans
+                // qui s'appellent en boucle.
+                "screen" => {
+                    let name = cmd["name"].as_str().unwrap_or("");
+                    let idx = self
+                        .screens
+                        .iter()
+                        .position(|sc| sc.name == name)
+                        .with_context(|| {
+                            format!(
+                                "commande écran : '{}' introuvable \
+                                 (supprimé ou renommé ?)",
+                                name
+                            )
+                        })?;
+                    let sc = self.screens[idx].clone();
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    let bid = if sc.backdrop.is_empty() {
+                        255
+                    } else {
+                        self.pictures
+                            .iter()
+                            .position(|p| *p == sc.backdrop)
+                            .unwrap() as u64 // validé par main.rs
+                    };
+                    out.push(format!("  STAGEOPEN {} {}", bid, dur));
+                    for sl in &sc.slots {
+                        let pid = self
+                            .pictures
+                            .iter()
+                            .position(|p| *p == sl.pic)
+                            .unwrap(); // validé par main.rs
+                        out.push(format!(
+                            "  STAGEPOSE {} {} {} {}",
+                            sl.slot - 1, pid, sl.x / 8, sl.y / 8
+                        ));
+                    }
+                    self.compile_list(&sc.script, depth + 1, out)?;
+                }
                 // B3 — écran composé : fond + images posées multi-slots
                 "stage_open" => {
                     let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
@@ -1081,6 +1127,7 @@ impl<'a> EventCompiler<'a> {
         sounds: &[String],
         musics: &[String],
         vignettes: &[String],
+        screens: &[ScreenDef],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -1096,6 +1143,7 @@ impl<'a> EventCompiler<'a> {
         self.sounds = sounds.to_vec();
         self.musics = musics.to_vec();
         self.vignettes = vignettes.to_vec();
+        self.screens = screens.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

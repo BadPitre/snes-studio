@@ -67,6 +67,7 @@ import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
+import ScreensModal from "./components/ScreensModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
@@ -146,6 +147,7 @@ export default function App() {
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
+  const [screensOpen, setScreensOpen] = useState(false); // Écrans composés (B6bis)
   // prefabs (v0.16) : enregistrement (event source), création (position
   // cible) et gestionnaire (Tools)
   const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
@@ -1830,6 +1832,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Écrans composés…",
+          action: () => setScreensOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Prefabs…",
           action: () => setPrefabMgr(true),
           disabled: !data,
@@ -2461,6 +2468,46 @@ export default function App() {
           onClose={() => setUiMode(null)}
         />
       )}
+      {screensOpen && data && (
+        <ScreensModal
+          root={data.root}
+          screenNames={data.project.screens ?? []}
+          screens={data.screens}
+          picturePaths={Object.fromEntries(
+            projectPictures(data.project).map((e) => [assetStem(picPath(e)), picPath(e)])
+          )}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          db={db}
+          uiWidgets={uiWidgets}
+          uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          tintPresets={data.project.tint_presets ?? []}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          musicNames={(data.project.musics ?? []).map(musicStem)}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          onTintPresets={(list) =>
+            mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+          }
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(names, screens) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, screens: names.length ? names : undefined },
+              screens,
+            }));
+            setScreensOpen(false);
+          }}
+          onClose={() => setScreensOpen(false)}
+        />
+      )}
       {commonEvOpen && data && (
         <CommonEventsModal
           commons={data.project.common_events ?? []}
@@ -2479,6 +2526,7 @@ export default function App() {
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }
@@ -2541,6 +2589,7 @@ export default function App() {
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }

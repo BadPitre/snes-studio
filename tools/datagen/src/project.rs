@@ -45,6 +45,38 @@ pub struct Project {
     /// portraits, animations d'attaque. L'ordre donne les vig_id.
     #[serde(default)]
     pub vignettes: Vec<String>,
+    /// Écrans composés (B6bis) : noms des fichiers screens/<nom>.json —
+    /// compositions visuelles (fond + slots) + script, DÉROULÉES par la
+    /// commande {"c":"screen"} en STAGEOPEN/STAGEPOSE + script inline.
+    #[serde(default)]
+    pub screens: Vec<String>,
+}
+
+/// Écran composé (B6bis, screens/<nom>.json) — sucre d'éditeur : le
+/// moteur ne voit que les commandes stage existantes.
+#[derive(Deserialize, Clone)]
+pub struct ScreenDef {
+    #[serde(skip)]
+    pub name: String,
+    /// stem d'une picture (fond) — absent/vide = fond noir
+    #[serde(default)]
+    pub backdrop: String,
+    /// images posées à l'ouverture (slot 1-5, position en pixels)
+    #[serde(default)]
+    pub slots: Vec<ScreenSlot>,
+    /// script joué à l'ouverture (mêmes commandes que les events)
+    #[serde(default)]
+    pub script: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ScreenSlot {
+    pub slot: u8,
+    pub pic: String,
+    #[serde(default)]
+    pub x: u16,
+    #[serde(default)]
+    pub y: u16,
 }
 
 /// Entrée du registre pictures : chemin nu, ou objet avec le drapeau de

@@ -376,6 +376,18 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   plateau, carte, scène illustrée. Budget ~511 tuiles par écran ;
   éviter de faire se chevaucher deux images (couche unique). Les
   dialogues, choix et widgets fonctionnent par-dessus l'écran.
+- **Fenêtre « Écrans composés »** (Tools →, B6bis) : les mises en
+  scène se COMPOSENT À LA SOURIS — liste des écrans à gauche
+  (＋/renommer/🗑), et pour chacun deux onglets : **Composition**
+  (choisir le fond parmi les Pictures, poser des images dessus et les
+  GLISSER à la souris — magnétisme 8 px, aperçu fidèle au pixel, un
+  slot 1-5 par image) et **Script** (le même éditeur de commandes que
+  les events, lancé à l'ouverture de l'écran : la logique du combat
+  vit là — terminer par « Fermer l'écran composé »). En jeu, la
+  commande **« Aller à l'écran »** joue tout : c'est du sucre —
+  datagen déroule la composition en commandes « Écran composé »
+  ordinaires, le moteur ne change pas, et le script de l'écran peut
+  toujours poser/retirer/flasher dynamiquement par-dessus.
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

@@ -37,6 +37,7 @@ interface Props {
   soundNames: string[]; // stems des sons du projet (B1)
   musicNames: string[]; // stems des musiques du projet (B1)
   vigNames: string[]; // stems des vignettes (B5)
+  screenNames: string[]; // écrans composés (B6bis)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -171,6 +172,8 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "screen":
+      return `Aller à l'écran « ${c.name} »`;
     case "stage_open":
       return c.pic === ""
         ? "Écran composé : ouvrir (fond noir)"
@@ -267,6 +270,7 @@ function cmdTitle(c: Command["c"]): string {
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
+    screen: "Aller à l'écran",
     stage_open: "Ouvrir un écran composé",
     stage_pose: "Poser une image (slot)",
     stage_clear: "Retirer une image (slot)",
@@ -370,6 +374,7 @@ export function CommandListEditor(props: {
   soundNames: string[];
   musicNames: string[];
   vigNames: string[];
+  screenNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -547,6 +552,8 @@ export function CommandListEditor(props: {
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
         return { c: "weather", kind: "rain", power: 2 };
+      case "screen":
+        return { c: "screen", name: "", dur: 20 };
       case "stage_open":
         return { c: "stage_open", pic: "", dur: 20 };
       case "stage_pose":
@@ -650,6 +657,7 @@ export function CommandListEditor(props: {
               soundNames={props.soundNames}
               musicNames={props.musicNames}
               vigNames={props.vigNames}
+              screenNames={props.screenNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1063,6 +1071,7 @@ export default function EventEditorModal(props: Props) {
               soundNames={props.soundNames}
               musicNames={props.musicNames}
               vigNames={props.vigNames}
+              screenNames={props.screenNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1139,6 +1148,7 @@ function CommandForm(props: {
   soundNames: string[];
   musicNames: string[];
   vigNames: string[];
+  screenNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -2291,6 +2301,40 @@ function CommandForm(props: {
             (même circuit console). Les personnages et le texte restent
             visibles partout (limite matérielle, comme la teinte).
             Immédiat, non bloquant, persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "screen":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Écran (Tools → Écrans composés)
+              <select
+                value={cmd.name}
+                onChange={(e) => onChange({ ...cmd, name: e.target.value })}
+              >
+                <option value="">(choisir un écran…)</option>
+                {props.screenNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fondu (frames par sens)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Ouvre l'écran composé dessiné dans Tools → Écrans composés :
+            son fond, ses images posées, puis son script. Équivaut à la
+            suite Ouvrir + Poser + … écrite à la main — mais composée à
+            la souris. L'écran se referme par « Fermer l'écran
+            composé » (dans son script, ou après).
           </span>
         </>
       );

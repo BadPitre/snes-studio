@@ -1,0 +1,39 @@
+{
+  "backdrop": "fond_prairie",
+  "slots": [
+    {
+      "slot": 1,
+      "pic": "dragon",
+      "x": 24,
+      "y": 48
+    },
+    {
+      "slot": 2,
+      "pic": "gobelin",
+      "x": 144,
+      "y": 104
+    },
+    {
+      "slot": 3,
+      "pic": "gobelin",
+      "x": 200,
+      "y": 64
+    }
+  ],
+  "script": [
+    {
+      "c": "wait",
+      "frames": 60
+    },
+    {
+      "c": "slot_fx",
+      "slot": 1,
+      "fx": "flash",
+      "frames": 20
+    },
+    {
+      "c": "wait",
+      "frames": 120
+    }
+  ]
+}

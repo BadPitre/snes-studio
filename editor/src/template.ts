@@ -46,6 +46,7 @@ export async function scaffoldProject(root: string): Promise<void> {
     },
     scenes: { scene1: newScene("scene1", 30, 20) },
     texts: [],
+    screens: {},
     tilesetMeta: { tileset: { autotiles: [], solid: [1, 3, 4], above: [5] } },
   };
   await saveProject(data);

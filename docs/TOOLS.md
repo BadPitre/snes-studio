@@ -428,6 +428,15 @@ transfert ; `{"c":"stage_clear","slot":1-5}` — retire l'image ;
 "frames"}` — effet de palette sur l'image du slot (`SLOTFX <slot-1>
 <fx 1/2/3/0> <frames>`), non bloquant : flash blanc (attaque), fondu
 au noir (mort), assombrir (état, cumulable), restaurer ;
+**écrans composés — entités d'éditeur (B6bis)** :
+`project.screens` liste des noms, un fichier `screens/<nom>.json`
+chacun : `{"backdrop":"stem"|"", "slots":[{"slot":1-5,"pic":"stem",
+"x","y"}], "script":[...commandes...]}` — la commande
+`{"c":"screen","name":"<nom>","dur"}` est DÉROULÉE par datagen en
+`STAGEOPEN + STAGEPOSE... + script inline` (sucre d'éditeur, comme
+les autotiles : le moteur ne voit que les commandes stage de B3 ;
+MAX_DEPTH protège des écrans qui s'appellent en boucle ; fond, images
+et positions validés au build) ;
 **vignettes (B5)** : `project.vignettes` liste des bandes PNG de
 frames 32x32 (hauteur 32, largeur multiple de 32, 1-8 frames, ≤ 15
 couleurs + transparence, converties par datagen en chars OBJ —

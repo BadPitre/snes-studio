@@ -14,6 +14,7 @@ export interface Project {
   musics?: string[]; // chemins .it, l'ordre donne les music_id
   sounds?: string[]; // chemins .wav (B1), l'ordre donne les sfx_id
   vignettes?: string[]; // bandes de frames 32x32 (B5), l'ordre = vig_id
+  screens?: string[]; // écrans composés (B6bis) — fichiers screens/<nom>.json
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
@@ -237,6 +238,7 @@ export type Command =
   // entre les scènes jusqu'au prochain changement
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
+  | { c: "screen"; name: string; dur?: number }
   | { c: "stage_open"; pic: string; dur?: number }
   | { c: "stage_pose"; slot: number; pic: string; x: number; y: number }
   | { c: "stage_clear"; slot: number }
@@ -487,6 +489,21 @@ export interface TextEntry {
   cat?: string;
 }
 
+/* Écran composé (B6bis) : composition visuelle + script — déroulé par
+   datagen en commandes stage (le moteur ne voit rien de nouveau). */
+export interface Screen {
+  backdrop: string; // stem d'une picture, "" = fond noir
+  slots: ScreenSlot[];
+  script: Command[];
+}
+
+export interface ScreenSlot {
+  slot: number; // 1-5
+  pic: string; // stem
+  x: number; // pixels (multiples de 8)
+  y: number;
+}
+
 export interface ProjectData {
   root: string; // dossier du projet sur disque
   project: Project;
@@ -494,6 +511,8 @@ export interface ProjectData {
   texts: TextEntry[];
   // sidecars de passabilité, par stem de tileset (undo/redo comme le reste)
   tilesetMeta: Record<string, TilesetMeta>;
+  // écrans composés (B6bis), par nom — fichiers screens/<nom>.json
+  screens: Record<string, Screen>;
 }
 
 export const TILE_SIZE = 16;

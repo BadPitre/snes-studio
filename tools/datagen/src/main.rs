@@ -204,6 +204,39 @@ fn main() -> Result<()> {
         bail!("{} vignettes (max 32)", vig_names.len());
     }
 
+    // Écrans composés (B6bis) : screens/<nom>.json — validés ici, déroulés
+    // en commandes stage par events.rs (aucun format binaire nouveau)
+    let mut screens: Vec<project::ScreenDef> = Vec::new();
+    for name in &project.screens {
+        let path = proj_dir.join("screens").join(format!("{}.json", name));
+        let txt = std::fs::read_to_string(&path)
+            .with_context(|| format!("écran '{}' : lecture de {}", name, path.display()))?;
+        let mut def: project::ScreenDef = serde_json::from_str(&txt)
+            .with_context(|| format!("écran '{}' : JSON invalide", name))?;
+        def.name = name.clone();
+        if screens.iter().any(|s| s.name == def.name) {
+            bail!("écran '{}' : nom en double", name);
+        }
+        for sl in &def.slots {
+            if sl.slot < 1 || sl.slot > 5 {
+                bail!("écran '{}' : slot {} (attendu 1-5)", name, sl.slot);
+            }
+            if !pic_names.contains(&sl.pic) {
+                bail!(
+                    "écran '{}' : image '{}' introuvable (supprimée ou renommée ?)",
+                    name, sl.pic
+                );
+            }
+        }
+        if !def.backdrop.is_empty() && !pic_names.contains(&def.backdrop) {
+            bail!(
+                "écran '{}' : fond '{}' introuvable (supprimé ou renommé ?)",
+                name, def.backdrop
+            );
+        }
+        screens.push(def);
+    }
+
     let mut scenes = Vec::new();
 
     // Sons (B1) : id = index dans project.sounds, nom = stem du fichier
@@ -261,6 +294,7 @@ fn main() -> Result<()> {
                 &sound_names,
                 &music_names,
                 &vig_names,
+                &screens,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);

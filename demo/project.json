@@ -55,5 +55,8 @@
   "vignettes": [
     "assets/vignettes/exclam.png",
     "assets/vignettes/coup.png"
+  ],
+  "screens": [
+    "combat_prairie"
   ]
 }
