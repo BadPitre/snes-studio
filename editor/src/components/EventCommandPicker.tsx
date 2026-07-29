@@ -74,6 +74,11 @@ const TABS: Tab[] = [
       { c: "pic_show", label: "Afficher une image" },
       { c: "pic_move", label: "Déplacer l'image" },
       { c: "pic_hide", label: "Effacer l'image" },
+    ],
+  },
+  {
+    title: "Audio",
+    items: [
       { c: "sfx", label: "Jouer un son" },
       { c: "bgm", label: "Changer la musique" },
     ],

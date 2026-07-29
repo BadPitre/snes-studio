@@ -45,18 +45,24 @@ void audio_init(void)
 #endif
 #if SFX_COUNT
   spcAllocateSoundRegion(SFX_REGION);
-  for (i = 0; i < SFX_COUNT; i++)
-    spcSetSoundEntry(15, 8, 4, sfx_len[i], (u8 *)sfx_ptr[i], &sfx_tab[i]);
+  /* PIÈGE (lu dans snesmodwla.asm/sounds.asm) : spcSetSoundEntry fait
+     pointer la table SPC sur la DERNIÈRE structure passée, et
+     spcPlaySound(i) lit l'entrée à « dernière + i x 8 » (en AVANT
+     dans la mémoire). Les entrées vivent donc dans un TABLEAU CONTIGU
+     (brrsamples = 8 octets pile) chargé À REBOURS : le dernier appel
+     pose sfx_tab[0] -> spcPlaySound(sfx_id) indexe le projet tel
+     quel. Charger à l'endroit jouait des entrées HORS TABLEAU. */
+  for (i = SFX_COUNT; i != 0; i--)
+    spcSetSoundEntry(15, 8, 4, sfx_len[i - 1], (u8 *)sfx_ptr[i - 1],
+                     &sfx_tab[i - 1]);
 #endif
 }
 
 void audio_play_sfx(u8 sfx_id)
 {
 #if SFX_COUNT
-  /* spcPlaySound indexe À REBOURS (0 = dernier chargé) — remis à
-     l'endroit ici pour que sfx_id suive l'ordre du projet */
   if (sfx_id < SFX_COUNT)
-    spcPlaySound((u8)(SFX_COUNT - 1 - sfx_id));
+    spcPlaySound(sfx_id); /* index direct — cf le chargement à rebours */
 #else
   (void)sfx_id;
 #endif
