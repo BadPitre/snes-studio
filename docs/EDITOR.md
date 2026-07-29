@@ -136,6 +136,10 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   réécrit `assets/sprites.png`.
 - **Gestionnaire de ressources** (🗂 Ressources, façon RM2003) :
   catégories **CharSet** (personnages), **ChipSet** (tilesets),
+  **Son** (B1 — effets WAV, ~2 secondes max, convertis en BRR 8 kHz
+  au build, 16 max ; joués par la commande d'event « Jouer un son »),
+  **Musique** (modules Impulse Tracker .it — enfin importables depuis
+  l'éditeur ; choisis par scène ou par « Changer la musique »),
   **WindowSkin** (cadres 9-slice de la Phase 11), **IconSet**
   (planches d'icônes des widgets, W1 — bande PNG Nx8 validée à
   l'import, aperçu avec l'index sous chaque icône, ★ = planche active)
@@ -337,6 +341,12 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   teinte et dégradé (même circuit), persiste entre les scènes ;
   les personnages et le texte restent visibles partout — limite
   matérielle, comme la teinte. 0 = arrêter),
+  **Jouer un son** (B1 — un WAV importé dans le Gestionnaire de
+  ressources, ~2 s max, joué par-dessus la musique : coffre, porte,
+  coup ; non bloquant), **Changer la musique** (B1 — un module du
+  projet ou « silence » : musique de combat, de boss ; non bloquant,
+  pas instantané — le morceau est envoyé au processeur audio ; la
+  musique de la scène reprend au prochain changement de scène),
   **Flash d'écran** (traverse aussi les mélanges : l'éclair
   d'orage marche au-dessus des nuages semi-transparents) et **Secouer
   l'écran** (non bloquants — enchaîner avec « Attendre »).

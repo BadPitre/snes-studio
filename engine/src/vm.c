@@ -19,6 +19,7 @@
 #include "picture.h" /* SHOWPIC/HIDEPIC : pictures plein écran (S3) */
 #include "weather.h" /* WEATHER : météo en particules (S13) */
 #include "hdmafx.h"  /* WAVE : ondulation de l'écran (S14) */
+#include "audio.h"   /* PLAYSFX / PLAYBGM : sons et musique (B1) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -558,6 +559,16 @@ static void vm_step(void)
     case VM_OP_SPOTLIGHT: /* cercle de lumière (S16) — NON bloquant */
       var = fetch8();
       hdmafx_spot(var, fetch8());
+      break;
+
+    case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */
+      audio_play_sfx(fetch8());
+      break;
+
+    case VM_OP_PLAYBGM: /* changer la musique (B1) — NON bloquant,
+                           0xFF = silence ; la musique de la scène
+                           reprend au prochain warp */
+      audio_play_music(fetch8());
       break;
 
     case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */

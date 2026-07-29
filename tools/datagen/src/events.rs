@@ -58,6 +58,10 @@ pub struct EventCompiler<'a> {
     pictures: Vec<String>,
     /// dimensions (w, h) en pixels de chaque picture (S5 : position)
     pic_dims: Vec<(usize, usize)>,
+    /// sons du projet (B1) — stems, résolus vers les sfx_id
+    sounds: Vec<String>,
+    /// musiques du projet (B1) — stems, résolus vers les music_id
+    musics: Vec<String>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -86,6 +90,8 @@ impl<'a> EventCompiler<'a> {
             ui_styles: Vec::new(),
             pictures: Vec::new(),
             pic_dims: Vec::new(),
+            sounds: Vec::new(),
+            musics: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -620,6 +626,43 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // B1 — jouer un son (effet BRR, non bloquant)
+                "sfx" => {
+                    let name = cmd["sound"].as_str().unwrap_or("");
+                    let id = self
+                        .sounds
+                        .iter()
+                        .position(|s| s == name)
+                        .with_context(|| {
+                            format!(
+                                "commande sfx : son '{}' introuvable dans le \
+                                 projet (supprimé ou renommé ?)",
+                                name
+                            )
+                        })?;
+                    out.push(format!("  PLAYSFX {}", id));
+                }
+                // B1 — changer la musique ("" = silence), non bloquant,
+                // la musique de la scène reprend au prochain warp
+                "bgm" => {
+                    let name = cmd["music"].as_str().unwrap_or("");
+                    if name.is_empty() {
+                        out.push("  PLAYBGM 255".to_string());
+                    } else {
+                        let id = self
+                            .musics
+                            .iter()
+                            .position(|s| s == name)
+                            .with_context(|| {
+                                format!(
+                                    "commande bgm : musique '{}' introuvable \
+                                     dans le projet (supprimée ou renommée ?)",
+                                    name
+                                )
+                            })?;
+                        out.push(format!("  PLAYBGM {}", id));
+                    }
+                }
                 // S16 — spotlight : cercle de lumiere autour du heros
                 "spotlight" => {
                     let rad = cmd["radius"]
@@ -912,6 +955,8 @@ impl<'a> EventCompiler<'a> {
         ui_styles: &[String],
         pictures: &[String],
         pic_dims: &[(usize, usize)],
+        sounds: &[String],
+        musics: &[String],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -924,6 +969,8 @@ impl<'a> EventCompiler<'a> {
         self.ui_styles = ui_styles.to_vec();
         self.pictures = pictures.to_vec();
         self.pic_dims = pic_dims.to_vec();
+        self.sounds = sounds.to_vec();
+        self.musics = musics.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

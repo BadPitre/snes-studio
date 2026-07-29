@@ -18,6 +18,7 @@ mod events;
 mod gfx;
 mod project;
 mod script;
+mod sfx;
 mod tileset;
 mod ui;
 
@@ -182,6 +183,29 @@ fn main() -> Result<()> {
     }
 
     let mut scenes = Vec::new();
+
+    // Sons (B1) : id = index dans project.sounds, nom = stem du fichier
+    let mut sound_ids: HashMap<String, u8> = HashMap::new();
+    let mut sound_names: Vec<String> = Vec::new();
+    for (i, m) in project.sounds.iter().enumerate() {
+        let stem = Path::new(m)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("nom de son invalide : '{}'", m))?;
+        if sound_ids.insert(stem.to_string(), i as u8).is_some() {
+            bail!("son en double : '{}'", stem);
+        }
+        sound_names.push(stem.to_string());
+    }
+    if project.sounds.len() > sfx::SFX_MAX_COUNT {
+        bail!("trop de sons (max {})", sfx::SFX_MAX_COUNT);
+    }
+    let music_names: Vec<String> = project
+        .musics
+        .iter()
+        .map(|m| Path::new(m).file_stem().unwrap().to_str().unwrap().to_string())
+        .collect();
+
     for name in &project.scenes {
         let mut scene: project::Scene =
             read_json(&proj_dir.join("scenes").join(format!("{}.json", name)))
@@ -212,6 +236,8 @@ fn main() -> Result<()> {
                 &ui_style_ids,
                 &pic_names,
                 &pic_dims,
+                &sound_names,
+                &music_names,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -250,6 +276,7 @@ fn main() -> Result<()> {
     if project.musics.len() > 254 {
         bail!("trop de musiques (max 254, 0xFF = silence)");
     }
+
 
     // Tilesets : id = index dans project.tilesets (defaut : assets.tileset seul)
     let tileset_paths: Vec<String> = if project.tilesets.is_empty() {
@@ -290,14 +317,71 @@ fn main() -> Result<()> {
             .with_context(|| format!("copie de {}", srcp.display()))?;
         println!("  {}", dst.display());
     }
+    // Sons (B1) : WAV -> BRR 8 kHz, data_sfx.c TOUJOURS émis (zéro
+    // donnée en dur dans le moteur — vide sans sons), région SPC = le
+    // plus gros son (ils s'y chargent chacun leur tour, cf sfx.rs)
+    let mut sfx_max = 0usize;
+    {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str("/* sons (B1) — echantillons BRR 8 kHz (module sfx de datagen) */\n");
+        let mut total = 0usize;
+        let mut lens: Vec<u16> = Vec::new();
+        for (i, m) in project.sounds.iter().enumerate() {
+            let raw = std::fs::read(proj_dir.join(m))
+                .with_context(|| format!("lecture du son {}", m))?;
+            let mono = sfx::wav_to_mono_8k(&raw, &sound_names[i])?;
+            let brr = sfx::encode_brr(&mono);
+            if brr.len() > sfx::SFX_MAX_BRR {
+                bail!(
+                    "son '{}' trop long : {} octets BRR (max {} — raccourcir \
+                     le son, ~1,8 s maximum)",
+                    sound_names[i], brr.len(), sfx::SFX_MAX_BRR
+                );
+            }
+            total += brr.len();
+            sfx_max = sfx_max.max(brr.len());
+            lens.push(brr.len() as u16);
+            s.push_str(&emit::u8_array(&format!("sfx_{:02}", i), &brr, 16, false));
+            println!(
+                "  son {:02} '{}' : {} octets BRR ({} ms)",
+                i, sound_names[i], brr.len(),
+                mono.len() * 1000 / sfx::SFX_RATE as usize
+            );
+        }
+        if total > sfx::SFX_MAX_TOTAL {
+            bail!(
+                "sons : {} octets BRR au total (max {} — la bank de \
+                 données est partagée)",
+                total, sfx::SFX_MAX_TOTAL
+            );
+        }
+        if !project.sounds.is_empty() {
+            s.push_str("\nconst u8 *const sfx_ptr[] = {\n");
+            for i in 0..project.sounds.len() {
+                s.push_str(&format!("  sfx_{:02},\n", i));
+            }
+            s.push_str("};\n");
+            s.push_str(&format!("const u16 sfx_len[{}] = {{\n", lens.len()));
+            for l in &lens {
+                s.push_str(&format!("  {},\n", l));
+            }
+            s.push_str("};\n");
+        }
+        write_out(&out_dir, "data_sfx.c", s)?;
+    }
     write_out(
         &out_dir,
         "audio_cfg.h",
         format!(
             "/* GENERE par datagen — ne pas editer. */
 #define AUDIO_ENABLED {}
+#define SFX_COUNT {}
+#define SFX_REGION {}
 ",
-            if project.musics.is_empty() { 0 } else { 1 }
+            if project.musics.is_empty() { 0 } else { 1 },
+            project.sounds.len(),
+            (sfx_max + 255) / 256,
         ),
     )?;
 

@@ -408,6 +408,15 @@ de lumière qui suit le héros (`SPOTLIGHT <radius> <dark>`, radius 0 =
 off, dark 31 = décor noir hors du cercle) : remplace teinte et
 dégradé, persiste entre les scènes ; les sprites et le texte restent
 visibles partout (même limite hardware que la teinte) ;
+**`{"c":"sfx","sound":"stem"}` (B1)** — joue un son (`PLAYSFX <id>`,
+résolu par stem dans `project.sounds` — WAV converti en BRR 8 kHz par
+le module `sfx` de datagen : ≤ ~1,8 s (8 Ko BRR) par son, ≤ 16 sons,
+≤ 24 Ko au total ; un stem introuvable = erreur de build claire),
+non bloquant, par-dessus la musique ;
+**`{"c":"bgm","music":"stem"|""}` (B1)** — change la musique
+(`PLAYBGM <id|255>`, "" = silence) : non bloquant, PAS instantané
+(module streamé vers le SPC), la musique de la scène reprend au
+prochain warp ;
 `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop

@@ -34,6 +34,8 @@ interface Props {
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   pictures: string[]; // stems des images (S3) — commande pic_show
   tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
+  soundNames: string[]; // stems des sons du projet (B1)
+  musicNames: string[]; // stems des musiques du projet (B1)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -168,6 +170,12 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "sfx":
+      return `Jouer le son « ${c.sound} »`;
+    case "bgm":
+      return c.music === ""
+        ? "Musique : silence"
+        : `Musique : « ${c.music} »`;
     case "wave":
       return c.power === 0
         ? "Ondulation : stop"
@@ -232,6 +240,8 @@ function cmdTitle(c: Command["c"]): string {
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
+    sfx: "Jouer un son",
+    bgm: "Changer la musique",
     wave: "Ondulation de l'écran",
     skygrad: "Dégradé d'écran (ciel)",
     spotlight: "Spotlight (cercle de lumière)",
@@ -322,6 +332,8 @@ export function CommandListEditor(props: {
   uiStyles: string[];
   pictures: string[];
   tintPresets: TintPreset[];
+  soundNames: string[];
+  musicNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -499,6 +511,10 @@ export function CommandListEditor(props: {
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
         return { c: "weather", kind: "rain", power: 2 };
+      case "sfx":
+        return { c: "sfx", sound: "" };
+      case "bgm":
+        return { c: "bgm", music: "" };
       case "wave":
         return { c: "wave", power: 3, speed: 2 };
       case "skygrad":
@@ -579,6 +595,8 @@ export function CommandListEditor(props: {
               uiStyles={props.uiStyles}
               pictures={props.pictures}
               tintPresets={props.tintPresets}
+              soundNames={props.soundNames}
+              musicNames={props.musicNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -989,6 +1007,8 @@ export default function EventEditorModal(props: Props) {
               uiStyles={props.uiStyles}
               pictures={props.pictures}
               tintPresets={props.tintPresets}
+              soundNames={props.soundNames}
+              musicNames={props.musicNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1062,6 +1082,8 @@ function CommandForm(props: {
   uiStyles: string[];
   pictures: string[];
   tintPresets: TintPreset[];
+  soundNames: string[];
+  musicNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -2214,6 +2236,56 @@ function CommandForm(props: {
             (même circuit console). Les personnages et le texte restent
             visibles partout (limite matérielle, comme la teinte).
             Immédiat, non bloquant, persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "sfx":
+      body = (
+        <>
+          <label>
+            Son
+            <select
+              value={cmd.sound}
+              onChange={(e) => onChange({ ...cmd, sound: e.target.value })}
+            >
+              <option value="">(choisir un son…)</option>
+              {props.soundNames.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <span className="hint">
+            Joue l'effet sonore par-dessus la musique (coffre, porte,
+            coup…) — immédiat, non bloquant. Les sons s'importent dans
+            le Gestionnaire de ressources (WAV, ~2 secondes max). Un
+            son vide ou supprimé est signalé au build.
+          </span>
+        </>
+      );
+      break;
+    case "bgm":
+      body = (
+        <>
+          <label>
+            Musique
+            <select
+              value={cmd.music}
+              onChange={(e) => onChange({ ...cmd, music: e.target.value })}
+            >
+              <option value="">(silence)</option>
+              {props.musicNames.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <span className="hint">
+            Change la musique de fond (combat, boss, moment calme) —
+            non bloquant, sans effet si c'est déjà la musique courante.
+            Le changement n'est PAS instantané : le module est envoyé
+            au processeur audio (jusqu'à quelques secondes pour un gros
+            morceau). Au prochain changement de scène, la musique de la
+            scène reprend ses droits.
           </span>
         </>
       );

@@ -22,6 +22,7 @@ import {
 import {
   canWriteFiles,
   importTilesetPng,
+  pickFile,
   loadAssetPng,
   loadAutotiles,
   loadPngBitmap,
@@ -1266,6 +1267,121 @@ export default function App() {
     }
   }
 
+  // Sons & musiques (B1) : fichiers copiés dans assets/, listes du
+  // project.json (l'ordre donne les sfx_id / music_id)
+  async function importAudio(kind: "sound" | "music") {
+    if (!data) return;
+    try {
+      const file =
+        kind === "sound"
+          ? await pickFile("Importer un son (WAV, ~2 s max — converti en BRR au build)", "WAV", ["wav"])
+          : await pickFile("Importer une musique (module Impulse Tracker)", "IT", ["it"]);
+      if (!file) return;
+      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
+      const rel = kind === "sound" ? `assets/sounds/${name}` : `assets/music/${name}`;
+      const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
+      if (list.includes(rel)) {
+        setStatus(`Import : « ${musicStem(rel)} » existe déjà dans le projet`);
+        return;
+      }
+      await writeBinaryFile(`${data.root}/${rel}`, await readBinaryFile(file));
+      mutate((d) => ({
+        ...d,
+        project:
+          kind === "sound"
+            ? { ...d.project, sounds: [...(d.project.sounds ?? []), rel] }
+            : { ...d.project, musics: [...(d.project.musics ?? []), rel] },
+      }));
+      setStatus(
+        kind === "sound"
+          ? `Son importé : ${musicStem(rel)} — à jouer via la commande « Jouer un son »`
+          : `Musique importée : ${musicStem(rel)} — à choisir dans l'onglet Scène ou « Changer la musique »`
+      );
+    } catch (e) {
+      setStatus(`Import audio : ${e}`);
+    }
+  }
+
+  async function exportAudio(kind: "sound" | "music", rel: string) {
+    if (!data) return;
+    const ext = kind === "sound" ? "wav" : "it";
+    const path = await pickSavePath(
+      kind === "sound" ? "Exporter le son (WAV)" : "Exporter la musique (IT)",
+      `${musicStem(rel)}.${ext}`
+    );
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Exporté : ${path}`);
+    } catch (e) {
+      setStatus(`Export : ${e}`);
+    }
+  }
+
+  async function renameAudio(kind: "sound" | "music", oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === musicStem(oldRel)) return;
+    const ext = kind === "sound" ? "wav" : "it";
+    const dir = kind === "sound" ? "assets/sounds" : "assets/music";
+    const newRel = `${dir}/${newStem}.${ext}`;
+    const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
+    if (list.includes(newRel)) {
+      setStatus(`Renommage : « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const next = list.map((r) => (r === oldRel ? newRel : r));
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      const d2: ProjectData = {
+        ...data,
+        project:
+          kind === "sound"
+            ? { ...data.project, sounds: next }
+            : { ...data.project, musics: next },
+      };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(
+        `Renommé : ${musicStem(oldRel)} → ${newStem}` +
+          (kind === "sound"
+            ? " — corriger les « Jouer un son » qui l'utilisaient (le build les signale)"
+            : " — corriger les scènes et « Changer la musique » qui l'utilisaient")
+      );
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteAudio(kind: "sound" | "music", rel: string) {
+    if (!data) return;
+    const what = kind === "sound" ? "le son" : "la musique";
+    if (!confirm(`Supprimer ${what} « ${musicStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const list = (kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []))
+        .filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project:
+          kind === "sound"
+            ? { ...data.project, sounds: list.length ? list : undefined }
+            : { ...data.project, musics: list.length ? list : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Supprimé : ${musicStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1968,6 +2084,16 @@ export default function App() {
           activeIcons={data.project.ui?.icons}
           fonts={projectFonts(data.project)}
           defaultFont={data.project.assets.font}
+          sounds={data.project.sounds ?? []}
+          musics={data.project.musics ?? []}
+          onImportSound={() => void importAudio("sound")}
+          onImportMusic={() => void importAudio("music")}
+          onExportSound={(rel) => void exportAudio("sound", rel)}
+          onExportMusic={(rel) => void exportAudio("music", rel)}
+          onRenameSound={(rel, n) => void renameAudio("sound", rel, n)}
+          onRenameMusic={(rel, n) => void renameAudio("music", rel, n)}
+          onDeleteSound={(rel) => void deleteAudio("sound", rel)}
+          onDeleteMusic={(rel) => void deleteAudio("music", rel)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
@@ -2259,6 +2385,8 @@ export default function App() {
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
                 tintPresets={data.project.tint_presets ?? []}
+                soundNames={(data.project.sounds ?? []).map(musicStem)}
+                musicNames={(data.project.musics ?? []).map(musicStem)}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }
@@ -2318,6 +2446,8 @@ export default function App() {
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
                 tintPresets={data.project.tint_presets ?? []}
+                soundNames={(data.project.sounds ?? []).map(musicStem)}
+                musicNames={(data.project.musics ?? []).map(musicStem)}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }
