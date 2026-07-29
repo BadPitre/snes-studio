@@ -16,6 +16,11 @@ void audio_init(void);
    Sans effet si c'est déjà la musique courante. */
 void audio_play_music(u8 music_id);
 
+/* Joue le son sfx_id (B1) : échantillon BRR de data_sfx.c, chargé dans
+   la région d'effets du SPC puis joué — se superpose à la musique.
+   Id hors bornes : ignoré. */
+void audio_play_sfx(u8 sfx_id);
+
 /* Alimente le flux SPC — à appeler chaque frame avant WaitForVBlank(). */
 void audio_process(void);
 

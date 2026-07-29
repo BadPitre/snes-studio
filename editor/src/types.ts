@@ -12,6 +12,7 @@ export interface Project {
     font: string;
   };
   musics?: string[]; // chemins .it, l'ordre donne les music_id
+  sounds?: string[]; // chemins .wav (B1), l'ordre donne les sfx_id
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
@@ -235,6 +236,8 @@ export type Command =
   // entre les scènes jusqu'au prochain changement
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
+  | { c: "sfx"; sound: string }
+  | { c: "bgm"; music: string }
   | { c: "wave"; power: number; speed?: number }
   | { c: "spotlight"; radius: number; dark?: number }
   | {

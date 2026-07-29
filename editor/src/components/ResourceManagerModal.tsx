@@ -9,7 +9,9 @@ import { useEffect, useRef, useState } from "react";
 import { loadAssetPng } from "../io";
 import { assetStem } from "../types";
 
-type Cat = "charset" | "chipset" | "windowskin" | "iconset" | "fontset" | "picture";
+type Cat =
+  | "charset" | "chipset" | "windowskin" | "iconset" | "fontset"
+  | "picture" | "sound" | "music";
 
 interface Props {
   root: string;
@@ -25,6 +27,8 @@ interface Props {
   fonts: string[]; // fontes 768x8 (S1) — la défaut (assets.font) en tête
   defaultFont: string; // project.assets.font (★, non supprimable)
   pictures: string[]; // images S3 (PNG ≤ 16 couleurs, ≤ 256x224)
+  sounds: string[]; // sons WAV (B1) — chemins assets/sounds/*.wav
+  musics: string[]; // musiques IT — chemins assets/music/*.it
   // ressource -> scènes qui l'utilisent (pour bloquer la suppression)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
@@ -35,24 +39,32 @@ interface Props {
   onImportIconset: () => void;
   onImportFont: () => void;
   onImportPicture: () => void;
+  onImportSound: () => void;
+  onImportMusic: () => void;
   onExportCharset: (b: number) => void;
   onExportChipset: (stem: string) => void;
   onExportWindowskin: (rel: string) => void;
   onExportIconset: (rel: string) => void;
   onExportFont: (rel: string) => void;
   onExportPicture: (rel: string) => void;
+  onExportSound: (rel: string) => void;
+  onExportMusic: (rel: string) => void;
   onRenameCharset: (b: number, name: string) => void;
   onRenameChipset: (stem: string, newStem: string) => void;
   onRenameWindowskin: (rel: string, newName: string) => void;
   onRenameIconset: (rel: string, newName: string) => void;
   onRenameFont: (rel: string, newName: string) => void;
   onRenamePicture: (rel: string, newName: string) => void;
+  onRenameSound: (rel: string, newName: string) => void;
+  onRenameMusic: (rel: string, newName: string) => void;
   onDeleteCharset: (b: number) => void;
   onDeleteChipset: (stem: string) => void;
   onDeleteWindowskin: (rel: string) => void;
   onDeleteIconset: (rel: string) => void;
   onDeleteFont: (rel: string) => void;
   onDeletePicture: (rel: string) => void;
+  onDeleteSound: (rel: string) => void;
+  onDeleteMusic: (rel: string) => void;
   onClose: () => void;
 }
 
@@ -64,6 +76,8 @@ export default function ResourceManagerModal(p: Props) {
   const [selIcons, setSelIcons] = useState(p.iconsets[0] ?? "");
   const [selFont, setSelFont] = useState(p.fonts[0] ?? "");
   const [selPic, setSelPic] = useState(p.pictures[0] ?? "");
+  const [selSnd, setSelSnd] = useState(p.sounds[0] ?? "");
+  const [selMus, setSelMus] = useState(p.musics[0] ?? "");
   const [skinBmp, setSkinBmp] = useState<ImageBitmap | null>(null);
   const [iconsBmp, setIconsBmp] = useState<ImageBitmap | null>(null);
   const [fontBmp, setFontBmp] = useState<ImageBitmap | null>(null);
@@ -105,6 +119,12 @@ export default function ResourceManagerModal(p: Props) {
   useEffect(() => {
     if (!p.pictures.includes(selPic)) setSelPic(p.pictures[0] ?? "");
   }, [p.pictures, selPic]);
+  useEffect(() => {
+    if (!p.sounds.includes(selSnd)) setSelSnd(p.sounds[0] ?? "");
+  }, [p.sounds, selSnd]);
+  useEffect(() => {
+    if (!p.musics.includes(selMus)) setSelMus(p.musics[0] ?? "");
+  }, [p.musics, selMus]);
   useEffect(() => {
     setPicBmp(null);
     if (cat === "picture" && selPic)
@@ -175,6 +195,18 @@ export default function ResourceManagerModal(p: Props) {
         260, 14);
       ctx.fillText("≤ 16 couleurs (PNG indexé),", 260, 32);
       ctx.fillText("≤ 512 tiles 8x8 uniques (build)", 260, 46);
+    } else if (cat === "sound" || cat === "music") {
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      if (cat === "sound") {
+        ctx.fillText(`♪ ${p.sounds.length} son(s) — WAV converti en BRR 8 kHz au build`, 8, 14);
+        ctx.fillText("~2 secondes max par son, 16 sons max — joués par la", 8, 32);
+        ctx.fillText("commande d'event « Jouer un son » (par-dessus la musique).", 8, 46);
+      } else {
+        ctx.fillText(`♫ ${p.musics.length} musique(s) — modules Impulse Tracker (.it)`, 8, 14);
+        ctx.fillText("Choisies par scène (onglet Scène) ou par la commande", 8, 32);
+        ctx.fillText("« Changer la musique » (combat, boss…).", 8, 46);
+      }
     } else if (cat === "fontset" && fontBmp) {
       // texte d'exemple rendu avec la fonte (2x) + la bande des 96 glyphes
       ctx.fillStyle = "#9aa0a8";
@@ -200,6 +232,8 @@ export default function ResourceManagerModal(p: Props) {
       else if (cat === "windowskin") p.onRenameWindowskin(selSkin, v);
       else if (cat === "iconset") p.onRenameIconset(selIcons, v);
       else if (cat === "fontset") p.onRenameFont(selFont, v);
+      else if (cat === "sound") p.onRenameSound(selSnd, v);
+      else if (cat === "music") p.onRenameMusic(selMus, v);
       else p.onRenamePicture(selPic, v);
     }
     setRenaming(null);
@@ -264,6 +298,24 @@ export default function ResourceManagerModal(p: Props) {
               }}
             >
               🗀 Picture (Images)
+            </div>
+            <div
+              className={"tree-row" + (cat === "sound" ? " active" : "")}
+              onClick={() => {
+                setCat("sound");
+                setRenaming(null);
+              }}
+            >
+              🗀 Son (Effets WAV)
+            </div>
+            <div
+              className={"tree-row" + (cat === "music" ? " active" : "")}
+              onClick={() => {
+                setCat("music");
+                setRenaming(null);
+              }}
+            >
+              🗀 Musique (Modules IT)
             </div>
           </div>
           <div className="resmgr-list">
@@ -336,18 +388,44 @@ export default function ResourceManagerModal(p: Props) {
                             {rel === p.defaultFont ? " ★" : ""}
                           </div>
                         ))
-                      : p.pictures.map((rel) => (
-                          <div
-                            key={rel}
-                            className={"tree-row" + (rel === selPic ? " active" : "")}
-                            onClick={() => {
-                              setSelPic(rel);
-                              setRenaming(null);
-                            }}
-                          >
-                            ▦ {assetStem(rel)}
-                          </div>
-                        ))}
+                      : cat === "picture"
+                        ? p.pictures.map((rel) => (
+                            <div
+                              key={rel}
+                              className={"tree-row" + (rel === selPic ? " active" : "")}
+                              onClick={() => {
+                                setSelPic(rel);
+                                setRenaming(null);
+                              }}
+                            >
+                              ▦ {assetStem(rel)}
+                            </div>
+                          ))
+                        : cat === "sound"
+                          ? p.sounds.map((rel) => (
+                              <div
+                                key={rel}
+                                className={"tree-row" + (rel === selSnd ? " active" : "")}
+                                onClick={() => {
+                                  setSelSnd(rel);
+                                  setRenaming(null);
+                                }}
+                              >
+                                ♪ {assetStem(rel)}
+                              </div>
+                            ))
+                          : p.musics.map((rel) => (
+                              <div
+                                key={rel}
+                                className={"tree-row" + (rel === selMus ? " active" : "")}
+                                onClick={() => {
+                                  setSelMus(rel);
+                                  setRenaming(null);
+                                }}
+                              >
+                                ♫ {assetStem(rel)}
+                              </div>
+                            ))}
           </div>
           <div className="resmgr-actions">
             <button
@@ -363,7 +441,11 @@ export default function ResourceManagerModal(p: Props) {
                         ? p.onImportIconset
                         : cat === "fontset"
                           ? p.onImportFont
-                          : p.onImportPicture
+                          : cat === "picture"
+                            ? p.onImportPicture
+                            : cat === "sound"
+                              ? p.onImportSound
+                              : p.onImportMusic
               }
             >
               Importer…
@@ -375,7 +457,9 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "windowskin" && !selSkin) ||
                 (cat === "iconset" && !selIcons) ||
                 (cat === "fontset" && !selFont) ||
-                (cat === "picture" && !selPic)
+                (cat === "picture" && !selPic) ||
+                (cat === "sound" && !selSnd) ||
+                (cat === "music" && !selMus)
               }
               onClick={() =>
                 cat === "charset"
@@ -388,7 +472,11 @@ export default function ResourceManagerModal(p: Props) {
                         ? p.onExportIconset(selIcons)
                         : cat === "fontset"
                           ? p.onExportFont(selFont)
-                          : p.onExportPicture(selPic)
+                          : cat === "picture"
+                            ? p.onExportPicture(selPic)
+                            : cat === "sound"
+                              ? p.onExportSound(selSnd)
+                              : p.onExportMusic(selMus)
               }
             >
               Exporter…
@@ -400,7 +488,9 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "windowskin" && !selSkin) ||
                 (cat === "iconset" && !selIcons) ||
                 (cat === "fontset" && !selFont) ||
-                (cat === "picture" && !selPic)
+                (cat === "picture" && !selPic) ||
+                (cat === "sound" && !selSnd) ||
+                (cat === "music" && !selMus)
               }
               onClick={() =>
                 setRenaming(
@@ -414,7 +504,11 @@ export default function ResourceManagerModal(p: Props) {
                           ? assetStem(selIcons)
                           : cat === "fontset"
                             ? assetStem(selFont)
-                            : assetStem(selPic)
+                            : cat === "picture"
+                              ? assetStem(selPic)
+                              : cat === "sound"
+                                ? assetStem(selSnd)
+                                : assetStem(selMus)
                 )
               }
             >
@@ -430,7 +524,9 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "windowskin" && (!selSkin || skinActive)) ||
                 (cat === "iconset" && (!selIcons || iconsActive)) ||
                 (cat === "fontset" && (!selFont || fontDefault)) ||
-                (cat === "picture" && !selPic)
+                (cat === "picture" && !selPic) ||
+                (cat === "sound" && !selSnd) ||
+                (cat === "music" && !selMus)
               }
               title={
                 cat === "charset"
@@ -455,7 +551,11 @@ export default function ResourceManagerModal(p: Props) {
                           ? fontDefault
                             ? "Fonte du projet (assets.font) — non supprimable"
                             : "Supprimer la fonte et son fichier (refusé si un style l'utilise)"
-                          : "Supprimer l'image et son fichier (le build signale les pic_show orphelins)"
+                          : cat === "picture"
+                            ? "Supprimer l'image et son fichier (le build signale les pic_show orphelins)"
+                            : cat === "sound"
+                              ? "Supprimer le son et son fichier (le build signale les « Jouer un son » orphelins)"
+                              : "Supprimer la musique et son fichier (les scènes qui l'utilisent repassent en silence au build)"
               }
               onClick={() =>
                 cat === "charset"
@@ -468,7 +568,11 @@ export default function ResourceManagerModal(p: Props) {
                         ? p.onDeleteIconset(selIcons)
                         : cat === "fontset"
                           ? p.onDeleteFont(selFont)
-                          : p.onDeletePicture(selPic)
+                          : cat === "picture"
+                            ? p.onDeletePicture(selPic)
+                            : cat === "sound"
+                              ? p.onDeleteSound(selSnd)
+                              : p.onDeleteMusic(selMus)
               }
             >
               ✕ Supprimer

@@ -80,6 +80,8 @@ const OP_WEATHER: u8 = 0x2C;
 const OP_WAVE: u8 = 0x2D;
 const OP_SKYGRAD: u8 = 0x2E;
 const OP_SPOTLIGHT: u8 = 0x2F;
+const OP_PLAYSFX: u8 = 0x30;
+const OP_PLAYBGM: u8 = 0x31;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -235,6 +237,10 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SKYGRAD" => 8,
         // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de lumiere (S16)
         "SPOTLIGHT" => 3,
+        // PLAYSFX <id> — jouer un son BRR (B1)
+        "PLAYSFX" => 2,
+        // PLAYBGM <id|255> — changer la musique, 255 = silence (B1)
+        "PLAYBGM" => 2,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -712,6 +718,18 @@ pub fn assemble(
                 for t in args {
                     code.push(parse_u8(t)?);
                 }
+            }
+            // PLAYSFX <id> — jouer un son (B1)
+            "PLAYSFX" => {
+                if argc != 1 { bail!("PLAYSFX <id>"); }
+                code.push(OP_PLAYSFX);
+                code.push(parse_u8(args[0])?);
+            }
+            // PLAYBGM <id|255> — changer la musique (B1)
+            "PLAYBGM" => {
+                if argc != 1 { bail!("PLAYBGM <id|255>"); }
+                code.push(OP_PLAYBGM);
+                code.push(parse_u8(args[0])?);
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
             "WEATHER" => {

@@ -243,6 +243,17 @@
                               circuit color math). NON bloquant, persiste
                               entre les scènes ; coupé sous mélange /
                               flash / picture. */
+#define VM_OP_PLAYSFX 0x30 /* id (u8) — joue un SON (B1) : échantillon
+                              BRR 8 kHz de data_sfx.c (module sfx de
+                              datagen), via la région d'effets du SPC
+                              (spcPlaySound). NON bloquant, se superpose
+                              à la musique. Id hors bornes : ignoré. */
+#define VM_OP_PLAYBGM 0x31 /* id (u8) — change la MUSIQUE (B1) : module
+                              du soundbank (music_id du projet), 0xFF =
+                              silence. NON bloquant, sans effet si déjà
+                              la musique courante. La musique de la
+                              SCÈNE reprend au prochain warp (modèle
+                              RM2003 : la map réaffirme sa musique). */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor

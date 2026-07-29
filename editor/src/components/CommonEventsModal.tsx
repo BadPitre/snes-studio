@@ -24,6 +24,8 @@ interface Props {
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   pictures: string[]; // stems des images (S3) — commande pic_show
   tintPresets: import("../types").TintPreset[]; // presets de teinte (S12b)
+  soundNames: string[]; // stems des sons (B1)
+  musicNames: string[]; // stems des musiques (B1)
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
@@ -180,6 +182,8 @@ export default function CommonEventsModal(props: Props) {
                   uiStyles={props.uiStyles}
                   pictures={props.pictures}
                   tintPresets={props.tintPresets}
+                  soundNames={props.soundNames}
+                  musicNames={props.musicNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}
                 />

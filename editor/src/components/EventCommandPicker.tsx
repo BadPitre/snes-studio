@@ -77,6 +77,13 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Audio",
+    items: [
+      { c: "sfx", label: "Jouer un son" },
+      { c: "bgm", label: "Changer la musique" },
+    ],
+  },
+  {
     title: "Caméra",
     items: [
       { c: "campan", label: "Déplacer la caméra" },

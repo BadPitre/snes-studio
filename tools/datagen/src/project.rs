@@ -13,6 +13,10 @@ pub struct Project {
     /// Modules .it, dans l'ordre des music_id (optionnel)
     #[serde(default)]
     pub musics: Vec<String>,
+    /// Sons WAV (B1), dans l'ordre des sfx_id (optionnel) — convertis
+    /// en BRR 8 kHz par datagen (module sfx)
+    #[serde(default)]
+    pub sounds: Vec<String>,
     /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
     #[serde(default)]
     pub tilesets: Vec<String>,

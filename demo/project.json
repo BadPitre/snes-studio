@@ -6,7 +6,10 @@
   },
   "boot_scene": "plaine",
   "musics": [
-    "assets/music/pollen8.it"
+    "assets/music/pollen8.it",
+    "assets/music/village.it",
+    "assets/music/battle.it",
+    "assets/music/victory.it"
   ],
   "name": "demo",
   "scenes": [
@@ -33,5 +36,9 @@
   ],
   "iconsets": [
     "assets/icons.png"
+  ],
+  "sounds": [
+    "assets/sounds/curseur.wav",
+    "assets/sounds/attaque.wav"
   ]
 }
