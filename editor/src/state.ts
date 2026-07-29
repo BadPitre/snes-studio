@@ -39,7 +39,7 @@ export function paintStamp(
       const y = ay + dy;
       if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
       let v = tiles[dy][dx];
-      if (v === EMPTY_TILE && layer === "lower") v = 0; // gomme au sol = tile de base
+      // S10 : la gomme vaut aussi sur la couche inf — cellule VIDE (noir en jeu)
       if (grid[y][x] !== v) {
         grid[y][x] = v;
         changed = true;
@@ -71,7 +71,7 @@ export function paintCells(
   for (const [x, y] of cells) {
     if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
     let v = tiles[mod(y - ay, h)][mod(x - ax, w)];
-    if (v === EMPTY_TILE && layer === "lower") v = 0; // gomme au sol = tile de base
+    // S10 : la gomme vaut aussi sur la couche inf — cellule VIDE (noir en jeu)
     if (grid[y][x] !== v) {
       grid[y][x] = v;
       changed = true;

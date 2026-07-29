@@ -2,7 +2,7 @@
 // imports, passabilité) et redimensionnement.
 
 import { useEffect, useState } from "react";
-import type { Scene } from "../types";
+import type { Scene, SceneEffect } from "../types";
 import { MIN_H, MIN_W } from "../types";
 
 interface Props {
@@ -10,10 +10,12 @@ interface Props {
   tilesetNames: string[]; // stems, ordre = tileset_id
   current: string; // stem du tileset de la scène
   musicNames: string[]; // stems des modules du projet
+  pictures: string[]; // stems des images (S9 — motif de la couche d'effet)
   canImport: boolean;
   passMode: boolean;
   onSelectTileset: (stem: string) => void;
   onSelectMusic: (stem: string | undefined) => void;
+  onSetEffect: (effect: SceneEffect | undefined) => void;
   onImport: () => void;
   onImportChipset: () => void;
   onPassMode: (on: boolean) => void;
@@ -95,6 +97,82 @@ export default function ScenePanel(props: Props) {
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="palette-title">Couche d'effet</div>
+      <div className="scene-section">
+        <select
+          value={scene.effect?.pic ?? ""}
+          onChange={(e) =>
+            props.onSetEffect(
+              e.target.value === ""
+                ? undefined
+                : { blend: "half", dx: -8, dy: 2, ...scene.effect, pic: e.target.value }
+            )
+          }
+          title="Motif dérivant au-dessus du jeu (nuages, brume) — une image à TRANSPARENCE du Gestionnaire de ressources"
+        >
+          <option value="">— aucune —</option>
+          {props.pictures.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        {scene.effect && (
+          <>
+            <div className="row">
+              <label>
+                Vitesse X (px/s)
+                <input
+                  type="number" min={-64} max={64} step={0.25}
+                  value={scene.effect.dx ?? 0}
+                  onChange={(e) =>
+                    props.onSetEffect({ ...scene.effect!, dx: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                Vitesse Y (px/s)
+                <input
+                  type="number" min={-64} max={64} step={0.25}
+                  value={scene.effect.dy ?? 0}
+                  onChange={(e) =>
+                    props.onSetEffect({ ...scene.effect!, dy: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
+            <label>
+              Mélange
+              <select
+                value={scene.effect.blend ?? "none"}
+                onChange={(e) =>
+                  props.onSetEffect({
+                    ...scene.effect!,
+                    blend:
+                      e.target.value === "none"
+                        ? undefined
+                        : (e.target.value as "half" | "add" | "sub"),
+                  })
+                }
+              >
+                <option value="none">Opaque</option>
+                <option value="half">Semi-transparent (50 %)</option>
+                <option value="add">Additif (lueur)</option>
+                <option value="sub">Soustractif (ombre)</option>
+              </select>
+            </label>
+            <p className="hint">
+              Le motif dérive au-dessus du jeu pendant qu'il se joue
+              (personnages visibles). La COUCHE SUPÉRIEURE de cette scène
+              est désactivée : le plan qui la portait affiche le motif.
+              L'image doit être importée AVEC transparence (≤ 192 tiles
+              uniques). En mélange, la teinte d'écran est suspendue dans
+              cette scène.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="palette-title">Redimensionner</div>

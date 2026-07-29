@@ -140,6 +140,23 @@ pub struct Scene {
     /// Nom (stem) d'un tileset de project.tilesets — absent = le premier
     #[serde(default)]
     pub tileset: Option<String>,
+    /// Couche d'effet (S9) : motif dérivant porté par BG1 à la place de
+    /// la couche sup (ignorée dans ces scènes). pic = stem d'une image à
+    /// TRANSPARENCE de project.pictures, dx/dy en px par seconde.
+    #[serde(default)]
+    pub effect: Option<Effect>,
+}
+
+#[derive(Deserialize)]
+pub struct Effect {
+    pub pic: String,
+    #[serde(default)]
+    pub dx: f64,
+    #[serde(default)]
+    pub dy: f64,
+    /// "half" (semi-transparent), "add", "sub" — absent = opaque
+    #[serde(default)]
+    pub blend: Option<String>,
 }
 
 #[derive(Deserialize)]

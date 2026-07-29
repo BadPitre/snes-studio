@@ -579,7 +579,7 @@ Choix du moteur, pas des données — documenté ici pour référence :
 
 | Adresse VRAM (words) | Contenu |
 |----------------------|---------|
-| $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko) |
+| $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko). **Scènes à COUCHE D'EFFET (S9)** : région REPURPOSÉE — chars du motif à $0000 (≤ 192, validé datagen), carte 32x32 à $0C00 ; BG1 porte le motif (scroll = dérive, pas la caméra), map.c n'y écrit plus. Registre `data_effects.c` (toujours émis) : `eff_pic[]` (0xFF = aucune), `eff_blend[]`, `eff_dx[]`/`eff_dy[]` (pas 8.8/frame). Entrées avec bit de priorité (motif devant les sprites) ; mélange : sub screen BG2+OBJ, teinte/flash suspendus. |
 | $1000 | Characters BG3 2bpp (fonte textbox : char 0 transparent + 96 glyphes ASCII 32-127) |
 | $1800 | Tilemap BG3, SC_32x32 (textbox) |
 | $2000 | Characters BG1+BG2 (tileset 4bpp partagé) |
@@ -595,7 +595,9 @@ DEVANT les sprites. Les deux couches partagent charset, palettes, fenêtre de
 streaming et scroll (budget VBlank : 1 Ko max par frame, 2 couches).
 **Palettes multiples (v0.4)** : les entrées BG portent leurs bits de palette
 (10-12), bakés par datagen ; la CGRAM BG complète (couleurs 0-127, 8
-palettes de 16) est chargée au chargement de scène. **Slots CGRAM 16-19
+palettes de 16) est chargée au chargement de scène — puis la **couleur 0
+(fond) est forcée NOIRE (S10)** : les tiles BG ne dessinent jamais l'index
+0, seule une cellule VIDE de la couche inf (gomme, valeur -1) la montre. **Slots CGRAM 16-19
 RÉSERVÉS à la fonte de la textbox** (palette BG 2bpp n°4) : datagen n'y
 place aucune couleur (palette 1 évitée jusqu'à 7 clusters ; à 8, le plus
 petit cluster loge en palette 1 aux indices 4-15, max 12 couleurs), et le

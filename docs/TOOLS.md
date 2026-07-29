@@ -290,6 +290,23 @@ les fontes/skins partagent la palette de la fonte 0. `project.json`
 accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
 datagen — layout.toml fait foi).
 
+**Couche d'effet (S9, « nuages sur le village »)** : une scène accepte
+`"effect": {"pic": "<stem>", "dx": px/s, "dy": px/s, "blend":
+"half"|"add"|"sub"}` — un MOTIF (image à TRANSPARENCE de
+project.pictures, ≤ 192 tiles uniques) dérive au-dessus du jeu pendant
+qu'il se joue (personnages visibles, dialogues nets). Le plan BG1
+porte le motif : la COUCHE SUP de ces scènes est ignorée
+(avertissement si non vide). VRAM : chars à $0000, carte 32x32 à
+$0C00 (l'ancienne région de la carte BG1) ; entrées avec bit de
+priorité (motif DEVANT les sprites) ; en mélange, sub screen BG2+OBJ
+et teinte/flash suspendus (screenfx_cm_hold). Vitesses converties en
+pas 8.8 par frame ; datagen émet `data_effects.c` (toujours — 0xFF =
+scène sans effet). Le motif étant ≤ 224 px de haut, le défilement
+vertical montre une bande vide de 32 px par période (motifs épars :
+invisible). **Cellule vide (S10)** : `-1` est accepté sur les DEUX
+couches des scènes (gomme) — char transparent, le fond (CGRAM 0,
+forcé NOIR par le moteur) se voit, cellule passable.
+
 **Phase 12 S3 (pictures, façon RM2003)** : `project.json` accepte
 `"pictures": ["assets/....png", ...]` — LU par datagen (l'ordre donne
 les pic_id). Chaque image : PNG **indexé ≤ 16 couleurs** (palette

@@ -402,6 +402,18 @@ export interface Scene {
   // scène parente dans l'arborescence de l'éditeur (organisationnel
   // uniquement — ignoré par datagen)
   parent?: string;
+  // Couche d'effet (S9) : motif dérivant (nuages, brume) porté par le
+  // plan de la couche sup — qui est donc DÉSACTIVÉE dans cette scène.
+  // pic = stem d'une image à TRANSPARENCE de project.pictures ;
+  // dx/dy en px par seconde ; blend = mélange color math en jeu.
+  effect?: SceneEffect;
+}
+
+export interface SceneEffect {
+  pic: string;
+  dx?: number;
+  dy?: number;
+  blend?: "half" | "add" | "sub";
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

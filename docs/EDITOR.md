@@ -54,9 +54,12 @@ consomme** : aucun format intermédiaire.
 ## Fonctionnalités (5c) — autotiles, couches, passabilité (RM2003)
 
 - **Deux couches de décor** : boutons « Couche inf. / Couche sup. » dans la
-  barre d'outils. La couche non éditée est atténuée. La couche sup a une
-  **gomme** (première cellule de la palette) ; ses tiles doivent avoir un
-  fond transparent (index 0).
+  barre d'outils. La couche non éditée est atténuée. Les DEUX couches ont
+  une **gomme** (première cellule de la palette — S10) : sur la couche
+  sup, case vide classique ; sur la couche inf, la cellule devient VIDE et
+  le jeu y montre la couleur de fond (noire, forcée par le moteur) —
+  pratique pour le vide des donjons/intérieurs. Cellule vide = passable.
+  Les tiles de la couche sup doivent avoir un fond transparent (index 0).
 - **Autotiles** (bordures automatiques eau/chemin) : affichés en tête de
   palette (aperçu = tile îlot). En peignant, les bordures se recalculent
   toutes seules selon les voisins — comme RPG Maker 2003. Format source :
@@ -190,6 +193,16 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   une fenêtre 9-slice d'exemple, ★ marque le thème actif (suppression
   bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
+- **Couche d'effet (S9)** : dans l'onglet Scène — un MOTIF (image à
+  transparence du Gestionnaire, ≤ 192 tiles uniques) dérive au-dessus
+  du jeu pendant qu'il se joue : nuages, brume, ombres portées.
+  Vitesses X/Y en px/s (négatif = gauche/haut, décimales acceptées) et
+  Mélange (Opaque / Semi-transparent / Additif / Soustractif — en
+  soustractif, le motif devient des OMBRES de nuages au sol). Quand un
+  motif est choisi, la **couche supérieure de la scène est
+  désactivée** (bouton grisé, peinture bloquée) : le plan qui la
+  portait affiche le motif. En mélange, la teinte d'écran est
+  suspendue dans ces scènes. « — aucune — » rend la couche sup.
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
   déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
   script quand le héros marche sur la tile — marqueur orange « C » sur la

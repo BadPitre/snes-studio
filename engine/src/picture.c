@@ -35,6 +35,7 @@
 #include "camera.h"
 #include "textbox.h"
 #include "screenfx.h"
+#include "effectlayer.h"
 #include "vram.h"
 
 /* Registre généré par datagen (data_pictures.c — toujours émis) */
@@ -301,21 +302,36 @@ void picture_hide(void)
     return;
   pic_fade_out(pic_req_dur);
   setScreenOff();
-  /* Registres BG1 de la scène (chars + map jamais écrasés) */
-  bgSetGfxPtr(0, VRAM_BG1_GFX);
-  bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
   /* Chars sprites (la région OBJ portait l'image) + palettes BG de la
      scène (l'image a écrasé CGRAM 0-15) */
   dmaCopyVram((u8 *)sprite_chars[scene_ctx.sprite_set_id], VRAM_OBJ_GFX,
               *sprite_chars_sizes[scene_ctx.sprite_set_id]);
   dmaCopyCGram((u8 *)gfx_pals[scene_ctx.tileset_id], 0, 128 * 2);
+  {
+    u16 black = 0; /* fond (CGRAM 0) réaffirmé NOIR (S10 — comme scene_load) */
+
+    dmaCopyCGram((u8 *)&black, 0, 2);
+  }
   textbox_load_pal(); /* CGRAM 16-19 (fonte) écrasée par les palettes BG */
-  bgSetScroll(0, camera.x, camera.y);
+  if (effect_active())
+  {
+    /* scène à couche d'effet (S9) : BG1 reprend le MOTIF, pas la couche
+       sup — registres + color math + palette 7 (la VRAM du motif n'a
+       pas bougé, chars OBJ/carte $7000 de la picture ailleurs) */
+    effect_restore();
+  }
+  else
+  {
+    /* Registres BG1 de la scène (chars + map jamais écrasés) */
+    bgSetGfxPtr(0, VRAM_BG1_GFX);
+    bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
+    REG_TS = 0; /* mélange S8 : sub screen rendu, teinte réaffirmée */
+    screenfx_cm_hold(0);
+    bgSetScroll(0, camera.x, camera.y);
+  }
   bgSetScroll(1, camera.x, camera.y);
   videoMode = PIC_TM_GAME;
   REG_TM = PIC_TM_GAME;
-  REG_TS = 0; /* mélange S8 : sub screen rendu, teinte réaffirmée */
-  screenfx_cm_hold(0);
   pic_on = 0;
   mv_frames = 0;
   screenfx_warp_reset();

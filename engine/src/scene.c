@@ -12,6 +12,7 @@
 #include "rom_layout.h"
 #include "vram.h"
 #include "map.h"
+#include "effectlayer.h"
 
 /* GFX sets (data_assets.c) — compilés PAR SCÈNE par datagen (v0.4 : seules
    les tiles utilisées par la scène sont en VRAM, palettes multiples bakées
@@ -137,12 +138,23 @@ void scene_load(u8 scene_id)
                 (u8 *)gfx_pals[scene_ctx.tileset_id], 0,
                 *gfx_chars_sizes[scene_ctx.tileset_id], 128 * 2,
                 BG_16COLORS, VRAM_BG1_GFX);
+  {
+    /* Couleur de FOND (CGRAM 0) forcée NOIRE (S10) : les tiles BG ne
+       dessinent jamais l'index 0 — seule une cellule VIDE (gomme sur
+       la couche inf) la montre. Prévisible quel que soit le tileset. */
+    u16 black = 0;
+
+    dmaCopyCGram((u8 *)&black, 0, 2);
+  }
   /* Deux couches (modèle RM2003) : BG1 = sup, BG2 = inf, charset partagé */
   bgSetMapPtr(0, VRAM_BG1_MAP, SC_64x64);
   bgSetGfxPtr(1, VRAM_BG1_GFX);
   bgSetMapPtr(1, VRAM_BG2_MAP, SC_64x64);
   map_set_metatiles(gfx_metas[scene_ctx.tileset_id],
                     gfx_prios[scene_ctx.tileset_id]);
+  /* Couche d'effet (S9) : si la scène en a une, BG1 est rebasé sur le
+     motif (chars $0000, carte $0C00) — la couche sup est ignorée */
+  effect_load(scene_id);
 }
 
 u8 scene_collision(u8 tx, u8 ty)

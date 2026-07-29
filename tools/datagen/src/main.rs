@@ -543,6 +543,93 @@ fn main() -> Result<()> {
     if !pic_names.is_empty() {
         println!("  pictures : {} image(s) plein ecran", pic_names.len());
     }
+    // Couche d'effet par scène (S9) : data_effects.c TOUJOURS émis (le
+    // moteur inclut effectlayer.c inconditionnellement) — 0xFF = aucune.
+    // Vitesses en px/s converties en pas 8.8 par frame (60 Hz).
+    {
+        let n = scenes.len().max(1);
+        let mut e_pic = vec![0xFFu8; n];
+        let mut e_blend = vec![0u8; n];
+        let mut e_dx = vec![0u16; n];
+        let mut e_dy = vec![0u16; n];
+        for (i, sc) in scenes.iter().enumerate() {
+            let eff = match &sc.effect {
+                Some(e) => e,
+                None => continue,
+            };
+            let idx = pic_names.iter().position(|p| p == &eff.pic).with_context(|| {
+                format!(
+                    "scene '{}' : image d'effet « {} » introuvable dans \
+                     project.pictures (images : {})",
+                    sc.name,
+                    eff.pic,
+                    if pic_names.is_empty() { "aucune".to_string() } else { pic_names.join(", ") }
+                )
+            })?;
+            if !pic_trans[idx] {
+                bail!(
+                    "scene '{}' : l'image d'effet « {} » doit être importée AVEC \
+                     transparence (le décor se voit par les pixels percés)",
+                    sc.name, eff.pic
+                );
+            }
+            let chars = pic_data[idx].0.len() / 32;
+            if chars > 192 {
+                bail!(
+                    "scene '{}' : motif d'effet « {} » — {} tiles uniques > 192 \
+                     (région VRAM $0000-$0C00, simplifier le motif)",
+                    sc.name, eff.pic, chars
+                );
+            }
+            e_pic[i] = idx as u8;
+            e_blend[i] = match eff.blend.as_deref() {
+                None | Some("none") => 0,
+                Some("half") => 1,
+                Some("add") => 2,
+                Some("sub") => 3,
+                Some(o) => bail!("scene '{}' : blend d'effet inconnu « {} »", sc.name, o),
+            };
+            let to_fp = |v: f64, what: &str| -> Result<u16> {
+                let f = (v * 256.0 / 60.0).round();
+                if !(-32768.0..=32767.0).contains(&f) {
+                    bail!("scene '{}' : vitesse d'effet {} hors bornes", sc.name, what);
+                }
+                Ok((f as i32 as i16) as u16)
+            };
+            e_dx[i] = to_fp(eff.dx, "dx")?;
+            e_dy[i] = to_fp(eff.dy, "dy")?;
+            if sc.upper.as_ref().map_or(false, |rows| rows.iter().flatten().any(|&v| v >= 0)) {
+                println!(
+                    "  attention : scene '{}' — couche sup non vide IGNOREE \
+                     (couche d'effet active, le plan BG1 porte le motif)",
+                    sc.name
+                );
+            }
+        }
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n/* couche d'effet par scene (S9) — 0xFF = aucune */\n");
+        let dump_u8 = |name: &str, v: &[u8]| {
+            let mut o = format!("const u8 {}[{}] = {{ ", name, v.len());
+            for x in v { o.push_str(&format!("{}, ", x)); }
+            o.push_str("};\n");
+            o
+        };
+        let dump_u16 = |name: &str, v: &[u16]| {
+            let mut o = format!("const u16 {}[{}] = {{ ", name, v.len());
+            for x in v { o.push_str(&format!("{}, ", x)); }
+            o.push_str("};\n");
+            o
+        };
+        s.push_str(&dump_u8("eff_pic", &e_pic));
+        s.push_str(&dump_u8("eff_blend", &e_blend));
+        s.push_str(&dump_u16("eff_dx", &e_dx));
+        s.push_str(&dump_u16("eff_dy", &e_dy));
+        write_out(&out_dir, "data_effects.c", s)?;
+        if e_pic.iter().any(|&p| p != 0xFF) {
+            println!("  couche d'effet : active sur {} scene(s)",
+                e_pic.iter().filter(|&&p| p != 0xFF).count());
+        }
+    }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
     // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)

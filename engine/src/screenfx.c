@@ -57,7 +57,9 @@ void screenfx_init(void)
 /* Mélange picture actif (S8) : le color math appartient à l'image —
    screenfx_vblank ne touche plus $2130-$2132 tant que le hold est posé
    (teinte ET flash suspendus, même circuit). Relâcher = réaffirmer. */
-static u8 cm_hold;
+static u8 cm_hold = 0; /* init explicite (tcc) — screenfx_init n'y touche
+    PAS : au boot, effect_load (scene_load) pose le hold AVANT
+    screenfx_init, et main réaffirme l'effet après setMode */
 
 void screenfx_cm_hold(u8 on)
 {

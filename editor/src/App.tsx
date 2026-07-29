@@ -1328,12 +1328,14 @@ export default function App() {
 
   function handlePaint(tx: number, ty: number, ox: number, oy: number, first: boolean) {
     if (layer === "events") return; // la couche Événements ne se peint pas
+    if (layer === "upper" && scene?.effect) return; // couche d'effet (S9)
     setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
   }
 
   // rectangle / ellipse / pot de peinture : un geste = une entrée d'undo
   function applyPattern(cells: Array<[number, number]>, ax: number, ay: number) {
     if (layer === "events") return;
+    if (layer === "upper" && scene?.effect) return;
     setScene((sc) => paintCells(sc, layer, cells, ax, ay, tool.tiles));
   }
 
@@ -1712,8 +1714,13 @@ export default function App() {
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
-              onClick={() => setLayer("upper")}
-              title="Couche supérieure"
+              onClick={() => !scene.effect && setLayer("upper")}
+              disabled={!!scene.effect}
+              title={
+                scene.effect
+                  ? "Couche supérieure désactivée : la couche d'effet de la scène occupe ce plan (onglet Scène)"
+                  : "Couche supérieure"
+              }
             >
               <LayerIcon kind="upper" />
             </button>
@@ -1881,6 +1888,11 @@ export default function App() {
                 passMode={passMode}
                 onSelectTileset={setSceneTileset}
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
+                pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                onSetEffect={(eff) => {
+                  if (eff && layer === "upper") setLayer("lower");
+                  setScene((sc) => ({ ...sc, effect: eff }));
+                }}
                 onImport={importTileset}
                 onImportChipset={importChipset}
                 onPassMode={setPassMode}
