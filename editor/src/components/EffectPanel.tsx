@@ -86,18 +86,21 @@ export default function EffectPanel({ scene, pictures, onSetEffect }: Props) {
                   parallax:
                     e.target.value === "none"
                       ? undefined
-                      : (e.target.value as "half" | "quarter"),
+                      : (e.target.value as "half" | "quarter" | "full"),
                 })
               }
             >
               <option value="none">Aucun — fixe à l'écran (très lointain)</option>
               <option value="quarter">¼ de la caméra (lointain)</option>
               <option value="half">½ de la caméra (proche)</option>
+              <option value="full">Collé au décor (1:1 — ombres au sol)</option>
             </select>
             <p className="hint">
-              En marchant, le motif glisse à une fraction de la vitesse du
-              décor — impression de profondeur. « Aucun » = le ciel ne
-              bouge qu'avec sa dérive (comportement S9).
+              Visible UNIQUEMENT quand la caméra bouge : en marchant, le
+              motif glisse à cette fraction de la vitesse du décor
+              (profondeur). « Collé au décor » : le motif fait partie du
+              sol — le bon choix pour des OMBRES de nuages. « Aucun » =
+              ciel fixe à l'écran, seule la dérive joue.
             </p>
           </div>
 

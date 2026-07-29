@@ -204,7 +204,8 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   désactivée** (bouton grisé, peinture bloquée) : le plan qui la
   portait affiche le motif. En mélange, la teinte d'écran est
   suspendue dans ces scènes. **Suivi de la caméra (S11)** : Aucun
-  (fixe à l'écran, très lointain), ¼ ou ½ de la caméra — en marchant,
+  (fixe à l'écran, très lointain), ¼, ½ ou Collé au décor (1:1 — le
+  motif fait partie du sol, le bon choix pour des OMBRES de nuages) — en marchant,
   le motif glisse à une fraction du décor (profondeur immédiate) ; se
   combine avec la dérive. « — aucune — » rend la couche sup.
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de

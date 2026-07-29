@@ -415,8 +415,9 @@ export interface SceneEffect {
   dy?: number;
   blend?: "half" | "add" | "sub";
   // S11 : suivi caméra — le motif glisse à ½ ou ¼ de la vitesse du
-  // décor quand la caméra bouge (profondeur) ; absent = fixe à l'écran
-  parallax?: "half" | "quarter";
+  // décor quand la caméra bouge (profondeur) ; "full" = collé au décor
+  // (1:1 — ombres au sol) ; absent = fixe à l'écran
+  parallax?: "half" | "quarter" | "full";
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

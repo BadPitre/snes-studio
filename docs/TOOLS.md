@@ -292,7 +292,7 @@ datagen — layout.toml fait foi).
 
 **Couche d'effet (S9, « nuages sur le village »)** : une scène accepte
 `"effect": {"pic": "<stem>", "dx": px/s, "dy": px/s, "blend":
-"half"|"add"|"sub", "parallax": "half"|"quarter"}` — un MOTIF (image à TRANSPARENCE de
+"half"|"add"|"sub", "parallax": "half"|"quarter"|"full"}` — un MOTIF (image à TRANSPARENCE de
 project.pictures, ≤ 256 tiles uniques) dérive au-dessus du jeu pendant
 qu'il se joue (personnages visibles, dialogues nets). Le plan BG1
 porte le motif : la COUCHE SUP de ces scènes est ignorée

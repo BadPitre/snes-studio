@@ -135,12 +135,14 @@ void effect_vblank(void)
   u16 y = eff_y8 >> 8;
 
   /* suivi caméra (S11) : le motif glisse à une FRACTION du décor
-     (camera >> n) — profondeur. La carte 32x32 boucle sur 256 px, le
-     scroll peut déborder sans danger. */
+     (camera >> n ; 3 = COLLÉ au décor, pleine vitesse — ombres au sol).
+     La carte 32x32 boucle sur 256 px, le scroll déborde sans danger. */
   if (eff_pr)
   {
-    x += camera.x >> eff_pr;
-    y += camera.y >> eff_pr;
+    u8 sh = eff_pr == 3 ? 0 : eff_pr;
+
+    x += camera.x >> sh;
+    y += camera.y >> sh;
   }
   bgSetScroll(0, x, y);
 }

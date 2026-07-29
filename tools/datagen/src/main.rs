@@ -598,6 +598,7 @@ fn main() -> Result<()> {
                 None | Some("none") => 0,
                 Some("half") => 1,
                 Some("quarter") => 2,
+                Some("full") => 3, // collé au décor (camera >> 0) — ombres au sol
                 Some(o) => bail!("scene '{}' : parallax d'effet inconnu « {} »", sc.name, o),
             };
             let to_fp = |v: f64, what: &str| -> Result<u16> {
