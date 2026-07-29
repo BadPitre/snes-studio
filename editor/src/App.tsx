@@ -61,6 +61,7 @@ import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import ScenePanel from "./components/ScenePanel";
+import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
@@ -90,7 +91,7 @@ import pkg from "../package.json";
 // Acteurs / Warps / Textes ont quitté la sidebar (demande Bertrand) :
 // events et warps se gèrent sur la carte (double-clic, clic droit),
 // les textes dans Tools → Textes… (fenêtre à catégories)
-type Tab = "scene" | "script";
+type Tab = "scene" | "effect" | "script";
 
 export default function App() {
   const [data, setData] = useState<ProjectData | null>(null);
@@ -1145,7 +1146,11 @@ export default function App() {
         // comptage des couleurs OPAQUES restantes : ≤ 16 sans
         // transparence (PNG indexé conservé tel quel), ≤ 15 avec (le
         // PNG réécrit passe par l'indexation alpha de datagen, index 0
-        // réservé au transparent)
+        // réservé au transparent). Un PNG DÉJÀ troué (pixels alpha)
+        // est une image à transparence même sans couleur cliquée —
+        // sinon le drapeau trans manquait et la couche d'effet (S9) ou
+        // le décor-au-travers refusaient l'image au build.
+        let trans = !!color;
         {
           const cv = document.createElement("canvas");
           cv.width = t.bmp.width;
@@ -1155,23 +1160,25 @@ export default function App() {
           const d4 = ctx.getImageData(0, 0, t.bmp.width, t.bmp.height).data;
           const seen = new Set<number>();
           for (let i = 0; i < d4.length; i += 4) {
-            if (d4[i + 3] < 128) continue;
+            if (d4[i + 3] < 128) {
+              trans = true; // trou alpha : transparence automatique
+              continue;
+            }
             const c = (d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2];
             if (color && d4[i] === color[0] && d4[i + 1] === color[1] && d4[i + 2] === color[2])
               continue;
             seen.add(c);
-            if (seen.size > 16) break;
           }
-          const max = color ? 15 : 16;
+          const max = trans ? 15 : 16;
           if (seen.size > max) {
             setStatus(
-              `Image : plus de ${max} couleurs opaques${color ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
+              `Image : plus de ${max} couleurs opaques${trans ? " (en plus de la transparente)" : ""} — réduire la palette avant l'import`
             );
             return;
           }
         }
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        const entry = color ? { path: rel, trans: true } : rel;
+        const entry = trans ? { path: rel, trans: true } : rel;
         if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
           mutate((d) => ({
             ...d,
@@ -1179,7 +1186,7 @@ export default function App() {
           }));
         }
         setStatus(
-          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${color ? ", avec transparence — le décor se verra à travers" : ""})`
+          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${trans ? ", avec transparence — le décor se verra à travers" : ""})`
         );
       } else {
         // charset : datagen import-charset lit un FICHIER — copie
@@ -1328,12 +1335,14 @@ export default function App() {
 
   function handlePaint(tx: number, ty: number, ox: number, oy: number, first: boolean) {
     if (layer === "events") return; // la couche Événements ne se peint pas
+    if (layer === "upper" && scene?.effect) return; // couche d'effet (S9)
     setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
   }
 
   // rectangle / ellipse / pot de peinture : un geste = une entrée d'undo
   function applyPattern(cells: Array<[number, number]>, ax: number, ay: number) {
     if (layer === "events") return;
+    if (layer === "upper" && scene?.effect) return;
     setScene((sc) => paintCells(sc, layer, cells, ax, ay, tool.tiles));
   }
 
@@ -1712,8 +1721,13 @@ export default function App() {
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
-              onClick={() => setLayer("upper")}
-              title="Couche supérieure"
+              onClick={() => !scene.effect && setLayer("upper")}
+              disabled={!!scene.effect}
+              title={
+                scene.effect
+                  ? "Couche supérieure désactivée : la couche d'effet de la scène occupe ce plan (onglet Scène)"
+                  : "Couche supérieure"
+              }
             >
               <LayerIcon kind="upper" />
             </button>
@@ -1867,6 +1881,9 @@ export default function App() {
               <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
                 Scène
               </button>
+              <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
+                Couche d'effet
+              </button>
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
               </button>
@@ -1885,6 +1902,16 @@ export default function App() {
                 onImportChipset={importChipset}
                 onPassMode={setPassMode}
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
+              />
+            )}
+            {tab === "effect" && (
+              <EffectPanel
+                scene={scene}
+                pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                onSetEffect={(eff) => {
+                  if (eff && layer === "upper") setLayer("lower");
+                  setScene((sc) => ({ ...sc, effect: eff }));
+                }}
               />
             )}
             {tab === "script" && (
@@ -2231,6 +2258,10 @@ export default function App() {
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                tintPresets={data.project.tint_presets ?? []}
+                onTintPresets={(list) =>
+                  mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+                }
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
@@ -2286,6 +2317,10 @@ export default function App() {
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+                tintPresets={data.project.tint_presets ?? []}
+                onTintPresets={(list) =>
+                  mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+                }
           onRenameVars={(sw, va) =>
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }

@@ -75,6 +75,11 @@ const OP_DLGSTYLE: u8 = 0x27;
 const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
 const OP_MOVEPIC: u8 = 0x2A;
+const OP_TINTG: u8 = 0x2B;
+const OP_WEATHER: u8 = 0x2C;
+const OP_WAVE: u8 = 0x2D;
+const OP_SKYGRAD: u8 = 0x2E;
+const OP_SPOTLIGHT: u8 = 0x2F;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -220,6 +225,16 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SWAPPOS" => 3,
         "SCRHIDE" | "SCRSHOW" => 2,
         "TINT" | "FLASH" => 5,
+        // TINTG <off|add|sub> <r> <g> <b> <dur> — teinte graduelle (S12)
+        "TINTG" => 6,
+        // WEATHER <0-2> <1-3> — météo en particules (S13)
+        "WEATHER" => 3,
+        // WAVE <power 0-7> <speed 1-8> — ondulation HDMA (S14)
+        "WAVE" => 3,
+        // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> — degrade (S15)
+        "SKYGRAD" => 8,
+        // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de lumiere (S16)
+        "SPOTLIGHT" => 3,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -631,16 +646,20 @@ pub fn assemble(
                 code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
                 code.push(speed);
             }
-            // TINT <off|add|sub> <r> <g> <b> (0-31)
-            "TINT" => {
-                if argc != 4 { bail!("TINT <off|add|sub> <r> <g> <b>"); }
+            // TINT <off|add|sub> <r> <g> <b> (0-31) ; TINTG + <dur 1-255>
+            "TINT" | "TINTG" => {
+                let want = if op == "TINTG" { 5 } else { 4 };
+                if argc != want {
+                    bail!("{} <off|add|sub> <r> <g> <b>{}", op,
+                          if want == 5 { " <dur>" } else { "" });
+                }
                 let mode = match args[0] {
                     "off" => 0u8,
                     "add" => 1,
                     "sub" => 2,
-                    o => bail!("TINT : mode inconnu '{}' (off, add, sub)", o),
+                    o => bail!("{} : mode inconnu '{}' (off, add, sub)", op, o),
                 };
-                code.push(OP_TINT);
+                code.push(if op == "TINTG" { OP_TINTG } else { OP_TINT });
                 code.push(mode);
                 for t in &args[1..4] {
                     let v: u8 = t
@@ -649,6 +668,57 @@ pub fn assemble(
                         .filter(|&v| v <= 31)
                         .with_context(|| format!("composante invalide : '{}' (0-31)", t))?;
                     code.push(v);
+                }
+                if op == "TINTG" {
+                    let d: u8 = args[4]
+                        .parse()
+                        .ok()
+                        .filter(|&v| v >= 1)
+                        .with_context(|| format!("duree invalide : '{}' (1-255)", args[4]))?;
+                    code.push(d);
+                }
+            }
+            // WAVE <power 0-7> <speed 1-8> — ondulation (S14)
+            "WAVE" => {
+                if argc != 2 { bail!("WAVE <0-7> <1-8>"); }
+                code.push(OP_WAVE);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
+            }
+            // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> —
+            // degrade de ciel (S15) : teinte verticale haut -> bas
+            "SKYGRAD" => {
+                if argc != 7 { bail!("SKYGRAD <mode> <r0> <g0> <b0> <r1> <g1> <b1>"); }
+                code.push(OP_SKYGRAD);
+                let mode = match args[0] {
+                    "off" => 0u8,
+                    "add" => 1,
+                    "sub" => 2,
+                    m => bail!("SKYGRAD : mode invalide '{}' (off/add/sub)", m),
+                };
+                code.push(mode);
+                for t in &args[1..7] {
+                    let v = parse_u8(t)?;
+                    if v > 31 { bail!("SKYGRAD : canal > 31 : {}", v); }
+                    code.push(v);
+                }
+            }
+            // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de
+            // lumiere autour du heros (S16) : radius 0 = off
+            "SPOTLIGHT" => {
+                if argc != 2 { bail!("SPOTLIGHT <0|16-96> <1-31>"); }
+                code.push(OP_SPOTLIGHT);
+                for t in args {
+                    code.push(parse_u8(t)?);
+                }
+            }
+            // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
+            "WEATHER" => {
+                if argc != 2 { bail!("WEATHER <0-2> <1-3>"); }
+                code.push(OP_WEATHER);
+                for t in args {
+                    code.push(parse_u8(t)?);
                 }
             }
             // FLASH <r> <g> <b> <frames 1-255>

@@ -602,10 +602,63 @@ impl<'a> EventCompiler<'a> {
                     let comp = |key: &str| -> u64 {
                         cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
                     };
+                    // S12 : "dur" en frames = teinte GRADUELLE (TINTG) ;
+                    // absent ou 0 = TINT immédiat (bytecode inchangé)
+                    match cmd["dur"].as_u64() {
+                        Some(d) if d > 0 => {
+                            if d > 255 {
+                                bail!("tint : durée invalide {} (1-255 frames)", d);
+                            }
+                            out.push(format!(
+                                "  TINTG {} {} {} {} {}",
+                                mode, comp("r"), comp("g"), comp("b"), d
+                            ));
+                        }
+                        _ => out.push(format!(
+                            "  TINT {} {} {} {}",
+                            mode, comp("r"), comp("g"), comp("b")
+                        )),
+                    }
+                }
+                // S16 — spotlight : cercle de lumiere autour du heros
+                "spotlight" => {
+                    let rad = cmd["radius"]
+                        .as_u64()
+                        .filter(|&v| v == 0 || (16..=96).contains(&v))
+                        .unwrap_or(0);
+                    let dark = cmd["dark"].as_u64().filter(|&v| (1..=31).contains(&v)).unwrap_or(31);
+                    out.push(format!("  SPOTLIGHT {} {}", rad, dark));
+                }
+                // S15 — degrade de ciel : teinte verticale haut -> bas
+                "skygrad" => {
+                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
+                        "add" => "add",
+                        "sub" => "sub",
+                        _ => "off",
+                    };
+                    let ch = |k: &str| cmd[k].as_u64().filter(|&v| v <= 31).unwrap_or(0);
                     out.push(format!(
-                        "  TINT {} {} {} {}",
-                        mode, comp("r"), comp("g"), comp("b")
+                        "  SKYGRAD {} {} {} {} {} {} {}",
+                        mode, ch("r"), ch("g"), ch("b"), ch("r2"), ch("g2"), ch("b2")
                     ));
+                }
+                // S14 — ondulation de l'écran (HDMA) : power 0 = stop
+                "wave" => {
+                    let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);
+                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+                    out.push(format!("  WAVE {} {}", pow, spd));
+                }
+                // S13 — météo en particules (Weather Effects RM2003) :
+                // persiste entre les scènes jusqu'au prochain changement
+                "weather" => {
+                    let kind = match cmd["kind"].as_str().unwrap_or("off") {
+                        "off" => 0u8,
+                        "rain" => 1,
+                        "snow" => 2,
+                        o => bail!("weather : type inconnu « {} » (off, rain, snow)", o),
+                    };
+                    let pow = cmd["power"].as_u64().filter(|&v| (1..=3).contains(&v)).unwrap_or(2);
+                    out.push(format!("  WEATHER {} {}", kind, pow));
                 }
                 "flash" => {
                     let comp = |key: &str| -> u64 {

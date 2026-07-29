@@ -34,6 +34,8 @@ export interface Project {
   // { path, trans: true } = image à TRANSPARENCE (le décor de la carte
   // se voit à travers les pixels percés à l'import)
   pictures?: PictureEntry[];
+  // presets de teinte nommés (S12b — éditeur seulement, voir TintPreset)
+  tint_presets?: TintPreset[];
 }
 
 export type PictureEntry = string | { path: string; trans?: boolean };
@@ -226,7 +228,25 @@ export type Command =
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "scr_hide"; speed: number }
   | { c: "scr_show"; speed: number }
-  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number }
+  // dur (S12) : frames de transition GRADUELLE (jour/nuit) — absent ou
+  // 0 = teinte immédiate (bytecode TINT inchangé)
+  | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number; dur?: number }
+  // Météo en particules (S13, façon Weather Effects RM2003) : persiste
+  // entre les scènes jusqu'au prochain changement
+  | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
+  // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
+  | { c: "wave"; power: number; speed?: number }
+  | { c: "spotlight"; radius: number; dark?: number }
+  | {
+      c: "skygrad";
+      mode: "off" | "add" | "sub";
+      r: number;
+      g: number;
+      b: number;
+      r2: number;
+      g2: number;
+      b2: number;
+    }
   | { c: "flash"; r: number; g: number; b: number; frames: number }
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)
@@ -402,6 +422,33 @@ export interface Scene {
   // scène parente dans l'arborescence de l'éditeur (organisationnel
   // uniquement — ignoré par datagen)
   parent?: string;
+  // Couche d'effet (S9) : motif dérivant (nuages, brume) porté par le
+  // plan de la couche sup — qui est donc DÉSACTIVÉE dans cette scène.
+  // pic = stem d'une image à TRANSPARENCE de project.pictures ;
+  // dx/dy en px par seconde ; blend = mélange color math en jeu.
+  effect?: SceneEffect;
+}
+
+// Presets de teinte du projet (S12b) : créés/nommés/supprimés depuis la
+// commande « Teinter l'écran » — stockés dans project.json (éditeur
+// seulement, ignorés par datagen)
+export interface TintPreset {
+  name: string;
+  mode: "off" | "add" | "sub";
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface SceneEffect {
+  pic: string;
+  dx?: number;
+  dy?: number;
+  blend?: "half" | "add" | "sub";
+  // S11 : suivi caméra — le motif glisse à ½ ou ¼ de la vitesse du
+  // décor quand la caméra bouge (profondeur) ; "full" = collé au décor
+  // (1:1 — ombres au sol) ; absent = fixe à l'écran
+  parallax?: "half" | "quarter" | "full";
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

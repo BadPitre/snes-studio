@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource } from "../types";
+import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -33,6 +33,8 @@ interface Props {
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
   pictures: string[]; // stems des images (S3) — commande pic_show
+  tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
+  onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
@@ -160,9 +162,28 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "scr_show":
       return `Montrer l'écran (vitesse ${c.speed})`;
     case "tint":
+      return (
+        (c.mode === "off"
+          ? "Teinte : normale"
+          : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
+        (c.dur ? ` en ${c.dur}f` : "")
+      );
+    case "wave":
+      return c.power === 0
+        ? "Ondulation : stop"
+        : `Ondulation de l'écran (amplitude ${c.power}, vitesse ${c.speed ?? 2})`;
+    case "skygrad":
       return c.mode === "off"
-        ? "Teinte : normale"
-        : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`;
+        ? "Dégradé : retirer"
+        : `Dégradé de ciel : ${c.mode === "add" ? "éclaircir" : "assombrir"} haut (${c.r},${c.g},${c.b}) → bas (${c.r2},${c.g2},${c.b2})`;
+    case "spotlight":
+      return c.radius === 0
+        ? "Spotlight : arrêter"
+        : `Spotlight sur le héros (rayon ${c.radius} px, obscurité ${c.dark ?? 31})`;
+    case "weather":
+      return c.kind === "off"
+        ? "Météo : aucune"
+        : `Météo : ${c.kind === "rain" ? "pluie" : "neige"} (intensité ${c.power ?? 2})`;
     case "flash":
       return `Flash d'écran (${c.r},${c.g},${c.b}) ${c.frames} frames`;
     case "shake":
@@ -210,6 +231,10 @@ function cmdTitle(c: Command["c"]): string {
     scr_hide: "Cacher l'écran",
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
+    weather: "Météo (pluie / neige)",
+    wave: "Ondulation de l'écran",
+    skygrad: "Dégradé d'écran (ciel)",
+    spotlight: "Spotlight (cercle de lumière)",
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
     call: "Appeler un common event",
@@ -296,6 +321,8 @@ export function CommandListEditor(props: {
   uiWidgets: string[];
   uiStyles: string[];
   pictures: string[];
+  tintPresets: TintPreset[];
+  onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
   const { cmds } = props;
@@ -470,6 +497,14 @@ export function CommandListEditor(props: {
         return { c: "scr_show", speed: 1 };
       case "tint":
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
+      case "weather":
+        return { c: "weather", kind: "rain", power: 2 };
+      case "wave":
+        return { c: "wave", power: 3, speed: 2 };
+      case "skygrad":
+        return { c: "skygrad", mode: "sub", r: 12, g: 8, b: 0, r2: 0, g2: 0, b2: 0 };
+      case "spotlight":
+        return { c: "spotlight", radius: 48, dark: 31 };
       case "flash":
         return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
       case "shake":
@@ -543,6 +578,8 @@ export function CommandListEditor(props: {
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
               pictures={props.pictures}
+              tintPresets={props.tintPresets}
+              onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
               onOk={() => (formIsNew ? insertCmd(form) : replaceCmd(form))}
@@ -951,6 +988,8 @@ export default function EventEditorModal(props: Props) {
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
               pictures={props.pictures}
+              tintPresets={props.tintPresets}
+              onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
           </div>
@@ -1022,6 +1061,8 @@ function CommandForm(props: {
   uiWidgets: string[];
   uiStyles: string[];
   pictures: string[];
+  tintPresets: TintPreset[];
+  onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (c: Command) => void;
@@ -1031,6 +1072,8 @@ function CommandForm(props: {
   const { cmd, onChange } = props;
   // fenêtre Itinéraire (commande « Déplacer un event »)
   const [routeOpen, setRouteOpen] = useState(false);
+  // nom du preset de teinte à enregistrer (S12b)
+  const [presetName, setPresetName] = useState("");
   const varField = (v: string, set: (s: string) => void) => (
     <label>
       Variable (v0-v63 scène, g0-g63 globale)
@@ -1928,6 +1971,82 @@ function CommandForm(props: {
       valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
       body = (
         <>
+          <label>
+            Preset (remplit les champs)
+            <select
+              value=""
+              onChange={(e) => {
+                const std: Record<string, { mode: "off" | "add" | "sub"; r: number; g: number; b: number }> = {
+                  "*jour": { mode: "off", r: 0, g: 0, b: 0 },
+                  "*matin": { mode: "sub", r: 6, g: 3, b: 0 },
+                  "*soir": { mode: "sub", r: 0, g: 6, b: 14 },
+                  "*nuit": { mode: "sub", r: 16, g: 12, b: 4 },
+                };
+                const v = e.target.value;
+                if (std[v]) {
+                  onChange({ ...cmd, ...std[v] });
+                  return;
+                }
+                const p = props.tintPresets.find((t) => t.name === v);
+                if (p) onChange({ ...cmd, mode: p.mode, r: p.r, g: p.g, b: p.b });
+              }}
+            >
+              <option value="">(choisir un preset…)</option>
+              <optgroup label="Standards">
+                <option value="*matin">Matin (bleuté pâle)</option>
+                <option value="*jour">Jour (normale)</option>
+                <option value="*soir">Soir (orangé)</option>
+                <option value="*nuit">Nuit (bleu sombre)</option>
+              </optgroup>
+              {props.tintPresets.length > 0 && (
+                <optgroup label="Du projet">
+                  {props.tintPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </label>
+          <div className="row">
+            <label>
+              Enregistrer les valeurs comme preset
+              <input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="ex. Crépuscule violet"
+                maxLength={24}
+              />
+            </label>
+            <button
+              disabled={presetName.trim() === ""}
+              title="Enregistre mode + RGB actuels sous ce nom (écrase un preset du même nom) — stocké dans le projet"
+              onClick={() => {
+                const name = presetName.trim();
+                props.onTintPresets([
+                  ...props.tintPresets.filter((t) => t.name !== name),
+                  { name, mode: cmd.mode, r: cmd.r, g: cmd.g, b: cmd.b },
+                ]);
+                setPresetName("");
+              }}
+            >
+              💾 Enregistrer
+            </button>
+          </div>
+          {props.tintPresets.length > 0 && (
+            <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
+              {props.tintPresets.map((p) => (
+                <button
+                  key={p.name}
+                  title={`Supprimer le preset « ${p.name} » du projet`}
+                  onClick={() =>
+                    props.onTintPresets(props.tintPresets.filter((t) => t.name !== p.name))
+                  }
+                >
+                  🗑 {p.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="row" style={{ flexWrap: "wrap" }}>
             <label>
               Mode
@@ -1951,10 +2070,188 @@ function CommandForm(props: {
                 </label>
               ))}
           </div>
+          <label>
+            Transition (frames — 0 = immédiate, 180 = 3 secondes)
+            <input
+              type="number" min={0} max={255} value={cmd.dur ?? 0}
+              onChange={(e) =>
+                onChange({ ...cmd, dur: Number(e.target.value) || undefined })
+              }
+            />
+          </label>
           <span className="hint">
-            Immédiate, persiste entre les scènes. Teinte le décor — pas les
-            personnages ni le texte (limite hardware SNES). Nuit :
-            assombrir (12,12,4).
+            Persiste entre les scènes ; la transition graduelle (S12) est
+            NON bloquante — enchaîner avec « Attendre » pour la laisser
+            finir. Teinte le décor, pas les personnages ni le texte
+            (limite hardware). Suspendue à l'écran pendant un mélange de
+            couche d'effet ou d'image.
+          </span>
+        </>
+      );
+      break;
+    case "wave": {
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Amplitude (px — 0 = arrêter)
+              <select
+                value={cmd.power}
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              >
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((v) => (
+                  <option key={v} value={v}>{v === 0 ? "0 (stop)" : v}</option>
+                ))}
+              </select>
+            </label>
+            {cmd.power > 0 && (
+              <label>
+                Vitesse de la houle (1-8)
+                <input
+                  type="number" min={1} max={8} value={cmd.speed ?? 2}
+                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            L'écran ondule ligne par ligne (chaleur du désert, sous l'eau,
+            rêve) — non bloquant, persiste entre les scènes jusqu'à
+            « 0 (stop) ». Le DÉCOR ondule ; les personnages, le texte
+            et le HUD restent droits (les sprites ne passent pas par les
+            scrolls — matériel). Suspendue pendant une image plein
+            écran.
+          </span>
+        </>
+      );
+      break;
+    }
+    case "skygrad":
+      body = (
+        <>
+          <label>
+            Mode
+            <select
+              value={cmd.mode}
+              onChange={(e) => onChange({ ...cmd, mode: e.target.value as "off" | "add" | "sub" })}
+            >
+              <option value="off">Retirer le dégradé</option>
+              <option value="add">Éclaircir (+)</option>
+              <option value="sub">Assombrir (−)</option>
+            </select>
+          </label>
+          {cmd.mode !== "off" && (
+            <>
+              <div className="row">
+                <span style={{ alignSelf: "center", minWidth: 110 }}>Haut de l'écran</span>
+                {(["r", "g", "b"] as const).map((k) => (
+                  <label key={k}>
+                    {k.toUpperCase()} (0-31)
+                    <input
+                      type="number" min={0} max={31} value={cmd[k]}
+                      onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="row">
+                <span style={{ alignSelf: "center", minWidth: 110 }}>Bas de l'écran</span>
+                {(["r2", "g2", "b2"] as const).map((k) => (
+                  <label key={k}>
+                    {k[0].toUpperCase()} (0-31)
+                    <input
+                      type="number" min={0} max={31} value={cmd[k]}
+                      onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
+                    />
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+          <span className="hint">
+            Teinte VERTICALE (coucher de soleil, aube, profondeur) : la
+            couleur évolue du haut vers le bas de l'écran, ligne par
+            ligne. Remplace la teinte plate — et « Teinter l'écran »
+            retire le dégradé (même circuit console). Le décor est
+            teinté, pas les personnages ni le texte. Persiste entre les
+            scènes ; en pause pendant un mélange (couche d'effet /
+            image) ou un flash. Immédiat, non bloquant, aucun coût en
+            jeu (table calculée à la commande).
+          </span>
+        </>
+      );
+      break;
+    case "spotlight":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Rayon du cercle (px — 0 = arrêter)
+              <select
+                value={cmd.radius}
+                onChange={(e) => onChange({ ...cmd, radius: Number(e.target.value) })}
+              >
+                <option value={0}>0 (arrêter)</option>
+                {[24, 32, 40, 48, 64, 80, 96].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            {cmd.radius > 0 && (
+              <label>
+                Obscurité (1-31 — 31 = noir total)
+                <input
+                  type="number" min={1} max={31} value={cmd.dark ?? 31}
+                  onChange={(e) => onChange({ ...cmd, dark: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Cercle de lumière qui SUIT le héros (grotte, nuit, torche) :
+            le décor est assombri hors du cercle. Remplace la teinte et
+            le dégradé — et « Teinter l'écran » retire le spotlight
+            (même circuit console). Les personnages et le texte restent
+            visibles partout (limite matérielle, comme la teinte).
+            Immédiat, non bloquant, persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "weather":
+      body = (
+        <>
+          <label>
+            Météo
+            <select
+              value={cmd.kind}
+              onChange={(e) =>
+                onChange({ ...cmd, kind: e.target.value as "off" | "rain" | "snow" })
+              }
+            >
+              <option value="off">Aucune (arrêter)</option>
+              <option value="rain">Pluie</option>
+              <option value="snow">Neige</option>
+            </select>
+          </label>
+          {cmd.kind !== "off" && (
+            <label>
+              Intensité
+              <select
+                value={cmd.power ?? 2}
+                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
+              >
+                <option value={1}>Légère (8 particules)</option>
+                <option value={2}>Normale (16)</option>
+                <option value={3}>Forte (24)</option>
+              </select>
+            </label>
+          )}
+          <span className="hint">
+            Non bloquant — persiste entre les scènes jusqu'au prochain
+            changement (modèle RM2003). Les particules tombent DEVANT la
+            couche d'effet : orage complet = nuages sombres (soustractif)
+            + Pluie + « Flash d'écran » pour les éclairs.
           </span>
         </>
       );

@@ -31,6 +31,39 @@ u8 screenfx_busy(void);
 void screenfx_tint_rgb(u8 r, u8 g, u8 b);
 void screenfx_tint(u8 mode);
 
+/* Teinte GRADUELLE (S12, jour/nuit) : poser la cible rgb PUIS lancer
+   (mode, frames) — même parade tcc que tint_rgb/tint. Non bloquante
+   (enchaîner avec WAIT pour attendre), persiste entre les scènes,
+   frames 0 = immédiat. mode 0 : fond la teinte courante vers zéro.
+   add <-> sub passe par zéro en deux phases (moitié/moitié). Une
+   teinte immédiate (TINT) annule la graduelle en cours. */
+void screenfx_tintg_rgb(u8 r, u8 g, u8 b);
+void screenfx_tintg(u8 mode, u8 frames);
+
+/* Dégradé de ciel (S15) : TEINTE VERTICALE — même circuit color math
+   que la teinte, mais la couleur fixe ($2132) est réécrite ligne à
+   ligne par le HDMA (canal 4, table statique bâtie par hdmafx_grad).
+   screenfx ne détient que le MODE (source de vérité) : il pose
+   CGWSEL/CGADSUB au VBlank et laisse COLDATA au HDMA. Un dégradé
+   REMPLACE la teinte plate ; TINT/TINTG l'annule (même registre).
+   mode 0 = off, 1 = addition, 2 = soustraction. */
+void screenfx_skygrad(u8 mode);
+u8 screenfx_skygrad_mode(void);
+
+/* Spotlight (S16) : cercle de lumière autour du héros — le décor est
+   assombri (soustraction dark,dark,dark) HORS de la fenêtre couleur
+   W1, dont le cercle est tracé par le HDMA (hdmafx_spot). dark 0 =
+   off, 1-31 = obscurité (31 = décor noir). REMPLACE teinte et
+   dégradé ; TINT/TINTG/SKYGRAD le retire (même circuit). Les sprites
+   et le texte restent visibles partout (même limite que la teinte). */
+void screenfx_spot(u8 dark);
+u8 screenfx_spot_active(void);
+
+/* État du circuit pour hdmafx (canal COLDATA coupé quand le circuit
+   est tenu par un mélange ou emprunté par un flash) */
+u8 screenfx_cm_held(void);
+u8 screenfx_flash_active(void);
+
 /* Flash : addition (r,g,b) qui décroît sur `frames` frames, puis la
    teinte courante est restaurée. Non bloquant (enchaîner avec WAIT). */
 void screenfx_flash(u8 r, u8 g, u8 b);
@@ -44,9 +77,14 @@ void screenfx_shake(u8 power, u8 speed, u8 frames);
    scroll BG1/BG2 par la boucle principale. */
 u16 screenfx_shake_x(void);
 
-/* Mélange picture (S8) : hold posé = screenfx ne touche plus le color
-   math ($2130-$2132) — l'image possède le circuit (teinte et flash
-   suspendus). Relâcher réaffirme la teinte persistante. */
+/* Mélange picture/couche d'effet (S8/S9) : hold posé = screenfx ne
+   touche plus le color math ($2130-$2132) — le mélange possède le
+   circuit (teinte suspendue). EXCEPTION (S13) : un FLASH l'emprunte le
+   temps de sa décroissance puis repose les registres mémorisés par
+   screenfx_cm_hold_regs (à appeler AVANT cm_hold(1)) — l'éclair
+   d'orage traverse les nuages mélangés. Relâcher le hold réaffirme la
+   teinte persistante. */
+void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub);
 void screenfx_cm_hold(u8 on);
 
 /* Un pas d'effet par frame (boucle principale, toujours). */

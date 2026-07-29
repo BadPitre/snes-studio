@@ -51,7 +51,7 @@ export default function TilePalette(props: Props) {
     ? srcCols * Math.max(1, Math.floor(tileset.height / 16))
     : 0;
   const cells: number[] = [];
-  if (layer === "upper" && !passMode) cells.push(EMPTY_TILE); // gomme
+  if (!passMode) cells.push(EMPTY_TILE); // gomme (les DEUX couches — S10)
   // Chipset RM2003 (upper_start) : la palette filtre les tiles par couche,
   // comme RPG Maker — sauf en mode passabilité (tout est éditable)
   const us = passMode ? undefined : meta.upper_start;
@@ -194,7 +194,7 @@ export default function TilePalette(props: Props) {
               : ""
           }
           onClick={() => onTool({ kind: "tile", tiles: [[EMPTY_TILE]] })}
-          title="Gomme — efface (couche sup. : case vide ; couche inf. : tile de base). Se combine avec les modes de dessin."
+          title="Gomme — efface la case sur la couche éditée (case vide ; sur la couche inf. le jeu montre le fond, noir). Se combine avec les modes de dessin."
         >
           ⌫
         </button>

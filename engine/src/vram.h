@@ -13,5 +13,12 @@
 #define VRAM_BG2_MAP 0x6000 /* tilemap BG2 SC_64x64 (couche INF) : 8 Ko */
 #define VRAM_PIC_MAP 0x7000 /* tilemap 32x32 des pictures (S3) — région
                                libre après la map BG2 ($7000-$8000) */
+/* Couche d'effet (S9) : dans les scènes à effet, la région de la carte
+   BG1 est REPURPOSÉE (BG1 porte le motif, plus la couche sup) —
+   chars du motif à $0000-$1000 (≤ 256, validé datagen) ; sa carte
+   32x32 vit dans le creux $1C00-$2000 (après la map BG3 : la fonte
+   occupe $1000-$1800, la map textbox $1800-$1C00) */
+#define VRAM_EFF_GFX 0x0000
+#define VRAM_EFF_MAP 0x1C00
 
 #endif /* VRAM_H */

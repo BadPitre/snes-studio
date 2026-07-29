@@ -54,9 +54,12 @@ consomme** : aucun format intermédiaire.
 ## Fonctionnalités (5c) — autotiles, couches, passabilité (RM2003)
 
 - **Deux couches de décor** : boutons « Couche inf. / Couche sup. » dans la
-  barre d'outils. La couche non éditée est atténuée. La couche sup a une
-  **gomme** (première cellule de la palette) ; ses tiles doivent avoir un
-  fond transparent (index 0).
+  barre d'outils. La couche non éditée est atténuée. Les DEUX couches ont
+  une **gomme** (première cellule de la palette — S10) : sur la couche
+  sup, case vide classique ; sur la couche inf, la cellule devient VIDE et
+  le jeu y montre la couleur de fond (noire, forcée par le moteur) —
+  pratique pour le vide des donjons/intérieurs. Cellule vide = passable.
+  Les tiles de la couche sup doivent avoir un fond transparent (index 0).
 - **Autotiles** (bordures automatiques eau/chemin) : affichés en tête de
   palette (aperçu = tile îlot). En peignant, les bordures se recalculent
   toutes seules selon les voisins — comme RPG Maker 2003. Format source :
@@ -190,6 +193,21 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   une fenêtre 9-slice d'exemple, ★ marque le thème actif (suppression
   bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
+- **Couche d'effet (S9/S11)** : ONGLET DÉDIÉ (Scène / Couche d'effet /
+  Script) — un MOTIF (image à
+  transparence du Gestionnaire, ≤ 256 tiles uniques) dérive au-dessus
+  du jeu pendant qu'il se joue : nuages, brume, ombres portées.
+  Vitesses X/Y en px/s (négatif = gauche/haut, décimales acceptées) et
+  Mélange (Opaque / Semi-transparent / Additif / Soustractif — en
+  soustractif, le motif devient des OMBRES de nuages au sol). Quand un
+  motif est choisi, la **couche supérieure de la scène est
+  désactivée** (bouton grisé, peinture bloquée) : le plan qui la
+  portait affiche le motif. En mélange, la teinte d'écran est
+  suspendue dans ces scènes. **Suivi de la caméra (S11)** : Aucun
+  (fixe à l'écran, très lointain), ¼, ½ ou Collé au décor (1:1 — le
+  motif fait partie du sol, le bon choix pour des OMBRES de nuages) — en marchant,
+  le motif glisse à une fraction du décor (profondeur immédiate) ; se
+  combine avec la dérive. « — aucune — » rend la couche sup.
 - **Événements façon RM2003 (v0.6)** : chaque acteur a un type de
   déclencheur — *Action* (PNJ visible, touche A), *Contact* (invisible,
   script quand le héros marche sur la tile — marqueur orange « C » sur la
@@ -296,8 +314,32 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   gagne la source **N° de la scène courante**. Onglet **Écran** :
   **Cacher / Montrer l'écran** (fondu bloquant), **Teinter l'écran**
   (normale / éclaircir / assombrir + RGB 0-31 — décor seulement, les
-  personnages et le texte gardent leurs couleurs), **Flash d'écran** et
-  **Secouer l'écran** (non bloquants — enchaîner avec « Attendre »).
+  personnages et le texte gardent leurs couleurs ; **S12** : presets
+  Matin/Jour/Soir/Nuit, **presets PERSONNALISÉS du projet (S12b)** —
+  nommer et enregistrer les valeurs courantes (💾), supprimer (🗑),
+  stockés dans project.json (registre tint_presets, éditeur seulement)
+  — et champ **Transition** en frames — 0 =
+  immédiate, sinon la teinte évolue graduellement, non bloquant :
+  c'est le cycle jour/nuit scriptable), **Météo (pluie / neige)** (S13 —
+  intensité 1-3, persiste entre les scènes, les particules tombent
+  devant la couche d'effet ; « Aucune » arrête), **Ondulation de
+  l'écran** (S14 — amplitude 0-7 px, vitesse 1-8 : le DÉCOR ondule
+  (chaleur du désert, sous l'eau, rêve), les personnages, le texte et
+  le HUD restent droits ; amplitude 0 arrête ; persiste entre les
+  scènes), **Dégradé d'écran (ciel)** (S15 — teinte VERTICALE :
+  couleur du haut → couleur du bas (RGB 0-31), éclaircir ou
+  assombrir ; coucher de soleil, aube, profondeur. Remplace la
+  teinte plate, et « Teinter l'écran » retire le dégradé — même
+  circuit console. Décor seulement, persiste entre les scènes,
+  aucun coût en jeu), **Spotlight (cercle de lumière)** (S16 —
+  rayon 16-96 px, obscurité 1-31 : cercle de lumière qui SUIT le
+  héros, décor assombri autour ; grotte, nuit, torche. Remplace
+  teinte et dégradé (même circuit), persiste entre les scènes ;
+  les personnages et le texte restent visibles partout — limite
+  matérielle, comme la teinte. 0 = arrêter),
+  **Flash d'écran** (traverse aussi les mélanges : l'éclair
+  d'orage marche au-dessus des nuages semi-transparents) et **Secouer
+  l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

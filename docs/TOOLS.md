@@ -290,6 +290,26 @@ les fontes/skins partagent la palette de la fonte 0. `project.json`
 accepte `"fonts": [...]` (registre éditeur des FontSets, ignoré par
 datagen — layout.toml fait foi).
 
+**Couche d'effet (S9, « nuages sur le village »)** : une scène accepte
+`"effect": {"pic": "<stem>", "dx": px/s, "dy": px/s, "blend":
+"half"|"add"|"sub", "parallax": "half"|"quarter"|"full"}` — un MOTIF (image à TRANSPARENCE de
+project.pictures, ≤ 256 tiles uniques) dérive au-dessus du jeu pendant
+qu'il se joue (personnages visibles, dialogues nets). Le plan BG1
+porte le motif : la COUCHE SUP de ces scènes est ignorée
+(avertissement si non vide). VRAM : chars à $0000-$1000, carte 32x32
+au creux $1C00 (après la map BG3) ; entrées avec bit de
+priorité (motif DEVANT les sprites) ; en mélange, sub screen BG2+OBJ
+et teinte/flash suspendus (screenfx_cm_hold). Vitesses converties en
+pas 8.8 par frame ; **parallax (S11)** : le scroll du motif reçoit
+en plus `camera >> 1` (half) ou `camera >> 2` (quarter) — le motif
+glisse à une fraction du décor quand la caméra bouge (profondeur),
+absent = fixe à l'écran ; datagen émet `data_effects.c` (toujours — 0xFF =
+scène sans effet). Le motif étant ≤ 224 px de haut, le défilement
+vertical montre une bande vide de 32 px par période (motifs épars :
+invisible). **Cellule vide (S10)** : `-1` est accepté sur les DEUX
+couches des scènes (gomme) — char transparent, le fond (CGRAM 0,
+forcé NOIR par le moteur) se voit, cellule passable.
+
 **Phase 12 S3 (pictures, façon RM2003)** : `project.json` accepte
 `"pictures": ["assets/....png", ...]` — LU par datagen (l'ordre donne
 les pic_id). Chaque image : PNG **indexé ≤ 16 couleurs** (palette
@@ -363,7 +383,32 @@ référencés (transitivement) et prépose la table `CETAB <a|p> <switch>
 "speed"}` — fondu sortant/entrant bloquant (assembleur `SCRHIDE`/
 `SCRSHOW <vitesse>`) ; `{"c":"tint","mode":"off"|"add"|"sub","r","g",
 "b"}` (0-31) — teinte du décor, immédiate et persistante (`TINT <mode>
-<r> <g> <b>`) ; `{"c":"flash","r","g","b","frames"}` — flash décroissant
+<r> <g> <b>`) ; **`"dur"` en frames (S12)** = transition GRADUELLE
+(jour/nuit) : la teinte interpole de la valeur courante vers la cible,
+NON bloquant (`TINTG <mode> <r> <g> <b> <dur>` — dur absent/0 =
+bytecode TINT inchangé), add ↔ sub passe par zéro en deux phases,
+presets Matin/Jour/Soir/Nuit côté éditeur ; **`{"c":"weather","kind":
+"off"|"rain"|"snow","power":1-3}` (S13)** — météo en particules
+(`WEATHER <type> <pow>`), non bloquant, persiste entre les scènes ;
+les particules (sprites, `data_weather.c` toujours émis) tombent
+DEVANT la couche d'effet, et le flash traverse les mélanges (orage
+complet : nuages sombres + pluie + flash) ; **`{"c":"wave","power":
+0-7,"speed":1-8}` (S14)** — ondulation de l'écran par HDMA (`WAVE
+<power> <speed>`, speed absent = 2) : le DÉCOR ondule (BG1 + BG2,
+couche d'effet comprise), les personnages, le texte et le HUD restent
+droits ; power 0 = stop, non bloquant, persiste entre les scènes ;
+**`{"c":"skygrad","mode":"off"|"add"|"sub","r","g","b","r2","g2",
+"b2"}` (S15)** — dégradé de ciel (`SKYGRAD <mode> <r0> <g0> <b0>
+<r1> <g1> <b1>`, canaux 0-31) : teinte VERTICALE du haut (r,g,b)
+vers le bas (r2,g2,b2), remplace la teinte plate (et `tint` retire
+le dégradé — même circuit color math) ; décor seulement, persiste
+entre les scènes, zéro coût par frame (table HDMA statique) ;
+**`{"c":"spotlight","radius":0|16-96,"dark":1-31}` (S16)** — cercle
+de lumière qui suit le héros (`SPOTLIGHT <radius> <dark>`, radius 0 =
+off, dark 31 = décor noir hors du cercle) : remplace teinte et
+dégradé, persiste entre les scènes ; les sprites et le texte restent
+visibles partout (même limite hardware que la teinte) ;
+`{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop
 (`SHAKE`). La teinte et le flash ne touchent ni le texte ni les

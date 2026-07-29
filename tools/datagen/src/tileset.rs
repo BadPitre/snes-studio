@@ -795,27 +795,22 @@ impl SourceTileset {
     pub fn expand_scene(
         &self,
         gfx: &GfxSet,
-        name: &str,
+        _name: &str,
         lower: &[Vec<i32>],
         upper: &[Vec<i32>],
     ) -> Result<SceneGrids> {
         let h = lower.len();
         let w = if h > 0 { lower[0].len() } else { 0 };
 
-        let expand = |grid: &[Vec<i32>], is_upper: bool| -> Result<Vec<u8>> {
+        let expand = |grid: &[Vec<i32>]| -> Result<Vec<u8>> {
             let mut out = Vec::with_capacity(w * h);
             for y in 0..h {
                 for x in 0..w {
                     out.push(match key_of_cell(grid, x, y, w, h) {
-                        None => {
-                            if !is_upper {
-                                bail!(
-                                    "scene '{}' : -1 interdit sur la couche inferieure",
-                                    name
-                                );
-                            }
-                            gfx.blank_id
-                        }
+                        // S10 : -1 accepte sur les DEUX couches — cellule
+                        // vide = char transparent, la couleur de fond
+                        // (CGRAM 0, forcee noire par le moteur) se voit
+                        None => gfx.blank_id,
                         Some(key) => *gfx
                             .local_of
                             .get(&key)
@@ -840,8 +835,8 @@ impl SourceTileset {
         }
 
         Ok(SceneGrids {
-            lower: expand(lower, false)?,
-            upper: expand(upper, true)?,
+            lower: expand(lower)?,
+            upper: expand(upper)?,
             collision,
         })
     }

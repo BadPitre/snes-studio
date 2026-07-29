@@ -19,6 +19,7 @@
 #include "camera.h"
 #include "map.h"
 #include "vram.h"
+#include "effectlayer.h"
 
 #define WIN_W 32     /* fenêtre en metatiles = tilemap SC_64x64 complet */
 #define WIN_H 32
@@ -137,7 +138,10 @@ void map_init(void)
   row_pending = 0;
 
   map_fill_layer(scene_ctx.tilemap, VRAM_BG2_MAP, 0);
-  map_fill_layer(scene_ctx.tilemap_upper, VRAM_BG1_MAP, 1);
+  /* Couche d'effet (S9) : la région VRAM de la carte BG1 porte le motif
+     — la couche sup n'existe pas dans ces scènes, NE PAS y écrire */
+  if (!effect_active())
+    map_fill_layer(scene_ctx.tilemap_upper, VRAM_BG1_MAP, 1);
 }
 
 /* Prépare la colonne de metatiles mx (rangées win_y..win_y+31), 2 couches */
@@ -287,16 +291,22 @@ void map_vblank(void)
   {
     map_col_dma(VRAM_BG2_MAP, col_vram_x, col_lo[0]);
     map_col_dma(VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
-    map_col_dma(VRAM_BG1_MAP, col_vram_x, col_up[0]);
-    map_col_dma(VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
+    if (!effect_active()) /* S9 : la région BG1 porte le motif d'effet */
+    {
+      map_col_dma(VRAM_BG1_MAP, col_vram_x, col_up[0]);
+      map_col_dma(VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
+    }
     col_pending = 0;
   }
   if (row_pending)
   {
     map_row_dma(VRAM_BG2_MAP, row_vram_y, row_lo[0]);
     map_row_dma(VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
-    map_row_dma(VRAM_BG1_MAP, row_vram_y, row_up[0]);
-    map_row_dma(VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
+    if (!effect_active())
+    {
+      map_row_dma(VRAM_BG1_MAP, row_vram_y, row_up[0]);
+      map_row_dma(VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
+    }
     row_pending = 0;
   }
 }

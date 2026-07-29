@@ -17,6 +17,8 @@
 #include "screenfx.h"
 #include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
 #include "picture.h" /* SHOWPIC/HIDEPIC : pictures plein écran (S3) */
+#include "weather.h" /* WEATHER : météo en particules (S13) */
+#include "hdmafx.h"  /* WAVE : ondulation de l'écran (S14) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -534,6 +536,42 @@ static void vm_step(void)
       idx16 = fetch8(); /* g */
       screenfx_tint_rgb(val, (u8)idx16, fetch8());
       screenfx_tint(var);
+      break;
+
+    case VM_OP_WAVE: /* ondulation de l'écran (S14) — NON bloquant */
+      var = fetch8();
+      hdmafx_wave(var, fetch8());
+      break;
+
+    case VM_OP_SKYGRAD: /* dégradé de ciel (S15) — couleurs PUIS mode
+                           (parade tcc : 3 u8 max par appel) */
+      var = fetch8();   /* mode */
+      val = fetch8();   /* r haut */
+      idx16 = fetch8(); /* g haut */
+      hdmafx_grad_top(val, (u8)idx16, fetch8());
+      val = fetch8();   /* r bas */
+      idx16 = fetch8(); /* g bas */
+      hdmafx_grad_bottom(val, (u8)idx16, fetch8());
+      hdmafx_grad(var);
+      break;
+
+    case VM_OP_SPOTLIGHT: /* cercle de lumière (S16) — NON bloquant */
+      var = fetch8();
+      hdmafx_spot(var, fetch8());
+      break;
+
+    case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */
+      var = fetch8();
+      weather_set(var, fetch8());
+      break;
+
+    case VM_OP_TINTG: /* teinte GRADUELLE (S12) — rgb puis (mode, dur),
+                         même parade tcc que TINT (3 u8 max par appel) */
+      var = fetch8();   /* mode */
+      val = fetch8();   /* r */
+      idx16 = fetch8(); /* g */
+      screenfx_tintg_rgb(val, (u8)idx16, fetch8());
+      screenfx_tintg(var, fetch8());
       break;
 
     case VM_OP_FLASH: /* flash additif décroissant — NON bloquant */

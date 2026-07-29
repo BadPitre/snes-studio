@@ -224,6 +224,41 @@
                               saut), NON-bloquant (le script continue,
                               façon Move Picture RM2003). flags bits 1-2
                               comme SHOWPIC. Sans image : ignoré (S7). */
+#define VM_OP_WEATHER 0x2C /* type, pow (u8 x2) — météo en particules
+                              (S13) : 0 aucune, 1 pluie, 2 neige ; pow
+                              1-3 = 8/16/24 sprites (OAM 100-123, chars
+                              OBJ 484+, palette OBJ 7). État GLOBAL,
+                              persiste entre les scènes (RM2003). */
+#define VM_OP_WAVE 0x2D /* power, speed (u8 x2) — ONDULATION de l'écran
+                            (S14, HDMA) : scrolls BG1/BG2 sinusoïdaux par
+                            bandes de 16 lignes. power 0-7 px (0 = stop),
+                            speed 1-8. NON bloquant, persiste entre les
+                            scènes ; suspendu pendant une picture. */
+#define VM_OP_SKYGRAD 0x2E /* mode, r0, g0, b0, r1, g1, b1 (u8 x7) —
+                              DÉGRADÉ de ciel (S15, HDMA) : teinte
+                              VERTICALE du haut (r0g0b0) vers le bas
+                              (r1g1b1), 0-31 par canal. mode 0 = off,
+                              1 = éclaircir, 2 = assombrir. REMPLACE la
+                              teinte plate (TINT/TINTG l'annule — même
+                              circuit color math). NON bloquant, persiste
+                              entre les scènes ; coupé sous mélange /
+                              flash / picture. */
+#define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
+                                HDMA) : cercle de lumière radius 16-96 px
+                                (0 = off) qui SUIT le héros, décor
+                                assombri (soustraction dark 1-31) hors de
+                                la fenêtre couleur W1. REMPLACE teinte et
+                                dégradé (même circuit). NON bloquant,
+                                persiste entre les scènes ; sprites et
+                                texte visibles partout (hardware). */
+#define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
+                            (S12, jour/nuit) : interpole la teinte
+                            courante vers la cible en dur frames, NON
+                            bloquant, persiste entre les scènes. dur 0 =
+                            TINT immédiat ; add<->sub passe par zéro en
+                            deux phases. Suspendue à l'écran pendant un
+                            mélange (couche d'effet/picture — cm_hold),
+                            mais l'interpolation continue. */
 
 #define VAROP_SET 0
 #define VAROP_ADD 1
