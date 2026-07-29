@@ -176,6 +176,10 @@ function labelOf(c: Command, ceNames?: string[]): string {
       return c.mode === "off"
         ? "Dégradé : retirer"
         : `Dégradé de ciel : ${c.mode === "add" ? "éclaircir" : "assombrir"} haut (${c.r},${c.g},${c.b}) → bas (${c.r2},${c.g2},${c.b2})`;
+    case "spotlight":
+      return c.radius === 0
+        ? "Spotlight : arrêter"
+        : `Spotlight sur le héros (rayon ${c.radius} px, obscurité ${c.dark ?? 31})`;
     case "weather":
       return c.kind === "off"
         ? "Météo : aucune"
@@ -230,6 +234,7 @@ function cmdTitle(c: Command["c"]): string {
     weather: "Météo (pluie / neige)",
     wave: "Ondulation de l'écran",
     skygrad: "Dégradé d'écran (ciel)",
+    spotlight: "Spotlight (cercle de lumière)",
     flash: "Flash d'écran",
     shake: "Secouer l'écran",
     call: "Appeler un common event",
@@ -498,6 +503,8 @@ export function CommandListEditor(props: {
         return { c: "wave", power: 3, speed: 2 };
       case "skygrad":
         return { c: "skygrad", mode: "sub", r: 12, g: 8, b: 0, r2: 0, g2: 0, b2: 0 };
+      case "spotlight":
+        return { c: "spotlight", radius: 48, dark: 31 };
       case "flash":
         return { c: "flash", r: 31, g: 31, b: 31, frames: 8 };
       case "shake":
@@ -2170,6 +2177,43 @@ function CommandForm(props: {
             scènes ; en pause pendant un mélange (couche d'effet /
             image) ou un flash. Immédiat, non bloquant, aucun coût en
             jeu (table calculée à la commande).
+          </span>
+        </>
+      );
+      break;
+    case "spotlight":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Rayon du cercle (px — 0 = arrêter)
+              <select
+                value={cmd.radius}
+                onChange={(e) => onChange({ ...cmd, radius: Number(e.target.value) })}
+              >
+                <option value={0}>0 (arrêter)</option>
+                {[24, 32, 40, 48, 64, 80, 96].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            {cmd.radius > 0 && (
+              <label>
+                Obscurité (1-31 — 31 = noir total)
+                <input
+                  type="number" min={1} max={31} value={cmd.dark ?? 31}
+                  onChange={(e) => onChange({ ...cmd, dark: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Cercle de lumière qui SUIT le héros (grotte, nuit, torche) :
+            le décor est assombri hors du cercle. Remplace la teinte et
+            le dégradé — et « Teinter l'écran » retire le spotlight
+            (même circuit console). Les personnages et le texte restent
+            visibles partout (limite matérielle, comme la teinte).
+            Immédiat, non bloquant, persiste entre les scènes.
           </span>
         </>
       );

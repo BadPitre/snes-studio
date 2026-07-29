@@ -243,6 +243,14 @@
                               circuit color math). NON bloquant, persiste
                               entre les scènes ; coupé sous mélange /
                               flash / picture. */
+#define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
+                                HDMA) : cercle de lumière radius 16-96 px
+                                (0 = off) qui SUIT le héros, décor
+                                assombri (soustraction dark 1-31) hors de
+                                la fenêtre couleur W1. REMPLACE teinte et
+                                dégradé (même circuit). NON bloquant,
+                                persiste entre les scènes ; sprites et
+                                texte visibles partout (hardware). */
 #define VM_OP_TINTG 0x2B /* mode, r, g, b, dur (u8 x5) — teinte GRADUELLE
                             (S12, jour/nuit) : interpole la teinte
                             courante vers la cible en dur frames, NON

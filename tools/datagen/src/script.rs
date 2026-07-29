@@ -79,6 +79,7 @@ const OP_TINTG: u8 = 0x2B;
 const OP_WEATHER: u8 = 0x2C;
 const OP_WAVE: u8 = 0x2D;
 const OP_SKYGRAD: u8 = 0x2E;
+const OP_SPOTLIGHT: u8 = 0x2F;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -232,6 +233,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "WAVE" => 3,
         // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> — degrade (S15)
         "SKYGRAD" => 8,
+        // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de lumiere (S16)
+        "SPOTLIGHT" => 3,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -699,6 +702,15 @@ pub fn assemble(
                     let v = parse_u8(t)?;
                     if v > 31 { bail!("SKYGRAD : canal > 31 : {}", v); }
                     code.push(v);
+                }
+            }
+            // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de
+            // lumiere autour du heros (S16) : radius 0 = off
+            "SPOTLIGHT" => {
+                if argc != 2 { bail!("SPOTLIGHT <0|16-96> <1-31>"); }
+                code.push(OP_SPOTLIGHT);
+                for t in args {
+                    code.push(parse_u8(t)?);
                 }
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)

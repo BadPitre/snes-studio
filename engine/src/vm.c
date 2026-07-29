@@ -555,6 +555,11 @@ static void vm_step(void)
       hdmafx_grad(var);
       break;
 
+    case VM_OP_SPOTLIGHT: /* cercle de lumière (S16) — NON bloquant */
+      var = fetch8();
+      hdmafx_spot(var, fetch8());
+      break;
+
     case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */
       var = fetch8();
       weather_set(var, fetch8());

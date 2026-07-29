@@ -331,7 +331,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   assombrir ; coucher de soleil, aube, profondeur. Remplace la
   teinte plate, et « Teinter l'écran » retire le dégradé — même
   circuit console. Décor seulement, persiste entre les scènes,
-  aucun coût en jeu), **Flash d'écran** (traverse aussi les mélanges : l'éclair
+  aucun coût en jeu), **Spotlight (cercle de lumière)** (S16 —
+  rayon 16-96 px, obscurité 1-31 : cercle de lumière qui SUIT le
+  héros, décor assombri autour ; grotte, nuit, torche. Remplace
+  teinte et dégradé (même circuit), persiste entre les scènes ;
+  les personnages et le texte restent visibles partout — limite
+  matérielle, comme la teinte. 0 = arrêter),
+  **Flash d'écran** (traverse aussi les mélanges : l'éclair
   d'orage marche au-dessus des nuages semi-transparents) et **Secouer
   l'écran** (non bloquants — enchaîner avec « Attendre »).
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events

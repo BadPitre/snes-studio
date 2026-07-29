@@ -50,6 +50,15 @@ void screenfx_tintg(u8 mode, u8 frames);
 void screenfx_skygrad(u8 mode);
 u8 screenfx_skygrad_mode(void);
 
+/* Spotlight (S16) : cercle de lumière autour du héros — le décor est
+   assombri (soustraction dark,dark,dark) HORS de la fenêtre couleur
+   W1, dont le cercle est tracé par le HDMA (hdmafx_spot). dark 0 =
+   off, 1-31 = obscurité (31 = décor noir). REMPLACE teinte et
+   dégradé ; TINT/TINTG/SKYGRAD le retire (même circuit). Les sprites
+   et le texte restent visibles partout (même limite que la teinte). */
+void screenfx_spot(u8 dark);
+u8 screenfx_spot_active(void);
+
 /* État du circuit pour hdmafx (canal COLDATA coupé quand le circuit
    est tenu par un mélange ou emprunté par un flash) */
 u8 screenfx_cm_held(void);

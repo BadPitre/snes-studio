@@ -36,6 +36,12 @@ static u8 shake_power, shake_speed, shake_frames, shake_phase, shake_tick;
    CGWSEL/CGADSUB. Exclusif avec la teinte plate (même registre). */
 static u8 grad_mode;
 
+/* Spotlight (S16) : soustraction (dark,dark,dark) HORS de la fenêtre
+   couleur W1 — le cercle de lumière est tracé par le HDMA (hdmafx,
+   canal 3, WH0/WH1). screenfx détient l'intensité (source de vérité)
+   et arme fenêtre + circuit au VBlank. Exclusif avec teinte/dégradé. */
+static u8 spot_dark;
+
 /* Teinte GRADUELLE (S12, jour/nuit) : interpolation 8.8 de la teinte
    courante vers une cible en N frames — non bloquante, persiste comme
    la teinte. Bascule add<->sub en DEUX phases (descente vers 0 puis
@@ -71,6 +77,7 @@ void screenfx_init(void)
   shake_phase = 0;
   shake_tick = 0;
   grad_mode = 0; /* dégradé de ciel (S15) */
+  spot_dark = 0; /* spotlight (S16) */
   tg_left = 0; /* teinte graduelle (S12) — init explicite (tcc) */
   tg_mode = 0;
   tg_phase2 = 0;
@@ -166,6 +173,7 @@ void screenfx_tint(u8 mode)
   tg_left = 0;   /* une teinte IMMÉDIATE annule la graduelle en cours */
   tg_phase2 = 0;
   grad_mode = 0; /* … et le dégradé de ciel (même circuit, S15) */
+  spot_dark = 0; /* … et le spotlight (S16) */
   cm_dirty = 1;
 }
 
@@ -177,8 +185,27 @@ void screenfx_skygrad(u8 mode)
     tint_mode = 0; /* le dégradé REMPLACE la teinte plate */
     tg_left = 0;   /* et coupe une graduelle en cours */
     tg_phase2 = 0;
+    spot_dark = 0; /* … et le spotlight (S16) */
   }
   cm_dirty = 1;
+}
+
+void screenfx_spot(u8 dark)
+{
+  spot_dark = dark > 31 ? 31 : dark;
+  if (spot_dark)
+  {
+    tint_mode = 0; /* le spotlight REMPLACE teinte et dégradé */
+    tg_left = 0;
+    tg_phase2 = 0;
+    grad_mode = 0;
+  }
+  cm_dirty = 1;
+}
+
+u8 screenfx_spot_active(void)
+{
+  return spot_dark;
 }
 
 u8 screenfx_skygrad_mode(void)
@@ -232,6 +259,7 @@ void screenfx_tintg(u8 mode, u8 frames)
   if (mode > 2)
     mode = 0;
   grad_mode = 0; /* une teinte (même graduelle) annule le dégradé (S15) */
+  spot_dark = 0; /* … et le spotlight (S16) */
   if (mode == 0)
   {
     tg_fr = 0; /* « normale » : on fond la teinte courante vers zéro */
@@ -423,11 +451,26 @@ void screenfx_vblank(void)
     REG_CGWSEL = 0x00;  /* opérande = couleur fixe */
     REG_CGADSUB = 0x23; /* addition sur BG1+BG2+fond (BG3/OBJ exclus) */
   }
+  else if (spot_dark)
+  {
+    /* spotlight (S16) : soustraction (dark,dark,dark) HORS de la
+       fenêtre couleur W1 — le cercle (WH0/WH1) est tracé par le HDMA
+       (hdmafx, canal 3). Le décor est noirci autour du héros ; BG3 et
+       les sprites ne participent pas (même limite hardware que la
+       teinte). */
+    r = spot_dark;
+    g = spot_dark;
+    b = spot_dark;
+    REG_WOBJSEL = 0x20; /* W1 activée pour la fenêtre COULEUR */
+    REG_CGWSEL = 0x20;  /* color math coupé À L'INTÉRIEUR de la fenêtre */
+    REG_CGADSUB = 0xA3; /* soustraction sur BG1+BG2+fond */
+  }
   else if (tint_mode)
   {
     r = tint_r;
     g = tint_g;
     b = tint_b;
+    REG_WOBJSEL = 0x00; /* fenêtre couleur rendue (spotlight off) */
     REG_CGWSEL = 0x00;
     REG_CGADSUB = tint_mode == 2 ? 0xA3 : 0x23; /* bit 7 = soustraction */
   }
@@ -435,6 +478,7 @@ void screenfx_vblank(void)
   {
     /* dégradé de ciel (S15) : le circuit est armé ICI, mais COLDATA
        appartient au HDMA (hdmafx, canal 4) — ne pas l'écrire */
+    REG_WOBJSEL = 0x00;
     REG_CGWSEL = 0x00;
     REG_CGADSUB = grad_mode == 2 ? 0xA3 : 0x23;
     return;
@@ -444,6 +488,7 @@ void screenfx_vblank(void)
     r = 0;
     g = 0;
     b = 0;
+    REG_WOBJSEL = 0x00;
     REG_CGADSUB = 0x00; /* plus de color math */
   }
   REG_COLDATA = 0x20 | r; /* plans R, G, B de la couleur fixe */

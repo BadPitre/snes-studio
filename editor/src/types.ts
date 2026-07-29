@@ -236,6 +236,7 @@ export type Command =
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
   | { c: "wave"; power: number; speed?: number }
+  | { c: "spotlight"; radius: number; dark?: number }
   | {
       c: "skygrad";
       mode: "off" | "add" | "sub";

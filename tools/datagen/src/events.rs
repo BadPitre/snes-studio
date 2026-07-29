@@ -620,6 +620,15 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // S16 — spotlight : cercle de lumiere autour du heros
+                "spotlight" => {
+                    let rad = cmd["radius"]
+                        .as_u64()
+                        .filter(|&v| v == 0 || (16..=96).contains(&v))
+                        .unwrap_or(0);
+                    let dark = cmd["dark"].as_u64().filter(|&v| (1..=31).contains(&v)).unwrap_or(31);
+                    out.push(format!("  SPOTLIGHT {} {}", rad, dark));
+                }
                 // S15 — degrade de ciel : teinte verticale haut -> bas
                 "skygrad" => {
                     let mode = match cmd["mode"].as_str().unwrap_or("off") {

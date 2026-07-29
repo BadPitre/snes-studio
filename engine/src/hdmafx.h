@@ -23,6 +23,15 @@ void hdmafx_grad_top(u8 r, u8 g, u8 b);
 void hdmafx_grad_bottom(u8 r, u8 g, u8 b);
 void hdmafx_grad(u8 mode);
 
+/* Spotlight (SPOTLIGHT, S16) : cercle de lumière qui SUIT le héros —
+   radius 16-96 px (0 = off), dark 1-31 = obscurité du décor hors du
+   cercle (0 -> 31 = noir). Cercle précalculé à la commande, table
+   fenêtre reconstruite seulement quand le héros/la caméra bouge.
+   REMPLACE teinte et dégradé (même circuit) ; persiste entre les
+   scènes ; sprites et texte restent visibles (limite hardware, comme
+   la teinte). */
+void hdmafx_spot(u8 radius, u8 dark);
+
 /* Un pas par frame (boucle principale, toujours) : reconstruit les
    tables d'offsets (bandes de 16 lignes) depuis les scrolls courants. */
 void hdmafx_update(void);

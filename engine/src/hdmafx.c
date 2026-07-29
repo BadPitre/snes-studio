@@ -36,8 +36,15 @@
 #include "camera.h"
 #include "screenfx.h"
 #include "effectlayer.h"
+#include "player.h" /* le spotlight (S16) suit le héros */
 
-/* registres des canaux 4 / 5 / 6 (le 7 appartient au DMA OAM du NMI) */
+/* registres des canaux 3 / 4 / 5 / 6 (le 7 appartient au DMA OAM du
+   NMI) */
+#define DMAP3 (*(vuint8 *)0x4330)
+#define BBAD3 (*(vuint8 *)0x4331)
+#define A1T3L (*(vuint8 *)0x4332)
+#define A1T3H (*(vuint8 *)0x4333)
+#define A1B3 (*(vuint8 *)0x4334)
 #define DMAP4 (*(vuint8 *)0x4340)
 #define BBAD4 (*(vuint8 *)0x4341)
 #define A1T4L (*(vuint8 *)0x4342)
@@ -103,6 +110,12 @@ void hdmafx_wave(u8 power, u8 speed)
   }
 }
 
+/* spotlight (S16) — définis plus bas, utilisés par hdmafx_update */
+static u8 sp_rad;
+static u8 sp_phase = 0; /* 0 = repos, 1 = moitié basse à finir */
+static void sp_build_high(void);
+static void sp_build_low(void);
+
 void hdmafx_update(void)
 {
   u16 i, o, v1, v2;
@@ -111,31 +124,44 @@ void hdmafx_update(void)
   u8 *q1;
   u8 *q2;
 
-  if (!wv_pow)
-    return;
-  wv_phase += wv_spd;
-  b2 = camera.x + screenfx_shake_x();
-  b1 = effect_active() ? effect_hofs() : b2;
-  b1 -= wv_pow; /* le -amplitude sort de la boucle */
-  b2 -= wv_pow;
-  ph = wv_phase;
-  q1 = wv_t1 + 1;
-  q2 = wv_t2 + 1;
-  for (i = 0; i < WV_BANDS; i++)
+  if (wv_pow)
   {
-    /* offset 0..2*power autour de la base — table précalculée, phase
-       u8 en index direct : ni division, ni multiplication, ni masque
-       (budget frame des boucles chargées, panneau S6) */
-    o = wv_off[ph];
-    v1 = b1 + o;
-    v2 = b2 + o;
-    q1[0] = (u8)v1;
-    q1[1] = (u8)(v1 >> 8);
-    q2[0] = (u8)v2;
-    q2[1] = (u8)(v2 >> 8);
-    q1 += 3;
-    q2 += 3;
-    ph += WV_STEP; /* un pas de houle par bande */
+    wv_phase += wv_spd;
+    b2 = camera.x + screenfx_shake_x();
+    b1 = effect_active() ? effect_hofs() : b2;
+    b1 -= wv_pow; /* le -amplitude sort de la boucle */
+    b2 -= wv_pow;
+    ph = wv_phase;
+    q1 = wv_t1 + 1;
+    q2 = wv_t2 + 1;
+    for (i = 0; i < WV_BANDS; i++)
+    {
+      /* offset 0..2*power autour de la base — table précalculée, phase
+         u8 en index direct : ni division, ni multiplication, ni masque
+         (budget frame des boucles chargées, panneau S6) */
+      o = wv_off[ph];
+      v1 = b1 + o;
+      v2 = b2 + o;
+      q1[0] = (u8)v1;
+      q1[1] = (u8)(v1 >> 8);
+      q2[0] = (u8)v2;
+      q2[1] = (u8)(v2 >> 8);
+      q1 += 3;
+      q2 += 3;
+      ph += WV_STEP; /* un pas de houle par bande */
+    }
+  }
+  if (sp_rad && screenfx_spot_active())
+  {
+    /* spotlight : reconstruction étalée sur DEUX frames (moitié haute
+       puis moitié basse, centre gelé — le cercle a au plus 2-3 px de
+       retard sur le héros, invisible) et seulement si le héros ou la
+       caméra a bougé. Immobile : coût nul. La reconstruction en une
+       passe faisait retomber la marche de 60 à 30 FPS (panneau S6). */
+    if (sp_phase)
+      sp_build_low();
+    else
+      sp_build_high();
   }
 }
 
@@ -273,6 +299,213 @@ void hdmafx_grad(u8 mode)
   screenfx_skygrad(mode); /* arme le circuit (et remplace la teinte) */
 }
 
+/*
+ * Spotlight (S16) : cercle de lumière autour du héros — le canal 3
+ * réécrit WH0/WH1 ($2126-27, mode 1 : deux registres adjacents) ligne
+ * à ligne pour tracer le cercle de la fenêtre couleur W1 ; screenfx
+ * assombrit le décor HORS fenêtre (même circuit que la teinte). Les
+ * demi-largeurs du cercle sont précalculées À LA COMMANDE (méthode
+ * incrémentale, ni multiplication ni racine) ; la table n'est
+ * reconstruite QUE quand le héros ou la caméra bouge — immobile,
+ * le spotlight ne coûte RIEN par frame.
+ */
+#define SP_RMAX 96 /* rayon max : le cercle tient dans les 224 lignes */
+
+/* sp_rad (rayon, 0 = jamais commandé) est déclaré plus haut, au-dessus
+   de hdmafx_update qui l'utilise */
+static u8 sp_hw[SP_RMAX + 1]; /* demi-largeur du cercle par |dy| */
+static u16 sp_cx = 0xFFFF;    /* centre de la dernière table bâtie */
+static u16 sp_cy = 0xFFFF;
+static u8 sp_tab[SP_RMAX * 6 + 24]; /* [1][WH0][WH1] par ligne du
+   cercle (2r+1 max) + bandes vides [count][255][0] + terminateur */
+
+void hdmafx_spot(u8 radius, u8 dark)
+{
+  u16 t, w2;
+  u8 dy, w;
+
+  sp_phase = 0; /* une commande en pleine construction repart de zéro */
+  if (radius == 0)
+  {
+    screenfx_spot(0); /* canal 3 coupé au prochain VBlank */
+    return;
+  }
+  if (radius < 16)
+    radius = 16;
+  if (radius > SP_RMAX)
+    radius = SP_RMAX;
+  sp_rad = radius;
+  /* demi-largeurs : w = plancher de racine(r^2 - dy^2), maintenu par
+     DIFFÉRENCES (t perd 2dy+1 par ligne, w^2 perd 2w-1 par pas) —
+     aucune multiplication, aucune racine ; r^2 par additions (une
+     fois à la commande) */
+  t = 0;
+  for (dy = 0; dy < radius; dy++)
+    t += radius;
+  w2 = t;
+  w = radius;
+  for (dy = 0; dy <= radius; dy++)
+  {
+    while (w2 > t && w)
+    {
+      w2 -= (u16)(w << 1) - 1;
+      w--;
+    }
+    sp_hw[dy] = w;
+    t -= ((u16)dy << 1) + 1;
+  }
+  sp_cx = 0xFFFF; /* force la reconstruction à la prochaine frame */
+  sp_cy = 0xFFFF;
+  screenfx_spot(dark ? dark : 31);
+}
+
+/* Reconstruction de la table WH0/WH1 étalée sur DEUX frames :
+   sp_build_high (bande sombre du haut + moitié haute du cercle) puis
+   sp_build_low (moitié basse + bande du bas + terminateur), centre
+   GELÉ entre les deux (sp_cx/sp_cy) pour une table cohérente. La
+   caméra centre le héros : dans le cas courant le cercle ne touche
+   pas les bords -> CHEMIN RAPIDE en arithmétique u8 pure, sans
+   clamp, demi-largeurs par POINTEUR. Une reconstruction en une seule
+   passe (97 lignes + clamps indexés) faisait retomber la marche de
+   60 à 30 FPS — leçon panneau S6. */
+static u8 *sp_q;    /* curseur d'écriture entre les deux phases */
+static u16 sp_line; /* ligne écran atteinte par la phase haute */
+
+static void sp_build_high(void)
+{
+  u16 cx, cy, top, l, r;
+  u16 line;
+  u8 n, w, c8;
+  u8 *q;
+  u8 *hw;
+
+  cx = player.x - camera.x + 8; /* centre du metasprite 16x24 */
+  cy = player.y - camera.y + 12;
+  if (cx == sp_cx && cy == sp_cy)
+    return;
+  sp_cx = cx;
+  sp_cy = cy;
+  q = sp_tab;
+  top = cy - sp_rad; /* wrap u16 si le cercle dépasse en haut */
+  line = 0;
+  if (top < 224) /* pas de wrap : bande sombre au-dessus du cercle */
+    while (line < top)
+    {
+      n = (u8)(top - line) > 127 ? 127 : (u8)(top - line);
+      q[0] = n;
+      q[1] = 255; /* fenêtre vide : tout est « dehors » -> sombre */
+      q[2] = 0;
+      q += 3;
+      line += n;
+    }
+  /* cercle en BANDES DE 2 LIGNES ([count=2][WH0][WH1]) : moitié
+     d'entrées — la marche de 2 px sur le bord du masque est
+     invisible, et le budget frame est tenu (panneau S6) */
+  if (cx >= sp_rad && cx + sp_rad <= 255)
+  {
+    /* chemin rapide : cx ± hw reste dans 0-255 — tout en u8 */
+    c8 = (u8)cx;
+    hw = sp_hw + (u8)(cy - line); /* dy de la première rangée */
+    while (line < cy)
+    {
+      w = *hw;
+      n = (u8)(cy - line) >= 2 ? 2 : 1;
+      hw -= n;
+      q[0] = n;
+      q[1] = c8 - w;
+      q[2] = c8 + w;
+      q += 3;
+      line += n;
+    }
+  }
+  else
+  {
+    /* près d'un bord de map : clamps (rare — caméra en butée) */
+    while (line < cy)
+    {
+      w = sp_hw[cy - line];
+      l = cx - w;
+      if (l > 255) /* wrap u16 : bord gauche hors écran */
+        l = 0;
+      r = cx + w;
+      if (r > 255)
+        r = 255;
+      n = (u8)(cy - line) >= 2 ? 2 : 1;
+      q[0] = n;
+      q[1] = (u8)l;
+      q[2] = (u8)r;
+      q += 3;
+      line += n;
+    }
+  }
+  sp_q = q;
+  sp_line = line;
+  sp_phase = 1; /* la moitié basse suit à la prochaine frame */
+}
+
+static void sp_build_low(void)
+{
+  u16 cx, cy, bot, l, r;
+  u16 line;
+  u8 n, w, c8;
+  u8 *q;
+  u8 *hw;
+
+  cx = sp_cx; /* centre GELÉ par la phase haute */
+  cy = sp_cy;
+  q = sp_q;
+  line = sp_line;
+  bot = cy + sp_rad;
+  if (bot > 223)
+    bot = 223;
+  if (cx >= sp_rad && cx + sp_rad <= 255)
+  {
+    c8 = (u8)cx;
+    hw = sp_hw; /* dy = 0 à la ligne du centre */
+    while (line <= bot)
+    {
+      w = *hw;
+      n = (u16)(bot - line) >= 1 ? 2 : 1; /* bandes de 2 lignes */
+      hw += n;
+      q[0] = n;
+      q[1] = c8 - w;
+      q[2] = c8 + w;
+      q += 3;
+      line += n;
+    }
+  }
+  else
+  {
+    while (line <= bot)
+    {
+      w = sp_hw[line - cy];
+      l = cx - w;
+      if (l > 255)
+        l = 0;
+      r = cx + w;
+      if (r > 255)
+        r = 255;
+      n = (u16)(bot - line) >= 1 ? 2 : 1;
+      q[0] = n;
+      q[1] = (u8)l;
+      q[2] = (u8)r;
+      q += 3;
+      line += n;
+    }
+  }
+  while (line < 224) /* bande sombre sous le cercle */
+  {
+    n = (u8)(224 - line) > 127 ? 127 : (u8)(224 - line);
+    q[0] = n;
+    q[1] = 255;
+    q[2] = 0;
+    q += 3;
+    line += n;
+  }
+  *q = 0; /* terminateur */
+  sp_phase = 0;
+}
+
 void hdmafx_vblank(void)
 {
   u16 a;
@@ -306,6 +539,19 @@ void hdmafx_vblank(void)
     A1T4H = (u8)(a >> 8);
     A1B4 = 0x7E;
     m |= 0x10;
+  }
+  if (sp_rad && screenfx_spot_active() && !screenfx_cm_held())
+  {
+    /* spotlight : cercle WH0/WH1 — inerte pendant un flash (CGWSEL
+       passe la fenêtre en « jamais » : tout l'écran flashe), coupé
+       sous mélange comme la teinte */
+    DMAP3 = 0x01; /* deux registres adjacents ($2126 puis $2127) */
+    BBAD3 = 0x26; /* WH0 */
+    a = (u16)(u8 *)sp_tab;
+    A1T3L = (u8)a;
+    A1T3H = (u8)(a >> 8);
+    A1B3 = 0x7E;
+    m |= 0x08;
   }
   if (m || hx_on)
     REG_HDMAEN = m;

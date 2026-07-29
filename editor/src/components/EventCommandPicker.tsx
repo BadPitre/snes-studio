@@ -67,6 +67,7 @@ const TABS: Tab[] = [
       { c: "weather", label: "Météo (pluie / neige)" },
       { c: "wave", label: "Ondulation de l'écran" },
       { c: "skygrad", label: "Dégradé d'écran (ciel)" },
+      { c: "spotlight", label: "Spotlight (cercle de lumière)" },
       { c: "flash", label: "Flash d'écran" },
       { c: "shake", label: "Secouer l'écran" },
       { c: "ui_show", label: "Afficher/cacher un widget UI" },

@@ -403,6 +403,11 @@ droits ; power 0 = stop, non bloquant, persiste entre les scènes ;
 vers le bas (r2,g2,b2), remplace la teinte plate (et `tint` retire
 le dégradé — même circuit color math) ; décor seulement, persiste
 entre les scènes, zéro coût par frame (table HDMA statique) ;
+**`{"c":"spotlight","radius":0|16-96,"dark":1-31}` (S16)** — cercle
+de lumière qui suit le héros (`SPOTLIGHT <radius> <dark>`, radius 0 =
+off, dark 31 = décor noir hors du cercle) : remplace teinte et
+dégradé, persiste entre les scènes ; les sprites et le texte restent
+visibles partout (même limite hardware que la teinte) ;
 `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop
