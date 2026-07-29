@@ -270,11 +270,15 @@ function sceneToJson(sc: Scene): string {
   const music = sc.music ? `\n  "music": ${JSON.stringify(sc.music)},` : "";
   const tileset = sc.tileset ? `\n  "tileset": ${JSON.stringify(sc.tileset)},` : "";
   const parent = sc.parent ? `\n  "parent": ${JSON.stringify(sc.parent)},` : "";
+  // couche d'effet (S9) — LECON : ce serialiseur est MANUEL, tout nouveau
+  // champ de Scene doit etre ajoute ici sinon il est perdu en silence a la
+  // sauvegarde (bug de la premiere livraison S9 : effet invisible en jeu)
+  const effect = sc.effect ? `\n  "effect": ${JSON.stringify(sc.effect)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}${parent}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}${parent}${effect}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "events": ${events},
