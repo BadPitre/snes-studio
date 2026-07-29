@@ -11,7 +11,7 @@ import { assetStem } from "../types";
 
 type Cat =
   | "charset" | "chipset" | "windowskin" | "iconset" | "fontset"
-  | "picture" | "sound" | "music";
+  | "picture" | "sound" | "music" | "vignette";
 
 interface Props {
   root: string;
@@ -29,6 +29,7 @@ interface Props {
   pictures: string[]; // images S3 (PNG ≤ 16 couleurs, ≤ 256x224)
   sounds: string[]; // sons WAV (B1) — chemins assets/sounds/*.wav
   musics: string[]; // musiques IT — chemins assets/music/*.it
+  vignettes: string[]; // bandes de frames 32x32 (B5)
   // ressource -> scènes qui l'utilisent (pour bloquer la suppression)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
@@ -41,6 +42,7 @@ interface Props {
   onImportPicture: () => void;
   onImportSound: () => void;
   onImportMusic: () => void;
+  onImportVignette: () => void;
   onExportCharset: (b: number) => void;
   onExportChipset: (stem: string) => void;
   onExportWindowskin: (rel: string) => void;
@@ -49,6 +51,7 @@ interface Props {
   onExportPicture: (rel: string) => void;
   onExportSound: (rel: string) => void;
   onExportMusic: (rel: string) => void;
+  onExportVignette: (rel: string) => void;
   onRenameCharset: (b: number, name: string) => void;
   onRenameChipset: (stem: string, newStem: string) => void;
   onRenameWindowskin: (rel: string, newName: string) => void;
@@ -57,6 +60,7 @@ interface Props {
   onRenamePicture: (rel: string, newName: string) => void;
   onRenameSound: (rel: string, newName: string) => void;
   onRenameMusic: (rel: string, newName: string) => void;
+  onRenameVignette: (rel: string, newName: string) => void;
   onDeleteCharset: (b: number) => void;
   onDeleteChipset: (stem: string) => void;
   onDeleteWindowskin: (rel: string) => void;
@@ -65,6 +69,7 @@ interface Props {
   onDeletePicture: (rel: string) => void;
   onDeleteSound: (rel: string) => void;
   onDeleteMusic: (rel: string) => void;
+  onDeleteVignette: (rel: string) => void;
   onClose: () => void;
 }
 
@@ -78,6 +83,8 @@ export default function ResourceManagerModal(p: Props) {
   const [selPic, setSelPic] = useState(p.pictures[0] ?? "");
   const [selSnd, setSelSnd] = useState(p.sounds[0] ?? "");
   const [selMus, setSelMus] = useState(p.musics[0] ?? "");
+  const [selVig, setSelVig] = useState(p.vignettes[0] ?? "");
+  const [vigBmp, setVigBmp] = useState<ImageBitmap | null>(null);
   const [skinBmp, setSkinBmp] = useState<ImageBitmap | null>(null);
   const [iconsBmp, setIconsBmp] = useState<ImageBitmap | null>(null);
   const [fontBmp, setFontBmp] = useState<ImageBitmap | null>(null);
@@ -125,6 +132,14 @@ export default function ResourceManagerModal(p: Props) {
   useEffect(() => {
     if (!p.musics.includes(selMus)) setSelMus(p.musics[0] ?? "");
   }, [p.musics, selMus]);
+  useEffect(() => {
+    if (!p.vignettes.includes(selVig)) setSelVig(p.vignettes[0] ?? "");
+  }, [p.vignettes, selVig]);
+  useEffect(() => {
+    setVigBmp(null);
+    if (cat === "vignette" && selVig)
+      void loadAssetPng(p.root, selVig).then(setVigBmp).catch(() => {});
+  }, [cat, selVig, p.root, p.vignettes]);
   useEffect(() => {
     setPicBmp(null);
     if (cat === "picture" && selPic)
@@ -195,6 +210,15 @@ export default function ResourceManagerModal(p: Props) {
         260, 14);
       ctx.fillText("≤ 16 couleurs (PNG indexé),", 260, 32);
       ctx.fillText("≤ 512 tiles 8x8 uniques (build)", 260, 46);
+    } else if (cat === "vignette" && vigBmp) {
+      const n = vigBmp.width / 32;
+      ctx.fillStyle = "#9aa0a8";
+      ctx.font = "11px system-ui";
+      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer la vignette »`, 8, 12);
+      for (let i = 0; i < n; i++) {
+        ctx.drawImage(vigBmp, i * 32, 0, 32, 32, 8 + i * 74, 22, 64, 64);
+        ctx.fillText(String(i + 1), 34 + i * 74, 96);
+      }
     } else if (cat === "sound" || cat === "music") {
       ctx.fillStyle = "#9aa0a8";
       ctx.font = "11px system-ui";
@@ -221,7 +245,7 @@ export default function ResourceManagerModal(p: Props) {
       for (let half = 0; half < 2; half++)
         ctx.drawImage(fontBmp, half * 384, 0, 384, 8, 8, 48 + half * 20, 384, 8);
     }
-  }, [cat, selBloc, selChip, p.sprites, p.tilesets, skinBmp, skinActive, iconsBmp, iconsActive, fontBmp, fontDefault, picBmp]);
+  }, [cat, selBloc, selChip, p.sprites, p.tilesets, skinBmp, skinActive, iconsBmp, iconsActive, fontBmp, fontDefault, picBmp, vigBmp, p.sounds.length, p.musics.length]);
 
   const rename = () => {
     if (renaming === null) return;
@@ -234,6 +258,7 @@ export default function ResourceManagerModal(p: Props) {
       else if (cat === "fontset") p.onRenameFont(selFont, v);
       else if (cat === "sound") p.onRenameSound(selSnd, v);
       else if (cat === "music") p.onRenameMusic(selMus, v);
+      else if (cat === "vignette") p.onRenameVignette(selVig, v);
       else p.onRenamePicture(selPic, v);
     }
     setRenaming(null);
@@ -316,6 +341,15 @@ export default function ResourceManagerModal(p: Props) {
               }}
             >
               🗀 Musique (Modules IT)
+            </div>
+            <div
+              className={"tree-row" + (cat === "vignette" ? " active" : "")}
+              onClick={() => {
+                setCat("vignette");
+                setRenaming(null);
+              }}
+            >
+              🗀 Vignette (Animations)
             </div>
           </div>
           <div className="resmgr-list">
@@ -414,18 +448,31 @@ export default function ResourceManagerModal(p: Props) {
                                 ♪ {assetStem(rel)}
                               </div>
                             ))
-                          : p.musics.map((rel) => (
-                              <div
-                                key={rel}
-                                className={"tree-row" + (rel === selMus ? " active" : "")}
-                                onClick={() => {
-                                  setSelMus(rel);
-                                  setRenaming(null);
-                                }}
-                              >
-                                ♫ {assetStem(rel)}
-                              </div>
-                            ))}
+                          : cat === "music"
+                            ? p.musics.map((rel) => (
+                                <div
+                                  key={rel}
+                                  className={"tree-row" + (rel === selMus ? " active" : "")}
+                                  onClick={() => {
+                                    setSelMus(rel);
+                                    setRenaming(null);
+                                  }}
+                                >
+                                  ♫ {assetStem(rel)}
+                                </div>
+                              ))
+                            : p.vignettes.map((rel) => (
+                                <div
+                                  key={rel}
+                                  className={"tree-row" + (rel === selVig ? " active" : "")}
+                                  onClick={() => {
+                                    setSelVig(rel);
+                                    setRenaming(null);
+                                  }}
+                                >
+                                  ▦ {assetStem(rel)}
+                                </div>
+                              ))}
           </div>
           <div className="resmgr-actions">
             <button
@@ -445,7 +492,9 @@ export default function ResourceManagerModal(p: Props) {
                             ? p.onImportPicture
                             : cat === "sound"
                               ? p.onImportSound
-                              : p.onImportMusic
+                              : cat === "music"
+                                ? p.onImportMusic
+                                : p.onImportVignette
               }
             >
               Importer…
@@ -459,7 +508,8 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "fontset" && !selFont) ||
                 (cat === "picture" && !selPic) ||
                 (cat === "sound" && !selSnd) ||
-                (cat === "music" && !selMus)
+                (cat === "music" && !selMus) ||
+                (cat === "vignette" && !selVig)
               }
               onClick={() =>
                 cat === "charset"
@@ -476,7 +526,9 @@ export default function ResourceManagerModal(p: Props) {
                             ? p.onExportPicture(selPic)
                             : cat === "sound"
                               ? p.onExportSound(selSnd)
-                              : p.onExportMusic(selMus)
+                              : cat === "music"
+                                ? p.onExportMusic(selMus)
+                                : p.onExportVignette(selVig)
               }
             >
               Exporter…
@@ -490,7 +542,8 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "fontset" && !selFont) ||
                 (cat === "picture" && !selPic) ||
                 (cat === "sound" && !selSnd) ||
-                (cat === "music" && !selMus)
+                (cat === "music" && !selMus) ||
+                (cat === "vignette" && !selVig)
               }
               onClick={() =>
                 setRenaming(
@@ -508,7 +561,9 @@ export default function ResourceManagerModal(p: Props) {
                               ? assetStem(selPic)
                               : cat === "sound"
                                 ? assetStem(selSnd)
-                                : assetStem(selMus)
+                                : cat === "music"
+                                  ? assetStem(selMus)
+                                  : assetStem(selVig)
                 )
               }
             >
@@ -526,7 +581,8 @@ export default function ResourceManagerModal(p: Props) {
                 (cat === "fontset" && (!selFont || fontDefault)) ||
                 (cat === "picture" && !selPic) ||
                 (cat === "sound" && !selSnd) ||
-                (cat === "music" && !selMus)
+                (cat === "music" && !selMus) ||
+                (cat === "vignette" && !selVig)
               }
               title={
                 cat === "charset"
@@ -555,7 +611,9 @@ export default function ResourceManagerModal(p: Props) {
                             ? "Supprimer l'image et son fichier (le build signale les pic_show orphelins)"
                             : cat === "sound"
                               ? "Supprimer le son et son fichier (le build signale les « Jouer un son » orphelins)"
-                              : "Supprimer la musique et son fichier (les scènes qui l'utilisent repassent en silence au build)"
+                              : cat === "music"
+                                ? "Supprimer la musique et son fichier (les scènes qui l'utilisent repassent en silence au build)"
+                                : "Supprimer la vignette et son fichier (le build signale les « Afficher une vignette » orphelins)"
               }
               onClick={() =>
                 cat === "charset"
@@ -572,7 +630,9 @@ export default function ResourceManagerModal(p: Props) {
                             ? p.onDeletePicture(selPic)
                             : cat === "sound"
                               ? p.onDeleteSound(selSnd)
-                              : p.onDeleteMusic(selMus)
+                              : cat === "music"
+                                ? p.onDeleteMusic(selMus)
+                                : p.onDeleteVignette(selVig)
               }
             >
               ✕ Supprimer

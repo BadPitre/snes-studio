@@ -1382,6 +1382,92 @@ export default function App() {
     }
   }
 
+  // Vignettes (B5) : bandes de frames 32x32 (PNG à transparence)
+  async function importVignette() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une vignette (bande de frames 32x32, PNG à transparence)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
+      if (bmp.height !== 32 || bmp.width % 32 !== 0 || bmp.width === 0 || bmp.width > 256) {
+        setStatus(`Vignette : attendu une bande 32 px de haut, largeur multiple de 32 (1-8 frames) — reçu ${bmp.width}x${bmp.height}`);
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
+      const rel = `assets/vignettes/${name}`;
+      if ((data.project.vignettes ?? []).includes(rel)) {
+        setStatus(`Vignette « ${musicStem(rel)} » : existe déjà`);
+        return;
+      }
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      mutate((d) => ({
+        ...d,
+        project: { ...d.project, vignettes: [...(d.project.vignettes ?? []), rel] },
+      }));
+      setStatus(`Vignette importée : ${musicStem(rel)} (${bmp.width / 32} frame(s))`);
+    } catch (e) {
+      setStatus(`Import vignette : ${e}`);
+    }
+  }
+
+  async function exportVignette(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter la vignette (PNG)", `${musicStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Vignette exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export : ${e}`);
+    }
+  }
+
+  async function renameVignette(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === musicStem(oldRel)) return;
+    const newRel = `assets/vignettes/${newStem}.png`;
+    if ((data.project.vignettes ?? []).includes(newRel)) {
+      setStatus(`Renommage : « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const list = (data.project.vignettes ?? []).map((r) => (r === oldRel ? newRel : r));
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      const d2: ProjectData = { ...data, project: { ...data.project, vignettes: list } };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Vignette renommée : ${musicStem(oldRel)} → ${newStem} — corriger les « Afficher une vignette » qui l'utilisaient (le build les signale)`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteVignette(rel: string) {
+    if (!data) return;
+    if (!confirm(`Supprimer la vignette « ${musicStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const list = (data.project.vignettes ?? []).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, vignettes: list.length ? list : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Vignette supprimée : ${musicStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -2094,6 +2180,11 @@ export default function App() {
           onRenameMusic={(rel, n) => void renameAudio("music", rel, n)}
           onDeleteSound={(rel) => void deleteAudio("sound", rel)}
           onDeleteMusic={(rel) => void deleteAudio("music", rel)}
+          vignettes={data.project.vignettes ?? []}
+          onImportVignette={() => void importVignette()}
+          onExportVignette={(rel) => void exportVignette(rel)}
+          onRenameVignette={(rel, n) => void renameVignette(rel, n)}
+          onDeleteVignette={(rel) => void deleteVignette(rel)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
@@ -2387,6 +2478,7 @@ export default function App() {
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
+                vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }
@@ -2448,6 +2540,7 @@ export default function App() {
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
+                vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }

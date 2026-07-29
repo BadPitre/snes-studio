@@ -12,6 +12,7 @@
 #include "player.h"
 #include "camera.h"
 #include "weather.h"
+#include "vignette.h"
 #include "actors.h"
 #include "vm.h"
 #include "vram.h"
@@ -245,6 +246,7 @@ void player_init(void)
                 0, VRAM_OBJ_GFX, OBJ_SIZE16_L32);
   weather_load(); /* particules météo (S13) : chars en fin de région OBJ
      + palette OBJ 7 — APRÈS oamInitGfxSet, qui écrase la CGRAM OBJ */
+  vig_reload();   /* palettes/frames des vignettes (B5) — même raison */
 
   oamSet(PLAYER_OAM_TOP, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);
   oamSet(PLAYER_OAM_BOT, player.x, player.y, PLAYER_OBJ_PRIO, 0, 0, 0, 0);

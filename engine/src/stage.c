@@ -32,6 +32,7 @@
 #include "scene.h"
 #include "screenfx.h"
 #include "picture.h"
+#include "vignette.h"
 #include "player.h"
 #include "vram.h"
 
@@ -49,7 +50,8 @@ extern u8 videoMode; /* miroir PVSnesLib de REG_TM */
 #define SG_MAP_BG1 0x7800 /* carte 32x32 des images posées (creux libre) */
 #define SG_MAP_BG2 VRAM_PIC_MAP /* carte du fond ($7000 — la picture ne
                                    peut pas être affichée en même temps) */
-#define SG_TM 0x07        /* BG1 + BG2 + BG3 (OBJ : vignettes en B5) */
+#define SG_TM 0x17        /* BG1 + BG2 + BG3 + OBJ (vignettes B5 — les
+   sprites de la scène sont cachés à l'ouverture, l'OAM est propre) */
 #define SG_TM_GAME 0x17
 #define SG_CHUNK 1024     /* octets de chars par VBlank (budget S6) */
 
@@ -233,6 +235,7 @@ static void sg_open(void)
   REG_TS = 0; /* pas de mélange sur l'écran composé — teinte/flash actifs */
   screenfx_cm_hold(0);
   screenfx_warp_reset();
+  vig_reload(); /* le fond a pu écraser les chars 384+ des vignettes */
   setScreenOn();
   sg_fade_in(sg_req_dur);
 }

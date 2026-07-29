@@ -140,6 +140,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   au build, 16 max ; joués par la commande d'event « Jouer un son »),
   **Musique** (modules Impulse Tracker .it — enfin importables depuis
   l'éditeur ; choisis par scène ou par « Changer la musique »),
+  **Vignette** (B5 — bandes de frames 32x32 à transparence, 1-8
+  frames, aperçu frame par frame ; jouées en SPRITES par les commandes
+  « Afficher/Animer/Cacher la vignette » : émoticônes au-dessus des
+  têtes, objets brandis, animations d'attaque sur l'écran composé —
+  2 vignettes à l'écran max, les personnages restent visibles),
   **WindowSkin** (cadres 9-slice de la Phase 11), **IconSet**
   (planches d'icônes des widgets, W1 — bande PNG Nx8 validée à
   l'import, aperçu avec l'index sous chaque icône, ★ = planche active)
@@ -361,7 +366,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   (B4 — flash blanc d'attaque, fondu au noir de mort, assombrir
   cumulable pour les états, restaurer : la PALETTE du slot seul est
   manipulée, les autres images ne bougent pas ; non bloquant,
-  enchaîner avec « Attendre ») et **Fermer l'écran
+  enchaîner avec « Attendre »), **Afficher / Animer / Cacher une
+  vignette** (B5 — sprite 32x32 animé par planche : ancrage écran ou
+  « sur le héros » (le « ! » de surprise : X -8, Y -36), mode « une
+  fois » qui se cache tout seul — le coup d'épée sur un monstre —,
+  boucle, vitesse en frames par image ; 2 slots) et **Fermer l'écran
   composé** (restaure la scène complète, musique comprise). C'est
   l'écran de combat façon FF — fond + monstres — mais générique :
   plateau, carte, scène illustrée. Budget ~511 tuiles par écran ;

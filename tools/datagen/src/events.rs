@@ -62,6 +62,8 @@ pub struct EventCompiler<'a> {
     sounds: Vec<String>,
     /// musiques du projet (B1) — stems, résolus vers les music_id
     musics: Vec<String>,
+    /// vignettes du projet (B5) — stems, résolus vers les vig_id
+    vignettes: Vec<String>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -92,6 +94,7 @@ impl<'a> EventCompiler<'a> {
             pic_dims: Vec::new(),
             sounds: Vec::new(),
             musics: Vec::new(),
+            vignettes: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -679,6 +682,55 @@ impl<'a> EventCompiler<'a> {
                         .with_context(|| "stage_clear : slot 1-5".to_string())?;
                     out.push(format!("  STAGECLEAR {}", slot - 1));
                 }
+                // B5 — vignettes animées (sprites 32x32, 2 slots)
+                "vig_show" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_show : slot 1-2".to_string())?;
+                    let name = cmd["vig"].as_str().unwrap_or("");
+                    let id = self
+                        .vignettes
+                        .iter()
+                        .position(|v| v == name)
+                        .with_context(|| {
+                            format!(
+                                "vig_show : vignette '{}' introuvable \
+                                 (supprimée ou renommée ?)",
+                                name
+                            )
+                        })?;
+                    let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
+                        "hero" => 1u8,
+                        _ => 0,
+                    };
+                    let x = cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+                    let y = cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+                    out.push(format!(
+                        "  VIGSHOW {} {} {} {} {}",
+                        slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor
+                    ));
+                }
+                "vig_play" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_play : slot 1-2".to_string())?;
+                    let mode = match cmd["mode"].as_str().unwrap_or("loop") {
+                        "once" => 1u8,
+                        "stop" => 0,
+                        _ => 2, // loop
+                    };
+                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
+                    out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
+                }
+                "vig_hide" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_hide : slot 1-2".to_string())?;
+                    out.push(format!("  VIGHIDE {}", slot - 1));
+                }
                 "slot_fx" => {
                     let slot = cmd["slot"]
                         .as_u64()
@@ -1028,6 +1080,7 @@ impl<'a> EventCompiler<'a> {
         pic_dims: &[(usize, usize)],
         sounds: &[String],
         musics: &[String],
+        vignettes: &[String],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -1042,6 +1095,7 @@ impl<'a> EventCompiler<'a> {
         self.pic_dims = pic_dims.to_vec();
         self.sounds = sounds.to_vec();
         self.musics = musics.to_vec();
+        self.vignettes = vignettes.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page

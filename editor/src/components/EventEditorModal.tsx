@@ -36,6 +36,7 @@ interface Props {
   tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
   soundNames: string[]; // stems des sons du projet (B1)
   musicNames: string[]; // stems des musiques du projet (B1)
+  vigNames: string[]; // stems des vignettes (B5)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -178,6 +179,14 @@ function labelOf(c: Command, ceNames?: string[]): string {
       return `Poser « ${c.pic} » (slot ${c.slot}) en ${c.x},${c.y}`;
     case "stage_clear":
       return `Retirer l'image du slot ${c.slot}`;
+    case "vig_show":
+      return `Vignette « ${c.vig} » (slot ${c.slot}${c.anchor === "hero" ? ", sur le héros" : ""})`;
+    case "vig_play":
+      return c.mode === "stop"
+        ? `Vignette ${c.slot} : figer`
+        : `Vignette ${c.slot} : ${c.mode === "once" ? "jouer une fois" : "boucler"} (${c.speed ?? 8}f/img)`;
+    case "vig_hide":
+      return `Cacher la vignette ${c.slot}`;
     case "slot_fx":
       return c.fx === "restore"
         ? `Slot ${c.slot} : restaurer les couleurs`
@@ -262,6 +271,9 @@ function cmdTitle(c: Command["c"]): string {
     stage_pose: "Poser une image (slot)",
     stage_clear: "Retirer une image (slot)",
     slot_fx: "Effet sur une image (slot)",
+    vig_show: "Afficher une vignette",
+    vig_play: "Animer la vignette",
+    vig_hide: "Cacher la vignette",
     stage_close: "Fermer l'écran composé",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
@@ -357,6 +369,7 @@ export function CommandListEditor(props: {
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
+  vigNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -542,6 +555,12 @@ export function CommandListEditor(props: {
         return { c: "stage_clear", slot: 1 };
       case "slot_fx":
         return { c: "slot_fx", slot: 1, fx: "flash", frames: 6 };
+      case "vig_show":
+        return { c: "vig_show", slot: 1, vig: "", x: 112, y: 96, anchor: "screen" };
+      case "vig_play":
+        return { c: "vig_play", slot: 1, mode: "once", speed: 8 };
+      case "vig_hide":
+        return { c: "vig_hide", slot: 1 };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -630,6 +649,7 @@ export function CommandListEditor(props: {
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
+              vigNames={props.vigNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1042,6 +1062,7 @@ export default function EventEditorModal(props: Props) {
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
+              vigNames={props.vigNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1117,6 +1138,7 @@ function CommandForm(props: {
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
+  vigNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -2453,6 +2475,136 @@ function CommandForm(props: {
             Referme l'écran composé et restaure la scène complète :
             décor, personnages, ambiances et musique de la scène.
           </span>
+        </>
+      );
+      break;
+    case "vig_show":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-2)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+            <label>
+              Vignette (bande de frames 32x32)
+              <select
+                value={cmd.vig}
+                onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
+              >
+                <option value="">(choisir une vignette…)</option>
+                {props.vigNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ancrage
+              <select
+                value={cmd.anchor}
+                onChange={(e) =>
+                  onChange({ ...cmd, anchor: e.target.value as "screen" | "hero" })
+                }
+              >
+                <option value="screen">Position écran</option>
+                <option value="hero">Sur le héros</option>
+              </select>
+            </label>
+          </div>
+          <div className="row">
+            <label>
+              {cmd.anchor === "hero" ? "Décalage X (-128 à 127)" : "X (0-255)"}
+              <input
+                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
+                value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              {cmd.anchor === "hero" ? "Décalage Y (-128 à 127)" : "Y (0-216)"}
+              <input
+                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
+                value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Petite image en SPRITE (32x32), affichée frame 1 — les
+            personnages restent visibles (contrairement aux pictures).
+            « Sur le héros » : la vignette le suit (émoticône « ! » :
+            X -8, Y -32). 2 vignettes à l'écran max. Marche sur la map
+            ET sur l'écran composé (animations d'attaque par-dessus
+            les monstres). Persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "vig_play":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-2)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+            <label>
+              Mode
+              <select
+                value={cmd.mode}
+                onChange={(e) =>
+                  onChange({ ...cmd, mode: e.target.value as "loop" | "once" | "stop" })
+                }
+              >
+                <option value="once">Une fois (puis se cache)</option>
+                <option value="loop">En boucle</option>
+                <option value="stop">Figer</option>
+              </select>
+            </label>
+            {cmd.mode !== "stop" && (
+              <label>
+                Vitesse (frames par image)
+                <input
+                  type="number" min={1} max={60} value={cmd.speed ?? 8}
+                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Joue les frames de la planche. « Une fois » se cache tout
+            seul à la fin — parfait pour un coup d'épée ou une
+            explosion (8 frames/image = ~2 images par seconde ; 4 =
+            rapide). Non bloquant — enchaîner avec « Attendre ».
+          </span>
+        </>
+      );
+      break;
+    case "vig_hide":
+      body = (
+        <>
+          <label>
+            Slot à cacher (1-2)
+            <select
+              value={cmd.slot}
+              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+            </select>
+          </label>
         </>
       );
       break;

@@ -21,6 +21,7 @@
 #include "hdmafx.h"  /* WAVE : ondulation de l'écran (S14) */
 #include "audio.h"   /* PLAYSFX / PLAYBGM : sons et musique (B1) */
 #include "stage.h"   /* écran composé (B3) */
+#include "vignette.h" /* vignettes animées (B5) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -593,6 +594,25 @@ static void vm_step(void)
       var = fetch8();
       val = fetch8();
       stage_slotfx(var, val, fetch8());
+      break;
+
+    case VM_OP_VIGSHOW: /* vignette (B5) — NON bloquant. anchor via un
+                           second appel (parade tcc : 3 u8 max) */
+      var = fetch8();   /* slot */
+      val = fetch8();   /* vig */
+      idx16 = fetch8(); /* x */
+      vig_show(var, val, (u8)idx16, fetch8());
+      vig_anchor(var, fetch8());
+      break;
+
+    case VM_OP_VIGPLAY: /* animation de la vignette — NON bloquant */
+      var = fetch8();
+      val = fetch8();
+      vig_play(var, val, fetch8());
+      break;
+
+    case VM_OP_VIGHIDE:
+      vig_hide(fetch8());
       break;
 
     case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */

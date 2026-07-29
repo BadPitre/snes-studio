@@ -288,6 +288,21 @@
                              cran (persistant). NON bloquant, seul CE
                              slot est touché (une palette par slot).
                              Hors écran composé / slot vide : ignoré. */
+#define VM_OP_VIGSHOW 0x37 /* slot u8 (0-1), vig u8, x u8, y u8,
+                              anchor u8 — affiche une VIGNETTE (B5) :
+                              sprite 32x32 (OBJ_LARGE, OAM 96-97, chars
+                              384-447, palettes OBJ 5-6), frame 0.
+                              anchor 0 = position écran, 1 = accrochée
+                              au héros (x/y = offsets SIGNÉS). Persiste
+                              entre les scènes ; suspendue pendant une
+                              picture (région OBJ empruntée), rechargée
+                              à la fermeture. */
+#define VM_OP_VIGPLAY 0x38 /* slot u8, mode u8, speed u8 — anime la
+                              vignette : mode 0 = stop (fige), 1 = une
+                              fois PUIS CACHE (coup d'épée), 2 = boucle ;
+                              speed = frames par image de la planche.
+                              NON bloquant. */
+#define VM_OP_VIGHIDE 0x39 /* slot u8 — cache la vignette du slot. */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor

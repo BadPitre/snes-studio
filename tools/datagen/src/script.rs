@@ -87,6 +87,9 @@ const OP_STAGEPOSE: u8 = 0x33;
 const OP_STAGECLEAR: u8 = 0x34;
 const OP_STAGECLOSE: u8 = 0x35;
 const OP_SLOTFX: u8 = 0x36;
+const OP_VIGSHOW: u8 = 0x37;
+const OP_VIGPLAY: u8 = 0x38;
+const OP_VIGHIDE: u8 = 0x39;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -256,6 +259,12 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "STAGECLOSE" => 2,
         // SLOTFX <slot 0-4> <fx 0-3> <dur> — effet de palette (B4)
         "SLOTFX" => 4,
+        // VIGSHOW <slot 0-1> <vig> <x> <y> <anchor> — vignette (B5)
+        "VIGSHOW" => 6,
+        // VIGPLAY <slot 0-1> <mode 0-2> <speed> — animation (B5)
+        "VIGPLAY" => 4,
+        // VIGHIDE <slot 0-1> — cacher la vignette (B5)
+        "VIGHIDE" => 2,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -774,6 +783,22 @@ pub fn assemble(
                 if argc != 3 { bail!("SLOTFX <slot> <fx> <dur>"); }
                 code.push(OP_SLOTFX);
                 for t in args { code.push(parse_u8(t)?); }
+            }
+            // VIGSHOW/VIGPLAY/VIGHIDE — vignettes animees (B5)
+            "VIGSHOW" => {
+                if argc != 5 { bail!("VIGSHOW <slot> <vig> <x> <y> <anchor>"); }
+                code.push(OP_VIGSHOW);
+                for t in args { code.push(parse_u8(t)?); }
+            }
+            "VIGPLAY" => {
+                if argc != 3 { bail!("VIGPLAY <slot> <mode> <speed>"); }
+                code.push(OP_VIGPLAY);
+                for t in args { code.push(parse_u8(t)?); }
+            }
+            "VIGHIDE" => {
+                if argc != 1 { bail!("VIGHIDE <slot>"); }
+                code.push(OP_VIGHIDE);
+                code.push(parse_u8(args[0])?);
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
             "WEATHER" => {

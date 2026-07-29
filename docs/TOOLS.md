@@ -428,6 +428,14 @@ transfert ; `{"c":"stage_clear","slot":1-5}` — retire l'image ;
 "frames"}` — effet de palette sur l'image du slot (`SLOTFX <slot-1>
 <fx 1/2/3/0> <frames>`), non bloquant : flash blanc (attaque), fondu
 au noir (mort), assombrir (état, cumulable), restaurer ;
+**vignettes (B5)** : `project.vignettes` liste des bandes PNG de
+frames 32x32 (hauteur 32, largeur multiple de 32, 1-8 frames, ≤ 15
+couleurs + transparence, converties par datagen en chars OBJ —
+`data_vig{i}.c`) ; `{"c":"vig_show","slot":1-2,"vig":"stem","x","y",
+"anchor":"screen"|"hero"}` (`VIGSHOW`, hero = offsets signés),
+`{"c":"vig_play","slot":1-2,"mode":"once"|"loop"|"stop","speed":1-60}`
+(`VIGPLAY` — once se cache seul à la fin),
+`{"c":"vig_hide","slot":1-2}` (`VIGHIDE`) ;
 `{"c":"stage_close","dur"}` — referme (warp interne : la scène et sa
 musique reviennent, les PNJ déplacés reprennent leur position de
 page) ; budget ~511 tuiles par écran, pas de chevauchement de slots ;

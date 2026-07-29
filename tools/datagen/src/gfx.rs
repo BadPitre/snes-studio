@@ -180,6 +180,49 @@ impl IndexedImage {
     /// `trans` (S4) : image à transparence — les entrées de tilemap
     /// prennent la PALETTE BG 7 (réservée : le décor garde les palettes
     /// 0-6) pour que la couche carte visible derrière reste correcte.
+    /// Vignette (B5) : bande horizontale de frames 32x32 (largeur
+    /// multiple de 32, hauteur 32, 1-8 frames), ≤ 15 couleurs + index 0
+    /// transparent. Chaque frame est émise en 16 chars OBJ 4bpp en
+    /// ordre rangée par rangée (4 rangées de 4 chars = 4 DMA de 128
+    /// octets au changement de frame). Retourne (chars, nb frames,
+    /// palette 16 couleurs).
+    pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>)> {
+        if self.height != 32 || self.width == 0 || self.width % 32 != 0 {
+            bail!(
+                "vignette '{}' : attendu une bande de frames 32x32 \
+                 (hauteur 32, largeur multiple de 32), recu {}x{}",
+                name, self.width, self.height
+            );
+        }
+        let frames = self.width / 32;
+        if frames > 8 {
+            bail!("vignette '{}' : {} frames (max 8)", name, frames);
+        }
+        if let Some(&mx) = self.pixels.iter().max() {
+            if mx >= 16 {
+                bail!(
+                    "vignette '{}' : index de couleur {} utilise (max 15 — \
+                     15 couleurs + transparence)",
+                    name, mx
+                );
+            }
+        }
+        let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let mut chars: Vec<u8> = Vec::new();
+        for f in 0..frames {
+            for row in 0..4 {
+                for col in 0..4 {
+                    let ch =
+                        self.char4bpp_mapped(f * 32 + col * 8, row * 8, &identity);
+                    chars.extend_from_slice(&ch);
+                }
+            }
+        }
+        let mut pal: Vec<u16> = self.palette.iter().copied().take(16).collect();
+        pal.resize(16, 0);
+        Ok((chars, frames, pal))
+    }
+
     pub fn to_picture(&self, trans: bool) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
         if self.width == 0 || self.height == 0
             || self.width % 8 != 0 || self.height % 8 != 0

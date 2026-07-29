@@ -41,6 +41,10 @@ pub struct Project {
     /// (pixels alpha percés à l'import — le décor se voit à travers)
     #[serde(default)]
     pub pictures: Vec<PicEntry>,
+    /// Vignettes (B5) : bandes de frames 32x32 en sprites — émoticônes,
+    /// portraits, animations d'attaque. L'ordre donne les vig_id.
+    #[serde(default)]
+    pub vignettes: Vec<String>,
 }
 
 /// Entrée du registre pictures : chemin nu, ou objet avec le drapeau de

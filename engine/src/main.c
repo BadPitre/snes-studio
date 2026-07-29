@@ -25,6 +25,7 @@
 #include "weather.h"
 #include "hdmafx.h"
 #include "stage.h"
+#include "vignette.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -198,6 +199,7 @@ int main(void)
       actors_draw();
       weather_draw(); /* météo : simulation + sprites en une passe (S13) */
     }
+    vig_update(); /* vignettes (B5) — sur la map ET l'écran composé */
 
     audio_process(); /* flux musique -> SPC */
 
@@ -218,6 +220,7 @@ int main(void)
       ui_screen_vblank();
       screenfx_vblank(); /* teinte/flash actifs sur l'écran composé */
       stage_vblank();    /* scrolls fixes + transferts de pose étalés */
+      vig_vblank();      /* frames de vignettes (B5) */
       hdmafx_suspend();  /* vague/dégradé/spotlight : ambiances de map */
     }
     else
@@ -231,6 +234,7 @@ int main(void)
         bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
       bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
       hdmafx_vblank(); /* ondulation (S14) — écrase HOFS ligne à ligne */
+      vig_vblank();    /* frames de vignettes (B5) */
     }
   }
   return 0;

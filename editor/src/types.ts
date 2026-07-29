@@ -13,6 +13,7 @@ export interface Project {
   };
   musics?: string[]; // chemins .it, l'ordre donne les music_id
   sounds?: string[]; // chemins .wav (B1), l'ordre donne les sfx_id
+  vignettes?: string[]; // bandes de frames 32x32 (B5), l'ordre = vig_id
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
   // ignoré par datagen) — index = bloc de la feuille de sprites
@@ -241,6 +242,9 @@ export type Command =
   | { c: "stage_clear"; slot: number }
   | { c: "slot_fx"; slot: number; fx: "restore" | "flash" | "fadeout" | "dark"; frames?: number }
   | { c: "stage_close"; dur?: number }
+  | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
+  | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
+  | { c: "vig_hide"; slot: number }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }
   | { c: "wave"; power: number; speed?: number }
