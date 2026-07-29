@@ -239,6 +239,7 @@ export type Command =
   | { c: "stage_open"; pic: string; dur?: number }
   | { c: "stage_pose"; slot: number; pic: string; x: number; y: number }
   | { c: "stage_clear"; slot: number }
+  | { c: "slot_fx"; slot: number; fx: "restore" | "flash" | "fadeout" | "dark"; frames?: number }
   | { c: "stage_close"; dur?: number }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }

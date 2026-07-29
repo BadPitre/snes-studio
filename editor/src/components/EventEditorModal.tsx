@@ -178,6 +178,14 @@ function labelOf(c: Command, ceNames?: string[]): string {
       return `Poser « ${c.pic} » (slot ${c.slot}) en ${c.x},${c.y}`;
     case "stage_clear":
       return `Retirer l'image du slot ${c.slot}`;
+    case "slot_fx":
+      return c.fx === "restore"
+        ? `Slot ${c.slot} : restaurer les couleurs`
+        : c.fx === "flash"
+          ? `Slot ${c.slot} : flash blanc (${c.frames ?? 6}f)`
+          : c.fx === "fadeout"
+            ? `Slot ${c.slot} : fondu au noir (${c.frames ?? 30}f)`
+            : `Slot ${c.slot} : assombrir`;
     case "stage_close":
       return "Écran composé : fermer";
     case "sfx":
@@ -253,6 +261,7 @@ function cmdTitle(c: Command["c"]): string {
     stage_open: "Ouvrir un écran composé",
     stage_pose: "Poser une image (slot)",
     stage_clear: "Retirer une image (slot)",
+    slot_fx: "Effet sur une image (slot)",
     stage_close: "Fermer l'écran composé",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
@@ -531,6 +540,8 @@ export function CommandListEditor(props: {
         return { c: "stage_pose", slot: 1, pic: "", x: 16, y: 40 };
       case "stage_clear":
         return { c: "stage_clear", slot: 1 };
+      case "slot_fx":
+        return { c: "slot_fx", slot: 1, fx: "flash", frames: 6 };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -2373,6 +2384,57 @@ function CommandForm(props: {
           <span className="hint">
             Efface l'image du slot (mort d'un monstre, objet ramassé).
             Re-poser la même image plus tard ne recoûte rien.
+          </span>
+        </>
+      );
+      break;
+    case "slot_fx":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-5)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Effet
+              <select
+                value={cmd.fx}
+                onChange={(e) =>
+                  onChange({ ...cmd, fx: e.target.value as "restore" | "flash" | "fadeout" | "dark" })
+                }
+              >
+                <option value="flash">Flash blanc (attaque)</option>
+                <option value="fadeout">Fondu au noir (mort)</option>
+                <option value="dark">Assombrir (état)</option>
+                <option value="restore">Restaurer les couleurs</option>
+              </select>
+            </label>
+            {(cmd.fx === "flash" || cmd.fx === "fadeout") && (
+              <label>
+                Durée (frames)
+                <input
+                  type="number" min={1} max={255}
+                  value={cmd.frames ?? (cmd.fx === "flash" ? 6 : 30)}
+                  onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Manipule la PALETTE de l'image du slot — les autres images
+            et le fond ne bougent pas (une palette par slot). Flash =
+            le monstre attaque ou encaisse ; fondu au noir = mort
+            (enchaîner avec « Retirer une image ») ; assombrir =
+            poison, pierre (cumulable) ; restaurer = fin d'état. Non
+            bloquant — enchaîner avec « Attendre ».
           </span>
         </>
       );

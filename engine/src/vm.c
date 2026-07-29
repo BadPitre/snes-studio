@@ -589,6 +589,12 @@ static void vm_step(void)
       vm.wait_timer = 1;
       break;
 
+    case VM_OP_SLOTFX: /* effet de palette d'un slot (B4) — NON bloquant */
+      var = fetch8();
+      val = fetch8();
+      stage_slotfx(var, val, fetch8());
+      break;
+
     case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */
       audio_play_sfx(fetch8());
       break;

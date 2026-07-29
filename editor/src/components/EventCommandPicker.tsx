@@ -89,6 +89,7 @@ const TABS: Tab[] = [
       { c: "stage_open", label: "Ouvrir un écran composé" },
       { c: "stage_pose", label: "Poser une image (slot)" },
       { c: "stage_clear", label: "Retirer une image (slot)" },
+      { c: "slot_fx", label: "Effet sur une image (slot)" },
       { c: "stage_close", label: "Fermer l'écran composé" },
     ],
   },

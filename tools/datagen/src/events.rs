@@ -679,6 +679,20 @@ impl<'a> EventCompiler<'a> {
                         .with_context(|| "stage_clear : slot 1-5".to_string())?;
                     out.push(format!("  STAGECLEAR {}", slot - 1));
                 }
+                "slot_fx" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "slot_fx : slot 1-5".to_string())?;
+                    let fx = match cmd["fx"].as_str().unwrap_or("restore") {
+                        "flash" => 1u8,
+                        "fadeout" => 2,
+                        "dark" => 3,
+                        _ => 0, // restore
+                    };
+                    let dur = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(0);
+                    out.push(format!("  SLOTFX {} {} {}", slot - 1, fx, dur));
+                }
                 "stage_close" => {
                     let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
                     out.push(format!("  STAGECLOSE {}", dur));

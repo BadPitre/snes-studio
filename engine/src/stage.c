@@ -78,6 +78,23 @@ static u16 up_buf[64];  /* 2 rangées de carte max */
 static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* région à effacer */
 static u16 sg_zero = 0; /* motif du dmaFillVram16 (entrée transparente) */
 
+/* Effets par slot (B4) : manipulation de la PALETTE de l'image posée
+   — flash blanc, fondu vers noir (mort), assombrir, restaurer. Une
+   OMBRE WRAM par slot (les 15 couleurs utiles) : le fondu la divise
+   par demi-teintes BGR555 ((v >> 1) & 0x3DEF — un shift + un masque
+   par couleur, JAMAIS de multiplication, leçon panneau S6), le
+   VBlank pousse 30 octets de CGRAM par slot marqué sale. */
+static u16 sl_sh[STAGE_SLOTS][15]; /* ombre de la palette du slot */
+static u8 fx_mode[STAGE_SLOTS];    /* 0 rien, 1 flash, 2 fondu-noir */
+static u8 fx_t[STAGE_SLOTS];       /* frames restantes de l'effet */
+static u8 fx_per[STAGE_SLOTS];     /* fondu : période entre demi-teintes */
+static u8 fx_cnt[STAGE_SLOTS];     /* compteur de période (pas de modulo) */
+static u8 fx_dirty = 0; /* bitmask : palettes à pousser au VBlank (le
+   flash pousse le BLANC tant que mode == 1, l'ombre sinon) */
+static const u16 sg_white[15] = {
+    0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF,
+    0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF};
+
 u8 stage_active(void)
 {
   return sg_on;
@@ -173,7 +190,11 @@ static void sg_open(void)
   up_act = 0;
   sg_next_char = 1;
   for (i = 0; i < STAGE_SLOTS; i++)
+  {
     sl_pic[i] = 0xFF;
+    fx_mode[i] = 0; /* effets de palette (B4) remis à zéro */
+  }
+  fx_dirty = 0;
   /* sprites de la scène cachés (héros, PNJ, météo) — les *_draw de la
      boucle sont gelés tant que l'écran est là */
   for (i = 0; i < 128; i++)
@@ -280,6 +301,92 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
   sl_pic[slot] = pic;
   sl_x[slot] = tx;
   sl_y[slot] = ty;
+  /* ombre de la palette (B4) : copie des 15 couleurs utiles depuis la
+     ROM — les effets partent toujours d'une palette propre */
+  {
+    const u16 *pp = pic_pals[pic] + 1;
+    u8 i;
+
+    for (i = 0; i < 15; i++)
+      sl_sh[slot][i] = pp[i];
+  }
+  fx_mode[slot] = 0;
+}
+
+void stage_slotfx(u8 slot, u8 fx, u8 dur)
+{
+  const u16 *pp;
+  u8 i;
+
+  if (!sg_on || slot >= STAGE_SLOTS || sl_pic[slot] == 0xFF)
+    return;
+  switch (fx)
+  {
+  case 1: /* FLASH blanc : dur frames, puis la palette courante revient */
+    fx_mode[slot] = 1;
+    fx_t[slot] = dur ? dur : 6;
+    fx_dirty |= (u8)(1 << slot);
+    break;
+  case 2: /* FONDU vers noir (mort) : 5 paliers de demi-teintes sur dur */
+    fx_mode[slot] = 2;
+    fx_t[slot] = dur ? dur : 30;
+    if (dur >= 5)
+      fx_per[slot] = dur / 5; /* UNE division, à la commande */
+    else
+      fx_per[slot] = 1;
+    fx_cnt[slot] = fx_per[slot];
+    break;
+  case 3: /* ASSOMBRIR d'un cran (persistant — poison, pétrification) */
+    for (i = 0; i < 15; i++)
+      sl_sh[slot][i] = (sl_sh[slot][i] >> 1) & 0x3DEF;
+    fx_dirty |= (u8)(1 << slot);
+    break;
+  default: /* 0 : RESTAURER la palette d'origine (fin d'état) */
+    pp = pic_pals[sl_pic[slot]] + 1;
+    for (i = 0; i < 15; i++)
+      sl_sh[slot][i] = pp[i];
+    fx_mode[slot] = 0;
+    fx_dirty |= (u8)(1 << slot);
+    break;
+  }
+}
+
+/* un pas des effets de palette par frame (appelé par stage_update) */
+static void sg_fx_step(void)
+{
+  u8 s, i;
+
+  for (s = 0; s < STAGE_SLOTS; s++)
+  {
+    if (!fx_mode[s])
+      continue;
+    fx_t[s]--;
+    if (fx_mode[s] == 1)
+    {
+      if (!fx_t[s])
+      {
+        fx_mode[s] = 0; /* fin du flash : l'ombre courante revient */
+        fx_dirty |= (u8)(1 << s);
+      }
+    }
+    else /* fondu vers noir */
+    {
+      if (!fx_t[s])
+      {
+        for (i = 0; i < 15; i++)
+          sl_sh[s][i] = 0;
+        fx_mode[s] = 0;
+        fx_dirty |= (u8)(1 << s);
+      }
+      else if (--fx_cnt[s] == 0) /* palier : demi-teinte (pas de modulo) */
+      {
+        fx_cnt[s] = fx_per[s];
+        for (i = 0; i < 15; i++)
+          sl_sh[s][i] = (sl_sh[s][i] >> 1) & 0x3DEF;
+        fx_dirty |= (u8)(1 << s);
+      }
+    }
+  }
 }
 
 void stage_clear(u8 slot)
@@ -306,6 +413,8 @@ void stage_update(void)
   u16 base;
   u8 w, r, i, pal;
 
+  if (sg_on)
+    sg_fx_step(); /* effets de palette par slot (B4) */
   if (up_act != 4 || up_rows)
     return;
   w = pic_wt[up_pic];
@@ -331,6 +440,20 @@ void stage_vblank(void)
     /* scrolls de l'écran composé : fixes (+ secousse scriptée) */
     bgSetScroll(0, screenfx_shake_x(), 0);
     bgSetScroll(1, screenfx_shake_x(), 0);
+    /* effets de palette (B4) : UNE palette de slot poussée par VBlank
+       (30 octets — flash = blanc tant que l'effet court, ombre sinon) */
+    if (fx_dirty)
+    {
+      for (n = 0; n < STAGE_SLOTS; n++)
+        if (fx_dirty & (1 << n))
+        {
+          dmaCopyCGram(fx_mode[(u8)n] == 1 ? (u8 *)sg_white
+                                           : (u8 *)sl_sh[(u8)n],
+                       (u16)(((2 + n) << 4) + 1), 30);
+          fx_dirty &= (u8)~(1 << n);
+          break;
+        }
+    }
   }
   switch (up_act)
   {

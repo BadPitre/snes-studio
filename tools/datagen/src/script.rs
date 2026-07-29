@@ -86,6 +86,7 @@ const OP_STAGEOPEN: u8 = 0x32;
 const OP_STAGEPOSE: u8 = 0x33;
 const OP_STAGECLEAR: u8 = 0x34;
 const OP_STAGECLOSE: u8 = 0x35;
+const OP_SLOTFX: u8 = 0x36;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -253,6 +254,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "STAGECLEAR" => 2,
         // STAGECLOSE <dur> — ferme l'ecran compose (B3)
         "STAGECLOSE" => 2,
+        // SLOTFX <slot 0-4> <fx 0-3> <dur> — effet de palette (B4)
+        "SLOTFX" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -764,6 +767,13 @@ pub fn assemble(
                 if argc != 1 { bail!("STAGECLOSE <dur>"); }
                 code.push(OP_STAGECLOSE);
                 code.push(parse_u8(args[0])?);
+            }
+            // SLOTFX <slot> <fx 0-3> <dur> — effet de palette d'un
+            // slot de l'ecran compose (B4)
+            "SLOTFX" => {
+                if argc != 3 { bail!("SLOTFX <slot> <fx> <dur>"); }
+                code.push(OP_SLOTFX);
+                for t in args { code.push(parse_u8(t)?); }
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
             "WEATHER" => {

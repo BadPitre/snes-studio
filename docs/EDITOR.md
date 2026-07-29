@@ -357,7 +357,11 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   position en pixels arrondie à 8 ; chaque slot a SA palette, donc les
   effets par image ne toucheront que lui ; l'image apparaît en
   quelques frames, le script attend la fin ; re-poser la même image =
-  déplacement), **Retirer une image (slot)** et **Fermer l'écran
+  déplacement), **Retirer une image (slot)**, **Effet sur une image (slot)**
+  (B4 — flash blanc d'attaque, fondu au noir de mort, assombrir
+  cumulable pour les états, restaurer : la PALETTE du slot seul est
+  manipulée, les autres images ne bougent pas ; non bloquant,
+  enchaîner avec « Attendre ») et **Fermer l'écran
   composé** (restaure la scène complète, musique comprise). C'est
   l'écran de combat façon FF — fond + monstres — mais générique :
   plateau, carte, scène illustrée. Budget ~511 tuiles par écran ;

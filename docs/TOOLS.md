@@ -424,6 +424,10 @@ fondu dur frames par sens, `STAGEOPEN <pic|255> <dur>`) ;
 pose une image (position en pixels, arrondie à la tile de 8,
 `STAGEPOSE <slot-1> <pic> <x/8> <y/8>`), BLOQUANT le temps du
 transfert ; `{"c":"stage_clear","slot":1-5}` — retire l'image ;
+`{"c":"slot_fx","slot":1-5,"fx":"flash"|"fadeout"|"dark"|"restore",
+"frames"}` — effet de palette sur l'image du slot (`SLOTFX <slot-1>
+<fx 1/2/3/0> <frames>`), non bloquant : flash blanc (attaque), fondu
+au noir (mort), assombrir (état, cumulable), restaurer ;
 `{"c":"stage_close","dur"}` — referme (warp interne : la scène et sa
 musique reviennent, les PNJ déplacés reprennent leur position de
 page) ; budget ~511 tuiles par écran, pas de chevauchement de slots ;

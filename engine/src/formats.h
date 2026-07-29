@@ -280,6 +280,14 @@
                                  ambiances, musique de la scène — les
                                  PNJ déplacés reviennent à leurs pages,
                                  comme après un warp). */
+#define VM_OP_SLOTFX 0x36 /* slot u8 (0-4), fx u8, dur u8 — effet de
+                             PALETTE sur une image posée (B4) : 0 =
+                             restaurer, 1 = flash blanc (dur frames),
+                             2 = fondu vers noir (mort — demi-teintes
+                             BGR555, 5 paliers), 3 = assombrir d'un
+                             cran (persistant). NON bloquant, seul CE
+                             slot est touché (une palette par slot).
+                             Hors écran composé / slot vide : ignoré. */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor

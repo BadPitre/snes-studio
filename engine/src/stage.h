@@ -34,6 +34,12 @@ void stage_request_close(u8 fade_dur);
 void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty); /* position en TILES */
 void stage_clear(u8 slot);
 
+/* Effet de PALETTE sur une image posée (B4) — NON bloquant :
+   fx 0 = restaurer, 1 = flash blanc (dur frames), 2 = fondu vers noir
+   (mort, dur frames, demi-teintes), 3 = assombrir d'un cran
+   (persistant). Seul CE slot est touché (une palette par slot). */
+void stage_slotfx(u8 slot, u8 fx, u8 dur);
+
 /* Ouverture/fermeture depuis la BOUCLE PRINCIPALE (recette picture) */
 void stage_apply(void);
 /* Fermeture demandée : la boucle exécute le warp interne (do_warp) */
