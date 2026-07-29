@@ -574,10 +574,13 @@ fn main() -> Result<()> {
                 );
             }
             let chars = pic_data[idx].0.len() / 32;
-            if chars > 192 {
+            if chars > 256 {
                 bail!(
-                    "scene '{}' : motif d'effet « {} » — {} tiles uniques > 192 \
-                     (région VRAM $0000-$0C00, simplifier le motif)",
+                    "scene '{}' : motif d'effet « {} » — {} tiles 8x8 UNIQUES > 256 \
+                     (budget VRAM). Astuce : dessiner 2-4 formes et les REPETER a \
+                     des positions multiples de 8 px (les tuiles se partagent) — \
+                     eviter le dessin a main levee et l'anti-aliasing, qui rendent \
+                     chaque bloc 8x8 unique",
                     sc.name, eff.pic, chars
                 );
             }

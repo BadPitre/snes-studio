@@ -293,11 +293,11 @@ datagen — layout.toml fait foi).
 **Couche d'effet (S9, « nuages sur le village »)** : une scène accepte
 `"effect": {"pic": "<stem>", "dx": px/s, "dy": px/s, "blend":
 "half"|"add"|"sub"}` — un MOTIF (image à TRANSPARENCE de
-project.pictures, ≤ 192 tiles uniques) dérive au-dessus du jeu pendant
+project.pictures, ≤ 256 tiles uniques) dérive au-dessus du jeu pendant
 qu'il se joue (personnages visibles, dialogues nets). Le plan BG1
 porte le motif : la COUCHE SUP de ces scènes est ignorée
-(avertissement si non vide). VRAM : chars à $0000, carte 32x32 à
-$0C00 (l'ancienne région de la carte BG1) ; entrées avec bit de
+(avertissement si non vide). VRAM : chars à $0000-$1000, carte 32x32
+au creux $1C00 (après la map BG3) ; entrées avec bit de
 priorité (motif DEVANT les sprites) ; en mélange, sub screen BG2+OBJ
 et teinte/flash suspendus (screenfx_cm_hold). Vitesses converties en
 pas 8.8 par frame ; datagen émet `data_effects.c` (toujours — 0xFF =

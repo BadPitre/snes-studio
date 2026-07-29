@@ -10,9 +10,10 @@
  * si elle n'est pas vide.
  *
  * Plan VRAM : la région de l'ancienne carte BG1 ($0000-$1000 words)
- * est REPURPOSÉE — chars du motif à $0000 (≤ 192, validé datagen),
- * carte 32x32 à $0C00. Tileset ($2000), sprites ($4000), carte BG2
- * ($6000) intacts ; map.c ne streame plus BG1 dans ces scènes.
+ * est REPURPOSÉE — chars du motif à $0000 (≤ 256, validé datagen) ;
+ * la carte 32x32 vit dans le creux libre $1C00 (après la map BG3).
+ * Tileset ($2000), sprites ($4000), carte BG2 ($6000) intacts ;
+ * map.c ne streame plus BG1 dans ces scènes.
  *
  * Les entrées de carte reçoivent le bit de PRIORITÉ (0x2000) : le
  * motif passe DEVANT les sprites (nuages au-dessus des personnages) ;

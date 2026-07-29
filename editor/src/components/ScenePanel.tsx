@@ -167,7 +167,7 @@ export default function ScenePanel(props: Props) {
               Le motif dérive au-dessus du jeu pendant qu'il se joue
               (personnages visibles). La COUCHE SUPÉRIEURE de cette scène
               est désactivée : le plan qui la portait affiche le motif.
-              L'image doit être importée AVEC transparence (≤ 192 tiles
+              L'image doit être importée AVEC transparence (≤ 256 tiles
               uniques). En mélange, la teinte d'écran est suspendue dans
               cette scène.
             </p>

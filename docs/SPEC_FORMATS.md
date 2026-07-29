@@ -579,7 +579,7 @@ Choix du moteur, pas des données — documenté ici pour référence :
 
 | Adresse VRAM (words) | Contenu |
 |----------------------|---------|
-| $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko). **Scènes à COUCHE D'EFFET (S9)** : région REPURPOSÉE — chars du motif à $0000 (≤ 192, validé datagen), carte 32x32 à $0C00 ; BG1 porte le motif (scroll = dérive, pas la caméra), map.c n'y écrit plus. Registre `data_effects.c` (toujours émis) : `eff_pic[]` (0xFF = aucune), `eff_blend[]`, `eff_dx[]`/`eff_dy[]` (pas 8.8/frame). Entrées avec bit de priorité (motif devant les sprites) ; mélange : sub screen BG2+OBJ, teinte/flash suspendus. |
+| $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko). **Scènes à COUCHE D'EFFET (S9)** : région REPURPOSÉE — chars du motif à $0000-$1000 (≤ 256, validé datagen), carte 32x32 au creux $1C00 ; BG1 porte le motif (scroll = dérive, pas la caméra), map.c n'y écrit plus. Registre `data_effects.c` (toujours émis) : `eff_pic[]` (0xFF = aucune), `eff_blend[]`, `eff_dx[]`/`eff_dy[]` (pas 8.8/frame). Entrées avec bit de priorité (motif devant les sprites) ; mélange : sub screen BG2+OBJ, teinte/flash suspendus. |
 | $1000 | Characters BG3 2bpp (fonte textbox : char 0 transparent + 96 glyphes ASCII 32-127) |
 | $1800 | Tilemap BG3, SC_32x32 (textbox) |
 | $2000 | Characters BG1+BG2 (tileset 4bpp partagé) |

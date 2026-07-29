@@ -194,7 +194,7 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   bloquée — le thème actif se choisit dans Tools → UI / Thème).
 - **Musique de la scène** : dans l'onglet Scène (section Musique).
 - **Couche d'effet (S9)** : dans l'onglet Scène — un MOTIF (image à
-  transparence du Gestionnaire, ≤ 192 tiles uniques) dérive au-dessus
+  transparence du Gestionnaire, ≤ 256 tiles uniques) dérive au-dessus
   du jeu pendant qu'il se joue : nuages, brume, ombres portées.
   Vitesses X/Y en px/s (négatif = gauche/haut, décimales acceptées) et
   Mélange (Opaque / Semi-transparent / Additif / Soustractif — en
