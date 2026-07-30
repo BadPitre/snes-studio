@@ -512,12 +512,84 @@ fn main() -> Result<()> {
     let mut gfx_sets: Vec<tileset::GfxSet> = Vec::new();
     let mut set_ids: Vec<u8> = Vec::new();
     let mut grids = Vec::new();
+    // T1 — tiles animées : par scène, séquences résolues en chars du
+    // gfx set (dest = chars VRAM de la tile de base, src = chars ROM de
+    // chaque frame). (dest4, frames de 4 chars, mode 0="123"/1="1232",
+    // vitesse en frames d'affichage)
+    let mut scene_anims: Vec<Vec<([u16; 4], Vec<[u16; 4]>, u8, u8)>> = Vec::new();
     for sc in &scenes {
         let ts = scene_ts(sc)?;
         let upper = sc.upper_or_empty();
         let gfx = sources[ts].compile_scene(&sc.name, &sc.tilemap, &upper)?;
         gfx.verify(&sc.name)?;
         grids.push(sources[ts].expand_scene(&gfx, &sc.name, &sc.tilemap, &upper)?);
+        let mut rows: Vec<([u16; 4], Vec<[u16; 4]>, u8, u8)> = Vec::new();
+        for a in &sources[ts].meta.anims {
+            if a.tiles.len() < 2 || a.tiles.len() > 4 {
+                bail!("tileset : une sequence animee demande 2 a 4 tiles");
+            }
+            if a.mode != "123" && a.mode != "1232" {
+                bail!("tileset : mode d'animation « {} » (123 ou 1232)", a.mode);
+            }
+            if a.speed == 0 {
+                bail!("tileset : vitesse d'animation 1-255 frames");
+            }
+            for &t in &a.tiles {
+                if t < 0 || t >= tileset::AUTO_BASE {
+                    bail!(
+                        "tileset : tile animee {} — tiles de GRILLE uniquement                          (pas d'autotiles pour l'instant)",
+                        t
+                    );
+                }
+            }
+            let base = a.tiles[0] as u16;
+            let Some(dest) = gfx.plain_entries(base) else {
+                continue; // la tile de base n'est pas posée dans cette scène
+            };
+            // partage de chars toléré ENTRE les frames de la séquence
+            // (quarts inchangés), interdit avec toute autre tile
+            let allowed: Vec<u8> = a
+                .tiles
+                .iter()
+                .filter_map(|&t| gfx.plain_local(t as u16))
+                .collect();
+            for e in dest {
+                if gfx.char_shared_outside(e & 0x3FF, &allowed) {
+                    bail!(
+                        "scene '{}' : la tile animee {} PARTAGE des chars avec une tile hors sequence (dedup) — dessine-la avec des pixels qui lui sont propres",
+                        sc.name, base
+                    );
+                }
+            }
+            let mut frames: Vec<[u16; 4]> = Vec::new();
+            frames.push([
+                dest[0] & 0x3FF, dest[1] & 0x3FF, dest[2] & 0x3FF, dest[3] & 0x3FF,
+            ]);
+            for &f in &a.tiles[1..] {
+                let fe = gfx.plain_entries(f as u16).with_context(|| {
+                    format!(
+                        "scene '{}' : frame {} de la tile animee {} non compilee                          (bug datagen)",
+                        sc.name, f, base
+                    )
+                })?;
+                for k in 0..4 {
+                    if (fe[k] >> 10) != (dest[k] >> 10) {
+                        bail!(
+                            "scene '{}' : la frame {} de la tile animee {} n'a pas                              la meme palette — memes couleurs exigees (le swap ne                              change que les pixels)",
+                            sc.name, f, base
+                        );
+                    }
+                }
+                frames.push([fe[0] & 0x3FF, fe[1] & 0x3FF, fe[2] & 0x3FF, fe[3] & 0x3FF]);
+            }
+            rows.push((
+                [dest[0] & 0x3FF, dest[1] & 0x3FF, dest[2] & 0x3FF, dest[3] & 0x3FF],
+                frames,
+                (a.mode == "1232") as u8,
+                a.speed,
+            ));
+        }
+        scene_anims.push(rows);
         let fp = gfx.fingerprint();
         let id = match fp_ids.get(&fp) {
             Some(&i) => i,
@@ -879,6 +951,56 @@ fn main() -> Result<()> {
             pal[0], pal[1], pal[2], pal[3]
         ));
         write_out(&out_dir, "data_weather.c", s)?;
+    }
+
+    // T1 — tiles animées : tables aplaties par scène (data_tileanim.c).
+    // ta_first[s]..ta_first[s+1] = séquences de la scène s ; par séquence :
+    // 4 chars VRAM de destination, n frames de 4 chars ROM sources, mode
+    // (0 = 1-2-3, 1 = 1-2-3-2), vitesse en frames. Le moteur (tileanim.c)
+    // copie 4 chars (128 octets) du charset ROM vers la VRAM à chaque pas.
+    {
+        let mut first: Vec<u8> = vec![0];
+        let mut dest: Vec<u16> = Vec::new();
+        let mut ffirst: Vec<u8> = vec![0]; // index de frame par séquence
+        let mut srcs: Vec<u16> = Vec::new();
+        let mut modes: Vec<u8> = Vec::new();
+        let mut speeds: Vec<u8> = Vec::new();
+        let mut nseq = 0usize;
+        let mut nfr = 0usize;
+        for rows in &scene_anims {
+            for (d, frames, mode, speed) in rows {
+                dest.extend_from_slice(d);
+                for f in frames {
+                    srcs.extend_from_slice(f);
+                }
+                nfr += frames.len();
+                if nfr > 255 {
+                    bail!("tiles animees : plus de 255 frames au total");
+                }
+                ffirst.push(nfr as u8);
+                modes.push(*mode);
+                speeds.push(*speed);
+            }
+            nseq += rows.len();
+            if nseq > 255 {
+                bail!("tiles animees : plus de 255 sequences au total");
+            }
+            first.push(nseq as u8);
+        }
+        let mut c = String::from(emit::HEADER);
+        c.push_str("#include <snes.h>
+
+");
+        c.push_str(&emit::u8_array("ta_first", &first, 16, false));
+        c.push_str(&emit::u8_array("ta_ffirst", &if nseq > 0 { ffirst } else { vec![0, 0] }, 16, false));
+        c.push_str(&emit::u8_array("ta_mode", &if modes.is_empty() { vec![0] } else { modes }, 16, false));
+        c.push_str(&emit::u8_array("ta_speed", &if speeds.is_empty() { vec![0] } else { speeds }, 16, false));
+        c.push_str(&emit::u16_array("ta_dest", &if dest.is_empty() { vec![0] } else { dest }));
+        c.push_str(&emit::u16_array("ta_src", &if srcs.is_empty() { vec![0] } else { srcs }));
+        write_out(&out_dir, "data_tileanim.c", c)?;
+        if nseq > 0 {
+            println!("  tiles animees : {} sequence(s)", nseq);
+        }
     }
     write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la

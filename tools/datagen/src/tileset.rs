@@ -45,6 +45,32 @@ pub struct TilesetMeta {
     #[serde(default)]
     #[allow(dead_code)]
     pub upper_start: Option<u32>,
+    /// T1 — côtés FERMÉS par id logique (clé = id en chaîne JSON) :
+    /// bits 1 bas, 2 haut, 4 gauche, 8 droite (1 << DIR_*)
+    #[serde(default)]
+    pub dirs: std::collections::HashMap<String, u8>,
+    /// T1 — séquences de tiles ANIMÉES (tiles de grille uniquement) :
+    /// la première tile est celle posée sur les maps, les suivantes
+    /// sont ses frames (2-4 tiles, mode "123" ou "1232")
+    #[serde(default)]
+    pub anims: Vec<AnimDef>,
+}
+
+#[derive(Deserialize)]
+pub struct AnimDef {
+    pub tiles: Vec<i32>,
+    #[serde(default = "default_anim_mode")]
+    pub mode: String,
+    #[serde(default = "default_anim_speed")]
+    pub speed: u8,
+}
+
+fn default_anim_mode() -> String {
+    "1232".to_string()
+}
+
+fn default_anim_speed() -> u8 {
+    20
 }
 
 pub struct SourceTileset {
@@ -68,6 +94,34 @@ pub struct GfxSet {
     /// Quarts effectivement compilés (après quantifications) — référence
     /// de l'auto-contrôle
     quarters: Vec<Quarter>,
+}
+
+impl GfxSet {
+    /// Entrées de table (char | pal<<10 | prio) des 4 quarts d'une tile
+    /// de GRILLE — None si la tile n'est pas compilée dans cette scène
+    pub fn plain_entries(&self, id: u16) -> Option<[u16; 4]> {
+        let &local = self.local_of.get(&TileKey::Grid(id))?;
+        let i = local as usize * 4;
+        Some([self.table[i], self.table[i + 1], self.table[i + 2], self.table[i + 3]])
+    }
+
+    /// Le char c est-il partagé par une tile HORS de l'ensemble donné ?
+    /// (dédup : animer un char partagé animerait aussi l'autre tile —
+    /// le partage ENTRE les frames d'une même séquence est légitime,
+    /// leurs quarts inchangés pointent les mêmes chars)
+    pub fn char_shared_outside(&self, c: u16, allowed: &[u8]) -> bool {
+        for (i, e) in self.table.iter().enumerate() {
+            if (e & 0x3FF) == c && !allowed.contains(&((i / 4) as u8)) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// id local d'une tile de grille
+    pub fn plain_local(&self, id: u16) -> Option<u8> {
+        self.local_of.get(&TileKey::Grid(id)).copied()
+    }
 }
 
 /// Grilles binaires d'une scène (row-major, w*h octets chacune)
@@ -158,6 +212,13 @@ impl SourceTileset {
     }
     fn is_above(&self, id: i32) -> bool {
         self.meta.above.contains(&id)
+    }
+    /// Côtés fermés d'un id logique (T1) — nibble haut de la collision
+    fn closed_sides(&self, id: i32) -> u8 {
+        if id == EMPTY {
+            return 0;
+        }
+        self.meta.dirs.get(&id.to_string()).copied().unwrap_or(0) & 0x0F
     }
 }
 
@@ -560,6 +621,20 @@ impl SourceTileset {
                 }
             }
         }
+        // T1 : les FRAMES des tiles animées rejoignent le charset dès que
+        // leur tile de base est posée — leurs chars servent de source ROM
+        // au module tileanim (jamais référencés par la carte)
+        for a in &self.meta.anims {
+            if a.tiles.first().map_or(false, |&b| {
+                b >= 0 && used.contains(&TileKey::Grid(b as u16))
+            }) {
+                for &f in &a.tiles[1..] {
+                    if f >= 0 && f < AUTO_BASE {
+                        used.insert(TileKey::Grid(f as u16));
+                    }
+                }
+            }
+        }
         let locals: Vec<TileKey> = used.iter().copied().collect();
         if locals.len() > 254 {
             bail!("scene '{}' : {} tiles distinctes > 254", name, locals.len());
@@ -825,12 +900,11 @@ impl SourceTileset {
         for y in 0..h {
             for x in 0..w {
                 let u = upper[y][x];
-                let solid = if u != EMPTY && !self.is_above(u) {
-                    self.is_solid(u)
-                } else {
-                    self.is_solid(lower[y][x])
-                };
-                collision.push(solid as u8);
+                let eff = if u != EMPTY && !self.is_above(u) { u } else { lower[y][x] };
+                let solid = self.is_solid(eff);
+                // T1 : côtés fermés (nibble haut) — inutiles sur du solide
+                let sides = if solid { 0 } else { self.closed_sides(eff) };
+                collision.push(solid as u8 | (sides << 4));
             }
         }
 

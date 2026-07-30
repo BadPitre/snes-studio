@@ -409,6 +409,21 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Parallel process : tourne en tâche de fond, joueur libre — messages et
   choix interdits, rythmer avec « Attendre ». « Cet event » y désigne
   l'event appelant.
+- **Fenêtre « Tilesets »** (Tools →, T1 — l'onglet Tileset de la
+  Database RM2003) : liste déroulante des tilesets, boutons
+  **Importer…** et **Chipset RM2003…** (déplacés depuis l'onglet
+  Scène), et trois modes d'édition sur la grille (autotiles compris
+  pour la passabilité) : **Passabilité O/X/☆** (clic = cycle, comme
+  dans la palette de l'onglet Scène — même sidecar), **✥ Directionnel**
+  (quatre flèches par tile de grille, clic près d'un bord : rouge =
+  côté fermé, qui ne se franchit plus ni en entrant ni en sortant —
+  comptoirs, corniches ; s'applique au héros ET aux événements
+  mobiles), **▶ Animations** (séquences de tiles animées façon eau
+  RM2003 : ＋ crée une séquence, clic sur des tiles de la grille pour
+  les enchaîner — la première (B) est celle posée sur les maps, les
+  suivantes ses frames aux mêmes couleurs —, mode 1-2-3 ou 1-2-3-2 et
+  vitesse en frames ; toutes les instances de la tile s'animent
+  ensemble). OK écrit les sidecars à la sauvegarde du projet.
 - **Fenêtre « Database »** (Tools →, Phase 10 — réf
   `PLANNING_SYSTEME_DATABASE.md` et `INTEGRATION_DATABASE_EDITEUR.md`) :
   l'expérience Database de RPG Maker, mais **générique et pilotée par

@@ -65,7 +65,7 @@ pub fn build_scene_bank(
         let mut collision = g.collision.clone();
         for wp in &sc.warps {
             let ofs = wp.y as usize * w + wp.x as usize;
-            if collision[ofs] != 0 {
+            if collision[ofs] & 0x0F != 0 {
                 bail!(
                     "scene '{}' : warp ({},{}) sur une tile solide",
                     sc.name, wp.x, wp.y

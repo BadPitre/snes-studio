@@ -476,6 +476,11 @@ export interface TilesetMeta {
   // Chipsets RM2003 : premier id de la section « couche haute » — la
   // palette filtre alors les tiles par couche, comme RPG Maker
   upper_start?: number;
+  // T1 — côtés FERMÉS par id de grille (clé = id en chaîne) : bits
+  // 1 bas, 2 haut, 4 gauche, 8 droite (1 << DIR_* du moteur)
+  dirs?: Record<string, number>;
+  // T1 — séquences de tiles animées (la première tile est celle posée)
+  anims?: { tiles: number[]; mode: string; speed: number }[];
 }
 
 export const AUTOTILE_BASE = 1000;

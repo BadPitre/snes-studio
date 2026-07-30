@@ -39,7 +39,7 @@ Player player;
    Les tiles de warp (COL_WARP) sont traversables. */
 static u8 tile_blocked(u8 tx, u8 ty)
 {
-  if (scene_collision(tx, ty) == COL_SOLID)
+  if (COL_TYPE(scene_collision(tx, ty)) == COL_SOLID)
     return 1;
   return actor_at_tile(tx, ty) != ACTOR_NONE;
 }
@@ -71,7 +71,7 @@ static void check_warp(void)
   prev_ctx = ctx;
   prev_cty = cty;
 
-  if (scene_collision(ctx, cty) == COL_WARP)
+  if (COL_TYPE(scene_collision(ctx, cty)) == COL_WARP)
   {
     w = scene_ctx.warps;
     for (i = 0; i < scene_ctx.warp_count; i++, w++)
@@ -150,6 +150,27 @@ static u8 blocked(u16 px, u16 py)
   if (tile_blocked(tx1, ty1) || tile_blocked(tx2, ty1) ||
       tile_blocked(tx1, ty2) || tile_blocked(tx2, ty2))
     return 1;
+  return 0;
+}
+
+/* Passage directionnel (T1) : le mouvement vers (nx,ny) fait-il franchir
+   un CÔTÉ FERMÉ ? Testé sur la tile CENTRALE (modèle RM2003 : les côtés
+   vivent aux frontières de tiles — comptoirs, corniches à sens unique).
+   Sortir de A par le côté dir, ou entrer dans B par le côté opposé
+   (dir ^ 1), est interdit si le bit correspondant est levé. */
+static u8 edge_blocked(u16 nx, u16 ny, u8 dir)
+{
+  u8 cx = (u8)((player.x + 8) >> 4);
+  u8 cy = (u8)((player.y + 8) >> 4);
+  u8 nx8 = (u8)((nx + 8) >> 4);
+  u8 ny8 = (u8)((ny + 8) >> 4);
+
+  if (cx == nx8 && cy == ny8)
+    return 0; /* pas de frontière franchie */
+  if (COL_SIDES(scene_collision(cx, cy)) & (u8)(1 << dir))
+    return 1; /* sortie fermée */
+  if (COL_SIDES(scene_collision(nx8, ny8)) & (u8)(1 << (dir ^ 1)))
+    return 1; /* entrée fermée */
   return 0;
 }
 
@@ -284,7 +305,8 @@ void player_update(void)
     player.moving = 1;
     if (player.x > 0)
     {
-      if (!blocked(player.x - 1, player.y))
+      if (!blocked(player.x - 1, player.y) &&
+          !edge_blocked(player.x - 1, player.y, DIR_LEFT))
         player.x--;
       else
         slide_v((player.x - 1) >> 4);
@@ -296,7 +318,8 @@ void player_update(void)
     player.moving = 1;
     if (player.x < max_x)
     {
-      if (!blocked(player.x + 1, player.y))
+      if (!blocked(player.x + 1, player.y) &&
+          !edge_blocked(player.x + 1, player.y, DIR_RIGHT))
         player.x++;
       else
         slide_v((player.x + 16) >> 4);
@@ -308,7 +331,8 @@ void player_update(void)
     player.moving = 1;
     if (player.y > 0)
     {
-      if (!blocked(player.x, player.y - 1))
+      if (!blocked(player.x, player.y - 1) &&
+          !edge_blocked(player.x, player.y - 1, DIR_UP))
         player.y--;
       else
         slide_h((player.y - 1) >> 4);
@@ -320,7 +344,8 @@ void player_update(void)
     player.moving = 1;
     if (player.y < max_y)
     {
-      if (!blocked(player.x, player.y + 1))
+      if (!blocked(player.x, player.y + 1) &&
+          !edge_blocked(player.x, player.y + 1, DIR_DOWN))
         player.y++;
       else
         slide_h((player.y + 16) >> 4);

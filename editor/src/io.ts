@@ -169,6 +169,8 @@ export async function loadProject(root: string): Promise<ProjectData> {
         solid: m.solid ?? [],
         above: m.above ?? [],
         upper_start: m.upper_start,
+        dirs: m.dirs && Object.keys(m.dirs).length ? m.dirs : undefined,
+        anims: m.anims && m.anims.length ? m.anims : undefined,
       };
     } catch {
       tilesetMeta[stem] = { autotiles: [], solid: [], above: [] };
@@ -321,10 +323,27 @@ function sceneToJson(sc: Scene): string {
 function metaToJson(m: import("./types").TilesetMeta): string {
   const upper =
     m.upper_start !== undefined ? `,\n  "upper_start": ${m.upper_start}` : "";
+  // T1 : côtés fermés + séquences animées — omis quand vides
+  const dirEntries = Object.entries(m.dirs ?? {}).filter(([, v]) => v);
+  const dirs = dirEntries.length
+    ? `,\n  "dirs": { ${dirEntries
+        .map(([k, v]) => `"${k}": ${v}`)
+        .join(", ")} }`
+    : "";
+  const anims = (m.anims ?? []).length
+    ? `,\n  "anims": [\n${(m.anims ?? [])
+        .map(
+          (a) =>
+            `    { "tiles": [${a.tiles.join(", ")}], "mode": ${JSON.stringify(
+              a.mode
+            )}, "speed": ${a.speed} }`
+        )
+        .join(",\n")}\n  ]`
+    : "";
   return `{
   "autotiles": [${m.autotiles.map((a) => JSON.stringify(a)).join(", ")}],
   "solid": [${m.solid.join(", ")}],
-  "above": [${m.above.join(", ")}]${upper}
+  "above": [${m.above.join(", ")}]${upper}${dirs}${anims}
 }
 `;
 }

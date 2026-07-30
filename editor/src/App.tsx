@@ -61,6 +61,7 @@ import SettingsModal from "./components/SettingsModal";
 import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
+import TilesetsModal from "./components/TilesetsModal";
 import ScenePanel from "./components/ScenePanel";
 import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
@@ -158,6 +159,7 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
+  const [tilesetsOpen, setTilesetsOpen] = useState(false); // fenêtre Tilesets (T1)
   // fenêtre Textes (Tools →) — remplace l'onglet de la sidebar
   const [textsOpen, setTextsOpen] = useState(false);
   // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
@@ -1842,6 +1844,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Tilesets…",
+          action: () => setTilesetsOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Database…",
           action: () => setDbOpen(true),
           disabled: !data,
@@ -2103,12 +2110,9 @@ export default function App() {
                 tilesetNames={tilesetNames}
                 current={tsStem}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
-                canImport={canWriteFiles()}
                 passMode={passMode}
                 onSelectTileset={setSceneTileset}
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
-                onImport={importTileset}
-                onImportChipset={importChipset}
                 onPassMode={setPassMode}
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
               />
@@ -2429,6 +2433,22 @@ export default function App() {
             setTextsOpen(false);
           }}
           onClose={() => setTextsOpen(false)}
+        />
+      )}
+      {tilesetsOpen && data && (
+        <TilesetsModal
+          tilesetNames={tilesetNames}
+          tilesets={tilesets}
+          autoImgs={autoImgs}
+          meta={data.tilesetMeta}
+          canImport={canWriteFiles()}
+          onImport={importTileset}
+          onImportChipset={importChipset}
+          onOk={(metaNext) => {
+            mutate((d) => ({ ...d, tilesetMeta: metaNext }));
+            setTilesetsOpen(false);
+          }}
+          onClose={() => setTilesetsOpen(false)}
         />
       )}
       {dbOpen && data && (

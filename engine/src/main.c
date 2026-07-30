@@ -6,6 +6,7 @@
  */
 #include <snes.h>
 #include "scene.h"
+#include "tileanim.h"
 #include "player.h"
 #include "camera.h"
 #include "map.h"
@@ -190,7 +191,10 @@ int main(void)
     stage_update();    /* écran composé : rangées de carte à poser (B3) */
     camera_update();
     if (!picture_active() && !stage_active())
+    {
       map_update(); /* prépare le streaming de la fenêtre tilemap */
+      tileanim_update(); /* tiles animées (T1) — pas de décor sur stage */
+    }
     if (!stage_active())
     {
       /* sprites de la scène gelés pendant l'écran composé (B3) —
@@ -226,6 +230,7 @@ int main(void)
     else
     {
       map_vblank();
+      tileanim_vblank(); /* un pas de tile animée (4 chars) — T1 */
       ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
       screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
       if (effect_active())

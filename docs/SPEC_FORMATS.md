@@ -214,12 +214,38 @@ restent fixes.
 | 0x01 | solide |
 | 0x02 | déclencheur de warp (traversable — marcher dessus déclenche, §1.5) |
 
-Les autres types étendus (eau, one-way) viendront au besoin.
+T1 (passage directionnel RM2003) : l'octet porte le TYPE dans le nibble
+BAS (COL_TYPE, valeurs ci-dessus — tous les tests moteur masquent avec
+& 0x0F) et les CÔTÉS FERMÉS dans le nibble HAUT (COL_SIDES) : bit
+4 + DIR_* (bas 0, haut 1, gauche 2, droite 3). Un côté fermé ne se
+franchit NI en sortant NI en entrant (l'opposé d'une direction est
+DIR ^ 1) — héros (edge_blocked, testé sur la tile CENTRALE) et
+événements mobiles (mv_blocked). Dérivé du sidecar du tileset
+(`dirs`, même règle sup-non-☆ que la passabilité) ; jamais posé sur du
+solide, et le 0x02 des warps écrase l'octet entier.
+
+Les autres types étendus (eau…) viendront au besoin.
 Note pipeline (v0.3, Phase 5c) : cette couche est entièrement DÉRIVÉE par
 datagen — 0/1 depuis la passabilité du tileset (sidecar, règle §0.4 :
 la tile sup non-☆ l'emporte sur la tile inf), puis 0x02 posé d'après la
 table des warps de la scène. Il n'y a plus de couche collision auteur
 (le champ `collision` des vieux JSON de scène est ignoré).
+
+### 1.4 bis — Tiles animées (T1, data_tileanim.c)
+
+Séquences du sidecar (`anims`, tiles de GRILLE uniquement) résolues PAR
+SCÈNE en chars du gfx set : `ta_first[scene]` borne les séquences,
+`ta_ffirst[seq]` les frames, `ta_dest[seq*4]` = les 4 chars VRAM de la
+tile de base, `ta_src[frame*4]` = les 4 chars ROM de chaque frame
+(frame 0 = la base), `ta_mode` (0 = 1-2-3, 1 = 1-2-3-2), `ta_speed`
+(frames d'affichage par pas). Moteur tileanim.c : un pas = 4 DMA de 32
+octets (une séquence par VBlank, chemin normal uniquement — l'écran
+composé réutilise la région de chars). Les frames sont FORCE-INCLUSES
+dans le charset de la scène dès que la base y est posée ; datagen
+refuse une base dont un char est partagé (dédup) avec une tile hors
+séquence, et exige les mêmes bits de palette entre base et frames.
+Toutes les instances de la tile s'animent ensemble (chars partagés —
+le modèle eau RM2003) ; 8 séquences actives max par scène.
 
 ### 1.5 Entrée warp (8 octets par warp — v0.2, Phase 4)
 
