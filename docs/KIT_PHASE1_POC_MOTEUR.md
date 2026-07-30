@@ -94,7 +94,8 @@ sans changer l'organisation.
 | $84 (4) | Assets graphiques : tiles BG + sprites | Chargés en VRAM par DMA |
 | $85 (5) | Palettes + tilemaps compilées | |
 | $86 (6) | Textes / dialogues | Séparés pour faciliter la localisation future |
-| $87 (7) | Libre (audio en Phase 4) | |
+| $87 (7) | Soundbank (musiques IT) | smconv, épinglé par le Makefile |
+| $88+ (8-31) | **Pool multi-bank (M1)** | Scènes puis textes débordent ici ; le reste sert aux sections SUPERFREE (gfx). ROM 1 Mo (ROMBANKS 32). |
 
 **Mise en pratique PVSnesLib :** les données vont dans des fichiers `.c` séparés
 avec directive de section pour forcer la bank (voir `snes_rules` et les exemples

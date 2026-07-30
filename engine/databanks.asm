@@ -4,12 +4,12 @@
 
 .BANK 2 SLOT 0
 .ORG 0
-.SECTION "SceneBank" FORCE
+.SECTION "SceneBank0" FORCE
 .incbin "src/data/scenes.bin"
 .ENDS
 
 .BANK 6 SLOT 0
 .ORG 0
-.SECTION "TextBank" FORCE
+.SECTION "TextBank0" FORCE
 .incbin "src/data/texts.bin"
 .ENDS

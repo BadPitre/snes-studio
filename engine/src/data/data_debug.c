@@ -4,8 +4,7 @@
  */
 #include <snes.h>
 
-/* menu de debug en jeu (Start+Select+R) — S6 */
+/* menu de debug en jeu (Start+Select+R) — S6/M1 */
 const u8 dbg_enabled = 0;
-const u16 dbg_scn_used = 2420; /* bank scenes ($82) */
-const u16 dbg_txt_used = 596; /* bank textes ($86) */
-const u16 dbg_bank_cap = 32768;
+/* rangée budgets pré-formatée (32 colonnes max) */
+const char dbg_banks_txt[] = "SCN 2420/32768 TXT 609/32768";

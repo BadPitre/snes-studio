@@ -18,6 +18,46 @@ pub const BANK_TEXTS: u8 = 0x86;
 pub const BANK_BASE: u16 = 0x8000;
 pub const BANK_CAPACITY: usize = 0x8000;
 
+/// Multi-bank (M1) — banks WLA (CPU = $80 + n) : la TABLE des scènes vit
+/// en bank 2 ($82) et l'en-tête des textes en bank 6 ($86), adresses que
+/// le moteur connaît (rom_layout.h). Les DONNÉES débordent dans des banks
+/// supplémentaires allouées à partir de EXTRA_WLA_FIRST — leurs numéros
+/// voyagent dans les pointeurs far des tables, le moteur les suit sans
+/// rien connaître du découpage. Tenir WLA_BANK_COUNT en phase avec le
+/// ROMBANKS de engine/hdr.asm.
+pub const SCENE_WLA_BANK0: u8 = 2;
+pub const TEXT_WLA_BANK0: u8 = 6;
+pub const EXTRA_WLA_FIRST: u8 = 8;
+pub const WLA_BANK_COUNT: u8 = 32; /* ROM 1 Mo */
+
+/// Un pool de banks : blobs parallèles à leurs numéros de bank WLA.
+pub struct BankPool {
+    pub blobs: Vec<Vec<u8>>,
+    pub wla_banks: Vec<u8>,
+}
+
+impl BankPool {
+    pub fn used(&self) -> usize {
+        self.blobs.iter().map(|b| b.len()).sum()
+    }
+    pub fn capacity(&self) -> usize {
+        self.blobs.len() * BANK_CAPACITY
+    }
+}
+
+/// Alloue une bank supplémentaire du pool commun (scènes puis textes).
+fn alloc_extra(next_extra: &mut u8, what: &str) -> Result<u8> {
+    let b = *next_extra;
+    if b >= WLA_BANK_COUNT {
+        bail!(
+            "{} : plus de banks ROM libres ({} banks au total, hdr.asm) —              augmenter ROMBANKS/WLA_BANK_COUNT",
+            what, WLA_BANK_COUNT
+        );
+    }
+    *next_extra = b + 1;
+    Ok(b)
+}
+
 /// Scene Table v0.2 (spec §1.1) :
 /// [u16 scene_count][u8 boot_scene_id][u8 reserved]
 /// puis par scène : { u8 bank, u16 addr, u8 reserved }
@@ -30,16 +70,23 @@ pub fn build_scene_bank(
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
-) -> Result<Vec<u8>> {
+    next_extra: &mut u8,
+) -> Result<BankPool> {
     let scene_ids: HashMap<&str, u8> = scenes
         .iter()
         .enumerate()
         .map(|(i, s)| (s.name.as_str(), i as u8))
         .collect();
+    // Multi-bank (M1) : la bank 0 du pool ($82) porte la Scene Table,
+    // les scènes se placent à la suite (first-fit séquentiel — une scène
+    // est ATOMIQUE : elle tient entière dans une bank)
     let table_size = 4 + scenes.len() * 4;
-    let mut blob = vec![0u8; table_size];
-    blob[0..2].copy_from_slice(&(scenes.len() as u16).to_le_bytes());
-    blob[2] = boot_id;
+    let mut pool = BankPool {
+        blobs: vec![vec![0u8; table_size]],
+        wla_banks: vec![SCENE_WLA_BANK0],
+    };
+    pool.blobs[0][0..2].copy_from_slice(&(scenes.len() as u16).to_le_bytes());
+    pool.blobs[0][2] = boot_id;
     let (mut grids_raw, mut grids_rle) = (0usize, 0usize);
 
     for (i, sc) in scenes.iter().enumerate() {
@@ -82,7 +129,31 @@ pub fn build_scene_bank(
         // Layout de la scène : header 28 o (v0.3), puis tilemap (couche
         // inf) RLE, tilemap sup RLE, collision RLE, acteurs (8 o),
         // warps (8 o), scripts
-        let header_ofs = blob.len();
+        let chunk_len = 28
+            + rle_lower.len() + rle_upper.len() + rle_col.len()
+            + sc.actors.len() * 16 + sc.warps.len() * 8
+            + asm.bytecode.len();
+        if chunk_len > BANK_CAPACITY {
+            bail!(
+                "scene '{}' : {} octets > 32 Ko — une scène doit tenir                  entière dans une bank (réduire la map ou ses scripts)",
+                sc.name, chunk_len
+            );
+        }
+        // first-fit séquentiel : bank courante, sinon une neuve du pool
+        if pool.blobs.last().unwrap().len() + chunk_len > BANK_CAPACITY {
+            pool.wla_banks.push(alloc_extra(next_extra, "banks scenes")?);
+            pool.blobs.push(Vec::new());
+        }
+        let cpu_bank = 0x80 + *pool.wla_banks.last().unwrap();
+        let header_ofs = pool.blobs.last().unwrap().len();
+
+        // Entrée de la Scene Table (bank 0 du pool) : far vers le header
+        let entry = 4 + i * 4;
+        pool.blobs[0][entry] = cpu_bank;
+        pool.blobs[0][entry + 1..entry + 3]
+            .copy_from_slice(&(BANK_BASE + header_ofs as u16).to_le_bytes());
+
+        let blob = pool.blobs.last_mut().unwrap();
         let tilemap_ofs = header_ofs + 28;
         let upper_ofs = tilemap_ofs + rle_lower.len();
         let collision_ofs = upper_ofs + rle_upper.len();
@@ -90,22 +161,16 @@ pub fn build_scene_bank(
         let warps_ofs = actors_ofs + sc.actors.len() * 16;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
-        // Entrée de la Scene Table
-        let entry = 4 + i * 4;
-        blob[entry] = BANK_SCENES;
-        blob[entry + 1..entry + 3]
-            .copy_from_slice(&(BANK_BASE + header_ofs as u16).to_le_bytes());
-
         // Scene Header (spec §1.2 v0.3 — 28 octets)
         let mut header = [0u8; 28];
         header[0] = 0x01; // scene_type TOP_DOWN
         header[1] = set_ids[i]; // gfx_set_id (v0.4 — gfx compilés par scène)
         header[2] = sc.width;
         header[3] = sc.height;
-        write_far(&mut header[4..7], BANK_SCENES, tilemap_ofs);
-        write_far(&mut header[7..10], BANK_SCENES, collision_ofs);
-        write_far(&mut header[10..13], BANK_SCENES, actors_ofs);
-        write_far(&mut header[13..16], BANK_SCENES, scripts_ofs);
+        write_far(&mut header[4..7], cpu_bank, tilemap_ofs);
+        write_far(&mut header[7..10], cpu_bank, collision_ofs);
+        write_far(&mut header[10..13], cpu_bank, actors_ofs);
+        write_far(&mut header[13..16], cpu_bank, scripts_ofs);
         header[16] = sc.actors.len() as u8;
         header[17] = sc.player_start[0];
         header[18] = sc.player_start[1];
@@ -115,9 +180,9 @@ pub fn build_scene_bank(
                 format!("scene '{}' : musique inconnue '{}'", sc.name, name)
             })?,
         };
-        write_far(&mut header[20..23], BANK_SCENES, warps_ofs);
+        write_far(&mut header[20..23], cpu_bank, warps_ofs);
         header[23] = sc.warps.len() as u8;
-        write_far(&mut header[24..27], BANK_SCENES, upper_ofs);
+        write_far(&mut header[24..27], cpu_bank, upper_ofs);
         header[27] = sprite_set_ids[i]; // sprite_set_id (v0.5)
         blob.extend_from_slice(&header);
 
@@ -204,14 +269,7 @@ pub fn build_scene_bank(
         grids_rle,
         if grids_raw > 0 { grids_rle * 100 / grids_raw } else { 100 }
     );
-    if blob.len() > BANK_CAPACITY {
-        bail!(
-            "bank scenes : {} octets > 32 Ko — decoupage multi-bank a implementer \
-             (bank $83 reservee, spec kit §3)",
-            blob.len()
-        );
-    }
-    Ok(blob)
+    Ok(pool)
 }
 
 fn write_far(dst: &mut [u8], bank: u8, offset: usize) {
@@ -330,7 +388,10 @@ fn ctrl_len(b: u8) -> usize {
 /// ASCII de la table (256 octets), décodée à la volée par la textbox.
 /// [u16 text_count][u16 offset × N (relatifs au debut de bank)]
 /// [table de paires : 128 × 2 octets][chaines encodees \0]
-pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
+pub fn build_text_bank(
+    texts: &[project::TextEntry],
+    next_extra: &mut u8,
+) -> Result<BankPool> {
     for t in texts {
         if !t.text.chars().all(|c| (' '..='~').contains(&c)) {
             bail!("texte '{}' : caractere non-ASCII (v0 : ASCII 32-126)", t.name);
@@ -375,60 +436,104 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
         code_of.insert(*p, 0x80 | k as u8);
     }
 
-    let table_size = 2 + texts.len() * 2;
-    let mut blob = vec![0u8; table_size];
-    blob[0..2].copy_from_slice(&(texts.len() as u16).to_le_bytes());
-    blob.extend_from_slice(&table);
+    // Multi-bank (M1) : la bank 0 du pool ($86) porte l'en-tête —
+    // [u16 count][entrées 3 o : ofs lo, ofs hi, bank CPU][paires 256 o] —
+    // puis les chaînes se placent à la suite (first-fit séquentiel dans
+    // des banks supplémentaires quand la bank d'en-tête est pleine)
+    let header_size = 2 + texts.len() * 3 + 256;
+    if header_size > BANK_CAPACITY {
+        bail!(
+            "bank textes : {} entrees — l'en-tete deborde la bank $86",
+            texts.len()
+        );
+    }
+    let mut pool = BankPool {
+        blobs: vec![vec![0u8; header_size]],
+        wla_banks: vec![TEXT_WLA_BANK0],
+    };
+    pool.blobs[0][0..2].copy_from_slice(&(texts.len() as u16).to_le_bytes());
+    let pairs_ofs = 2 + texts.len() * 3;
+    pool.blobs[0][pairs_ofs..header_size].copy_from_slice(&table);
 
     let mut raw = 0usize;
     for (i, b) in encoded.iter().enumerate() {
-        let ofs = blob.len() as u16;
-        blob[2 + i * 2..4 + i * 2].copy_from_slice(&ofs.to_le_bytes());
+        // encodage DTE dans un tampon : la taille décide du placement
+        let mut enc = Vec::new();
         raw += b.len() + 1;
         let mut j = 0;
         while j < b.len() {
             let cl = ctrl_len(b[j]);
             if cl > 0 {
-                blob.extend_from_slice(&b[j..j + cl]);
+                enc.extend_from_slice(&b[j..j + cl]);
                 j += cl;
                 continue;
             }
             if j + 1 < b.len() && ctrl_len(b[j + 1]) == 0 {
                 if let Some(&c) = code_of.get(&[b[j], b[j + 1]]) {
-                    blob.push(c);
+                    enc.push(c);
                     j += 2;
                     continue;
                 }
             }
-            blob.push(b[j]);
+            enc.push(b[j]);
             j += 1;
         }
-        blob.push(0);
+        enc.push(0);
+        if header_size + enc.len() > BANK_CAPACITY {
+            bail!("texte '{}' : trop long pour une bank", texts[i].name);
+        }
+        if pool.blobs.last().unwrap().len() + enc.len() > BANK_CAPACITY {
+            pool.wla_banks.push(alloc_extra(next_extra, "banks textes")?);
+            pool.blobs.push(Vec::new());
+        }
+        let cpu_bank = 0x80 + *pool.wla_banks.last().unwrap();
+        let ofs = pool.blobs.last().unwrap().len() as u16;
+        let e = 2 + i * 3;
+        pool.blobs[0][e..e + 2].copy_from_slice(&ofs.to_le_bytes());
+        pool.blobs[0][e + 2] = cpu_bank;
+        pool.blobs.last_mut().unwrap().extend_from_slice(&enc);
     }
+    let strings: usize = pool.used() - header_size;
     println!(
         "  textes : {} -> {} octets (DTE, {}%)",
         raw,
-        blob.len() - table_size - 256,
-        if raw > 0 { (blob.len() - table_size - 256) * 100 / raw } else { 100 }
+        strings,
+        if raw > 0 { strings * 100 / raw } else { 100 }
     );
-
-    if blob.len() > BANK_CAPACITY {
-        bail!("bank textes : {} octets > 32 Ko", blob.len());
-    }
-    Ok(blob)
+    Ok(pool)
 }
 
-/// L'asm qui épingle les blobs dans leurs banks (LoROM : bank ROM n = CPU $80+n)
-pub fn databanks_asm() -> String {
-    format!(
+/// L'asm qui épingle les blobs dans leurs banks (LoROM : bank ROM n =
+/// CPU $80+n). Multi-bank (M1) : une section FORCE par bank de chaque
+/// pool — les fichiers s'appellent scenes.bin, scenes1.bin, … (idem
+/// textes), la bank 0 de chaque pool garde son nom historique.
+pub fn databanks_asm(scene_pool: &BankPool, text_pool: &BankPool) -> String {
+    let mut s = String::from(
         "; FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.\n\
          ; Epingle les blobs binaires dans leurs banks ROM (spec kit §3).\n\
-         .include \"hdr.asm\"\n\n\
-         .BANK {sb} SLOT 0\n.ORG 0\n.SECTION \"SceneBank\" FORCE\n\
-         .incbin \"src/data/scenes.bin\"\n.ENDS\n\n\
-         .BANK {tb} SLOT 0\n.ORG 0\n.SECTION \"TextBank\" FORCE\n\
-         .incbin \"src/data/texts.bin\"\n.ENDS\n",
-        sb = BANK_SCENES - 0x80,
-        tb = BANK_TEXTS - 0x80,
-    )
+         .include \"hdr.asm\"\n",
+    );
+    for (pool, base, label) in
+        [(scene_pool, "scenes", "SceneBank"), (text_pool, "texts", "TextBank")]
+    {
+        for (k, wla) in pool.wla_banks.iter().enumerate() {
+            let file = pool_bin_name(base, k);
+            s.push_str(&format!(
+                "\n.BANK {} SLOT 0\n.ORG 0\n.SECTION \"{}{}\" FORCE\n\
+                 .incbin \"src/data/{}\"\n.ENDS\n",
+                wla, label, k, file
+            ));
+        }
+    }
+    s
 }
+
+/// Nom du fichier .bin de la bank k d'un pool ("scenes.bin", "scenes1.bin"…)
+pub fn pool_bin_name(base: &str, k: usize) -> String {
+    if k == 0 {
+        format!("{}.bin", base)
+    } else {
+        format!("{}{}.bin", base, k)
+    }
+}
+

@@ -710,32 +710,74 @@ fn main() -> Result<()> {
         sprite_blocks
     );
 
-    // Banks binaires (spec §1-2) + asm d'épinglage
-    let scene_bank = binbank::build_scene_bank(
+    // Banks binaires (spec §1-2) + asm d'épinglage — multi-bank (M1) :
+    // les pools scènes et textes s'étendent sur des banks supplémentaires
+    // allouées à la suite (EXTRA_WLA_FIRST…)
+    let mut next_extra = binbank::EXTRA_WLA_FIRST;
+    let scene_pool = binbank::build_scene_bank(
         &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &text_ids,
-        &music_ids, boot_id as u8,
+        &music_ids, boot_id as u8, &mut next_extra,
     )?;
-    let text_bank = binbank::build_text_bank(&texts)?;
-    write_bin(&out_dir, "scenes.bin", &scene_bank)?;
-    write_bin(&out_dir, "texts.bin", &text_bank)?;
-    write_out(&engine_dir, "databanks.asm", binbank::databanks_asm())?;
+    let text_pool = binbank::build_text_bank(&texts, &mut next_extra)?;
+    for (k, blob) in scene_pool.blobs.iter().enumerate() {
+        write_bin(&out_dir, &binbank::pool_bin_name("scenes", k), blob)?;
+    }
+    for (k, blob) in text_pool.blobs.iter().enumerate() {
+        write_bin(&out_dir, &binbank::pool_bin_name("texts", k), blob)?;
+    }
+    // purge des .bin d'un build précédent plus large (le databanks.asm ne
+    // les référence plus, mais un fichier orphelin sème le doute)
+    for base in ["scenes", "texts"] {
+        let n = if base == "scenes" { scene_pool.blobs.len() } else { text_pool.blobs.len() };
+        for k in n..binbank::WLA_BANK_COUNT as usize {
+            let path = out_dir.join(binbank::pool_bin_name(base, k));
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("purge de {}", path.display()))?;
+            }
+        }
+    }
+    write_out(
+        &engine_dir,
+        "databanks.asm",
+        binbank::databanks_asm(&scene_pool, &text_pool),
+    )?;
+    println!(
+        "  banks scenes : {}/{} octets ({} bank(s))",
+        scene_pool.used(), scene_pool.capacity(), scene_pool.blobs.len()
+    );
+    println!(
+        "  banks textes : {}/{} octets ({} bank(s))",
+        text_pool.used(), text_pool.capacity(), text_pool.blobs.len()
+    );
 
     // Menu de debug (S6) : drapeau + budgets RÉELS des banks, gravés dans
     // les données — TOUJOURS émis (le moteur inclut debug.c
-    // inconditionnellement, inerte sans le drapeau)
+    // inconditionnellement, inerte sans le drapeau). La rangée SCN/TXT
+    // est PRÉ-FORMATÉE ici : le moteur n'a ni division ni place pour
+    // formater des totaux multi-bank (M1).
     {
+        let mut row = format!(
+            "SCN {}/{} TXT {}/{}",
+            scene_pool.used(), scene_pool.capacity(),
+            text_pool.used(), text_pool.capacity()
+        );
+        if row.len() > 32 {
+            row = format!(
+                "SCN {}/{}K TXT {}/{}K",
+                scene_pool.used() / 1024, scene_pool.capacity() / 1024,
+                text_pool.used() / 1024, text_pool.capacity() / 1024
+            );
+        }
+        assert!(row.len() <= 32, "rangee debug > 32 colonnes");
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str(&format!(
-            "/* menu de debug en jeu (Start+Select+R) — S6 */\n\
+            "/* menu de debug en jeu (Start+Select+R) — S6/M1 */\n\
              const u8 dbg_enabled = {};\n\
-             const u16 dbg_scn_used = {}; /* bank scenes ($82) */\n\
-             const u16 dbg_txt_used = {}; /* bank textes ($86) */\n\
-             const u16 dbg_bank_cap = {};\n",
-            debug_rom as u8,
-            scene_bank.len(),
-            text_bank.len(),
-            binbank::BANK_CAPACITY
+             /* rangée budgets pré-formatée (32 colonnes max) */\n\
+             const char dbg_banks_txt[] = \"{}\";\n",
+            debug_rom as u8, row
         ));
         write_out(&out_dir, "data_debug.c", s)?;
     }

@@ -32,11 +32,11 @@
 #include "ui_screen.h"
 #include "ui_overlay.h"
 
-/* data_debug.c (toujours émis par datagen) */
+/* data_debug.c (toujours émis par datagen) — la rangée SCN/TXT arrive
+   PRÉ-FORMATÉE (multi-bank M1 : totaux trop grands pour un u16, et pas
+   de division ici) */
 extern const u8 dbg_enabled;
-extern const u16 dbg_scn_used;
-extern const u16 dbg_txt_used;
-extern const u16 dbg_bank_cap;
+extern const char dbg_banks_txt[];
 
 extern u16 snes_vblank_count; /* compteur NMI PVSnesLib */
 
@@ -188,14 +188,7 @@ static void dbg_build(void)
   dbg_set(dbg_l0, 0, "FPS ");
   dbg_setnum(dbg_l0, DBG_FPS_COL, 60, 2);
   dbg_set(dbg_l0, 8, "LAG 00000");
-  dbg_set(dbg_l1, 0, "SCN ");
-  dbg_setnum(dbg_l1, 4, dbg_scn_used, 5);
-  dbg_l1[9] = '/';
-  dbg_setnum(dbg_l1, 10, dbg_bank_cap, 5);
-  dbg_set(dbg_l1, 16, "TXT ");
-  dbg_setnum(dbg_l1, 20, dbg_txt_used, 5);
-  dbg_l1[25] = '/';
-  dbg_setnum(dbg_l1, 26, dbg_bank_cap, 5);
+  dbg_set(dbg_l1, 0, dbg_banks_txt); /* pré-formatée par datagen (M1) */
 }
 
 /* Fermeture : rangées rendues transparentes, puis redessin du HUD (ses

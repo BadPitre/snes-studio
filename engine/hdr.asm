@@ -18,7 +18,9 @@
 .ENDME
 
 .ROMBANKSIZE $8000              ; Every ROM bank is 32 KBytes in size
-.ROMBANKS 8                     ; 2 Mbits - 8 ROM banks (voir kit §3)
+.ROMBANKS 32                    ; 8 Mbits - 32 banks (multi-bank M1 :
+                                ; tenir en phase avec WLA_BANK_COUNT de
+                                ; tools/datagen binbank.rs)
 
 .SNESHEADER
   ID "SNES"
@@ -30,7 +32,7 @@
   LOROM
 
   CARTRIDGETYPE $02             ; $02=ROM+RAM+batterie (sauvegardes SRAM)
-  ROMSIZE $08                   ; $08=2 Megabits
+  ROMSIZE $0A                   ; $0A=8 Megabits (1 Mo, multi-bank M1)
   SRAMSIZE $03                  ; 64 Kbit (8 Ko) : 4 slots de 2 Ko (v2 —
                                 ; gvars + 512 switches + 256 vars 16-bit)
   COUNTRY $01                   ; $01=USA (NTSC 60 Hz — le moteur suppose

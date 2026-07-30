@@ -11,7 +11,9 @@ export interface DatagenReport {
   running: boolean;
   ok?: boolean;
   scenesBytes?: number;
+  scenesCap?: number; // capacité du pool multi-bank (M1)
   textsBytes?: number;
+  textsCap?: number;
   compression: string[]; // lignes « grilles : … » / « textes : … »
   warnings: string[]; // lignes « attention : … »
   errorTail?: string; // sortie en cas d'échec
@@ -104,15 +106,17 @@ export default function DiagnosticsModal({ data, diags, report, onClose }: Props
                 </>
               )}
               {report.scenesBytes !== undefined && (
-                <p className={report.scenesBytes > BANK ? "diag-bad" : ""}>
-                  Bank scènes : {report.scenesBytes} / {BANK} octets (
-                  {Math.round((report.scenesBytes / BANK) * 100)}%)
+                <p className={report.scenesBytes > (report.scenesCap ?? BANK) ? "diag-bad" : ""}>
+                  Scènes : {report.scenesBytes} / {report.scenesCap ?? BANK} octets (
+                  {Math.round((report.scenesBytes / (report.scenesCap ?? BANK)) * 100)}%,
+                  {" "}{Math.ceil((report.scenesCap ?? BANK) / 32768)} bank(s))
                 </p>
               )}
               {report.textsBytes !== undefined && (
-                <p className={report.textsBytes > BANK ? "diag-bad" : ""}>
-                  Bank textes : {report.textsBytes} / {BANK} octets (
-                  {Math.round((report.textsBytes / BANK) * 100)}%)
+                <p className={report.textsBytes > (report.textsCap ?? BANK) ? "diag-bad" : ""}>
+                  Textes : {report.textsBytes} / {report.textsCap ?? BANK} octets (
+                  {Math.round((report.textsBytes / (report.textsCap ?? BANK)) * 100)}%,
+                  {" "}{Math.ceil((report.textsCap ?? BANK) / 32768)} bank(s))
                 </p>
               )}
               {report.compression.map((l, i) => (

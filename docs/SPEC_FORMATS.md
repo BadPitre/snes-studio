@@ -83,6 +83,14 @@ Offset  Taille  Champ
 *Évolution v0 → v0.2 (Phase 2b) : ajout de `boot_scene_id` dans l'en-tête —
 la scène de boot est une donnée, pas une constante moteur.*
 
+**M1 — multi-bank :** le format de la table ne change pas (le champ
+`bank` de chaque entrée a toujours été là), mais les scènes peuvent
+désormais vivre HORS de $82 : datagen les place à la suite (first-fit
+séquentiel, une scène est atomique et doit tenir dans une bank de
+32 Ko) dans $82 puis dans des banks supplémentaires allouées à partir
+de $88. Tous les pointeurs far du Scene Header portent la bank de leur
+scène ; le moteur suit les pointeurs sans carte des banks.
+
 ### 1.2 Scene Header (v0.3 — 28 octets)
 
 ```
@@ -365,12 +373,17 @@ le héros (réflexe RM2003, moteur).*
 ```
 Offset      Taille  Champ
 0           2       text_count (u16)
-2           2×N     offsets (u16) — relatifs au début de bank ($8000)
-2+2N        256     table de paires : 128 × 2 caractères ASCII
-(offsets)   ...     chaînes encodées terminées par 0x00
+2           3×N     entrées : { ofs (u16, relatif à $8000), bank (u8) }
+2+3N        256     table de paires : 128 × 2 caractères ASCII
+(banks)     ...     chaînes encodées terminées par 0x00
 ```
 
-`text_id` indexe la table d'offsets. Dans une chaîne, un octet 0x80-0xFF
+*M1 — multi-bank : l'en-tête (count + entrées + paires) vit en $86 ;
+chaque chaîne vit dans la bank de son entrée — $86 d'abord, puis des
+banks supplémentaires allouées après celles des scènes. (Avant M1 les
+entrées faisaient 2 octets, tout tenait en $86.)*
+
+`text_id` indexe la table d'entrées. Dans une chaîne, un octet 0x80-0xFF
 désigne la paire `(code & 0x7F)` de la table (2 caractères BRUTS — le
 décodeur n'est pas récursif) ; la textbox décode vers un buffer WRAM
 avant le rendu. datagen choisit les 128 bigrammes les plus fréquents du
