@@ -84,6 +84,15 @@ static void text_decode(u16 text_id, char *dst, u8 max)
       while (d && n < (u8)(max - 2))
         dst[n++] = tb_num[--d];
     }
+    else if (c == 0x02)
+    {
+      /* \s[n] (T2) : recopié avec son paramètre — interprété par la
+         machine à écrire, invisible pour le wrap */
+      dst[n++] = c;
+      dst[n++] = *s++;
+    }
+    else if (c < 0x20)
+      dst[n++] = c; /* codes 1 octet (T2) : pause, attente, instantané */
     else if (c & 0x80)
     {
       k = (u16)(c & 0x7F) << 1;
@@ -176,20 +185,97 @@ static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
 }
 
 /* Machine à écrire (UI_TEXT_SPEED frames par caractère, 0 = instantané).
-   État de la révélation en cours — init EXPLICITE (statics tcc). */
+   État de la révélation en cours — init EXPLICITE (statics tcc).
+   Codes spéciaux (T2) : vitesse \s[n], pauses \. \|, attente \!,
+   fermeture auto \^, bloc instantané \> \< — octets de contrôle
+   < 0x20 laissés dans le buffer décodé par text_decode. */
 static u8 tw_active;
 static u8 tw_timer;
 static const char *tw_s;
 static u8 tw_row, tw_col;
+static u8 tw_speed;    /* frames/caractère courant (\s[n], défaut thème) */
+static u8 tw_pause;    /* frames de pause restantes (\. \|) */
+static u8 tw_waitkey;  /* point d'attente \! : A pour reprendre */
+static u8 tw_instant;  /* bloc \> ... \< : révélation sans délai */
+static u8 tb_autoclose; /* \^ : la VM ferme sans attendre d'appui */
+
+/* Longueur AFFICHÉE du mot qui suit s[0] (wrap par mot) : les octets de
+   contrôle ne comptent pas, 0x01/0x02 portent un paramètre. */
+static u16 tw_word_len(const char *s)
+{
+  u16 wl = 0, j = 1;
+
+  while (s[j] && s[j] != ' ')
+  {
+    if ((u8)s[j] >= 0x20)
+    {
+      wl++;
+      j++;
+    }
+    else
+      j += ((u8)s[j] <= 0x02) ? 2 : 1;
+  }
+  return wl;
+}
 
 /* Révèle UN caractère — même logique de wrap par mot que le rendu
-   instantané de textbox_open_raw */
+   instantané de textbox_open_raw. Consomme d'abord les codes de contrôle
+   (dans la même frame : un code ne coûte jamais un tick, sauf ceux qui
+   suspendent la révélation — pause, attente). */
 static void tw_step(void)
 {
   char c;
   u16 wl;
 
-  c = *tw_s;
+  for (;;)
+  {
+    c = *tw_s;
+    if (c == 0x02) /* \s[n] : n frames/caractère, 0 = instantané */
+    {
+      u8 n = (u8)(tw_s[1] - 1);
+
+      tw_s += 2;
+      if (n)
+      {
+        tw_speed = n;
+        tw_instant = 0;
+      }
+      else
+        tw_instant = 1;
+      continue;
+    }
+    if (c == 0x03 || c == 0x04) /* \. pause courte, \| pause longue */
+    {
+      tw_s++;
+      tw_pause = (c == 0x03) ? 15 : 60;
+      return;
+    }
+    if (c == 0x05) /* \! : attendre A (repris par textbox_resume) */
+    {
+      tw_s++;
+      tw_waitkey = 1;
+      return;
+    }
+    if (c == 0x06) /* \^ : flag lu par la VM à la fin du message */
+    {
+      tw_s++;
+      tb_autoclose = 1;
+      continue;
+    }
+    if (c == 0x07) /* \> : début de bloc instantané */
+    {
+      tw_s++;
+      tw_instant = 1;
+      continue;
+    }
+    if (c == 0x08) /* \< : fin de bloc instantané */
+    {
+      tw_s++;
+      tw_instant = 0;
+      return; /* coupe la rafale en cours dans textbox_tick */
+    }
+    break;
+  }
   if (!c || tw_row >= TB_TEXT_ROWS)
   {
     tw_active = 0;
@@ -197,9 +283,7 @@ static void tw_step(void)
   }
   if (c == ' ')
   {
-    wl = 0;
-    while (tw_s[wl + 1] && tw_s[wl + 1] != ' ')
-      wl++;
+    wl = tw_word_len(tw_s);
     if ((u16)tw_col + 1 + wl > TB_TEXT_COLS)
     {
       tw_row++;
@@ -226,10 +310,23 @@ static void tw_step(void)
 
 void textbox_tick(void)
 {
-  if (!tw_active)
+  if (!tw_active || tw_waitkey)
+    return; /* \! : la reprise vient de la VM (textbox_resume) */
+  if (tw_pause)
+  {
+    tw_pause--;
     return;
+  }
+  if (tw_instant)
+  {
+    /* bloc \> ... \< (ou \s[0]) : tout ce qui suit part d'un coup,
+       jusqu'à la fin du bloc, une pause ou un point d'attente */
+    while (tw_active && tw_instant && !tw_pause && !tw_waitkey)
+      tw_step();
+    return;
+  }
   tw_timer++;
-  if (tw_timer < UI_TEXT_SPEED)
+  if (tw_timer < tw_speed)
     return;
   tw_timer = 0;
   tw_step();
@@ -242,8 +339,29 @@ u8 textbox_busy(void)
 
 void textbox_finish(void)
 {
-  while (tw_active)
+  /* tout révéler d'un coup — sauf au-delà d'un point d'attente \! :
+     l'auteur l'a mis là exprès, l'appui suivant le franchira */
+  while (tw_active && !tw_waitkey)
+  {
+    tw_pause = 0;
     tw_step();
+  }
+  tw_pause = 0;
+}
+
+u8 textbox_waiting_key(void)
+{
+  return (u8)(tw_active && tw_waitkey);
+}
+
+void textbox_resume(void)
+{
+  tw_waitkey = 0;
+}
+
+u8 textbox_autoclose(void)
+{
+  return tb_autoclose;
 }
 
 /* Palette de la fonte : CGRAM 16-19 (palette BG 2bpp n°4). Ces slots sont
@@ -287,6 +405,11 @@ void textbox_init(void)
   tw_s = 0;
   tw_row = 0;
   tw_col = 0;
+  tw_speed = UI_TEXT_SPEED ? UI_TEXT_SPEED : 1;
+  tw_pause = 0;
+  tw_waitkey = 0;
+  tw_instant = 0;
+  tb_autoclose = 0;
 }
 
 void textbox_open(u16 text_id)
@@ -300,6 +423,11 @@ void textbox_open(u16 text_id)
   tw_s = tb_text;
   tw_row = 0;
   tw_col = 0;
+  tw_speed = UI_TEXT_SPEED; /* \s[n] du message précédent oublié */
+  tw_pause = 0;
+  tw_waitkey = 0;
+  tw_instant = 0;
+  tb_autoclose = 0; /* (re)posé par tw_step s'il croise \^ */
 #else
   textbox_open_raw(tb_text);
 #endif
@@ -314,6 +442,7 @@ void textbox_open_raw(const char *s)
   char c;
 
   tw_active = 0; /* un rendu instantané annule toute révélation en cours */
+  tb_autoclose = 0;
   tb_box_at(tb_mx, tb_my, tb_mw, tb_mh);
 
   if (s)
@@ -323,12 +452,19 @@ void textbox_open_raw(const char *s)
     while (*s && row < TB_TEXT_ROWS)
     {
       c = *s;
+      if ((u8)c < 0x20)
+      {
+        /* rendu instantané : les codes de rythme n'ont pas de sens —
+           seul \^ garde son effet (fermeture sans appui) */
+        if (c == 0x06)
+          tb_autoclose = 1;
+        s += ((u8)c <= 0x02) ? 2 : 1;
+        continue;
+      }
       if (c == ' ')
       {
-        /* wrap par mot : longueur du mot qui suit l'espace */
-        wl = 0;
-        while (s[wl + 1] && s[wl + 1] != ' ')
-          wl++;
+        /* wrap par mot : longueur affichée du mot qui suit l'espace */
+        wl = tw_word_len(s);
         if ((u16)col + 1 + wl > TB_TEXT_COLS)
         {
           row++;
@@ -380,6 +516,12 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
     col = 0;
     while (s && *s && col < TB_CHC_COLS - 2)
     {
+      if ((u8)*s < 0x20)
+      {
+        /* codes de rythme sans objet sur une ligne d'option */
+        s += ((u8)*s <= 0x02) ? 2 : 1;
+        continue;
+      }
       ui_map[TB_CHC_CELL(i, 2 + col)] = TB_ENTRY(TB_CHAR(*s));
       col++;
       s++;
@@ -402,5 +544,8 @@ void textbox_choice_cursor(u8 sel)
 void textbox_close(void)
 {
   tw_active = 0;
+  tw_waitkey = 0;
+  tw_pause = 0;
+  tb_autoclose = 0;
   tb_clear_band();
 }

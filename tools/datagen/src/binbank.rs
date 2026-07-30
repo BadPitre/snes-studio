@@ -241,41 +241,88 @@ fn rle_encode(data: &[u8]) -> Vec<u8> {
 /// Budget WRAM du moteur pour une grille décompressée (scene.c)
 pub const MAP_BUF_CELLS: usize = 8192;
 
-/// v0.17 — codes \v[n] des textes (afficher une variable, RM2003) :
-/// [0x01][n + 1] dans le flux (n+1 : jamais d'octet nul dans une chaîne).
-/// n 0-254 (vars16).
-fn escape_vars(name: &str, s: &str) -> Result<Vec<u8>> {
+/// Codes speciaux des textes (modele RM2003, spec §2) — encodes en octets
+/// de controle < 0x20 AVANT le DTE (opaques pour le dictionnaire) :
+///   \v[n] -> [0x01][n+1]  afficher la variable n (0-254) en decimal
+///   \s[n] -> [0x02][n+1]  vitesse : n frames par caractere (0-19,
+///                          0 = instantane jusqu'a la fin)
+///   \.    -> [0x03]       pause courte (1/4 s)
+///   \|    -> [0x04]       pause longue (1 s)
+///   \!    -> [0x05]       attendre un appui sur A avant de continuer
+///   \^    -> [0x06]       le message se ferme sans appui a la fin
+///   \>    -> [0x07]       debut d'affichage instantane
+///   \<    -> [0x08]       fin d'affichage instantane
+///   \\    -> '\\'          backslash litteral
+/// (n+1 : jamais d'octet nul dans une chaine.)
+fn escape_codes(name: &str, s: &str) -> Result<Vec<u8>> {
     let b = s.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'\\' && i + 1 < b.len() && b[i + 1] == b'v' {
-            if b.get(i + 2) != Some(&b'[') {
-                bail!("texte '{}' : \\v s'ecrit \\v[n] (n = numero de variable)", name);
-            }
-            let end = b[i + 3..]
-                .iter()
-                .position(|&c| c == b']')
-                .map(|p| p + i + 3)
-                .with_context(|| format!("texte '{}' : \\v[ sans ] fermant", name))?;
-            let n: u16 = std::str::from_utf8(&b[i + 3..end])
-                .unwrap_or("")
-                .trim()
-                .parse()
-                .ok()
-                .filter(|&n| n < 255)
-                .with_context(|| {
-                    format!("texte '{}' : \\v[n] attend un numero de variable 0-254", name)
-                })?;
-            out.push(0x01);
-            out.push((n + 1) as u8);
-            i = end + 1;
-        } else {
+        if b[i] != b'\\' {
             out.push(b[i]);
             i += 1;
+            continue;
+        }
+        let c = *b.get(i + 1).with_context(|| {
+            format!("texte '{}' : \\ en fin de texte (\\\\ pour un backslash)", name)
+        })?;
+        match c {
+            b'v' | b's' => {
+                if b.get(i + 2) != Some(&b'[') {
+                    bail!(
+                        "texte '{}' : \\{} s'ecrit \\{}[n]",
+                        name, c as char, c as char
+                    );
+                }
+                let end = b[i + 3..]
+                    .iter()
+                    .position(|&x| x == b']')
+                    .map(|p| p + i + 3)
+                    .with_context(|| {
+                        format!("texte '{}' : \\{}[ sans ] fermant", name, c as char)
+                    })?;
+                let max = if c == b'v' { 254 } else { 19 };
+                let n: u16 = std::str::from_utf8(&b[i + 3..end])
+                    .unwrap_or("")
+                    .trim()
+                    .parse()
+                    .ok()
+                    .filter(|&n| n <= max)
+                    .with_context(|| {
+                        format!(
+                            "texte '{}' : \\{}[n] attend n entre 0 et {}",
+                            name, c as char, max
+                        )
+                    })?;
+                out.push(if c == b'v' { 0x01 } else { 0x02 });
+                out.push((n + 1) as u8);
+                i = end + 1;
+            }
+            b'.' => { out.push(0x03); i += 2; }
+            b'|' => { out.push(0x04); i += 2; }
+            b'!' => { out.push(0x05); i += 2; }
+            b'^' => { out.push(0x06); i += 2; }
+            b'>' => { out.push(0x07); i += 2; }
+            b'<' => { out.push(0x08); i += 2; }
+            b'\\' => { out.push(b'\\'); i += 2; }
+            other => bail!(
+                "texte '{}' : code \\{} inconnu (codes : \\v[n] \\s[n] \\. \\| \\! \\^ \\> \\< \\\\)",
+                name, other as char
+            ),
         }
     }
     Ok(out)
+}
+
+/// Un octet de controle et son parametre eventuel : 0x01/0x02 sont suivis
+/// d'un octet (qui peut valoir n'importe quoi — jamais une paire DTE).
+fn ctrl_len(b: u8) -> usize {
+    match b {
+        0x01 | 0x02 => 2,
+        0x03..=0x08 => 1,
+        _ => 0,
+    }
 }
 
 /// Bank textes (spec §2 v0.7) — chaînes compressées par dictionnaire de
@@ -290,11 +337,11 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
         }
     }
 
-    // v0.17 : \v[n] -> [0x01][n+1] AVANT le DTE (l'échappement est opaque
-    // pour le dictionnaire — le décodeur insère vars16[n] en décimal)
+    // Codes speciaux -> octets de controle AVANT le DTE (opaques pour le
+    // dictionnaire — le decodeur/machine a ecrire les interprete)
     let encoded: Vec<Vec<u8>> = texts
         .iter()
-        .map(|t| escape_vars(&t.name, &t.text))
+        .map(|t| escape_codes(&t.name, &t.text))
         .collect::<Result<_>>()?;
 
     // Dictionnaire : les 128 bigrammes ASCII les plus fréquents (une seule
@@ -305,11 +352,12 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
     for b in &encoded {
         let mut j = 0;
         while j < b.len() {
-            if b[j] == 0x01 {
-                j += 2;
+            let cl = ctrl_len(b[j]);
+            if cl > 0 {
+                j += cl;
                 continue;
             }
-            if j + 1 < b.len() && b[j + 1] != 0x01 {
+            if j + 1 < b.len() && ctrl_len(b[j + 1]) == 0 {
                 *freq.entry([b[j], b[j + 1]]).or_insert(0) += 1;
             }
             j += 1;
@@ -339,13 +387,13 @@ pub fn build_text_bank(texts: &[project::TextEntry]) -> Result<Vec<u8>> {
         raw += b.len() + 1;
         let mut j = 0;
         while j < b.len() {
-            if b[j] == 0x01 {
-                blob.push(b[j]);
-                blob.push(b[j + 1]);
-                j += 2;
+            let cl = ctrl_len(b[j]);
+            if cl > 0 {
+                blob.extend_from_slice(&b[j..j + cl]);
+                j += cl;
                 continue;
             }
-            if j + 1 < b.len() && b[j + 1] != 0x01 {
+            if j + 1 < b.len() && ctrl_len(b[j + 1]) == 0 {
                 if let Some(&c) = code_of.get(&[b[j], b[j + 1]]) {
                     blob.push(c);
                     j += 2;

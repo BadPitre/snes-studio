@@ -350,8 +350,23 @@ impl<'a> EventCompiler<'a> {
                     } else {
                         self.style_index(cmd)?; /* valide quand même le champ */
                     }
-                    let t = cmd["text"].as_str().context("msg sans texte")?;
-                    let name = self.text_name(t)?;
+                    // texte libre OU reference au catalogue (Tools >
+                    // Textes) : text_ref = nom d'une entree de texts.json,
+                    // partagee entre plusieurs commandes et editable au
+                    // catalogue sans toucher aux events
+                    let name = if let Some(r) = cmd["text_ref"].as_str() {
+                        if !self.texts.iter().any(|t| t.name == r) {
+                            bail!(
+                                "msg : texte « {} » introuvable dans le \
+                                 catalogue (Tools > Textes)",
+                                r
+                            );
+                        }
+                        r.to_string()
+                    } else {
+                        let t = cmd["text"].as_str().context("msg sans texte")?;
+                        self.text_name(t)?
+                    };
                     out.push(format!("  MSG {}", name));
                 }
                 "choice" => {

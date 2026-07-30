@@ -24,6 +24,7 @@ interface Props {
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
+  texts: import("../types").TextEntry[]; // catalogue (msg par référence, T2)
   pictures: string[];
   tintPresets: import("../types").TintPreset[];
   soundNames: string[];
@@ -583,6 +584,7 @@ export default function ScreensModal(props: Props) {
                       db={props.db}
                       uiWidgets={props.uiWidgets}
                       uiStyles={props.uiStyles}
+                  texts={props.texts}
                       pictures={props.pictures}
                       tintPresets={props.tintPresets}
                       soundNames={props.soundNames}

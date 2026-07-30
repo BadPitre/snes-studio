@@ -172,7 +172,7 @@ export interface Actor {
 export type EventTrigger = "action" | "touch" | "auto";
 
 export type Command =
-  | { c: "msg"; text: string; style?: string } // style : boîte S1 (absent = défaut)
+  | { c: "msg"; text: string; text_ref?: string; style?: string } // text_ref : entrée du catalogue Tools > Textes (prioritaire sur text) ; style : boîte S1 (absent = défaut)
   | { c: "choice"; var?: string; style?: string; options: { text: string; do: Command[] }[] }
   | { c: "set"; var: string; value: number }
   | { c: "add"; var: string; value: number }

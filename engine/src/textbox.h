@@ -36,10 +36,18 @@ void textbox_set_style(u8 n);
 
 /* Machine à écrire (Phase 11, thème UI_TEXT_SPEED > 0) : un pas de
    révélation par frame (appelé pendant l'attente TEXTBOX de la VM),
-   1 si la révélation court encore, tout révéler d'un coup (touche A). */
+   1 si la révélation court encore, tout révéler d'un coup (touche A —
+   s'arrête sur un point d'attente \! : ils sont voulus par l'auteur). */
 void textbox_tick(void);
 u8 textbox_busy(void);
 void textbox_finish(void);
+
+/* Codes spéciaux (T2, spec §2) : point d'attente \! en cours (l'appui
+   sur A doit REPRENDRE la révélation, pas fermer), reprise après \!,
+   et fermeture automatique \^ (la VM ferme sans attendre d'appui). */
+u8 textbox_waiting_key(void);
+void textbox_resume(void);
+u8 textbox_autoclose(void);
 
 /* Efface la boîte (la bande du dialogue redevient transparente au
    prochain VBlank — transfert centralisé par ui_screen_vblank). */
