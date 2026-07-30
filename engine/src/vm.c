@@ -624,7 +624,7 @@ static void vm_step(void)
         break; /* pas de liste sur ce widget : commande ignorée */
       vm.choice_count = val;
       vm.choice_sel = 0;
-      vm.list_cancel = (u8)(op & 1);
+      vm.list_flags = op;
       vm.wait_mode = VM_WAIT_LIST;
       break;
 
@@ -877,13 +877,21 @@ void vm_update(void)
     {
       /* variable 16-bit (0-255), comme KEYIN — le circuit if_var */
       vm.vars16[vm.choice_var] = vm.choice_sel;
-      overlay_list_close();
+      overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
-    else if ((down & KEY_B) && vm.list_cancel)
+    else if ((down & KEY_B) && (vm.list_flags & 1))
     {
       vm.vars16[vm.choice_var] = 255;
-      overlay_list_close();
+      overlay_list_close((u8)(vm.list_flags & 2));
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    else if ((down & (KEY_LEFT | KEY_RIGHT)) && (vm.list_flags & 4))
+    {
+      /* multi-panneaux : la sortie latérale dit au script d'activer la
+         liste voisine (254 = sorti à gauche, 253 = à droite) */
+      vm.vars16[vm.choice_var] = (down & KEY_LEFT) ? 254 : 253;
+      overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
     return;

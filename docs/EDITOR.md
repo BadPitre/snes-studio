@@ -451,7 +451,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   **« Choix dans une liste »** l'ouvre, haut/bas naviguent en bouclant,
   A écrit l'index dans une variable, B écrit 255 si l'annulation est
   permise — le menu Attaque/Magie/Objet/Fuite sans bricolage KEYIN,
-  catégorie Écran du picker). L'objet
+  catégorie Écran du picker. Options multi-panneaux : « Laisser le
+  widget affiché à la fermeture » (la liste reste à l'écran, sans
+  curseur) et « Gauche/Droite quittent la liste » (254 = gauche, 253 =
+  droite) — deux listes côte à côte + une variable « panneau actif »
+  dans une boucle, et le curseur saute d'un panneau à l'autre ; exemple
+  complet dans l'écran composé combat_prairie de la démo, lancé par le
+  Duelliste de la plaine). L'objet
   s'ajoute DANS le conteneur sélectionné (sinon à côté, sinon sur le
   canvas). **Arborescence** : la structure (fenêtre > listes > lignes >
   labels), sélection au clic. **Canvas 256x224 fidèle tiles** (2x,

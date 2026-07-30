@@ -41,7 +41,9 @@ typedef struct
   u8 choice_var;   /* variable destination du CHOICE en cours */
   u8 choice_count; /* nombre d'options (2-4) — partagé par LISTSEL (B6) */
   u8 choice_sel;   /* option sous le curseur */
-  u8 list_cancel;  /* LISTSEL (B6) : 1 = B annule (var = 255) */
+  u8 list_flags;   /* LISTSEL (B6) : bit 0 = B annule (var = 255),
+                      bit 1 = laisser le widget affiché à la fermeture,
+                      bit 2 = Gauche/Droite sortent (var = 254/253) */
 } VmState;
 
 extern VmState vm;

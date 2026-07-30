@@ -26,29 +26,284 @@
   "scripts": [
     {
       "name": "principal",
+      "trigger": "auto",
       "commands": [
         {
-          "c": "wait",
-          "frames": 60
+          "c": "rem",
+          "text": "Deux panneaux : Gauche/Droite sautent de l'un a l'autre"
         },
         {
-          "c": "screen_call",
-          "script": "attaque_dragon"
+          "c": "ui_show",
+          "widget": "menu_magie",
+          "on": true
         },
         {
-          "c": "wait",
-          "frames": 120
+          "c": "var",
+          "n": 22,
+          "op": "=",
+          "value": 0
+        },
+        {
+          "c": "loop",
+          "do": [
+            {
+              "c": "if_var",
+              "n": 22,
+              "op": "==",
+              "value": 0,
+              "then": [
+                {
+                  "c": "list_select",
+                  "widget": "menu_combat",
+                  "var": 20,
+                  "cancel": false,
+                  "keep": true,
+                  "lr": true
+                },
+                {
+                  "c": "if_var",
+                  "n": 20,
+                  "op": "==",
+                  "value": 253,
+                  "then": [
+                    {
+                      "c": "var",
+                      "n": 22,
+                      "op": "=",
+                      "value": 1
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 20,
+                  "op": "==",
+                  "value": 0,
+                  "then": [
+                    {
+                      "c": "screen_call",
+                      "script": "attaque"
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 20,
+                  "op": "==",
+                  "value": 1,
+                  "then": [
+                    {
+                      "c": "msg",
+                      "text": "Pas d'objets !"
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 20,
+                  "op": "==",
+                  "value": 2,
+                  "then": [
+                    {
+                      "c": "ui_show",
+                      "widget": "menu_combat",
+                      "on": false
+                    },
+                    {
+                      "c": "ui_show",
+                      "widget": "menu_magie",
+                      "on": false
+                    },
+                    {
+                      "c": "stage_close",
+                      "dur": 10
+                    },
+                    {
+                      "c": "break"
+                    }
+                  ],
+                  "else": []
+                }
+              ],
+              "else": [
+                {
+                  "c": "list_select",
+                  "widget": "menu_magie",
+                  "var": 21,
+                  "cancel": true,
+                  "keep": true,
+                  "lr": true
+                },
+                {
+                  "c": "if_var",
+                  "n": 21,
+                  "op": "==",
+                  "value": 254,
+                  "then": [
+                    {
+                      "c": "var",
+                      "n": 22,
+                      "op": "=",
+                      "value": 0
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 21,
+                  "op": "==",
+                  "value": 255,
+                  "then": [
+                    {
+                      "c": "var",
+                      "n": 22,
+                      "op": "=",
+                      "value": 0
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 21,
+                  "op": "==",
+                  "value": 0,
+                  "then": [
+                    {
+                      "c": "screen_call",
+                      "script": "feu"
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 21,
+                  "op": "==",
+                  "value": 1,
+                  "then": [
+                    {
+                      "c": "screen_call",
+                      "script": "soin"
+                    }
+                  ],
+                  "else": []
+                },
+                {
+                  "c": "if_var",
+                  "n": 21,
+                  "op": "==",
+                  "value": 2,
+                  "then": [
+                    {
+                      "c": "screen_call",
+                      "script": "foudre"
+                    }
+                  ],
+                  "else": []
+                }
+              ]
+            }
+          ]
         }
       ]
     },
     {
-      "name": "attaque_dragon",
+      "name": "attaque",
+      "trigger": "call",
       "commands": [
+        {
+          "c": "sfx",
+          "sound": "attaque"
+        },
+        {
+          "c": "slot_fx",
+          "slot": 2,
+          "fx": "flash",
+          "frames": 20
+        },
+        {
+          "c": "wait",
+          "frames": 30
+        }
+      ]
+    },
+    {
+      "name": "feu",
+      "trigger": "call",
+      "commands": [
+        {
+          "c": "sfx",
+          "sound": "attaque"
+        },
         {
           "c": "slot_fx",
           "slot": 1,
           "fx": "flash",
           "frames": 20
+        },
+        {
+          "c": "flash",
+          "r": 31,
+          "g": 12,
+          "b": 0,
+          "frames": 12
+        },
+        {
+          "c": "wait",
+          "frames": 30
+        }
+      ]
+    },
+    {
+      "name": "soin",
+      "trigger": "call",
+      "commands": [
+        {
+          "c": "sfx",
+          "sound": "curseur"
+        },
+        {
+          "c": "flash",
+          "r": 0,
+          "g": 31,
+          "b": 8,
+          "frames": 16
+        },
+        {
+          "c": "wait",
+          "frames": 30
+        }
+      ]
+    },
+    {
+      "name": "foudre",
+      "trigger": "call",
+      "commands": [
+        {
+          "c": "sfx",
+          "sound": "attaque"
+        },
+        {
+          "c": "flash",
+          "r": 31,
+          "g": 31,
+          "b": 31,
+          "frames": 8
+        },
+        {
+          "c": "slot_fx",
+          "slot": 3,
+          "fx": "flash",
+          "frames": 20
+        },
+        {
+          "c": "wait",
+          "frames": 30
         }
       ]
     }

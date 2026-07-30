@@ -544,7 +544,13 @@ impl<'a> EventCompiler<'a> {
                         .filter(|&v| v < 256)
                         .with_context(|| "list_select : var 0-255".to_string())?;
                     let cancel = cmd["cancel"].as_bool().unwrap_or(true);
-                    out.push(format!("  LISTSEL {} {} {}", idx, var, cancel as u8));
+                    // bit 1 : le widget reste affiché à la fermeture
+                    // (multi-panneaux) ; bit 2 : Gauche/Droite sortent
+                    // (var = 254/253 — navigation entre listes voisines)
+                    let keep = cmd["keep"].as_bool().unwrap_or(false);
+                    let lr = cmd["lr"].as_bool().unwrap_or(false);
+                    let flags = cancel as u8 | (keep as u8) << 1 | (lr as u8) << 2;
+                    out.push(format!("  LISTSEL {} {} {}", idx, var, flags));
                 }
                 // S3 — pictures plein écran (façon RM2003) : nom résolu
                 // vers le pic_id de project.pictures

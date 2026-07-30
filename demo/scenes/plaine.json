@@ -91,6 +91,25 @@
   "events":
   [
     {
+      "name": "Duelliste",
+      "x": 20,
+      "y": 8,
+      "trigger": "action",
+      "sprite": 1,
+      "dir": "left",
+      "commands": [
+        {
+          "c": "msg",
+          "text": "En garde ! (menu : haut/bas, gauche/droite = panneau, A valide)"
+        },
+        {
+          "c": "screen",
+          "name": "combat_prairie",
+          "dur": 15
+        }
+      ]
+    },
+    {
       "name": "Compteur",
       "x": 8,
       "y": 4,

@@ -14,5 +14,5 @@
 #define UI_CHC_H 8
 #define UI_SHADOW_ROW 20
 #define UI_SHADOW_H 8
-#define UI_OV_COUNT 1
-#define UI_WIDGET_COUNT 1
+#define UI_OV_COUNT 2
+#define UI_WIDGET_COUNT 2

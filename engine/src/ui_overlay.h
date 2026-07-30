@@ -27,6 +27,7 @@ void overlay_show(u8 widget, u8 on);
    (0 = le widget n'a pas de primitive liste : la commande est ignorée). */
 u8 overlay_list_open(u8 widget);
 void overlay_list_cursor(u8 sel);
-void overlay_list_close(void); /* cache le widget et libère le curseur */
+void overlay_list_close(u8 keep); /* libère le curseur ; keep = 1 :
+    le widget reste affiché (multi-panneaux), 0 : il est recaché */
 
 #endif /* UI_OVERLAY_H */

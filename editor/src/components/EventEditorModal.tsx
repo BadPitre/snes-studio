@@ -132,7 +132,8 @@ function labelOf(c: Command, ceNames?: string[]): string {
       return `${c.on ? "Afficher" : "Cacher"} le widget UI « ${c.widget || "?"} »`;
     case "list_select":
       return `Choix dans la liste « ${c.widget || "?"} » → [${c.var}]${
-        c.cancel ? "" : " (B désactivé)"}`;
+        c.cancel ? "" : " (B désactivé)"}${c.keep ? " +affiché" : ""}${
+        c.lr ? " +G/D" : ""}`;
     case "key_input":
       return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
     case "sysmenu":
@@ -2082,11 +2083,23 @@ function CommandForm(props: {
               onChange={(e) => onChange({ ...cmd, cancel: e.target.checked })} />
             B annule (la variable reçoit 255)
           </label>
+          <label className="checkline">
+            <input type="checkbox" checked={cmd.keep ?? false}
+              onChange={(e) => onChange({ ...cmd, keep: e.target.checked || undefined })} />
+            Laisser le widget affiché à la fermeture (multi-panneaux)
+          </label>
+          <label className="checkline">
+            <input type="checkbox" checked={cmd.lr ?? false}
+              onChange={(e) => onChange({ ...cmd, lr: e.target.checked || undefined })} />
+            Gauche/Droite quittent la liste (254 = gauche, 253 = droite)
+          </label>
           <span className="hint">
             BLOQUANT : le menu s'ouvre (le widget est affiché), haut/bas
-            naviguent avec bouclage, A valide. Le widget est recaché à la
-            fermeture — enchaîner avec des « Condition (variable) » sur
-            l'index : 0 = premier item (Attaque), 1 = deuxième (Magie)…
+            naviguent avec bouclage, A valide (index : 0 = premier item).
+            Multi-panneaux : cocher les deux cases, tester 253/254 dans une
+            condition et enchaîner sur la liste voisine — le widget resté
+            affiché n'a plus de curseur, cacher avec « Afficher/cacher un
+            widget UI » quand le menu se ferme pour de bon.
           </span>
         </>
       );

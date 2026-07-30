@@ -266,12 +266,18 @@ widgets du projet.
 ui/layout.toml (`items = ["Attaque", "Magie", ...]` — 2-16 items ASCII,
 `frame` défaut true, taille AUTO : 1 colonne curseur + item le plus
 long, une rangée par item). La commande
-`{"c":"list_select","widget":"<id>","var":n,"cancel":true|false}`
-(BLOQUANTE, `LISTSEL <widget> <var> <flags>`, opcode 0x3A) affiche le
-widget, laisse naviguer haut/bas (bouclage), écrit l'index choisi
-(0 = premier item) dans `vars16[var]` sur A — ou 255 sur B si `cancel`
-— puis recache le widget. Enchaîner avec des `if_var` sur l'index :
-le menu Attaque/Magie/Objet/Fuite se construit sans KEYIN.
+`{"c":"list_select","widget":"<id>","var":n,"cancel":true|false,
+"keep":bool,"lr":bool}` (BLOQUANTE, `LISTSEL <widget> <var> <flags>`
+avec flags = cancel | keep<<1 | lr<<2, opcode 0x3A) affiche le widget,
+laisse naviguer haut/bas (bouclage), écrit l'index choisi (0 = premier
+item) dans `vars16[var]` sur A — ou 255 sur B si `cancel` — puis
+recache le widget. `keep` : le widget reste affiché à la fermeture
+(sans curseur) ; `lr` : Gauche/Droite sortent aussi (254 = gauche,
+253 = droite). Multi-panneaux : deux listes côte à côte, `keep` + `lr`
+sur chacune, une variable « panneau actif » et une boucle — le curseur
+saute de l'une à l'autre (voir demo/screens/combat_prairie.json, menu
+complet Attaque/Objet/Fuite + Feu/Soin/Foudre). Enchaîner avec des
+`if_var` sur l'index : le menu de combat se construit sans KEYIN.
 
 **Phase 12 (Key Input Processing, façon RM2003)** :
 `{"c":"key_input","var":n,"wait":true|false,"keys":[codes 1-12]}` —

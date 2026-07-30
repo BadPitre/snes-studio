@@ -377,15 +377,19 @@ void overlay_list_cursor(u8 sel)
   ov_draw(ls_prim); /* petit rect : redessin complet, plus simple */
 }
 
-void overlay_list_close(void)
+void overlay_list_close(u8 keep)
 {
-  u8 w;
+  u8 w, p;
 
   if (ls_prim == 0xFF)
     return;
   w = ui_ov_widget[ls_prim];
+  p = ls_prim;
   ls_prim = 0xFF;
-  overlay_show(w, 0);
+  if (keep)
+    ov_draw(p); /* multi-panneaux : la liste reste, sans curseur */
+  else
+    overlay_show(w, 0);
 }
 
 #else /* pas d'overlay dans le layout : module inerte */
@@ -419,8 +423,9 @@ void overlay_list_cursor(u8 sel)
   (void)sel;
 }
 
-void overlay_list_close(void)
+void overlay_list_close(u8 keep)
 {
+  (void)keep;
 }
 
 #endif /* UI_OV_COUNT */

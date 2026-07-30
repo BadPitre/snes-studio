@@ -66,10 +66,18 @@ size = [32, 8]
 # var = 5
 # label = "Fleurs"
 
-# Menu de combat (B6) : liste à curseur — CACHÉ au boot, ouvert par la
-# commande d'event « Choix dans une liste » (index -> variable, B = 255)
+# Menus de combat (B6) : listes à curseur — CACHÉES au boot, ouvertes par
+# la commande d'event « Choix dans une liste » (index -> variable, B = 255).
+# Deux panneaux voisins : Gauche/Droite sautent de l'un à l'autre (option
+# « Gauche/Droite quittent la liste », voir l'écran combat_prairie).
 [[node]]
 id = "menu_combat"
 type = "list"
 pos = [2, 2]
-items = ["Attaque", "Magie", "Objet", "Fuite"]
+items = ["Attaque", "Objet", "Fuite"]
+
+[[node]]
+id = "menu_magie"
+type = "list"
+pos = [13, 2]
+items = ["Feu", "Soin", "Foudre"]

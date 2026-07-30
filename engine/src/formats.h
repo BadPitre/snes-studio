@@ -308,9 +308,14 @@
                               layout UI. Affiche le widget, curseur en
                               haut ; haut/bas naviguent (bouclage), A
                               valide (var = index 0..n-1), B annule
-                              (var = 255) si flags bit 0. Le widget est
-                              recaché à la fermeture. Widget sans liste :
-                              commande ignorée (var intacte). */
+                              (var = 255) si flags bit 0. flags bit 1 :
+                              le widget RESTE affiché à la fermeture
+                              (multi-panneaux — sans curseur) ; bit 2 :
+                              Gauche/Droite sortent aussi (var = 254
+                              gauche, 253 droite — le script enchaîne
+                              sur la liste voisine). Sinon le widget est
+                              recaché. Widget sans liste : commande
+                              ignorée (var intacte). */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor
