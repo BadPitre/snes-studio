@@ -343,10 +343,17 @@ export default function App() {
         const l = line.trim();
         if (l.startsWith("attention :")) rep.warnings.push(l.replace("attention :", "").trim());
         if (l.startsWith("grilles :") || l.startsWith("textes :")) rep.compression.push(l);
-        const ms = l.match(/scenes\.bin \((\d+) octets\)/);
-        if (ms) rep.scenesBytes = Number(ms[1]);
-        const mt = l.match(/texts\.bin \((\d+) octets\)/);
-        if (mt) rep.textsBytes = Number(mt[1]);
+        // multi-bank (M1) : datagen imprime les totaux des pools
+        const ms = l.match(/banks scenes : (\d+)\/(\d+) octets \((\d+) bank/);
+        if (ms) {
+          rep.scenesBytes = Number(ms[1]);
+          rep.scenesCap = Number(ms[2]);
+        }
+        const mt = l.match(/banks textes : (\d+)\/(\d+) octets \((\d+) bank/);
+        if (mt) {
+          rep.textsBytes = Number(mt[1]);
+          rep.textsCap = Number(mt[2]);
+        }
       }
       if (!res.ok) rep.errorTail = res.output.slice(-500);
       try {

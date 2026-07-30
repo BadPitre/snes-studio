@@ -248,6 +248,14 @@ affiche l'entrée « nom » du catalogue `texts.json` (Tools > Textes) —
 partagée entre plusieurs commandes, éditable au catalogue sans toucher
 aux events. `text_ref` prime sur `text` ; nom inconnu = erreur.
 
+**Multi-bank (M1)** : les scènes et les textes ne sont plus limités à
+32 Ko chacun — datagen les répartit sur des banks supplémentaires
+(`scenes.bin`, `scenes1.bin`, … ; idem `texts.bin`), alloue les numéros
+de bank dans les pointeurs far des tables et imprime les totaux
+(`banks scenes : N/M octets (B bank(s))`). Une scène reste atomique
+(≤ 32 Ko). ROM 1 Mo (32 banks, `engine/hdr.asm`). La rangée SCN/TXT du
+menu de debug est pré-formatée par datagen (data_debug.c).
+
 **Database (Phase 10)** : datagen embarque « dbgen » (module `db.rs`) —
 `schemas/*.toml` + `data/*.toml` → `db_<table>.c` (tables byte-packed)
 + `db_index.c` (registre pour l'opcode DBREAD, toujours émis — vide

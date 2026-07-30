@@ -5,8 +5,12 @@
 #ifndef ROM_LAYOUT_H
 #define ROM_LAYOUT_H
 
-#define BANK_SCENES 0x82    /* Scene Table à $82:8000 + données de scènes */
-#define BANK_TEXTS 0x86     /* table d'offsets + chaînes terminées par 0 */
+/* Multi-bank (M1) : $82 et $86 portent les TABLES (Scene Table,
+   en-tête textes) — les données elles-mêmes peuvent vivre dans des
+   banks supplémentaires, leurs numéros voyagent dans les pointeurs far
+   émis par datagen. Le moteur suit les pointeurs, sans carte des banks. */
+#define BANK_SCENES 0x82    /* Scene Table à $82:8000 */
+#define BANK_TEXTS 0x86     /* en-tête textes (count + entrées + paires) */
 #define BANK_BASE_ADDR 0x8000 /* LoROM : les banks de données commencent là */
 
 /*

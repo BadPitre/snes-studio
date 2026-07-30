@@ -45,10 +45,12 @@ extern const u8 font_gfx[];
 extern const u16 font_gfx_size;
 extern const u16 textbox_pal[];
 
-/* Textes : bank $86 (spec §2 v0.7) — [u16 count][u16 offsets]
-   [table de paires DTE 256 o][chaînes encodées \0]. Les codes 0x80-0xFF
-   désignent une paire de caractères de la table : on décode dans un
-   buffer WRAM avant le rendu (le wrap par mot lit en avant). */
+/* Textes : en-tête en bank $86 (spec §2, multi-bank M1) — [u16 count]
+   [entrées 3 o : ofs lo, ofs hi, bank CPU][table de paires DTE 256 o] ;
+   les chaînes vivent dans la bank de leur entrée ($86 ou une bank
+   supplémentaire allouée par datagen). Les codes 0x80-0xFF désignent une
+   paire de caractères de la table : on décode dans un buffer WRAM avant
+   le rendu (le wrap par mot lit en avant). */
 /* Tampon du formatage décimal de \v[n] (statique : prudence tcc) */
 static char tb_num[5];
 
@@ -58,15 +60,18 @@ static void text_decode(u16 text_id, char *dst, u8 max)
   u16 count = (u16)tbl[0] | ((u16)tbl[1] << 8);
   const u8 *pairs;
   const u8 *s;
+  const u8 *e;
   u16 ofs, k, v;
   u8 n = 0, c, d;
 
   dst[0] = 0;
   if (text_id >= count)
     return;
-  pairs = tbl + 2 + (count << 1);
-  ofs = (u16)tbl[2 + (text_id << 1)] | ((u16)tbl[3 + (text_id << 1)] << 8);
-  s = make_far(BANK_TEXTS, BANK_BASE_ADDR + ofs);
+  /* entrées 3 octets (multi-bank M1) : les paires suivent la table */
+  pairs = tbl + 2 + count + (count << 1);
+  e = tbl + 2 + text_id + ((u16)text_id << 1);
+  ofs = (u16)e[0] | ((u16)e[1] << 8);
+  s = make_far(e[2], BANK_BASE_ADDR + ofs);
   while (*s && n < (u8)(max - 2))
   {
     c = *s++;
