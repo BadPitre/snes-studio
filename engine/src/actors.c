@@ -302,10 +302,12 @@ void actors_draw(void)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (!ACTOR_VISIBLE(a))
-      continue;
+    /* actif d'abord (WRAM) : pas de lecture ROM pour les pages
+       inactives — même recette que actors_update/actor_at_tile */
     if (i < ACTOR_SLOTS && !actor_active[i])
       continue; /* page inactive : OBJ déjà cachés par resolve_pages */
+    if (!ACTOR_VISIBLE(a))
+      continue;
     if (i < ACTOR_SLOTS)
     {
       ax = actor_px[i];
