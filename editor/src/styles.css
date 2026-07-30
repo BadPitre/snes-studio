@@ -40,7 +40,6 @@ body {
 /* Barre de menus (façon RM2003) */
 .menubar {
   display: flex; background: var(--face);
-  border-bottom: 1px solid var(--shadow);
   padding: 0 2px; position: relative;
 }
 /* au-dessus du backdrop : les titres restent cliquables/survolables
@@ -78,7 +77,6 @@ body {
 .toolbar {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 8px; background: var(--face);
-  border-bottom: 1px solid var(--shadow);
 }
 .toolbar .status { margin-left: auto; color: var(--text-dim); font-size: 11px; }
 
