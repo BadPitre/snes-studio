@@ -410,3 +410,111 @@ label.check input[type="checkbox"] { width: 13px; height: 13px; flex: 0 0 auto; 
    il s'ouvre par-dessus le Gestionnaire de ressources */
 .transpick-top { z-index: 80; }
 .modal.transpick { max-width: 560px; }
+
+
+/* ===== THEME CLAIR par defaut (D — Segoe flat moderne) ===== */
+:root {
+  --face:#f0f0f0; --face-light:#fafafa; --face-dark:#e1e1e1;
+  --shadow:#adadad; --dark:#5a5a5a; --sel:#0078d7;
+  --title-a:#0078d7; --title-b:#0078d7;
+  --bev-up: 0 0 0 1px #adadad;
+  --bev-down: inset 0 0 0 1px #005a9e;
+  --bev-field: inset 0 0 0 1px #adadad;
+}
+body { font-family: "Segoe UI", Tahoma, sans-serif; }
+button { border-radius: 0; background: #e1e1e1; }
+button:hover:not(:disabled) { background: #e5f1fb; box-shadow: 0 0 0 1px #0078d7; }
+button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; padding: 4px 10px; }
+.modal { box-shadow: 0 0 0 1px #0078d7, 0 10px 30px rgba(0,0,0,.3); }
+.modal > .panel-title:first-child { background: #0078d7; }
+.tree-row.active, .actor-list li.active, .evedit-line.active { background: #cce4f7; color: #000; }
+.tree-row.active .tree-icon, .tree-row.active .tree-fold { color: inherit; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: #f0f0f0; background-image: none; }
+::-webkit-scrollbar-thumb { background: #cdcdcd; box-shadow: none; }
+::-webkit-scrollbar-button { display: none; }
+
+/* ===== THEME SOMBRE (E — ardoise) applique via [data-theme="dark"] ===== */
+:root[data-theme="dark"] {
+  --face:#2b2d31; --face-light:#35373c; --face-dark:#232428;
+  --shadow:#17181b; --dark:#0f1012; --text:#e4e5e7; --text-dim:#9a9ca1;
+  --sel:#3b6ea5; --sel-text:#fff; --title-a:#1f2937; --title-b:#2c3e57;
+  --bev-up: 0 0 0 1px #17181b, inset 0 1px 0 #40434a;
+  --bev-down: inset 0 0 0 1px #17181b, inset 0 2px 4px rgba(0,0,0,.5);
+  --bev-field: inset 0 0 0 1px #17181b, inset 0 1px 2px rgba(0,0,0,.4);
+}
+:root[data-theme="dark"] body {
+  font-family: "Segoe UI", Tahoma, sans-serif; background: var(--face); color: var(--text);
+}
+:root[data-theme="dark"] button {
+  border-radius: 4px; background: var(--face-light); color: var(--text);
+}
+:root[data-theme="dark"] button:hover:not(:disabled) {
+  background: #40434a; box-shadow: 0 0 0 1px #4d7fb8;
+}
+:root[data-theme="dark"] button.active {
+  background: var(--sel); box-shadow: inset 0 0 0 1px #17181b; padding: 4px 10px;
+}
+:root[data-theme="dark"] button:disabled {
+  color: #5f6167; text-shadow: none;
+}
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea {
+  background: #1c1d21; color: var(--text); border-radius: 3px;
+}
+:root[data-theme="dark"] input:disabled, :root[data-theme="dark"] select:disabled, :root[data-theme="dark"] textarea:disabled {
+  background: #232428; color: #6b6d73;
+}
+:root[data-theme="dark"] .scene-tree, :root[data-theme="dark"] .actor-list, :root[data-theme="dark"] .resmgr-cats, :root[data-theme="dark"] .resmgr-list, :root[data-theme="dark"] .resmgr-preview, :root[data-theme="dark"] .evedit-cmds, :root[data-theme="dark"] .varlist-groups, :root[data-theme="dark"] .varlist-items, :root[data-theme="dark"] .db-tables, :root[data-theme="dark"] .transfer-tree, :root[data-theme="dark"] .uitheme-treelist, :root[data-theme="dark"] .diag-table, :root[data-theme="dark"] .diag-out, :root[data-theme="dark"] .script-edit, :root[data-theme="dark"] .palette canvas {
+  background: #1c1d21;
+}
+:root[data-theme="dark"] .tree-row:hover, :root[data-theme="dark"] .actor-list li:hover, :root[data-theme="dark"] .evedit-line:hover, :root[data-theme="dark"] .varlist-groups button:hover {
+  background: #33353a;
+}
+:root[data-theme="dark"] .tree-icon {
+  color: #6cc06c;
+}
+:root[data-theme="dark"] .tree-root .tree-icon {
+  color: #e0c060;
+}
+:root[data-theme="dark"] .map-scroll {
+  background: #141518;
+}
+:root[data-theme="dark"] .map-status > * {
+  box-shadow: inset 0 0 0 1px #17181b;
+}
+:root[data-theme="dark"] .tabs button {
+  background: var(--face-dark); box-shadow: inset 0 0 0 1px #17181b;
+}
+:root[data-theme="dark"] .tabs button.active {
+  background: var(--face);
+}
+:root[data-theme="dark"] .cmdpick-tabs button {
+  background: var(--face-dark);
+}
+:root[data-theme="dark"] .cmdpick-tabs button.active {
+  background: var(--face);
+}
+:root[data-theme="dark"] .evedit-box legend, :root[data-theme="dark"] .moveroute-freq legend {
+  background: var(--face);
+}
+:root[data-theme="dark"] .modal > .panel-title:first-child {
+  background: linear-gradient(90deg, #2c3e57, #1f2937);
+}
+:root[data-theme="dark"] .diag-ok {
+  color: #6cc06c;
+}
+:root[data-theme="dark"] .diag-bad {
+  color: #ff6b6b;
+}
+:root[data-theme="dark"] .diag-warn {
+  color: #e0a24a;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #202126; background-image: none;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #45474e; border-radius: 4px; box-shadow: none;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-button {
+  display: none;
+}

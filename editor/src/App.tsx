@@ -127,6 +127,14 @@ export default function App() {
   const [zoomIdx, setZoomIdx] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
+  // Thème de l'éditeur (clair D par défaut / sombre E) — mémorisé
+  const [theme, setTheme] = useState<"light" | "dark">(
+    () => (localStorage.getItem("snesstudio-theme") === "dark" ? "dark" : "light")
+  );
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("snesstudio-theme", theme);
+  }, [theme]);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
   // import de charset en cours (fichier choisi, en attente du personnage/bloc)
@@ -2006,6 +2014,12 @@ export default function App() {
           </button>
         )}
         <span className="status">{status}</span>
+        <button
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          title={theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre"}
+        >
+          {theme === "dark" ? "☀" : "🌙"}
+        </button>
       </div>
 
       {data && scene ? (
