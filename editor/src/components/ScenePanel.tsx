@@ -47,7 +47,7 @@ export default function ScenePanel(props: Props) {
         <select
           value={props.current}
           onChange={(e) => props.onSelectTileset(e.target.value)}
-          title="Tileset de la scène"
+          title="Tileset de la scène — la passabilité (O/X/☆) et le passage directionnel s'éditent dans Tools → Tilesets"
         >
           {props.tilesetNames.map((n) => (
             <option key={n} value={n}>
@@ -55,13 +55,6 @@ export default function ScenePanel(props: Props) {
             </option>
           ))}
         </select>
-        <button
-          className={props.passMode ? "active" : ""}
-          onClick={() => props.onPassMode(!props.passMode)}
-          title="Éditer la passabilité des tiles dans la palette : O passable, X solide, ☆ au-dessus du héros"
-        >
-          Passabilité O/X/☆
-        </button>
       </div>
 
       <div className="palette-title">Musique</div>
