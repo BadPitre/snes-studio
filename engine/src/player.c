@@ -58,6 +58,9 @@ static u8 warp_dest_scene = 0, warp_dest_x = 0, warp_dest_y = 0;
 /* Direction d'arrivée (v0.16, WarpDef.flags bits 0-2) : 0 = conserver,
    1-4 = DIR_* + 1 — consommée par do_warp via player_take_warp_dir. */
 static u8 warp_dest_dir = 0;
+/* Transition (S18, WarpDef.trans) : 0 fondu, 1 instantané, 2 mosaïque —
+   consommée par do_warp via player_take_warp_trans. */
+static u8 warp_dest_trans = 0;
 
 static void check_warp(void)
 {
@@ -83,6 +86,7 @@ static void check_warp(void)
         warp_dest_x = w->dest_x;
         warp_dest_y = w->dest_y;
         warp_dest_dir = w->flags & 0x07;
+        warp_dest_trans = w->trans; /* transition du warp (S18) */
         return;
       }
     }
@@ -99,13 +103,14 @@ static void check_warp(void)
 
 /* Warp scripté (opcode WARP, spec §2 v0.6) — même chemin que les tiles de
    warp : consommé par la boucle principale via player_take_warp(). */
-void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
+void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 trans)
 {
   warp_pending = 1;
   warp_dest_scene = dest_scene;
   warp_dest_x = dest_x;
   warp_dest_y = dest_y;
   warp_dest_dir = 0; /* les warps scriptés conservent la direction */
+  warp_dest_trans = trans;
 }
 
 /* Direction d'arrivée du warp consommé (0 = conserver, 1-4 = DIR_* + 1) —
@@ -118,6 +123,16 @@ u8 player_take_warp_dir(void)
      chargement de partie) ne doit pas hériter de celle du warp précédent */
   warp_dest_dir = 0;
   return d;
+}
+
+/* Transition du warp consommé (S18 : 0 fondu, 1 instantané, 2 mosaïque)
+   — à lire juste après player_take_warp(), consommée comme la direction. */
+u8 player_take_warp_trans(void)
+{
+  u8 t = warp_dest_trans;
+
+  warp_dest_trans = 0;
+  return t;
 }
 
 void player_set_pos(u8 tx, u8 ty)

@@ -4,12 +4,39 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
-import { DIRECTIONS, eventFrame } from "../types";
+import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset } from "../types";
+import { DIRECTIONS, TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
 import type { Database } from "../db";
+
+// Sélecteur de transition d'écran (S18) — warps et écrans composés.
+// « fade » (défaut) n'est pas écrit dans le JSON (champ absent).
+function TransSelect(props: {
+  value?: ScreenTrans;
+  onChange: (t?: ScreenTrans) => void;
+}) {
+  return (
+    <label
+      title="Effet de fermeture/ouverture de l'écran (S18) : fondu au noir, coupe instantanée, ou mosaïque (pixelisation, façon Zelda 3)"
+    >
+      Transition
+      <select
+        value={props.value ?? "fade"}
+        onChange={(e) =>
+          props.onChange(
+            e.target.value === "fade" ? undefined : (e.target.value as ScreenTrans)
+          )
+        }
+      >
+        {TRANS_OPTIONS.map((t) => (
+          <option key={t.value} value={t.value}>{t.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 interface Props {
   event: GameEvent;
@@ -1703,6 +1730,9 @@ function CommandForm(props: {
                 <span className="hint">{props.varNames[cmd[t.key]] || ""}</span>
               </label>
             ))}
+            {cmd.c === "warp_var" && (
+              <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+            )}
           </div>
           <span className="hint">
             {cmd.c === "hero_loc"
@@ -2457,6 +2487,7 @@ function CommandForm(props: {
                 onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
               />
             </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
           </div>
           <span className="hint">
             Ouvre l'écran composé dessiné dans Tools → Écrans composés :
@@ -2524,6 +2555,7 @@ function CommandForm(props: {
                 onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
               />
             </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
           </div>
           <span className="hint">
             Remplace la vue de la scène par un ÉCRAN COMPOSÉ : le fond
@@ -2670,13 +2702,16 @@ function CommandForm(props: {
     case "stage_close":
       body = (
         <>
-          <label>
-            Fondu (frames par sens — 0 = instantané)
-            <input
-              type="number" min={0} max={255} value={cmd.dur ?? 20}
-              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
-            />
-          </label>
+          <div className="row">
+            <label>
+              Fondu (frames par sens — 0 = instantané)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+          </div>
           <span className="hint">
             Referme l'écran composé et restaure la scène complète :
             décor, personnages, ambiances et musique de la scène.
@@ -3157,6 +3192,7 @@ function CommandForm(props: {
             y
             <input type="number" min={0} value={cmd.y} onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
           </label>
+          <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
         </div>
       );
       break;

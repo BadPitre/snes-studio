@@ -372,9 +372,10 @@ static void vm_step(void)
 
     case VM_OP_WARP: /* téléport scripté — le bloc scripts change de
                         scène : le script se termine ici */
-      var = fetch8(); /* scene */
-      val = fetch8(); /* x */
-      player_request_warp(var, val, fetch8());
+      var = fetch8();   /* scene */
+      val = fetch8();   /* x */
+      idx16 = fetch8(); /* y */
+      player_request_warp(var, val, (u8)idx16, fetch8());
       vm.active = 0;
       break;
 
@@ -493,7 +494,7 @@ static void vm_step(void)
       val = fetch8();   /* variable x */
       idx16 = fetch8(); /* variable y */
       player_request_warp((u8)vm.vars16[var], (u8)vm.vars16[val],
-                          (u8)vm.vars16[idx16 & 255]);
+                          (u8)vm.vars16[idx16 & 255], fetch8());
       vm.active = 0;
       break;
 
@@ -566,7 +567,8 @@ static void vm_step(void)
     case VM_OP_STAGEOPEN: /* écran composé (B3) — différé à la boucle,
                              1 frame de pause (recette SHOWPIC) */
       var = fetch8();
-      stage_request_open(var, fetch8());
+      val = fetch8(); /* dur */
+      stage_request_open(var, val, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;
@@ -585,7 +587,8 @@ static void vm_step(void)
       break;
 
     case VM_OP_STAGECLOSE: /* ferme l'écran (warp interne) — 1 frame */
-      stage_request_close(fetch8());
+      var = fetch8(); /* dur */
+      stage_request_close(var, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;

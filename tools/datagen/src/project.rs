@@ -260,6 +260,20 @@ pub struct Warp {
     /// "right"), absente = conserver (WarpDef.flags, spec §1.5)
     #[serde(default)]
     pub dir: Option<String>,
+    /// S18 — transition : "fade" (défaut), "none" (instantané),
+    /// "mosaic" (mosaïque $2106) — WarpDef.trans
+    #[serde(default)]
+    pub trans: Option<String>,
+}
+
+/// Code moteur d'une transition d'écran (S18)
+pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
+    Ok(match trans.as_deref() {
+        None | Some("") | Some("fade") => 0,
+        Some("none") => 1,
+        Some("mosaic") => 2,
+        Some(o) => anyhow::bail!("transition inconnue : '{}' (fade, none, mosaic)", o),
+    })
 }
 
 #[derive(Deserialize)]

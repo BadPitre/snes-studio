@@ -248,6 +248,16 @@ impl<'a> EventCompiler<'a> {
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
     }
 
+    /// Transition d'écran (S18) : "fade" (défaut) 0, "none" 1, "mosaic" 2
+    fn trans_field(cmd: &Value) -> Result<u8> {
+        Ok(match cmd["trans"].as_str() {
+            None | Some("") | Some("fade") => 0,
+            Some("none") => 1,
+            Some("mosaic") => 2,
+            Some(o) => bail!("transition inconnue « {} » (fade, none, mosaic)", o),
+        })
+    }
+
     /// Pas d'itinéraire JSON → tokens assembleur (partagé entre la
     /// commande route et les routes custom de page, v0.14). Les blocs des
     /// pas gfx sont accumulés pour le budget charsets de la scène.
@@ -712,7 +722,11 @@ impl<'a> EventCompiler<'a> {
                             .position(|p| *p == sc.backdrop)
                             .unwrap() as u64 // validé par main.rs
                     };
-                    out.push(format!("  STAGEOPEN {} {}", bid, dur));
+                    out.push(format!(
+                        "  STAGEOPEN {} {} {}",
+                        bid, dur,
+                        Self::trans_field(cmd)?
+                    ));
                     for sl in &sc.slots {
                         let pid = self
                             .pictures
@@ -797,7 +811,11 @@ impl<'a> EventCompiler<'a> {
                                 )
                             })? as u64
                     };
-                    out.push(format!("  STAGEOPEN {} {}", id, dur));
+                    out.push(format!(
+                        "  STAGEOPEN {} {} {}",
+                        id, dur,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 "stage_pose" => {
                     let slot = cmd["slot"]
@@ -897,7 +915,11 @@ impl<'a> EventCompiler<'a> {
                 }
                 "stage_close" => {
                     let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
-                    out.push(format!("  STAGECLOSE {}", dur));
+                    out.push(format!(
+                        "  STAGECLOSE {} {}",
+                        dur,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 // B1 — jouer un son (effet BRR, non bloquant)
                 "sfx" => {
@@ -1159,7 +1181,11 @@ impl<'a> EventCompiler<'a> {
                     let vs = Self::idx_field(cmd, "vs", 256)?;
                     let vx = Self::idx_field(cmd, "vx", 256)?;
                     let vy = Self::idx_field(cmd, "vy", 256)?;
-                    out.push(format!("  WARPV {} {} {}", vs, vx, vy));
+                    out.push(format!(
+                        "  WARPV {} {} {} {}",
+                        vs, vx, vy,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 "setpos" => {
                     let target = match cmd["event"].as_i64() {
@@ -1193,10 +1219,11 @@ impl<'a> EventCompiler<'a> {
                 "warp" => {
                     let to = cmd["to"].as_str().context("warp sans scene cible")?;
                     out.push(format!(
-                        "  WARP {} {} {}",
+                        "  WARP {} {} {} {}",
                         to,
                         Self::u8_field(cmd, "x")?,
-                        Self::u8_field(cmd, "y")?
+                        Self::u8_field(cmd, "y")?,
+                        Self::trans_field(cmd)?
                     ));
                 }
                 "face" => {
