@@ -141,15 +141,26 @@ u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y)
 }
 
 /* AABB 16x16 : la position cible (px,py) chevauche-t-elle du solide ?
-   Un pas fait 1 px, la boîte couvre au plus 2 tiles par axe (4 coins). */
+   Un pas fait 1 px, la boîte couvre au plus 2 tiles par axe (4 coins).
+   Coins DÉDOUBLONNÉS : aligné sur un axe (le cas courant en marche
+   droite), 2 tests au lieu de 4 — tile_blocked parcourt les acteurs,
+   chaque appel évité compte pour le budget frame. */
 static u8 blocked(u16 px, u16 py)
 {
   u8 tx1 = px >> 4, ty1 = py >> 4;
   u8 tx2 = (px + 15) >> 4, ty2 = (py + 15) >> 4;
 
-  if (tile_blocked(tx1, ty1) || tile_blocked(tx2, ty1) ||
-      tile_blocked(tx1, ty2) || tile_blocked(tx2, ty2))
+  if (tile_blocked(tx1, ty1))
     return 1;
+  if (tx2 != tx1 && tile_blocked(tx2, ty1))
+    return 1;
+  if (ty2 != ty1)
+  {
+    if (tile_blocked(tx1, ty2))
+      return 1;
+    if (tx2 != tx1 && tile_blocked(tx2, ty2))
+      return 1;
+  }
   return 0;
 }
 

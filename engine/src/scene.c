@@ -29,6 +29,11 @@ extern const u16 *const gfx_pals[];
 
 SceneCtx scene_ctx;
 
+/* Offsets de rangée de la grille courante (voir scene_load) — évite le
+   multiply logiciel dans scene_collision, appelée depuis les chemins
+   chauds. Remplie au chargement : pas d'init statique nécessaire. */
+static u16 col_row_ofs[256];
+
 /* Grilles décompressées en WRAM (v0.7) : les scènes voyagent en RLE dans
    la ROM (spec §1.6) et sont dépliées ici au chargement — budget 8192
    cellules par grille (validé par datagen).
@@ -115,6 +120,21 @@ void scene_load(u8 scene_id)
   scene_ctx.sprite_set_id = h[27]; /* v0.5 : sprites compilés par scène */
   scene_ctx.scene_id = scene_id; /* sauvegardes (spec §4bis v0.7) */
 
+  /* Offsets de rangée précalculés : scene_collision est appelée ~15 fois
+     par frame de marche (collision héros + PNJ) — le multiply logiciel
+     de tcc-816 à chaque appel pèse sur le budget frame. map_h est un u8 :
+     256 entrées couvrent toutes les scènes. */
+  {
+    u16 o = 0;
+    u16 r;
+
+    for (r = 0; r < scene_ctx.map_h; r++)
+    {
+      col_row_ofs[r] = o;
+      o += scene_ctx.map_w;
+    }
+  }
+
   /* Grilles RLE → WRAM (spec §1.6 v0.7) : inf, collision, sup */
   {
     u16 cells = (u16)scene_ctx.map_w * scene_ctx.map_h;
@@ -165,5 +185,5 @@ void scene_load(u8 scene_id)
 
 u8 scene_collision(u8 tx, u8 ty)
 {
-  return scene_ctx.collision[(u16)ty * scene_ctx.map_w + tx];
+  return scene_ctx.collision[col_row_ofs[ty] + tx];
 }

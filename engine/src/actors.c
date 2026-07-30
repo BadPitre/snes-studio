@@ -80,6 +80,77 @@ static u16 mv_rand(void)
 #define ACTOR_TX(i) ((u8)((actor_px[i] + 8) >> 4))
 #define ACTOR_TY(i) ((u8)((actor_py[i] + 8) >> 4))
 
+/* ---- tiles bloquantes précalculées (chemin chaud de la collision) ----
+ * tile_blocked() du joueur interroge actor_at_tile ~10 fois par frame de
+ * marche ; itérer les ActorDef à chaque appel coûtait la frame entière
+ * sur une scène à pages (1 def PAR page : 7 defs = 60 → 30 fps, mesuré
+ * au harnais via lag_frame_counter). La liste des PNJ bloquants (actifs,
+ * priorité « comme le héros ») est reconstruite UNE fois par frame (fin
+ * d'actors_update) et après chaque événement qui peut la changer
+ * (resolve_pages, set_pos, swap_pos) ; actor_at_tile se réduit alors à
+ * un rejet bounding box + un balayage de petits tableaux u8.
+ * init EXPLICITE : tcc-816 ne remet pas le BSS à zéro. */
+#define BLK_MAX (ACTOR_SLOTS + 8) /* + PNJ figés au-delà des slots */
+static u8 blk_n = 0;
+static u8 blk_ovf = 0; /* liste pleine : repli sur le parcours exact */
+static u8 blk_tx[BLK_MAX];
+static u8 blk_ty[BLK_MAX];
+static u8 blk_id[BLK_MAX];
+static u8 blk_x0 = 255, blk_x1 = 0, blk_y0 = 255, blk_y1 = 0;
+
+static void actors_rebuild_blockers(void)
+{
+  u8 i, x, y;
+  u8 k = 0;
+  u8 n = scene_ctx.actor_count; /* far struct : lu UNE fois */
+
+  blk_x0 = 255;
+  blk_x1 = 0;
+  blk_y0 = 255;
+  blk_y1 = 0;
+  blk_ovf = 0;
+  for (i = 0; i < n; i++)
+  {
+    if (i < ACTOR_SLOTS)
+    {
+      if (!actor_active[i] || actor_prio[i] != ACTOR_PRIO_SAME)
+        continue;
+      if (scene_ctx.actors[i].actor_type != ACTOR_TYPE_NPC_STATIC)
+        continue;
+      x = ACTOR_TX(i);
+      y = ACTOR_TY(i);
+    }
+    else
+    {
+      /* au-delà des slots : PNJ figé à sa position d'édition */
+      const ActorDef *a = &scene_ctx.actors[i];
+
+      if (a->actor_type != ACTOR_TYPE_NPC_STATIC)
+        continue;
+      x = a->x;
+      y = a->y;
+    }
+    if (k >= BLK_MAX)
+    {
+      blk_ovf = 1; /* pathologique — l'exactitude prime sur la vitesse */
+      break;
+    }
+    blk_tx[k] = x;
+    blk_ty[k] = y;
+    blk_id[k] = i;
+    k++;
+    if (x < blk_x0)
+      blk_x0 = x;
+    if (x > blk_x1)
+      blk_x1 = x;
+    if (y < blk_y0)
+      blk_y0 = y;
+    if (y > blk_y1)
+      blk_y1 = y;
+  }
+  blk_n = k;
+}
+
 /* La condition de cette page passe-t-elle ? (spec §1.3 v0.10) */
 static u8 page_cond_ok(const ActorDef *a)
 {
@@ -154,6 +225,7 @@ void actors_resolve_pages(void)
         actor_active[i] = (i == win);
     }
   }
+  actors_rebuild_blockers(); /* les pages actives ont pu changer */
 }
 
 /* Apparence : sprite_id 0xFF = invisible (spec §1.3 v0.8). Un event de
@@ -230,10 +302,12 @@ void actors_draw(void)
 
   for (i = 0; i < scene_ctx.actor_count; i++, a++)
   {
-    if (!ACTOR_VISIBLE(a))
-      continue;
+    /* actif d'abord (WRAM) : pas de lecture ROM pour les pages
+       inactives — même recette que actors_update/actor_at_tile */
     if (i < ACTOR_SLOTS && !actor_active[i])
       continue; /* page inactive : OBJ déjà cachés par resolve_pages */
+    if (!ACTOR_VISIBLE(a))
+      continue;
     if (i < ACTOR_SLOTS)
     {
       ax = actor_px[i];
@@ -343,6 +417,7 @@ void actors_set_pos(u8 index, u8 tx, u8 ty)
   actor_px[index] = (u16)tx << 4;
   actor_py[index] = (u16)ty << 4;
   actor_step[index] = 0;
+  actors_rebuild_blockers(); /* téléportation : la liste doit suivre */
 }
 
 /* Échange les positions de deux acteurs (opcode SWAPPOS, v0.15). */
@@ -361,6 +436,7 @@ void actors_swap_pos(u8 a, u8 b)
   actor_py[b] = t;
   actor_step[a] = 0;
   actor_step[b] = 0;
+  actors_rebuild_blockers(); /* téléportation : la liste doit suivre */
 }
 
 /* Fréquence 1-8 du slot (posée par l'opcode ROUTE avant set_route) */
@@ -569,7 +645,10 @@ void actors_update(void)
 
   for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
   {
-    if (!actor_active[i] || a->actor_type != ACTOR_TYPE_NPC_STATIC)
+    /* actif d'abord (WRAM) : pas de lecture ROM pour les pages inactives */
+    if (!actor_active[i])
+      continue;
+    if (a->actor_type != ACTOR_TYPE_NPC_STATIC)
       continue;
 
     /* itinéraire prioritaire sur l'errance */
@@ -637,27 +716,51 @@ void actors_update(void)
       }
     }
   }
+
+  actors_rebuild_blockers(); /* positions à jour pour la frame suivante */
 }
 
 u8 actor_at_tile(u8 tx, u8 ty)
 {
-  u8 i;
-  const ActorDef *a = scene_ctx.actors;
+  u8 k;
 
-  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  if (!blk_ovf)
   {
-    if (a->actor_type != ACTOR_TYPE_NPC_STATIC)
-      continue;
-    if (i < ACTOR_SLOTS)
+    /* cas courant : rejet bounding box puis balayage de la liste
+       précalculée (voir actors_rebuild_blockers) */
+    if (tx < blk_x0 || tx > blk_x1 || ty < blk_y0 || ty > blk_y1)
+      return ACTOR_NONE;
+    for (k = 0; k < blk_n; k++)
     {
-      /* position RUNTIME — seuls les « comme le héros » bloquent et se
-         parlent de face (priorité v0.14) */
-      if (actor_active[i] && actor_prio[i] == ACTOR_PRIO_SAME &&
-          ACTOR_TX(i) == tx && ACTOR_TY(i) == ty)
-        return i;
+      if (blk_tx[k] == tx && blk_ty[k] == ty)
+        return blk_id[k];
     }
-    else if (a->x == tx && a->y == ty)
-      return i;
+    return ACTOR_NONE;
+  }
+
+  /* repli exact (liste pleine) : parcours complet, position RUNTIME pour
+     les slots — seuls les « comme le héros » bloquent et se parlent de
+     face (priorité v0.14) */
+  for (k = 0; k < scene_ctx.actor_count; k++)
+  {
+    if (k < ACTOR_SLOTS)
+    {
+      if (!actor_active[k] || actor_prio[k] != ACTOR_PRIO_SAME)
+        continue;
+      if (ACTOR_TX(k) != tx || ACTOR_TY(k) != ty)
+        continue;
+      if (scene_ctx.actors[k].actor_type != ACTOR_TYPE_NPC_STATIC)
+        continue;
+      return k;
+    }
+    else
+    {
+      const ActorDef *a = &scene_ctx.actors[k];
+
+      if (a->actor_type == ACTOR_TYPE_NPC_STATIC && a->x == tx &&
+          a->y == ty)
+        return k;
+    }
   }
   return ACTOR_NONE;
 }

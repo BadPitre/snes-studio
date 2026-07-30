@@ -54,6 +54,15 @@ static u16 dbg_last_vbl = 0;
 static u16 dbg_iters = 0; /* itérations dans la fenêtre de mesure */
 static u16 dbg_win = 0;   /* VBlanks écoulés dans la fenêtre */
 
+/* Chiffres en attente d'affichage : pousser vers ui_map depuis la frame
+   qui vient de rater re-fait rater la suivante (rétroaction mesurée au
+   harnais : 4 -> 51 frames ratées sur 1200 en marchant, panneau ouvert).
+   On pousse donc sur une frame SAINE (d <= 1), au plus une fois toutes
+   les 16 frames — repli périodique si le jeu rate en continu. */
+static u8 dbg_lag_dirty = 0;
+static u8 dbg_fps_dirty = 0;
+static u16 dbg_last_push = 0;
+
 /* lignes cachées (ASCII, 0 = cellule transparente) — la vérité du
    panneau ; LAG n'existe QUE comme chiffres (jamais convertie) */
 static u8 dbg_l0[32];
@@ -204,42 +213,14 @@ static void dbg_clear(void)
 void debug_update(void)
 {
   u16 pad, now, d;
-  u8 lag_chg = 0; /* chiffres à pousser vers ui_map cette frame */
-  u8 fps_chg = 0;
 
   if (!dbg_enabled)
     return;
-  now = snes_vblank_count;
-  if (!dbg_started)
-  {
-    dbg_started = 1;
-    dbg_last_vbl = now;
-  }
-  d = now - dbg_last_vbl;
-  dbg_last_vbl = now;
-  dbg_iters++;
-  dbg_win += d;
-  if (d > 1 && dbg_on)
-  {
-    dbg_lag_add(d - 1); /* la boucle a raté (d-1) VBlanks */
-    lag_chg = 1;
-  }
-  if (dbg_win >= 60)
-  {
-    if (dbg_on)
-    {
-      /* FPS ~= itérations de la fenêtre (60-63 VBlanks) — approximation
-         SANS division, 2 chiffres */
-      u16 f = dbg_iters;
-
-      if (f > 60)
-        f = 60;
-      dbg_setnum(dbg_l0, DBG_FPS_COL, f, 2);
-      fps_chg = 1;
-    }
-    dbg_iters = 0;
-    dbg_win = 0;
-  }
+  /* Panneau CACHÉ : seul le combo est surveillé — zéro comptage. Le
+     bouton Jouer de l'éditeur active toujours --debug, et même quelques
+     dizaines de cycles par frame se paient quand la boucle frôle le
+     budget (mesuré au harnais : ~20 frames ratées de plus sur 1200 en
+     marchant, panneau fermé). La mesure FPS se re-ancre à l'ouverture. */
   pad = padsCurrent(0);
   if ((pad & DBG_COMBO) == DBG_COMBO)
   {
@@ -256,24 +237,66 @@ void debug_update(void)
         dbg_on = 1;
         dbg_build();
         dbg_blit();
+        dbg_lag_dirty = 0;
+        dbg_fps_dirty = 0;
+        dbg_started = 0; /* re-ancrage : pas de faux lag accumulé */
+        dbg_iters = 0;
+        dbg_win = 0;
       }
     }
   }
   else
     dbg_held = 0;
-  if (dbg_on)
+  if (!dbg_on)
+    return;
+
+  now = snes_vblank_count;
+  if (!dbg_started)
+  {
+    dbg_started = 1;
+    dbg_last_vbl = now;
+    dbg_last_push = now;
+  }
+  d = now - dbg_last_vbl;
+  dbg_last_vbl = now;
+  dbg_iters++;
+  dbg_win += d;
+  if (d > 1)
+  {
+    dbg_lag_add(d - 1); /* la boucle a raté (d-1) VBlanks */
+    dbg_lag_dirty = 1;
+  }
+  if (dbg_win >= 60)
+  {
+    /* FPS ~= itérations de la fenêtre (60-63 VBlanks) — approximation
+       SANS division, 2 chiffres */
+    u16 f = dbg_iters;
+
+    if (f > 60)
+      f = 60;
+    dbg_setnum(dbg_l0, DBG_FPS_COL, f, 2);
+    dbg_fps_dirty = 1;
+    dbg_iters = 0;
+    dbg_win = 0;
+  }
   {
     if (ui_dirty_overlap(0, 2))
       dbg_stage = 4; /* le HUD a repeint sous le panneau : re-blit étalé */
     if (dbg_stage)
       dbg_blit_chunk();
-    else
+    else if ((dbg_lag_dirty || dbg_fps_dirty) && d <= 1 &&
+             (u16)(now - dbg_last_push) >= 16)
     {
-      /* pousser SEULEMENT les chiffres qui ont bougé (≤ 5 cellules) */
-      if (fps_chg)
+      /* pousser SEULEMENT les chiffres qui ont bougé (≤ 5 cellules),
+         sur une frame saine, au plus toutes les 16 frames (voir plus
+         haut : la poussée immédiate entretenait le lag qu'elle affiche) */
+      if (dbg_fps_dirty)
         dbg_cells(dbg_l0, 0, DBG_FPS_COL, 2);
-      if (lag_chg)
+      if (dbg_lag_dirty)
         dbg_cells(dbg_l0, 0, DBG_LAG_COL, 5);
+      dbg_fps_dirty = 0;
+      dbg_lag_dirty = 0;
+      dbg_last_push = now;
     }
   }
 }

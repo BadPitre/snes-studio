@@ -494,11 +494,13 @@ fn main() -> Result<()> {
         let ts = scene_ts(sc)?;
         let src = &sources[ts];
         let upper = sc.upper_or_empty();
-        for (layer, allow_empty) in [(&sc.tilemap, false), (&upper, true)] {
+        // S10 : la gomme (-1) est acceptée sur les DEUX couches — cellule
+        // vide = noir en jeu (expand_scene la gère déjà, la validation
+        // était restée pré-S10)
+        for layer in [&sc.tilemap, &upper] {
             for row in layer.iter() {
                 for &id in row {
-                    let ok = src.valid_id(id) || (allow_empty && id == tileset::EMPTY);
-                    if !ok {
+                    if !src.valid_id(id) && id != tileset::EMPTY {
                         bail!("scene '{}' : id de tile {} hors tileset", sc.name, id);
                     }
                 }

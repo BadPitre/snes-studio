@@ -1,0 +1,5 @@
+[[entry]]
+id = "potion"
+name = "Potion"
+price = 10
+heal = 25
