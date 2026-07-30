@@ -866,21 +866,30 @@ fn main() -> Result<()> {
                     if pic_names.is_empty() { "aucune".to_string() } else { pic_names.join(", ") }
                 )
             })?;
-            // Le plan d'effet vit sur la palette BG 7 (slot dédié) : l'image
-            // DOIT être importée « avec transparence » — c'est ce qui la
-            // range sur la palette 7 (sinon elle pointe la palette 0 du
-            // décor, couleurs fausses). Front : les pixels index 0 laissent
-            // voir le décor. Back (panorama) : index 0 = transparent aussi
-            // (on voit le fond noir) — réserver l'index 0 dans l'image.
+            // Le plan d'effet vit sur la palette BG 7 (le moteur l'y force).
+            // Front (nuages) : l'image DOIT être importée « avec
+            // transparence » — la transparence EST l'effet (on voit le
+            // décor entre les nuages). Back (panorama) : opaque accepté,
+            // mais la couleur d'index 0 reste transparente sur SNES (fond
+            // noir) — on avertit, l'auteur peut réimporter en choisissant
+            // une couleur transparente pour maîtriser cet index.
             if !pic_trans[idx] {
-                bail!(
-                    "scene '{}' : l'image d'effet « {} » doit être importée AVEC \
-                     transparence (le plan d'effet utilise la palette dédiée ; \
-                     {})",
-                    sc.name, eff.pic,
-                    if is_back { "panorama : reserver l'index 0, il reste transparent" }
-                    else { "le decor se voit par les pixels perces" }
-                );
+                if is_back {
+                    println!(
+                        "  attention : scene '{}' — panorama « {} » importe SANS \
+                         transparence : sa couleur d'index 0 sera transparente \
+                         (fond noir). Pour la maitriser, reimporter en choisissant \
+                         une couleur transparente.",
+                        sc.name, eff.pic
+                    );
+                } else {
+                    bail!(
+                        "scene '{}' : le motif d'effet « {} » (surimpression) doit \
+                         etre importe AVEC transparence — c'est ce qui laisse voir \
+                         le decor entre les nuages",
+                        sc.name, eff.pic
+                    );
+                }
             }
             let chars = pic_data[idx].0.len() / 32;
             if chars > 256 {

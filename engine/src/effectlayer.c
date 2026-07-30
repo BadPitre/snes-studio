@@ -130,10 +130,13 @@ void effect_load(u8 scene_id)
   }
   dmaCopyVram((u8 *)pic_chars[p], VRAM_EFF_GFX, *pic_chars_sizes[p]);
   for (i = 0; i < 1024; i++)
-    /* front : priorité (devant les sprites). back : pas de priorité, le
-       motif est BG1 basse priorité, DERRIÈRE la carte (map.c force la
+    /* Palette 7 FORCÉE (0x1C00) : le plan d'effet a sa palette dédiée
+       (chargée par eff_regs) — une image opaque (palette 0) rend alors
+       ses vraies couleurs en panorama, pas celles du décor.
+       front : + priorité (devant les sprites). back : pas de priorité —
+       motif BG1 basse priorité, DERRIÈRE la carte (map.c force la
        priorité de la couche basse). */
-    eff_buf[i] = eff_bk ? pic_maps[p][i] : (pic_maps[p][i] | 0x2000);
+    eff_buf[i] = pic_maps[p][i] | 0x1C00 | (eff_bk ? 0 : 0x2000);
   dmaCopyVram((u8 *)eff_buf, VRAM_EFF_MAP, 1024 * 2);
   eff_regs();
 }
