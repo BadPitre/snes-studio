@@ -21,15 +21,18 @@ extern const u8 db_table_counts[];
 #define ITEMS_EPEE_BOIS 1
 extern const u8 db_items[];
 
-/* table stats — 2 entree(s) x 7 octet(s) */
+/* table stats — 2 entree(s) x 10 octet(s) */
 #define DB_STATS_COUNT 2
-#define DB_STATS_SIZE 7
+#define DB_STATS_SIZE 10
 #define DB_STATS_MAX_HP 0
 #define DB_STATS_ATTACK 2
 #define DB_STATS_DEFENSE 3
 #define DB_STATS_AGILITY 4
 #define DB_STATS_ELEM_RESIST 5
 #define DB_STATS_DROP_ITEM 6
+#define DB_STATS_BATTLE_PIC 7
+#define DB_STATS_CRY_SFX 8
+#define DB_STATS_THEME_BGM 9
 #define STATS_HEROS 0
 #define STATS_SLIME 1
 extern const u8 db_stats[];

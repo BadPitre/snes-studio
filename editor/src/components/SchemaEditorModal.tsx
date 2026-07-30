@@ -169,6 +169,9 @@ export default function SchemaEditorModal(props: Props) {
                       <option value="flags8">flags8 (8 cases à cocher)</option>
                       <option value="ref">ref (vers une autre table)</option>
                       <option value="text_id">text_id (banque de textes)</option>
+                      <option value="picture">picture (image du projet)</option>
+                      <option value="sound">sound (son du projet)</option>
+                      <option value="music">music (musique du projet)</option>
                     </select>
                   </label>
                 </div>

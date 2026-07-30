@@ -15,6 +15,7 @@ import {
   projectIconsets,
   picPath,
   projectPictures,
+  projectTilesetDefs,
   projectTilesets,
   projectWindowskins,
   spriteBlockCount,
@@ -61,6 +62,7 @@ import SettingsModal from "./components/SettingsModal";
 import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
+import TilesetsModal from "./components/TilesetsModal";
 import ScenePanel from "./components/ScenePanel";
 import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
@@ -158,6 +160,7 @@ export default function App() {
   // Database (Phase 10) : schémas + instances (null = pas de schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
+  const [tilesetsOpen, setTilesetsOpen] = useState(false); // fenêtre Tilesets (T1)
   // fenêtre Textes (Tools →) — remplace l'onglet de la sidebar
   const [textsOpen, setTextsOpen] = useState(false);
   // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
@@ -186,6 +189,12 @@ export default function App() {
   const tilesetPaths = data ? projectTilesets(data.project) : [];
   const tilesetNames = tilesetPaths.map(assetStem);
   const tsStem = scene ? scene.tileset ?? tilesetNames[0] : "";
+  // T2 — entrées tileset nommées (fenêtre Tilesets, RM2003) : les scènes
+  // stockent le STEM du fichier, l'entrée est le visage éditeur
+  const tsDefs = data ? projectTilesetDefs(data.project) : [];
+  const tsChoices = tsDefs.filter((d) => d.file);
+  const tsCurrentDef =
+    tsChoices.find((d) => assetStem(d.file) === tsStem)?.name ?? tsStem;
   const tileset = tilesets[tsStem] ?? null;
   const emptyMeta: TilesetMeta = { autotiles: [], solid: [], above: [] };
   const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
@@ -653,11 +662,16 @@ export default function App() {
         data.project.assets.tileset === oldRel
           ? { ...data.project.assets, tileset: newRel }
           : data.project.assets;
+      const defs = projectTilesetDefs(data.project).map((df) =>
+        df.file === oldRel
+          ? { ...df, file: newRel, name: df.name === oldStem ? newStem : df.name }
+          : df
+      );
       const d2: ProjectData = {
         ...data,
         scenes,
         tilesetMeta: tsMeta,
-        project: { ...data.project, tilesets, assets },
+        project: { ...data.project, tilesets, assets, tileset_defs: defs },
       };
       await renamePath(`${root}/${oldRel}`, `${root}/${newRel}`);
       try {
@@ -741,10 +755,13 @@ export default function App() {
         data.project.assets.tileset === rel
           ? { ...data.project.assets, tileset: tilesets[0] }
           : data.project.assets;
+      const defs = projectTilesetDefs(data.project).map((df) =>
+        df.file === rel ? { ...df, file: "" } : df
+      );
       const d2: ProjectData = {
         ...data,
         tilesetMeta: metaCopy,
-        project: { ...data.project, tilesets, assets },
+        project: { ...data.project, tilesets, assets, tileset_defs: defs },
       };
       await saveProject(d2);
       for (const f of [rel, rel.replace(/\.[^.]+$/, ".json")]) {
@@ -1842,6 +1859,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Tilesets…",
+          action: () => setTilesetsOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Database…",
           action: () => setDbOpen(true),
           disabled: !data,
@@ -2100,15 +2122,15 @@ export default function App() {
             {tab === "scene" && (
               <ScenePanel
                 scene={scene}
-                tilesetNames={tilesetNames}
-                current={tsStem}
+                tilesetNames={tsChoices.map((d) => d.name)}
+                current={tsCurrentDef}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
-                canImport={canWriteFiles()}
                 passMode={passMode}
-                onSelectTileset={setSceneTileset}
+                onSelectTileset={(name) => {
+                  const df = tsChoices.find((x) => x.name === name);
+                  if (df) setSceneTileset(assetStem(df.file));
+                }}
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
-                onImport={importTileset}
-                onImportChipset={importChipset}
                 onPassMode={setPassMode}
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
               />
@@ -2179,6 +2201,7 @@ export default function App() {
           defaultFont={data.project.assets.font}
           sounds={data.project.sounds ?? []}
           musics={data.project.musics ?? []}
+          onImportTilesetPng={importTileset}
           onImportSound={() => void importAudio("sound")}
           onImportMusic={() => void importAudio("music")}
           onExportSound={(rel) => void exportAudio("sound", rel)}
@@ -2431,10 +2454,32 @@ export default function App() {
           onClose={() => setTextsOpen(false)}
         />
       )}
+      {tilesetsOpen && data && (
+        <TilesetsModal
+          defs={tsDefs}
+          files={tilesetPaths}
+          tilesets={tilesets}
+          autoImgs={autoImgs}
+          meta={data.tilesetMeta}
+          onOk={(defsNext, metaNext) => {
+            mutate((d) => ({
+              ...d,
+              tilesetMeta: metaNext,
+              project: { ...d.project, tileset_defs: defsNext },
+            }));
+            setTilesetsOpen(false);
+          }}
+          onClose={() => setTilesetsOpen(false)}
+        />
+      )}
       {dbOpen && data && (
         <DatabaseModal
           db={db ?? { schemas: [], entries: {} }}
           textNames={data.texts.map((t) => t.name)}
+          root={data.root}
+          pictures={(data.project.pictures ?? []).map(picPath)}
+          sounds={data.project.sounds ?? []}
+          musics={data.project.musics ?? []}
           onOk={(next, removedTables) => {
             setDb(next);
             setDbOpen(false);

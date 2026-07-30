@@ -44,6 +44,13 @@
 #define COL_FREE 0x00
 #define COL_SOLID 0x01
 #define COL_WARP 0x02
+/* T1 : l'octet de collision porte le TYPE (nibble bas, COL_*) et les
+   CÔTÉS FERMÉS (nibble haut) — bit 4 + DIR_* : la frontière du tile
+   dans cette direction ne se franchit ni en sortant ni en entrant
+   (passage directionnel RM2003 : comptoirs, corniches). La direction
+   opposée est DIR ^ 1 (bas 0 / haut 1, gauche 2 / droite 3). */
+#define COL_TYPE(c) ((u8)((c) & 0x0F))
+#define COL_SIDES(c) ((u8)((c) >> 4))
 
 /* Directions (acteurs et joueur) */
 #define DIR_DOWN  0

@@ -35,3 +35,19 @@ flags = ["feu", "glace", "foudre", "eau"]
 name     = "drop_item"
 type     = "ref:items"
 optional = true
+
+# B7 — ressources par NOM : l'index projet en ROM (0xFF si absent)
+[[fields]]
+name     = "battle_pic"
+type     = "picture"
+optional = true
+
+[[fields]]
+name     = "cry_sfx"
+type     = "sound"
+optional = true
+
+[[fields]]
+name     = "theme_bgm"
+type     = "music"
+optional = true

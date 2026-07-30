@@ -284,8 +284,9 @@ void actors_draw(void)
   }
 }
 
-/* Un pas d'1 tile vers (tx,ty) est-il permis pour le slot i ? */
-static u8 mv_blocked(u8 i, u8 tx, u8 ty)
+/* Un pas d'1 tile vers (tx,ty) dans la direction d est-il permis pour
+   le slot i ? (d : côtés fermés du passage directionnel, T1) */
+static u8 mv_blocked(u8 i, u8 tx, u8 ty, u8 d)
 {
   u8 j;
 
@@ -293,7 +294,13 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty)
     return 1;
   if (actor_thru[i])
     return 0; /* passe-muraille (Through ON) : seul le bord de map bloque */
-  if (scene_collision(tx, ty) == COL_SOLID)
+  if (COL_TYPE(scene_collision(tx, ty)) == COL_SOLID)
+    return 1;
+  /* côtés fermés (T1) : sortir de la tile courante par d, ou entrer
+     dans la cible par le côté opposé (d ^ 1) */
+  if (COL_SIDES(scene_collision(ACTOR_TX(i), ACTOR_TY(i))) & (u8)(1 << d))
+    return 1;
+  if (COL_SIDES(scene_collision(tx, ty)) & (u8)(1 << (d ^ 1)))
     return 1;
   /* la tile du héros — un event sous/au-dessus du héros passe (v0.14) */
   if (actor_prio[i] == ACTOR_PRIO_SAME &&
@@ -526,7 +533,7 @@ tourne:
 marche:
   tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
   ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
-  if (mv_blocked(i, tx, ty))
+  if (mv_blocked(i, tx, ty, d))
   {
     if (!actor_dirfix[i])
       actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
@@ -600,7 +607,7 @@ void actors_update(void)
       }
       tx = (u8)(ACTOR_TX(i) + mv_dx[d]);
       ty = (u8)(ACTOR_TY(i) + mv_dy[d]);
-      if (mv_blocked(i, tx, ty))
+      if (mv_blocked(i, tx, ty, d))
       {
         if (mt != ACTOR_MOVE_RANDOM && !actor_dirfix[i])
           actor_dirs[i] = d ^ 1; /* demi-tour */

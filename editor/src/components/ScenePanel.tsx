@@ -1,5 +1,6 @@
 // Onglet « Scène » : paramètres de la scène courante — tileset (choix,
-// imports, passabilité) et redimensionnement.
+// passabilité) et redimensionnement. Les imports vivent dans
+// Tools → Tilesets… (T1) et le Gestionnaire de ressources.
 
 import { useEffect, useState } from "react";
 import type { Scene } from "../types";
@@ -10,12 +11,9 @@ interface Props {
   tilesetNames: string[]; // stems, ordre = tileset_id
   current: string; // stem du tileset de la scène
   musicNames: string[]; // stems des modules du projet
-  canImport: boolean;
   passMode: boolean;
   onSelectTileset: (stem: string) => void;
   onSelectMusic: (stem: string | undefined) => void;
-  onImport: () => void;
-  onImportChipset: () => void;
   onPassMode: (on: boolean) => void;
   onResize: (width: number, height: number) => void;
 }
@@ -57,19 +55,6 @@ export default function ScenePanel(props: Props) {
             </option>
           ))}
         </select>
-        {props.canImport && (
-          <button onClick={props.onImport} title="Importer un PNG de tileset dans le projet">
-            Importer…
-          </button>
-        )}
-        {props.canImport && (
-          <button
-            onClick={props.onImportChipset}
-            title="Importer un chipset RPG Maker 2003 (PNG 480x256) : tiles, autotiles et couches découpés automatiquement"
-          >
-            Chipset RM2003…
-          </button>
-        )}
         <button
           className={props.passMode ? "active" : ""}
           onClick={() => props.onPassMode(!props.passMode)}

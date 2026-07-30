@@ -409,6 +409,30 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   Parallel process : tourne en tâche de fond, joueur libre — messages et
   choix interdits, rythmer avec « Attendre ». « Cet event » y désigne
   l'event appelant.
+- **Fenêtre « Tilesets »** (Tools →, T1/T2 — l'onglet Tileset de la
+  Database RM2003) : la LISTE NUMÉROTÉE des tilesets du projet à
+  gauche (＋ crée une entrée VIDE, 🗑 la retire — le fichier reste au
+  projet), champ **Nom** et menu **Fichier tileset** en tête : on
+  assigne à l'entrée un chipset importé via le Gestionnaire de
+  ressources (catégorie ChipSet — boutons « Chipset RM2003… » et
+  « PNG libre… »). Deux tilesets peuvent partager un fichier (ils
+  partagent alors passabilité/côtés/animations, portées par le sidecar
+  du fichier). Deux onglets filtrent la grille par couche comme
+  RM2003 : **Couche basse** (autotiles + section basse) et **Couche
+  haute** (section haute des chipsets, upper_start). Trois modes
+  d'édition sur la grille (autotiles compris pour la passabilité) : **Passabilité O/X/☆** (clic = cycle, comme
+  dans la palette de l'onglet Scène — même sidecar), **✥ Directionnel**
+  (quatre flèches par tile de grille, clic près d'un bord : rouge =
+  côté fermé, qui ne se franchit plus ni en entrant ni en sortant —
+  comptoirs, corniches ; s'applique au héros ET aux événements
+  mobiles), **▶ Animations** (séquences de tiles animées façon eau
+  RM2003 : ＋ crée une séquence, clic sur des tiles de la grille pour
+  les enchaîner — la première (B) est celle posée sur les maps, les
+  suivantes ses frames aux mêmes couleurs —, mode 1-2-3 ou 1-2-3-2 et
+  vitesse en frames ; toutes les instances de la tile s'animent
+  ensemble). OK écrit project.json (tileset_defs) et les sidecars à la
+  sauvegarde du projet. L'onglet Scène choisit le tileset par NOM
+  d'entrée.
 - **Fenêtre « Database »** (Tools →, Phase 10 — réf
   `PLANNING_SYSTEME_DATABASE.md` et `INTEGRATION_DATABASE_EDITEUR.md`) :
   l'expérience Database de RPG Maker, mais **générique et pilotée par
@@ -437,7 +461,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   « 🗑 » supprime la table (bloqué tant que des `ref:` la visent) et ses
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
-  database crée ses dossiers `schemas/`+`data/` à la première table.
+  database crée ses dossiers `schemas/`+`data/` à la première table. Champs
+  RESSOURCE (B7) : types `picture`/`sound`/`music` — menu déroulant des
+  ressources du projet PAR NOM, bouton ▶/⏸ à côté des sons et musiques
+  pour les écouter sans lancer le jeu (aperçu libopenmpt pour les .it) ;
+  même bouton dans le Gestionnaire de ressources (catégories Son et
+  Musique). dbgen vérifie les noms au build (ressource supprimée ou
+  renommée = erreur claire, jamais un index silencieusement faux).
 - **Fenêtres « UI »** (Tools → UI → **sous-menu** : « Widgets… » et
   « Dialogues et choix… », Phase 12, réf
   `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.

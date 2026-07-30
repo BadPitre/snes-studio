@@ -9,10 +9,17 @@ import { useState } from "react";
 import type { Database, DbEntry, DbField, DbSchema } from "../db";
 import { entrySize, fieldBounds, fieldSize, isSnake, refUsages, renameEntry } from "../db";
 import SchemaEditorModal from "./SchemaEditorModal";
+import AudioPreviewButton, { stopPreview } from "./AudioPreview";
+import { assetStem } from "../types";
 
 interface Props {
   db: Database;
   textNames: string[]; // banque de textes (champs text_id)
+  // B7 — ressources du projet (chemins) : champs picture/sound/music
+  root: string;
+  pictures: string[];
+  sounds: string[];
+  musics: string[];
   // removed : tables supprimées (leurs fichiers seront retirés du disque)
   onOk: (db: Database, removed: string[]) => void;
   onClose: () => void;
@@ -223,6 +230,39 @@ export default function DatabaseModal(props: Props) {
         </label>
       );
     }
+    if (f.type === "picture" || f.type === "sound" || f.type === "music") {
+      // B7 : ressource du projet par NOM (menu déroulant) — dbgen résout
+      // vers l'index de la liste projet au build, 0xFF si absent
+      const paths =
+        f.type === "picture" ? props.pictures : f.type === "sound" ? props.sounds : props.musics;
+      const what = f.type === "picture" ? "image" : f.type === "sound" ? "son" : "musique";
+      const v = String(cur[f.name] ?? "");
+      const vPath = paths.find((pp) => assetStem(pp) === v);
+      const broken = v !== "" && !vPath;
+      return (
+        <label key={f.name} title={tip}>
+          {f.name} ({what})
+          <div className="row" style={{ gap: 4 }}>
+            <select
+              style={{ flex: 1, ...(broken ? { outline: "1px solid #ff7070" } : {}) }}
+              value={v}
+              onChange={(e) => set(e.target.value === "" ? undefined : e.target.value)}
+            >
+              {(f.optional || v === "") && <option value="">(aucun{what === "image" ? "e" : ""})</option>}
+              {broken && <option value={v}>⚠ {v} (introuvable)</option>}
+              {paths.map((pp) => (
+                <option key={pp} value={assetStem(pp)}>
+                  {assetStem(pp)}
+                </option>
+              ))}
+            </select>
+            {f.type !== "picture" && vPath && (
+              <AudioPreviewButton path={vPath} root={props.root} />
+            )}
+          </div>
+        </label>
+      );
+    }
     // dégradation élégante : type inconnu = lecture seule + avertissement
     return (
       <label key={f.name}>
@@ -237,8 +277,13 @@ export default function DatabaseModal(props: Props) {
     0
   );
 
+  const close = () => {
+    stopPreview(); // l'aperçu audio ne survit pas à la fenêtre
+    props.onClose();
+  };
+
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop" onClick={close}>
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Database</div>
         <div className="db-body">
@@ -379,11 +424,14 @@ export default function DatabaseModal(props: Props) {
               )
             )}
             title="Désactivé tant qu'un id est invalide ou en double"
-            onClick={() => props.onOk(draft, removed)}
+            onClick={() => {
+              stopPreview();
+              props.onOk(draft, removed);
+            }}
           >
             OK
           </button>
-          <button onClick={props.onClose}>Annuler</button>
+          <button onClick={close}>Annuler</button>
         </div>
       </div>
       {newTable && (

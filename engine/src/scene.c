@@ -9,6 +9,7 @@
 #include <snes.h>
 #include "formats.h"
 #include "scene.h"
+#include "tileanim.h"
 #include "rom_layout.h"
 #include "vram.h"
 #include "map.h"
@@ -156,6 +157,7 @@ void scene_load(u8 scene_id)
   /* Couche d'effet (S9) : si la scène en a une, BG1 est rebasé sur le
      motif — la couche sup est ignorée */
   effect_load(scene_id);
+  tileanim_init(scene_id); /* tiles animées (T1) — séquences de la scène */
   /* météo (S13) : chars + palette rechargés par player_init — sa
      oamInitGfxSet écrase les 128 couleurs OBJ, y compris la palette 7
      des particules ; l'appel doit donc venir APRÈS */

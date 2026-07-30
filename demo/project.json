@@ -22,6 +22,11 @@
     "assets/tileset_automne.png",
     "assets/bourg.png"
   ],
+  "tileset_defs": [
+    { "name": "tileset", "file": "assets/tileset.png" },
+    { "name": "tileset_automne", "file": "assets/tileset_automne.png" },
+    { "name": "bourg", "file": "assets/bourg.png" }
+  ],
   "charsets": [
     "Héros",
     "Villageois"

@@ -247,6 +247,32 @@ maintenu par l'éditeur pour son mode navigateur — ignoré par dbgen (le
 dossier fait foi).
 
 **v0.17 (lire la database depuis les events)** :
+**T2 (entrées tileset)** : `project.tileset_defs` =
+`[{"name": "...", "file": "assets/xxx.png"}]` — les tilesets NOMMÉS de
+la fenêtre Tools → Tilesets (file vide = entrée pas encore assignée).
+Purement éditeur : datagen l'ignore, les scènes référencent toujours le
+fichier par stem. Projets existants : migrés à l'ouverture (une entrée
+par fichier, nom = stem).
+
+**T1 (tilesets — sidecar assets/<stem>.json)** : en plus de
+`solid`/`above`/`autotiles`, deux clés :
+`"dirs": {"<id>": masque}` — côtés FERMÉS d'une tile de grille (bits :
+1 bas, 2 haut, 4 gauche, 8 droite) → nibble haut de la collision
+(passage directionnel, comptoirs/corniches) ;
+`"anims": [{"tiles": [base, f1, f2...], "mode": "123"|"1232",
+"speed": n}]` — tile animée façon eau RM2003 : 2-4 tiles de GRILLE aux
+mêmes couleurs, la base est celle posée sur les maps, datagen compile
+data_tileanim.c (voir SPEC_FORMATS §1.4 bis) et refuse chars partagés
+hors séquence ou palettes divergentes. Édition : Tools → Tilesets…
+
+**B7 (champs ressource)** : les schémas acceptent `type = "picture"`,
+`"sound"` et `"music"` — la valeur TOML est le NOM (stem) d'une
+ressource du projet, dbgen la résout vers son index de liste (le même
+que les opcodes SHOWPIC/PLAYSFX/PLAYBGM) et refuse le build si le nom
+n'existe plus ; `optional = true` → 0xFF = aucune. Fini les numéros
+magiques : la fiche d'un monstre pointe son image de combat, son cri
+et son thème par nom.
+
 `{"c":"db_read","table":"stats","from":"const"|"var","entry":"slime"|
 <n° de variable>,"field":"attack","dst":n}` — `vars16[dst]` = champ de
 la fiche ; `from:"var"` lit le n° de fiche dans une variable (hors

@@ -16,3 +16,6 @@ defense = 1
 agility = -2
 elem_resist = ["eau"]
 drop_item = "potion"
+battle_pic = "gobelin"
+cry_sfx = "attaque"
+theme_bgm = "battle"

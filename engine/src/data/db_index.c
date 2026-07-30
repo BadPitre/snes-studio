@@ -10,7 +10,7 @@ const u8 *const db_tables[] = {
   db_stats,
 };
 const u8 db_table_sizes[] = {
-  6, 7,
+  6, 10,
 };
 const u8 db_table_counts[] = {
   2, 2,
