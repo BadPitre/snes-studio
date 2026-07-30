@@ -21,12 +21,9 @@
   --sel-text: #fff;
   --title-a: #0a246a;     /* dégradé barre de titre */
   --title-b: #a6caf0;
-  --bev-up: inset -1px -1px #404040, inset 1px 1px #fff,
-            inset -2px -2px #808080, inset 2px 2px #ece9e2;
-  --bev-down: inset -1px -1px #fff, inset 1px 1px #404040,
-              inset -2px -2px #ece9e2, inset 2px 2px #808080;
-  --bev-field: inset -1px -1px #fff, inset 1px 1px #808080,
-               inset -2px -2px #d4d0c8, inset 2px 2px #404040;
+  --bev-up: inset 0 0 0 1px #808080;
+  --bev-down: inset 0 0 0 1px #404040;
+  --bev-field: inset 0 0 0 1px #808080;
 }
 
 * { box-sizing: border-box; }
@@ -44,7 +41,6 @@ body {
 .menubar {
   display: flex; background: var(--face);
   border-bottom: 1px solid var(--shadow);
-  box-shadow: 0 1px 0 #fff;
   padding: 0 2px; position: relative;
 }
 /* au-dessus du backdrop : les titres restent cliquables/survolables
@@ -73,7 +69,7 @@ body {
 .menu-drop button:hover:not(:disabled) .menu-hint { color: #cfd8ea; }
 .menu-drop button:disabled { color: var(--shadow); text-shadow: 1px 1px 0 #fff; opacity: 1; }
 .menu-hint { color: var(--text-dim); font-size: 11px; }
-.menu-sep { height: 2px; margin: 3px 2px; border-top: 1px solid var(--shadow); border-bottom: 1px solid #fff; background: none; }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--shadow); border: none; }
 /* Sous-menus (Tools → UI) : flyout à droite de l'item au survol */
 .menu-subwrap { position: relative; }
 .menu-subwrap > button { width: 100%; }
@@ -83,7 +79,6 @@ body {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 8px; background: var(--face);
   border-bottom: 1px solid var(--shadow);
-  box-shadow: 0 1px 0 #fff;
 }
 .toolbar .status { margin-left: auto; color: var(--text-dim); font-size: 11px; }
 
@@ -95,7 +90,7 @@ body {
 .v-split {
   height: 6px; flex-shrink: 0; cursor: ns-resize;
   background: var(--face);
-  border-top: 1px solid #fff; border-bottom: 1px solid var(--shadow);
+  border-top: 1px solid var(--shadow); border-bottom: 1px solid var(--shadow);
   touch-action: none;
 }
 .scene-tree { flex: 1; overflow-y: auto; padding: 4px 6px; min-height: 60px; background: #fff; box-shadow: var(--bev-field); margin: 4px; }
@@ -142,18 +137,18 @@ body {
   padding: 2px 8px; background: var(--face); border-top: 1px solid #fff;
   color: var(--text); font-size: 11px; font-family: Tahoma, sans-serif;
 }
-.map-status > * { box-shadow: inset 1px 1px #808080, inset -1px -1px #fff; padding: 1px 8px; }
+.map-status > * { box-shadow: inset 0 0 0 1px var(--shadow); padding: 1px 8px; }
 .zoom-group { display: flex; gap: 3px; box-shadow: none !important; }
 .zoom-group button { padding: 1px 8px; font-size: 11px; border-radius: 0; }
 
-.sidebar { width: 320px; background: var(--face); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #fff; }
+.sidebar { width: 320px; background: var(--face); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--shadow); }
 .tabs { display: flex; padding: 3px 3px 0; gap: 1px; }
 .tabs button {
-  flex: 1; border-radius: 3px 3px 0 0; box-shadow: inset -1px 0 #808080, inset 1px 1px #fff;
+  flex: 1; border-radius: 3px 3px 0 0; box-shadow: inset 0 0 0 1px var(--shadow);
   background: var(--face-dark); padding: 4px 8px; position: relative;
 }
 .tabs button.active { background: var(--face); font-weight: 700; padding-bottom: 6px; margin-top: -2px; }
-.panel { padding: 8px; overflow-y: auto; flex: 1; border-top: 1px solid #fff; }
+.panel { padding: 8px; overflow-y: auto; flex: 1; border-top: 1px solid var(--shadow); }
 .panel-title { font-weight: 700; margin-bottom: 8px; }
 
 .actor-list { list-style: none; padding: 2px; margin: 0 0 10px; background: #fff; box-shadow: var(--bev-field); }
@@ -198,8 +193,7 @@ input:focus, select:focus, textarea:focus { outline: none; }
 ::-webkit-scrollbar { width: 16px; height: 16px; }
 ::-webkit-scrollbar-track {
   background: #efefef;
-  background-image: repeating-conic-gradient(#fff 0 25%, #d4d0c8 0 50%);
-  background-size: 2px 2px;
+  background-image: none;
 }
 ::-webkit-scrollbar-thumb { background: var(--face); box-shadow: var(--bev-up); }
 ::-webkit-scrollbar-button {
@@ -247,7 +241,7 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .evedit-top > label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text); }
 .evedit-body { display: flex; gap: 10px; }
 .evedit-left { width: 290px; display: flex; flex-direction: column; gap: 8px; }
-.evedit-box { border: 1px solid var(--shadow); box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.evedit-box { border: 1px solid var(--shadow); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; margin: 0; }
 .evedit-box legend { font-size: 11px; color: var(--text); text-transform: none; padding: 0 4px; background: var(--face); }
 .evedit-box[disabled] { opacity: 0.55; }
 .evedit-box canvas { border: none; box-shadow: var(--bev-field); background: #fff; padding: 2px; }
@@ -266,10 +260,10 @@ input:focus, select:focus, textarea:focus { outline: none; }
 /* Fenêtre « Commande d'événement » (façon Event Command de RM2003) —
    ONGLETS par catégorie, extensible quand la liste des commandes grossit */
 .modal.cmdpick { width: 560px; min-height: 300px; }
-.cmdpick-tabs { display: flex; gap: 1px; border-bottom: 1px solid #fff; padding: 3px 3px 0; }
+.cmdpick-tabs { display: flex; gap: 1px; border-bottom: 1px solid var(--shadow); padding: 3px 3px 0; }
 .cmdpick-tabs button {
   padding: 4px 10px; font-size: 11px; border-radius: 3px 3px 0 0;
-  box-shadow: inset -1px 0 #808080, inset 1px 1px #fff;
+  box-shadow: inset 0 0 0 1px var(--shadow);
   background: var(--face-dark);
 }
 .cmdpick-tabs button.active { background: var(--face); font-weight: 700; margin-top: -2px; padding-bottom: 6px; }
@@ -358,7 +352,7 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .moveroute-grid { display: flex; gap: 4px; align-content: start; }
 .moveroute-grid > div { display: flex; flex-direction: column; gap: 3px; width: 158px; }
 .moveroute-grid button { font-size: 11px; padding: 3px 3px; }
-.moveroute-freq { display: flex; gap: 8px; border: 1px solid var(--shadow); box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; border-radius: 4px; padding: 2px 8px; margin: 0; align-items: center; }
+.moveroute-freq { display: flex; gap: 8px; border: 1px solid var(--shadow); border-radius: 4px; padding: 2px 8px; margin: 0; align-items: center; }
 .moveroute-freq legend { font-size: 11px; color: var(--text); padding: 0 4px; background: var(--face); }
 /* Checkboxes/radios : les inputs héritent d'une largeur pleine ailleurs —
    ici on les garde à leur taille native, alignés avec leur libellé */
@@ -394,7 +388,7 @@ label.check input[type="checkbox"] { width: 13px; height: 13px; flex: 0 0 auto; 
   overflow-y: auto; margin: 0; font-family: "Courier New", monospace;
 }
 
-.warp-entry { border: 1px solid var(--shadow); box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; border-radius: 4px; padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.warp-entry { border: 1px solid var(--shadow); border-radius: 4px; padding: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .warp-entry label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text); }
 .warp-head { display: flex; justify-content: space-between; align-items: center; }
 
