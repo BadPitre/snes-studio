@@ -24,6 +24,8 @@
 #include "effectlayer.h"
 #include "weather.h"
 #include "hdmafx.h"
+#include "stage.h"
+#include "vignette.h"
 
 /* Transition de warp : fondu, rechargement complet de la scène cible
    écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
@@ -160,6 +162,16 @@ int main(void)
 
     picture_apply(); /* SHOWPIC/HIDEPIC différés (S3) — transition
                             écran depuis la boucle, comme do_warp */
+    stage_apply();   /* ouverture/fermeture de l'écran composé (B3) */
+    if (stage_take_close())
+    {
+      /* fermer l'écran composé = WARP INTERNE vers la scène courante,
+         au tile du héros : décor, sprites, palettes, ambiances et
+         musique reviennent d'un bloc (recette éprouvée) */
+      stage_reset();
+      do_warp(scene_ctx.scene_id, (u8)((player.x + 8) >> 4),
+              (u8)((player.y + 8) >> 4));
+    }
 
     if (!sysmenu_active())
     {
@@ -175,12 +187,19 @@ int main(void)
     overlay_update();  /* HUD : redessin si une variable a changé */
     debug_update();    /* panneau Start+Select+R (S6) — inerte sans le
                           drapeau --debug de datagen ; APRÈS overlay */
+    stage_update();    /* écran composé : rangées de carte à poser (B3) */
     camera_update();
-    if (!picture_active())
+    if (!picture_active() && !stage_active())
       map_update(); /* prépare le streaming de la fenêtre tilemap */
-    player_draw();  /* shadow OAM — transféré par le NMI au VBlank */
-    actors_draw();
-    weather_draw(); /* météo : simulation + sprites en une passe (S13) */
+    if (!stage_active())
+    {
+      /* sprites de la scène gelés pendant l'écran composé (B3) —
+         cachés à l'ouverture, les vignettes (B5) auront leurs entrées */
+      player_draw(); /* shadow OAM — transféré par le NMI au VBlank */
+      actors_draw();
+      weather_draw(); /* météo : simulation + sprites en une passe (S13) */
+    }
+    vig_update(); /* vignettes (B5) — sur la map ET l'écran composé */
 
     audio_process(); /* flux musique -> SPC */
 
@@ -196,6 +215,14 @@ int main(void)
       picture_vblank(); /* scroll BG1 = position de l'image (S5) */
       hdmafx_suspend(); /* pas d'ondulation sur une image plein écran */
     }
+    else if (stage_active())
+    {
+      ui_screen_vblank();
+      screenfx_vblank(); /* teinte/flash actifs sur l'écran composé */
+      stage_vblank();    /* scrolls fixes + transferts de pose étalés */
+      vig_vblank();      /* frames de vignettes (B5) */
+      hdmafx_suspend();  /* vague/dégradé/spotlight : ambiances de map */
+    }
     else
     {
       map_vblank();
@@ -207,6 +234,7 @@ int main(void)
         bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
       bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
       hdmafx_vblank(); /* ondulation (S14) — écrase HOFS ligne à ligne */
+      vig_vblank();    /* frames de vignettes (B5) */
     }
   }
   return 0;

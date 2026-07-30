@@ -36,6 +36,9 @@ interface Props {
   tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
   soundNames: string[]; // stems des sons du projet (B1)
   musicNames: string[]; // stems des musiques du projet (B1)
+  vigNames: string[]; // stems des vignettes (B5)
+  screenNames: string[]; // écrans composés (B6bis)
+  screenScriptNames?: string[]; // scripts de l'écran courant (B6bis-2)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -170,6 +173,36 @@ function labelOf(c: Command, ceNames?: string[]): string {
           : `Teinte : ${c.mode === "add" ? "éclaircir" : "assombrir"} (${c.r},${c.g},${c.b})`) +
         (c.dur ? ` en ${c.dur}f` : "")
       );
+    case "screen":
+      return `Aller à l'écran « ${c.name} »`;
+    case "screen_call":
+      return `Appeler le script d'écran « ${c.script} »`;
+    case "stage_open":
+      return c.pic === ""
+        ? "Écran composé : ouvrir (fond noir)"
+        : `Écran composé : ouvrir (fond « ${c.pic} »)`;
+    case "stage_pose":
+      return `Poser « ${c.pic} » (slot ${c.slot}) en ${c.x},${c.y}`;
+    case "stage_clear":
+      return `Retirer l'image du slot ${c.slot}`;
+    case "vig_show":
+      return `Vignette « ${c.vig} » (slot ${c.slot}${c.anchor === "hero" ? ", sur le héros" : ""})`;
+    case "vig_play":
+      return c.mode === "stop"
+        ? `Vignette ${c.slot} : figer`
+        : `Vignette ${c.slot} : ${c.mode === "once" ? "jouer une fois" : "boucler"} (${c.speed ?? 8}f/img)`;
+    case "vig_hide":
+      return `Cacher la vignette ${c.slot}`;
+    case "slot_fx":
+      return c.fx === "restore"
+        ? `Slot ${c.slot} : restaurer les couleurs`
+        : c.fx === "flash"
+          ? `Slot ${c.slot} : flash blanc (${c.frames ?? 6}f)`
+          : c.fx === "fadeout"
+            ? `Slot ${c.slot} : fondu au noir (${c.frames ?? 30}f)`
+            : `Slot ${c.slot} : assombrir`;
+    case "stage_close":
+      return "Écran composé : fermer";
     case "sfx":
       return `Jouer le son « ${c.sound} »`;
     case "bgm":
@@ -240,6 +273,16 @@ function cmdTitle(c: Command["c"]): string {
     scr_show: "Montrer l'écran",
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
+    screen: "Aller à l'écran",
+    screen_call: "Appeler un script de l'écran",
+    stage_open: "Ouvrir un écran composé",
+    stage_pose: "Poser une image (slot)",
+    stage_clear: "Retirer une image (slot)",
+    slot_fx: "Effet sur une image (slot)",
+    vig_show: "Afficher une vignette",
+    vig_play: "Animer la vignette",
+    vig_hide: "Cacher la vignette",
+    stage_close: "Fermer l'écran composé",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
     wave: "Ondulation de l'écran",
@@ -334,6 +377,9 @@ export function CommandListEditor(props: {
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
+  vigNames: string[];
+  screenNames: string[];
+  screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -511,6 +557,26 @@ export function CommandListEditor(props: {
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
         return { c: "weather", kind: "rain", power: 2 };
+      case "screen":
+        return { c: "screen", name: "", dur: 20 };
+      case "screen_call":
+        return { c: "screen_call", script: "" };
+      case "stage_open":
+        return { c: "stage_open", pic: "", dur: 20 };
+      case "stage_pose":
+        return { c: "stage_pose", slot: 1, pic: "", x: 16, y: 40 };
+      case "stage_clear":
+        return { c: "stage_clear", slot: 1 };
+      case "slot_fx":
+        return { c: "slot_fx", slot: 1, fx: "flash", frames: 6 };
+      case "vig_show":
+        return { c: "vig_show", slot: 1, vig: "", x: 112, y: 96, anchor: "screen" };
+      case "vig_play":
+        return { c: "vig_play", slot: 1, mode: "once", speed: 8 };
+      case "vig_hide":
+        return { c: "vig_hide", slot: 1 };
+      case "stage_close":
+        return { c: "stage_close", dur: 20 };
       case "sfx":
         return { c: "sfx", sound: "" };
       case "bgm":
@@ -597,6 +663,9 @@ export function CommandListEditor(props: {
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
+              vigNames={props.vigNames}
+              screenNames={props.screenNames}
+              screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1009,6 +1078,9 @@ export default function EventEditorModal(props: Props) {
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
+              vigNames={props.vigNames}
+              screenNames={props.screenNames}
+              screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1084,6 +1156,9 @@ function CommandForm(props: {
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
+  vigNames: string[];
+  screenNames: string[];
+  screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -2237,6 +2312,386 @@ function CommandForm(props: {
             visibles partout (limite matérielle, comme la teinte).
             Immédiat, non bloquant, persiste entre les scènes.
           </span>
+        </>
+      );
+      break;
+    case "screen":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Écran (Tools → Écrans composés)
+              <select
+                value={cmd.name}
+                onChange={(e) => onChange({ ...cmd, name: e.target.value })}
+              >
+                <option value="">(choisir un écran…)</option>
+                {props.screenNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fondu (frames par sens)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Ouvre l'écran composé dessiné dans Tools → Écrans composés :
+            son fond, ses images posées, puis son script. Équivaut à la
+            suite Ouvrir + Poser + … écrite à la main — mais composée à
+            la souris. L'écran se referme par « Fermer l'écran
+            composé » (dans son script, ou après).
+          </span>
+        </>
+      );
+      break;
+    case "screen_call":
+      body = (
+        <>
+          <label>
+            Script de l'écran
+            {props.screenScriptNames ? (
+              <select
+                value={cmd.script}
+                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
+              >
+                <option value="">(choisir…)</option>
+                {props.screenScriptNames.slice(1).map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={cmd.script}
+                placeholder="nom du script"
+                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
+              />
+            )}
+          </label>
+          <span className="hint">
+            Joue un AUTRE script du même écran composé (tes
+            sous-routines locales : tour_joueur, victoire…) — comme
+            « Appeler un common event », mais rangé dans l'écran.
+            Valable uniquement depuis un script d'écran (le build le
+            vérifie).
+          </span>
+        </>
+      );
+      break;
+    case "stage_open":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Fond (image plein écran, opaque de préférence)
+              <select
+                value={cmd.pic}
+                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+              >
+                <option value="">(aucun — fond noir)</option>
+                {props.pictures.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fondu (frames par sens — 0 = instantané)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Remplace la vue de la scène par un ÉCRAN COMPOSÉ : le fond
+            sur une couche, jusqu'à 5 images posées par-dessus (slots),
+            les dialogues et widgets par-dessus tout. C'est l'écran de
+            combat façon FF (fond + monstres) — ou un plateau, une carte,
+            une scène illustrée. Les personnages de la map sont cachés
+            le temps de l'écran. Fermer l'écran restaure la scène ET sa
+            musique (les PNJ déplacés reviennent à leur position de
+            page, comme après une téléportation).
+          </span>
+        </>
+      );
+      break;
+    case "stage_pose":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-5)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Image (à transparence pour un monstre)
+              <select
+                value={cmd.pic}
+                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
+              >
+                <option value="">(choisir une image…)</option>
+                {props.pictures.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="row">
+            <label>
+              X (px, arrondi à 8)
+              <input
+                type="number" min={0} max={255} step={8} value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Y (px, arrondi à 8)
+              <input
+                type="number" min={0} max={216} step={8} value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Pose l'image sur l'écran composé, avec SA palette (une par
+            slot — le clignotement d'un monstre ne touche pas les
+            autres). L'image apparaît en quelques frames (transfert
+            progressif), le script attend la fin. Re-poser la même
+            image dans le même slot = déplacement instantané. Budget
+            partagé : ~511 tuiles pour l'écran — au-delà, la pose est
+            ignorée (simplifier les images, ou fermer/rouvrir).
+            Éviter le chevauchement de deux images (couche unique).
+          </span>
+        </>
+      );
+      break;
+    case "stage_clear":
+      body = (
+        <>
+          <label>
+            Slot à retirer (1-5)
+            <select
+              value={cmd.slot}
+              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+            >
+              {[1, 2, 3, 4, 5].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <span className="hint">
+            Efface l'image du slot (mort d'un monstre, objet ramassé).
+            Re-poser la même image plus tard ne recoûte rien.
+          </span>
+        </>
+      );
+      break;
+    case "slot_fx":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-5)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Effet
+              <select
+                value={cmd.fx}
+                onChange={(e) =>
+                  onChange({ ...cmd, fx: e.target.value as "restore" | "flash" | "fadeout" | "dark" })
+                }
+              >
+                <option value="flash">Flash blanc (attaque)</option>
+                <option value="fadeout">Fondu au noir (mort)</option>
+                <option value="dark">Assombrir (état)</option>
+                <option value="restore">Restaurer les couleurs</option>
+              </select>
+            </label>
+            {(cmd.fx === "flash" || cmd.fx === "fadeout") && (
+              <label>
+                Durée (frames)
+                <input
+                  type="number" min={1} max={255}
+                  value={cmd.frames ?? (cmd.fx === "flash" ? 6 : 30)}
+                  onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Manipule la PALETTE de l'image du slot — les autres images
+            et le fond ne bougent pas (une palette par slot). Flash =
+            le monstre attaque ou encaisse ; fondu au noir = mort
+            (enchaîner avec « Retirer une image ») ; assombrir =
+            poison, pierre (cumulable) ; restaurer = fin d'état. Non
+            bloquant — enchaîner avec « Attendre ».
+          </span>
+        </>
+      );
+      break;
+    case "stage_close":
+      body = (
+        <>
+          <label>
+            Fondu (frames par sens — 0 = instantané)
+            <input
+              type="number" min={0} max={255} value={cmd.dur ?? 20}
+              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+            />
+          </label>
+          <span className="hint">
+            Referme l'écran composé et restaure la scène complète :
+            décor, personnages, ambiances et musique de la scène.
+          </span>
+        </>
+      );
+      break;
+    case "vig_show":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-2)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+            <label>
+              Vignette (bande de frames 32x32)
+              <select
+                value={cmd.vig}
+                onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
+              >
+                <option value="">(choisir une vignette…)</option>
+                {props.vigNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ancrage
+              <select
+                value={cmd.anchor}
+                onChange={(e) =>
+                  onChange({ ...cmd, anchor: e.target.value as "screen" | "hero" })
+                }
+              >
+                <option value="screen">Position écran</option>
+                <option value="hero">Sur le héros</option>
+              </select>
+            </label>
+          </div>
+          <div className="row">
+            <label>
+              {cmd.anchor === "hero" ? "Décalage X (-128 à 127)" : "X (0-255)"}
+              <input
+                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
+                value={cmd.x}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              {cmd.anchor === "hero" ? "Décalage Y (-128 à 127)" : "Y (0-216)"}
+              <input
+                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
+                value={cmd.y}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <span className="hint">
+            Petite image en SPRITE (32x32), affichée frame 1 — les
+            personnages restent visibles (contrairement aux pictures).
+            « Sur le héros » : la vignette le suit (émoticône « ! » :
+            X -8, Y -32). 2 vignettes à l'écran max. Marche sur la map
+            ET sur l'écran composé (animations d'attaque par-dessus
+            les monstres). Persiste entre les scènes.
+          </span>
+        </>
+      );
+      break;
+    case "vig_play":
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Slot (1-2)
+              <select
+                value={cmd.slot}
+                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+            <label>
+              Mode
+              <select
+                value={cmd.mode}
+                onChange={(e) =>
+                  onChange({ ...cmd, mode: e.target.value as "loop" | "once" | "stop" })
+                }
+              >
+                <option value="once">Une fois (puis se cache)</option>
+                <option value="loop">En boucle</option>
+                <option value="stop">Figer</option>
+              </select>
+            </label>
+            {cmd.mode !== "stop" && (
+              <label>
+                Vitesse (frames par image)
+                <input
+                  type="number" min={1} max={60} value={cmd.speed ?? 8}
+                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+          <span className="hint">
+            Joue les frames de la planche. « Une fois » se cache tout
+            seul à la fin — parfait pour un coup d'épée ou une
+            explosion (8 frames/image = ~2 images par seconde ; 4 =
+            rapide). Non bloquant — enchaîner avec « Attendre ».
+          </span>
+        </>
+      );
+      break;
+    case "vig_hide":
+      body = (
+        <>
+          <label>
+            Slot à cacher (1-2)
+            <select
+              value={cmd.slot}
+              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+            </select>
+          </label>
         </>
       );
       break;

@@ -40,5 +40,23 @@
   "sounds": [
     "assets/sounds/curseur.wav",
     "assets/sounds/attaque.wav"
+  ],
+  "pictures": [
+    "assets/fond_prairie.png",
+    {
+      "path": "assets/gobelin.png",
+      "trans": true
+    },
+    {
+      "path": "assets/dragon.png",
+      "trans": true
+    }
+  ],
+  "vignettes": [
+    "assets/vignettes/exclam.png",
+    "assets/vignettes/coup.png"
+  ],
+  "screens": [
+    "combat_prairie"
   ]
 }

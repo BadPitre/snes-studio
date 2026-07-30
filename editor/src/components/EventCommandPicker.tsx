@@ -84,6 +84,21 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Écran composé",
+    items: [
+      { c: "screen", label: "Aller à l'écran (composé)" },
+      { c: "screen_call", label: "Appeler un script de l'écran" },
+      { c: "stage_open", label: "Ouvrir un écran composé" },
+      { c: "stage_pose", label: "Poser une image (slot)" },
+      { c: "stage_clear", label: "Retirer une image (slot)" },
+      { c: "slot_fx", label: "Effet sur une image (slot)" },
+      { c: "vig_show", label: "Afficher une vignette" },
+      { c: "vig_play", label: "Animer la vignette" },
+      { c: "vig_hide", label: "Cacher la vignette" },
+      { c: "stage_close", label: "Fermer l'écran composé" },
+    ],
+  },
+  {
     title: "Caméra",
     items: [
       { c: "campan", label: "Déplacer la caméra" },

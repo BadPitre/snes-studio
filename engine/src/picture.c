@@ -37,6 +37,7 @@
 #include "screenfx.h"
 #include "effectlayer.h"
 #include "weather.h"
+#include "vignette.h"
 #include "vram.h"
 
 /* Registre généré par datagen (data_pictures.c — toujours émis) */
@@ -310,6 +311,7 @@ void picture_hide(void)
   dmaCopyVram((u8 *)sprite_chars[scene_ctx.sprite_set_id], VRAM_OBJ_GFX,
               *sprite_chars_sizes[scene_ctx.sprite_set_id]);
   weather_load(); /* chars météo (S13) — la picture a occupé la région OBJ */
+  vig_reload();   /* frames + palettes des vignettes actives (B5) */
   dmaCopyCGram((u8 *)gfx_pals[scene_ctx.tileset_id], 0, 128 * 2);
   {
     u16 black = 0; /* fond (CGRAM 0) réaffirmé NOIR (S10 — comme scene_load) */

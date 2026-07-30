@@ -67,6 +67,7 @@ import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
+import ScreensModal from "./components/ScreensModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
@@ -146,6 +147,7 @@ export default function App() {
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
+  const [screensOpen, setScreensOpen] = useState(false); // Écrans composés (B6bis)
   // prefabs (v0.16) : enregistrement (event source), création (position
   // cible) et gestionnaire (Tools)
   const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
@@ -1382,6 +1384,92 @@ export default function App() {
     }
   }
 
+  // Vignettes (B5) : bandes de frames 32x32 (PNG à transparence)
+  async function importVignette() {
+    if (!data) return;
+    try {
+      const file = await pickPngFile("Importer une vignette (bande de frames 32x32, PNG à transparence)");
+      if (!file) return;
+      const bytes = await readBinaryFile(file);
+      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
+      if (bmp.height !== 32 || bmp.width % 32 !== 0 || bmp.width === 0 || bmp.width > 256) {
+        setStatus(`Vignette : attendu une bande 32 px de haut, largeur multiple de 32 (1-8 frames) — reçu ${bmp.width}x${bmp.height}`);
+        return;
+      }
+      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
+      const rel = `assets/vignettes/${name}`;
+      if ((data.project.vignettes ?? []).includes(rel)) {
+        setStatus(`Vignette « ${musicStem(rel)} » : existe déjà`);
+        return;
+      }
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      mutate((d) => ({
+        ...d,
+        project: { ...d.project, vignettes: [...(d.project.vignettes ?? []), rel] },
+      }));
+      setStatus(`Vignette importée : ${musicStem(rel)} (${bmp.width / 32} frame(s))`);
+    } catch (e) {
+      setStatus(`Import vignette : ${e}`);
+    }
+  }
+
+  async function exportVignette(rel: string) {
+    if (!data) return;
+    const path = await pickSavePath("Exporter la vignette (PNG)", `${musicStem(rel)}.png`);
+    if (!path) return;
+    try {
+      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
+      setStatus(`Vignette exportée : ${path}`);
+    } catch (e) {
+      setStatus(`Export : ${e}`);
+    }
+  }
+
+  async function renameVignette(oldRel: string, newName: string) {
+    if (!data) return;
+    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!newStem || newStem === musicStem(oldRel)) return;
+    const newRel = `assets/vignettes/${newStem}.png`;
+    if ((data.project.vignettes ?? []).includes(newRel)) {
+      setStatus(`Renommage : « ${newStem} » existe déjà`);
+      return;
+    }
+    const keep = sceneName;
+    try {
+      const list = (data.project.vignettes ?? []).map((r) => (r === oldRel ? newRel : r));
+      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
+      const d2: ProjectData = { ...data, project: { ...data.project, vignettes: list } };
+      await saveProject(d2);
+      await reloadProject(data.root, keep);
+      setStatus(`Vignette renommée : ${musicStem(oldRel)} → ${newStem} — corriger les « Afficher une vignette » qui l'utilisaient (le build les signale)`);
+    } catch (e) {
+      setStatus(`Renommage : ${e}`);
+    }
+  }
+
+  async function deleteVignette(rel: string) {
+    if (!data) return;
+    if (!confirm(`Supprimer la vignette « ${musicStem(rel)} » et son fichier ?`)) return;
+    const keep = sceneName;
+    try {
+      const list = (data.project.vignettes ?? []).filter((r) => r !== rel);
+      const d2: ProjectData = {
+        ...data,
+        project: { ...data.project, vignettes: list.length ? list : undefined },
+      };
+      await saveProject(d2);
+      try {
+        await removePath(`${data.root}/${rel}`);
+      } catch {
+        /* déjà absent */
+      }
+      await reloadProject(data.root, keep);
+      setStatus(`Vignette supprimée : ${musicStem(rel)}`);
+    } catch (e) {
+      setStatus(`Suppression : ${e}`);
+    }
+  }
+
   function setSceneTileset(stem: string) {
     // le premier tileset du projet est le défaut : on ne sérialise pas le champ
     setScene((sc) => ({
@@ -1744,6 +1832,11 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Écrans composés…",
+          action: () => setScreensOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Prefabs…",
           action: () => setPrefabMgr(true),
           disabled: !data,
@@ -2094,6 +2187,11 @@ export default function App() {
           onRenameMusic={(rel, n) => void renameAudio("music", rel, n)}
           onDeleteSound={(rel) => void deleteAudio("sound", rel)}
           onDeleteMusic={(rel) => void deleteAudio("music", rel)}
+          vignettes={data.project.vignettes ?? []}
+          onImportVignette={() => void importVignette()}
+          onExportVignette={(rel) => void exportVignette(rel)}
+          onRenameVignette={(rel, n) => void renameVignette(rel, n)}
+          onDeleteVignette={(rel) => void deleteVignette(rel)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
@@ -2370,6 +2468,46 @@ export default function App() {
           onClose={() => setUiMode(null)}
         />
       )}
+      {screensOpen && data && (
+        <ScreensModal
+          root={data.root}
+          screenNames={data.project.screens ?? []}
+          screens={data.screens}
+          picturePaths={Object.fromEntries(
+            projectPictures(data.project).map((e) => [assetStem(picPath(e)), picPath(e)])
+          )}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          db={db}
+          uiWidgets={uiWidgets}
+          uiStyles={uiStyles}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          tintPresets={data.project.tint_presets ?? []}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          musicNames={(data.project.musics ?? []).map(musicStem)}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          onTintPresets={(list) =>
+            mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+          }
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(names, screens) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, screens: names.length ? names : undefined },
+              screens,
+            }));
+            setScreensOpen(false);
+          }}
+          onClose={() => setScreensOpen(false)}
+        />
+      )}
       {commonEvOpen && data && (
         <CommonEventsModal
           commons={data.project.common_events ?? []}
@@ -2387,6 +2525,8 @@ export default function App() {
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
+                vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }
@@ -2448,6 +2588,8 @@ export default function App() {
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
+                vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
                 }

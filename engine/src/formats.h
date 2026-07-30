@@ -254,6 +254,55 @@
                               la musique courante. La musique de la
                               SCÈNE reprend au prochain warp (modèle
                               RM2003 : la map réaffirme sa musique). */
+#define VM_OP_STAGEOPEN 0x32 /* pic u8 (0xFF = noir), dur u8 — ouvre
+                                l'ÉCRAN COMPOSÉ (B3) : fond plein écran
+                                (picture OPAQUE) sur BG2, sprites de la
+                                scène cachés, dialogues/HUD actifs.
+                                Transition sous fondu (dur frames par
+                                sens, 0 = instantané), recette do_warp.
+                                La VM marque 1 frame de pause. */
+#define VM_OP_STAGEPOSE 0x33 /* slot u8 (0-4), pic u8, tx u8, ty u8 —
+                                POSE une image (picture) sur l'écran
+                                composé, position en TILES (x8 px),
+                                palette BG 2+slot dédiée. Transfert
+                                ÉTALÉ écran allumé (chars 1 Ko/VBlank
+                                puis carte 2 rangées/frame) — BLOQUANT
+                                (VM_WAIT_STAGE). Même image re-posée =
+                                déplacement (carte seule). Budget : 511
+                                chars pour l'écran, pose ignorée
+                                au-delà (fermer/rouvrir libère). */
+#define VM_OP_STAGECLEAR 0x34 /* slot u8 — retire l'image du slot
+                                 (efface sa région de carte, les chars
+                                 restent alloués). BLOQUANT (court). */
+#define VM_OP_STAGECLOSE 0x35 /* dur u8 — ferme l'écran composé : WARP
+                                 INTERNE vers la scène courante (tout
+                                 est restauré : décor, sprites,
+                                 ambiances, musique de la scène — les
+                                 PNJ déplacés reviennent à leurs pages,
+                                 comme après un warp). */
+#define VM_OP_SLOTFX 0x36 /* slot u8 (0-4), fx u8, dur u8 — effet de
+                             PALETTE sur une image posée (B4) : 0 =
+                             restaurer, 1 = flash blanc (dur frames),
+                             2 = fondu vers noir (mort — demi-teintes
+                             BGR555, 5 paliers), 3 = assombrir d'un
+                             cran (persistant). NON bloquant, seul CE
+                             slot est touché (une palette par slot).
+                             Hors écran composé / slot vide : ignoré. */
+#define VM_OP_VIGSHOW 0x37 /* slot u8 (0-1), vig u8, x u8, y u8,
+                              anchor u8 — affiche une VIGNETTE (B5) :
+                              sprite 32x32 (OBJ_LARGE, OAM 96-97, chars
+                              384-447, palettes OBJ 5-6), frame 0.
+                              anchor 0 = position écran, 1 = accrochée
+                              au héros (x/y = offsets SIGNÉS). Persiste
+                              entre les scènes ; suspendue pendant une
+                              picture (région OBJ empruntée), rechargée
+                              à la fermeture. */
+#define VM_OP_VIGPLAY 0x38 /* slot u8, mode u8, speed u8 — anime la
+                              vignette : mode 0 = stop (fige), 1 = une
+                              fois PUIS CACHE (coup d'épée), 2 = boucle ;
+                              speed = frames par image de la planche.
+                              NON bloquant. */
+#define VM_OP_VIGHIDE 0x39 /* slot u8 — cache la vignette du slot. */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor

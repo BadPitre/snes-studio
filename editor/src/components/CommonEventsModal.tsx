@@ -26,6 +26,8 @@ interface Props {
   tintPresets: import("../types").TintPreset[]; // presets de teinte (S12b)
   soundNames: string[]; // stems des sons (B1)
   musicNames: string[]; // stems des musiques (B1)
+  vigNames: string[]; // stems des vignettes (B5)
+  screenNames: string[]; // écrans composés (B6bis)
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
@@ -184,6 +186,8 @@ export default function CommonEventsModal(props: Props) {
                   tintPresets={props.tintPresets}
                   soundNames={props.soundNames}
                   musicNames={props.musicNames}
+                  vigNames={props.vigNames}
+                  screenNames={props.screenNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}
                 />

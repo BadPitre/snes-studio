@@ -4,7 +4,9 @@
 
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove, mkdir as tauriMkdir } from "@tauri-apps/plugin-fs";
-import type { Actor, EventPage, GameEvent, Project, ProjectData, Scene, TextEntry, TilesetMeta } from "./types";
+import type { Actor, EventPage, GameEvent, Project, ProjectData, Scene, TextEntry, TilesetMeta,
+  Screen,
+} from "./types";
 import { EMPTY_TILE, actorToEvent, assetStem, projectTilesets } from "./types";
 
 // Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
@@ -172,7 +174,34 @@ export async function loadProject(root: string): Promise<ProjectData> {
       tilesetMeta[stem] = { autotiles: [], solid: [], above: [] };
     }
   }
-  return { root, project, scenes, texts, tilesetMeta };
+  // écrans composés (B6bis) : screens/<nom>.json — absents = projet sans écrans
+  const screens: Record<string, Screen> = {};
+  for (const n of project.screens ?? []) {
+    try {
+      const sc = JSON.parse(await readTextFile(`${root}/screens/${n}.json`));
+      screens[n] = {
+        backdrop: sc.backdrop ?? "",
+        slots: sc.slots ?? [],
+        // héritage : l'ancien champ « script » devient le premier
+        // script nommé (lancé à l'ouverture)
+        scripts: (
+          sc.scripts ?? [{ name: "principal", commands: sc.script ?? [] }]
+        ).map((x: { name: string; trigger?: string; cond?: unknown; commands?: unknown[] }, i: number) => ({
+          name: x.name ?? `script${i + 1}`,
+          trigger: x.trigger ?? (i === 0 ? "auto" : "call"),
+          cond: x.cond,
+          commands: x.commands ?? [],
+        })),
+      };
+    } catch {
+      screens[n] = {
+        backdrop: "",
+        slots: [],
+        scripts: [{ name: "principal", trigger: "auto", commands: [] }],
+      };
+    }
+  }
+  return { root, project, scenes, texts, tilesetMeta, screens };
 }
 
 // Première couleur du chunk PLTE d'un PNG indexé — l'index 0 est
@@ -358,5 +387,17 @@ export async function saveProject(data: ProjectData): Promise<void> {
     const meta = data.tilesetMeta[assetStem(p)];
     if (!meta) continue;
     await writeTextFile(`${data.root}/${p.replace(/\.[^.]+$/, ".json")}`, metaToJson(meta));
+  }
+  // écrans composés (B6bis) — un fichier par écran, comme les scènes
+  if ((data.project.screens ?? []).length) {
+    await ensureProjectDir(data.root, "screens");
+    for (const n of data.project.screens ?? []) {
+      const sc = data.screens[n];
+      if (sc)
+        await writeTextFile(
+          `${data.root}/screens/${n}.json`,
+          JSON.stringify(sc, null, 2) + "\n"
+        );
+    }
   }
 }

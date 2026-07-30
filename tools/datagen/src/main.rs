@@ -182,6 +182,90 @@ fn main() -> Result<()> {
         bail!("{} pictures (max 32)", pic_names.len());
     }
 
+    // Vignettes (B5) : bandes de frames 32x32 en sprites OBJ — les
+    // commandes vig_show les référencent par stem
+    let mut vig_names: Vec<String> = Vec::new();
+    let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>)> = Vec::new();
+    for rel in &project.vignettes {
+        let stem = Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("vignette '{}' : nom illisible", rel))?
+            .to_string();
+        if vig_names.contains(&stem) {
+            bail!("vignette '{}' : stem en double", stem);
+        }
+        let img = gfx::load_indexed_png(&proj_dir.join(rel))
+            .with_context(|| format!("vignette '{}'", rel))?;
+        vig_data.push(img.to_vignette(&stem)?);
+        vig_names.push(stem);
+    }
+    if vig_names.len() > 32 {
+        bail!("{} vignettes (max 32)", vig_names.len());
+    }
+
+    // Écrans composés (B6bis) : screens/<nom>.json — validés ici, déroulés
+    // en commandes stage par events.rs (aucun format binaire nouveau)
+    let mut screens: Vec<project::ScreenDef> = Vec::new();
+    for name in &project.screens {
+        let path = proj_dir.join("screens").join(format!("{}.json", name));
+        let txt = std::fs::read_to_string(&path)
+            .with_context(|| format!("écran '{}' : lecture de {}", name, path.display()))?;
+        let mut def: project::ScreenDef = serde_json::from_str(&txt)
+            .with_context(|| format!("écran '{}' : JSON invalide", name))?;
+        def.name = name.clone();
+        if screens.iter().any(|s| s.name == def.name) {
+            bail!("écran '{}' : nom en double", name);
+        }
+        // héritage : l'ancien champ « script » devient le premier
+        // script nommé
+        if def.scripts.is_empty() {
+            def.scripts.push(project::ScreenScript {
+                name: "principal".to_string(),
+                trigger: "auto".to_string(),
+                cond: None,
+                commands: std::mem::take(&mut def.script),
+            });
+        }
+        for (i, sc) in def.scripts.iter_mut().enumerate() {
+            if sc.trigger.is_empty() {
+                sc.trigger = if i == 0 { "auto" } else { "call" }.to_string();
+            }
+            if sc.trigger != "auto" && sc.trigger != "call" {
+                bail!(
+                    "écran '{}' : script '{}' — déclencheur inconnu '{}'",
+                    name, sc.name, sc.trigger
+                );
+            }
+        }
+        {
+            let mut seen = std::collections::HashSet::new();
+            for sc in &def.scripts {
+                if !seen.insert(sc.name.clone()) {
+                    bail!("écran '{}' : script '{}' en double", name, sc.name);
+                }
+            }
+        }
+        for sl in &def.slots {
+            if sl.slot < 1 || sl.slot > 5 {
+                bail!("écran '{}' : slot {} (attendu 1-5)", name, sl.slot);
+            }
+            if !pic_names.contains(&sl.pic) {
+                bail!(
+                    "écran '{}' : image '{}' introuvable (supprimée ou renommée ?)",
+                    name, sl.pic
+                );
+            }
+        }
+        if !def.backdrop.is_empty() && !pic_names.contains(&def.backdrop) {
+            bail!(
+                "écran '{}' : fond '{}' introuvable (supprimé ou renommé ?)",
+                name, def.backdrop
+            );
+        }
+        screens.push(def);
+    }
+
     let mut scenes = Vec::new();
 
     // Sons (B1) : id = index dans project.sounds, nom = stem du fichier
@@ -238,6 +322,8 @@ fn main() -> Result<()> {
                 &pic_dims,
                 &sound_names,
                 &music_names,
+                &vig_names,
+                &screens,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -621,6 +707,9 @@ fn main() -> Result<()> {
     // Pictures (S3) : un fichier par image (une section ROM = une bank)
     // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
     // picture.c inconditionnellement, tables factices si aucune image)
+    for (name, content) in gen_vignette_files(&vig_names, &vig_data) {
+        write_out(&out_dir, &name, content)?;
+    }
     for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
         write_out(&out_dir, &name, content)?;
     }
@@ -1034,6 +1123,57 @@ fn gen_asset_tables(
 /// une section = une bank LoROM) + data_pictures.c, le registre de tables
 /// de pointeurs indexées par pic_id (pattern « scene_table »). Toujours
 /// émis — tables factices sans image (picture.c est inconditionnel).
+/// Vignettes (B5) : data_vig{i}.c (chars 4bpp des frames + palette) +
+/// data_vignettes.c, le registre indexé par vig_id — TOUJOURS émis.
+fn gen_vignette_files(
+    names: &[String],
+    vigs: &[(Vec<u8>, usize, Vec<u16>)],
+) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    for (i, (chars, _frames, pal)) in vigs.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!("/* vignette « {} » */\n", names[i]));
+        s.push_str(&emit::u8_array(&format!("vig{}_chars", i), chars, 16, false));
+        s.push('\n');
+        s.push_str(&emit::u16_array(&format!("vig{}_pal", i), pal));
+        files.push((format!("data_vig{}.c", i), s));
+    }
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..vigs.len() {
+        s.push_str(&format!(
+            "extern const u8 vig{i}_chars[];\nextern const u16 vig{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push_str(&format!("\nconst u8 vig_count = {};\n\n", vigs.len()));
+    let n = vigs.len().max(1);
+    s.push_str(&format!("const u8 vig_frames[{}] = {{ ", n));
+    for i in 0..n {
+        s.push_str(&format!("{}, ", vigs.get(i).map(|v| v.1).unwrap_or(0)));
+    }
+    s.push_str(&format!("}};\n\nconst u8 *const vig_chars[{}] = {{ ", n));
+    for i in 0..n {
+        if i < vigs.len() {
+            s.push_str(&format!("vig{}_chars, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str(&format!("}};\n\nconst u16 *const vig_pals[{}] = {{ ", n));
+    for i in 0..n {
+        if i < vigs.len() {
+            s.push_str(&format!("vig{}_pal, ", i));
+        } else {
+            s.push_str("0, ");
+        }
+    }
+    s.push_str("};\n");
+    files.push(("data_vignettes.c".to_string(), s));
+    files
+}
+
 fn gen_picture_files(
     names: &[String],
     pics: &[(Vec<u8>, Vec<u16>, Vec<u16>)],

@@ -417,6 +417,48 @@ non bloquant, par-dessus la musique ;
 (`PLAYBGM <id|255>`, "" = silence) : non bloquant, PAS instantané
 (module streamé vers le SPC), la musique de la scène reprend au
 prochain warp ;
+**écran composé (B3)** : `{"c":"stage_open","pic":"stem"|"",
+"dur"}` — ouvre l'écran composé (fond = picture du projet, "" = noir,
+fondu dur frames par sens, `STAGEOPEN <pic|255> <dur>`) ;
+`{"c":"stage_pose","slot":1-5,"pic":"stem","x":0-255,"y":0-216}` —
+pose une image (position en pixels, arrondie à la tile de 8,
+`STAGEPOSE <slot-1> <pic> <x/8> <y/8>`), BLOQUANT le temps du
+transfert ; `{"c":"stage_clear","slot":1-5}` — retire l'image ;
+`{"c":"slot_fx","slot":1-5,"fx":"flash"|"fadeout"|"dark"|"restore",
+"frames"}` — effet de palette sur l'image du slot (`SLOTFX <slot-1>
+<fx 1/2/3/0> <frames>`), non bloquant : flash blanc (attaque), fondu
+au noir (mort), assombrir (état, cumulable), restaurer ;
+**écrans composés — entités d'éditeur (B6bis, multi-scripts
+B6bis-2)** : `project.screens` liste des noms, un fichier
+`screens/<nom>.json` chacun : `{"backdrop":"stem"|"",
+"slots":[{"slot":1-5,"pic":"stem","x","y","name":"..."}],
+"scripts":[{"name":"...","trigger":"auto"|"call","cond":{...}?,
+"commands":[...]}]}` — `name` de slot = étiquette d'éditeur (aucun
+binaire) ; `trigger:"auto"` = joué à l'ouverture de l'écran, `"call"`
+= joué uniquement via `{"c":"screen_call","script":"<nom>"}` depuis
+un autre script du même écran (résolu et INLINÉ par datagen) ; `cond`
+optionnelle sur un script auto : `{"kind":"switch","n","on"}` ou
+`{"kind":"var","n","op":"=="|"!="|"<"|">"|"<="|">=","value"}` —
+compilée en `if_sw`/`if_var` autour du corps. L'ancien champ `script`
+(script unique) est migré en `scripts[0]` auto « principal » au
+chargement. La commande `{"c":"screen","name":"<nom>","dur"}` est
+DÉROULÉE par datagen en `STAGEOPEN + STAGEPOSE... + scripts auto
+inline` (sucre d'éditeur, comme les autotiles : le moteur ne voit que
+les commandes stage de B3 ; MAX_DEPTH protège des écrans/appels qui
+bouclent ; fond, images, positions et noms de scripts validés au
+build) ;
+**vignettes (B5)** : `project.vignettes` liste des bandes PNG de
+frames 32x32 (hauteur 32, largeur multiple de 32, 1-8 frames, ≤ 15
+couleurs + transparence, converties par datagen en chars OBJ —
+`data_vig{i}.c`) ; `{"c":"vig_show","slot":1-2,"vig":"stem","x","y",
+"anchor":"screen"|"hero"}` (`VIGSHOW`, hero = offsets signés),
+`{"c":"vig_play","slot":1-2,"mode":"once"|"loop"|"stop","speed":1-60}`
+(`VIGPLAY` — once se cache seul à la fin),
+`{"c":"vig_hide","slot":1-2}` (`VIGHIDE`) ;
+`{"c":"stage_close","dur"}` — referme (warp interne : la scène et sa
+musique reviennent, les PNJ déplacés reprennent leur position de
+page, les vignettes encore affichées sont masquées — elles font
+partie de la mise en scène de l'écran) ; budget ~511 tuiles par écran, pas de chevauchement de slots ;
 `{"c":"flash","r","g","b","frames"}` — flash décroissant
 non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 "frames"}` — secousse horizontale non bloquante, power 0 = stop

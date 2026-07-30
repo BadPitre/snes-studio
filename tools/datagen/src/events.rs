@@ -37,7 +37,7 @@
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
 use crate::db::Db;
-use crate::project::{Actor, CommonEvent, Event, TextEntry};
+use crate::project::{Actor, CommonEvent, Event, ScreenDef, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -62,6 +62,13 @@ pub struct EventCompiler<'a> {
     sounds: Vec<String>,
     /// musiques du projet (B1) — stems, résolus vers les music_id
     musics: Vec<String>,
+    /// vignettes du projet (B5) — stems, résolus vers les vig_id
+    vignettes: Vec<String>,
+    /// écrans composés (B6bis) — déroulés par la commande "screen"
+    screens: Vec<ScreenDef>,
+    /// pile des écrans en cours de déroulage (screen_call — les noms de
+    /// scripts se résolvent dans l'écran COURANT)
+    screen_stack: Vec<usize>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -92,6 +99,9 @@ impl<'a> EventCompiler<'a> {
             pic_dims: Vec::new(),
             sounds: Vec::new(),
             musics: Vec::new(),
+            vignettes: Vec::new(),
+            screens: Vec::new(),
+            screen_stack: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -626,6 +636,222 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
+                // B6bis — « Aller à l'écran » : la composition faite à
+                // la souris (screens/<nom>.json) est DÉROULÉE ici en
+                // commandes stage + le script de l'écran inline — le
+                // moteur ne voit rien de nouveau (sucre d'éditeur,
+                // comme les autotiles). MAX_DEPTH protège des écrans
+                // qui s'appellent en boucle.
+                "screen" => {
+                    let name = cmd["name"].as_str().unwrap_or("");
+                    let idx = self
+                        .screens
+                        .iter()
+                        .position(|sc| sc.name == name)
+                        .with_context(|| {
+                            format!(
+                                "commande écran : '{}' introuvable \
+                                 (supprimé ou renommé ?)",
+                                name
+                            )
+                        })?;
+                    let sc = self.screens[idx].clone();
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    let bid = if sc.backdrop.is_empty() {
+                        255
+                    } else {
+                        self.pictures
+                            .iter()
+                            .position(|p| *p == sc.backdrop)
+                            .unwrap() as u64 // validé par main.rs
+                    };
+                    out.push(format!("  STAGEOPEN {} {}", bid, dur));
+                    for sl in &sc.slots {
+                        let pid = self
+                            .pictures
+                            .iter()
+                            .position(|p| *p == sl.pic)
+                            .unwrap(); // validé par main.rs
+                        out.push(format!(
+                            "  STAGEPOSE {} {} {} {}",
+                            sl.slot - 1, pid, sl.x / 8, sl.y / 8
+                        ));
+                    }
+                    // les scripts AUTO sont joués à l'ouverture, dans
+                    // l'ordre ; une condition (switch/variable) devient
+                    // un if autour du corps — les "call" attendent
+                    // screen_call (contexte empilé)
+                    self.screen_stack.push(idx);
+                    for scr in &sc.scripts {
+                        if scr.trigger != "auto" {
+                            continue;
+                        }
+                        let body = match &scr.cond {
+                            None => serde_json::Value::Array(scr.commands.clone()),
+                            Some(c) if c.kind == "switch" => serde_json::json!([{
+                                "c": "if_sw",
+                                "n": c.n,
+                                "on": c.on.unwrap_or(true),
+                                "then": scr.commands.clone(),
+                                "else": []
+                            }]),
+                            Some(c) => serde_json::json!([{
+                                "c": "if_var",
+                                "n": c.n,
+                                "op": c.op.clone().unwrap_or_else(|| "==".to_string()),
+                                "value": c.value.unwrap_or(0),
+                                "then": scr.commands.clone(),
+                                "else": []
+                            }]),
+                        };
+                        let list = body.as_array().cloned().unwrap_or_default();
+                        self.compile_list(&list, depth + 1, out)?;
+                    }
+                    self.screen_stack.pop();
+                }
+                // B6bis-2 — appelle un AUTRE script de l'écran courant,
+                // déroulé inline (MAX_DEPTH protège des boucles d'appels)
+                "screen_call" => {
+                    let sname = cmd["script"].as_str().unwrap_or("");
+                    let sidx = *self.screen_stack.last().with_context(|| {
+                        "screen_call : uniquement depuis un script \
+                         d'écran composé"
+                            .to_string()
+                    })?;
+                    let body = self.screens[sidx]
+                        .scripts
+                        .iter()
+                        .find(|sc| sc.name == sname)
+                        .map(|sc| sc.commands.clone())
+                        .with_context(|| {
+                            format!(
+                                "screen_call : script '{}' introuvable dans \
+                                 l'écran '{}'",
+                                sname, self.screens[sidx].name
+                            )
+                        })?;
+                    self.compile_list(&body, depth + 1, out)?;
+                }
+                // B3 — écran composé : fond + images posées multi-slots
+                "stage_open" => {
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    let pic = cmd["pic"].as_str().unwrap_or("");
+                    let id = if pic.is_empty() {
+                        255
+                    } else {
+                        self.pictures
+                            .iter()
+                            .position(|p| p == pic)
+                            .with_context(|| {
+                                format!(
+                                    "stage_open : image '{}' introuvable \
+                                     (supprimée ou renommée ?)",
+                                    pic
+                                )
+                            })? as u64
+                    };
+                    out.push(format!("  STAGEOPEN {} {}", id, dur));
+                }
+                "stage_pose" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "stage_pose : slot 1-5".to_string())?;
+                    let pic = cmd["pic"].as_str().unwrap_or("");
+                    let id = self
+                        .pictures
+                        .iter()
+                        .position(|p| p == pic)
+                        .with_context(|| {
+                            format!(
+                                "stage_pose : image '{}' introuvable \
+                                 (supprimée ou renommée ?)",
+                                pic
+                            )
+                        })?;
+                    // position en PIXELS côté auteur, en TILES (x8) au
+                    // format binaire — arrondie à la tile
+                    let tx = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(0) / 8;
+                    let ty = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(0) / 8;
+                    out.push(format!(
+                        "  STAGEPOSE {} {} {} {}",
+                        slot - 1, id, tx, ty
+                    ));
+                }
+                "stage_clear" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "stage_clear : slot 1-5".to_string())?;
+                    out.push(format!("  STAGECLEAR {}", slot - 1));
+                }
+                // B5 — vignettes animées (sprites 32x32, 2 slots)
+                "vig_show" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_show : slot 1-2".to_string())?;
+                    let name = cmd["vig"].as_str().unwrap_or("");
+                    let id = self
+                        .vignettes
+                        .iter()
+                        .position(|v| v == name)
+                        .with_context(|| {
+                            format!(
+                                "vig_show : vignette '{}' introuvable \
+                                 (supprimée ou renommée ?)",
+                                name
+                            )
+                        })?;
+                    let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
+                        "hero" => 1u8,
+                        _ => 0,
+                    };
+                    let x = cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+                    let y = cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+                    out.push(format!(
+                        "  VIGSHOW {} {} {} {} {}",
+                        slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor
+                    ));
+                }
+                "vig_play" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_play : slot 1-2".to_string())?;
+                    let mode = match cmd["mode"].as_str().unwrap_or("loop") {
+                        "once" => 1u8,
+                        "stop" => 0,
+                        _ => 2, // loop
+                    };
+                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
+                    out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
+                }
+                "vig_hide" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=2).contains(&v))
+                        .with_context(|| "vig_hide : slot 1-2".to_string())?;
+                    out.push(format!("  VIGHIDE {}", slot - 1));
+                }
+                "slot_fx" => {
+                    let slot = cmd["slot"]
+                        .as_u64()
+                        .filter(|&v| (1..=5).contains(&v))
+                        .with_context(|| "slot_fx : slot 1-5".to_string())?;
+                    let fx = match cmd["fx"].as_str().unwrap_or("restore") {
+                        "flash" => 1u8,
+                        "fadeout" => 2,
+                        "dark" => 3,
+                        _ => 0, // restore
+                    };
+                    let dur = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(0);
+                    out.push(format!("  SLOTFX {} {} {}", slot - 1, fx, dur));
+                }
+                "stage_close" => {
+                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+                    out.push(format!("  STAGECLOSE {}", dur));
+                }
                 // B1 — jouer un son (effet BRR, non bloquant)
                 "sfx" => {
                     let name = cmd["sound"].as_str().unwrap_or("");
@@ -957,6 +1183,8 @@ impl<'a> EventCompiler<'a> {
         pic_dims: &[(usize, usize)],
         sounds: &[String],
         musics: &[String],
+        vignettes: &[String],
+        screens: &[ScreenDef],
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -971,6 +1199,8 @@ impl<'a> EventCompiler<'a> {
         self.pic_dims = pic_dims.to_vec();
         self.sounds = sounds.to_vec();
         self.musics = musics.to_vec();
+        self.vignettes = vignettes.to_vec();
+        self.screens = screens.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
