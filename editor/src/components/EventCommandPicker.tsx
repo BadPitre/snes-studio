@@ -71,6 +71,7 @@ const TABS: Tab[] = [
       { c: "flash", label: "Flash d'écran" },
       { c: "shake", label: "Secouer l'écran" },
       { c: "ui_show", label: "Afficher/cacher un widget UI" },
+      { c: "list_select", label: "Choix dans une liste (menu à curseur)" },
       { c: "pic_show", label: "Afficher une image" },
       { c: "pic_move", label: "Déplacer l'image" },
       { c: "pic_hide", label: "Effacer l'image" },

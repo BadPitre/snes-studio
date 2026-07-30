@@ -615,6 +615,19 @@ static void vm_step(void)
       vig_hide(fetch8());
       break;
 
+    case VM_OP_LISTSEL: /* menu à curseur (B6) — BLOQUANT */
+      var = fetch8();          /* widget (racine du layout) */
+      vm.choice_var = fetch8(); /* variable destination */
+      op = fetch8();            /* flags : bit 0 = B annule */
+      val = overlay_list_open(var);
+      if (!val)
+        break; /* pas de liste sur ce widget : commande ignorée */
+      vm.choice_count = val;
+      vm.choice_sel = 0;
+      vm.list_flags = op;
+      vm.wait_mode = VM_WAIT_LIST;
+      break;
+
     case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */
       audio_play_sfx(fetch8());
       break;
@@ -842,6 +855,46 @@ void vm_update(void)
       return;
     vm.vars16[vm.keyin_dst] = down;
     vm.wait_mode = VM_WAIT_NONE;
+  }
+  if (vm.wait_mode == VM_WAIT_LIST)
+  {
+    /* menu à curseur (B6) : bouclage haut/bas — le réflexe des menus
+       de combat SNES (4 options : bas depuis Fuite = Attaque) */
+    down = padsDown(0);
+    if (down & KEY_UP)
+    {
+      vm.choice_sel = vm.choice_sel ? (u8)(vm.choice_sel - 1)
+                                    : (u8)(vm.choice_count - 1);
+      overlay_list_cursor(vm.choice_sel);
+    }
+    else if (down & KEY_DOWN)
+    {
+      vm.choice_sel = (u8)(vm.choice_sel + 1) >= vm.choice_count
+                          ? 0 : (u8)(vm.choice_sel + 1);
+      overlay_list_cursor(vm.choice_sel);
+    }
+    else if (down & KEY_A)
+    {
+      /* variable 16-bit (0-255), comme KEYIN — le circuit if_var */
+      vm.vars16[vm.choice_var] = vm.choice_sel;
+      overlay_list_close((u8)(vm.list_flags & 2));
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    else if ((down & KEY_B) && (vm.list_flags & 1))
+    {
+      vm.vars16[vm.choice_var] = 255;
+      overlay_list_close((u8)(vm.list_flags & 2));
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    else if ((down & (KEY_LEFT | KEY_RIGHT)) && (vm.list_flags & 4))
+    {
+      /* multi-panneaux : la sortie latérale dit au script d'activer la
+         liste voisine (254 = sorti à gauche, 253 = à droite) */
+      vm.vars16[vm.choice_var] = (down & KEY_LEFT) ? 254 : 253;
+      overlay_list_close((u8)(vm.list_flags & 2));
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    return;
   }
   if (vm.wait_mode == VM_WAIT_CHOICE)
   {

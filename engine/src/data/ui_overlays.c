@@ -4,21 +4,23 @@
  */
 #include <snes.h>
 
-const u8 ui_ov_x[1] = { 0, };
-const u8 ui_ov_y[1] = { 0, };
-const u8 ui_ov_w[1] = { 0, };
-const u8 ui_ov_h[1] = { 0, };
-const u8 ui_ov_var[1] = { 0, };
-const u8 ui_ov_type[1] = { 0, };
-const u8 ui_ov_frame[1] = { 0, };
-const u8 ui_ov_icon[1] = { 0, };
-const u8 ui_ov_dir[1] = { 0, };
-const u8 ui_ov_pad[1] = { 0, };
-const u8 ui_ov_bg[1] = { 0, };
-const u8 ui_ov_widget[1] = { 0, };
-const u8 ui_ov_maxvar[1] = { 0, };
-const u8 ui_ov_maxlo[1] = { 0, };
-const u8 ui_ov_maxhi[1] = { 0, };
-const u8 ui_ov_font[1] = { 1, };
-const u8 ui_widget_vis[1] = { 0, };
-const char *const ui_ov_label[1] = { 0, };
+const u8 ui_ov_x[2] = { 2, 13, };
+const u8 ui_ov_y[2] = { 2, 2, };
+const u8 ui_ov_w[2] = { 10, 9, };
+const u8 ui_ov_h[2] = { 5, 5, };
+const u8 ui_ov_var[2] = { 0, 0, };
+const u8 ui_ov_type[2] = { 7, 7, };
+const u8 ui_ov_frame[2] = { 1, 1, };
+const u8 ui_ov_icon[2] = { 0, 0, };
+const u8 ui_ov_dir[2] = { 0, 0, };
+const u8 ui_ov_pad[2] = { 0, 0, };
+const u8 ui_ov_bg[2] = { 0, 0, };
+const u8 ui_ov_widget[2] = { 0, 1, };
+const u8 ui_ov_maxvar[2] = { 255, 255, };
+const u8 ui_ov_maxlo[2] = { 0, 0, };
+const u8 ui_ov_maxhi[2] = { 0, 0, };
+const u8 ui_ov_font[2] = { 1, 1, };
+const u8 ui_widget_vis[2] = { 0, 0, };
+static const char ui_ov_l0[] = "Attaque\nObjet\nFuite";
+static const char ui_ov_l1[] = "Feu\nSoin\nFoudre";
+const char *const ui_ov_label[2] = { ui_ov_l0, ui_ov_l1, };

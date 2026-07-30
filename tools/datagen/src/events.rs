@@ -520,6 +520,38 @@ impl<'a> EventCompiler<'a> {
                     let on = cmd["on"].as_bool().unwrap_or(true);
                     out.push(format!("  SHOWUI {} {}", idx, on as u8));
                 }
+                // B6 — menu à curseur : index choisi -> variable
+                // (255 si annulé par B et cancel autorisé)
+                "list_select" => {
+                    let name = cmd["widget"].as_str().unwrap_or("");
+                    let idx = self
+                        .ui_widgets
+                        .iter()
+                        .position(|w| w == name)
+                        .with_context(|| {
+                            format!(
+                                "list_select : widget « {} » introuvable dans                                  ui/layout.toml (widgets : {})",
+                                name,
+                                if self.ui_widgets.is_empty() {
+                                    "aucun".to_string()
+                                } else {
+                                    self.ui_widgets.join(", ")
+                                }
+                            )
+                        })?;
+                    let var = cmd["var"]
+                        .as_u64()
+                        .filter(|&v| v < 256)
+                        .with_context(|| "list_select : var 0-255".to_string())?;
+                    let cancel = cmd["cancel"].as_bool().unwrap_or(true);
+                    // bit 1 : le widget reste affiché à la fermeture
+                    // (multi-panneaux) ; bit 2 : Gauche/Droite sortent
+                    // (var = 254/253 — navigation entre listes voisines)
+                    let keep = cmd["keep"].as_bool().unwrap_or(false);
+                    let lr = cmd["lr"].as_bool().unwrap_or(false);
+                    let flags = cancel as u8 | (keep as u8) << 1 | (lr as u8) << 2;
+                    out.push(format!("  LISTSEL {} {} {}", idx, var, flags));
+                }
                 // S3 — pictures plein écran (façon RM2003) : nom résolu
                 // vers le pic_id de project.pictures
                 "pic_show" => {

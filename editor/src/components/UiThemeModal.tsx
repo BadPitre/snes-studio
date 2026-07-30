@@ -58,6 +58,7 @@ const KIND_LABELS: Record<NodeKind, string> = {
   icon_row: "♥ Cœurs",
   icon_value: "♦ Icône + compteur",
   variable_display: "🗇 Libellé + valeur",
+  list: "▤ Liste (curseur)",
 };
 
 // nœud neuf par type (le designer complète id/pos/parent)
@@ -72,6 +73,7 @@ function newNode(kind: NodeKind): Partial<UiNode> {
     case "icon_row": return { var: 0, max: 12, icon: 0, size: [6, 1], frame: false };
     case "icon_value": return { var: 0, icon: 0, width: 5, frame: false };
     case "variable_display": return { var: 0, label: "Compteur", size: [12, 3] };
+    case "list": return { items: ["Attaque", "Magie", "Objet", "Fuite"] };
   }
 }
 
@@ -271,6 +273,15 @@ export default function UiThemeModal(props: Props) {
           const val = "42";
           if (p.vertical) text(val, x0 + p.text.length, y0, 5, pf); // align left
           else text(val, x0 + cw - val.length, y0, 5, pf);
+          break;
+        }
+        case 7: {
+          // liste à curseur (B6) : un item par rangée, '>' sur le premier
+          const items = p.text.split("\n");
+          for (let k = 0; k < items.length && k < ch; k++) {
+            if (k === 0) text(">", x0, y0 + k, 1, pf);
+            text(items[k], x0 + 1, y0 + k, cw - 1, pf);
+          }
           break;
         }
       }
@@ -1099,6 +1110,21 @@ export default function UiThemeModal(props: Props) {
                         onChange={(e) => patchNode(sel.id, { label: e.target.value })} />
                     </label>
                   )}
+                  {sel.type === "list" && (
+                    <label>Items (un par ligne, 2-16)
+                      <textarea rows={6} value={(sel.items ?? []).join("\n")}
+                        onChange={(e) =>
+                          patchNode(sel.id, {
+                            items: e.target.value.split("\n").map((t) => t.trimEnd()),
+                          })
+                        } />
+                      <span className="hint">
+                        La commande d'event « Choix dans une liste » ouvre ce menu :
+                        haut/bas naviguent, A écrit l'index (0-{Math.max((sel.items ?? []).length - 1, 0)})
+                        dans une variable, B = 255 (annulé).
+                      </span>
+                    </label>
+                  )}
                   {(sel.type === "value" || sel.type === "image" || sel.type === "icon_value") &&
                     num(
                       sel.type === "value" ? "Chiffres (1-5)" : sel.type === "image" ? "Icônes (largeur)" : "Largeur",
@@ -1164,9 +1190,11 @@ export default function UiThemeModal(props: Props) {
                   {(sel.type === "gauge" ||
                     sel.type === "icon_row" ||
                     sel.type === "icon_value" ||
-                    sel.type === "variable_display") && (
+                    sel.type === "variable_display" ||
+                    sel.type === "list") && (
                     <label className="checkline">
-                      <input type="checkbox" checked={nodeFramed(sel)}
+                      <input type="checkbox"
+                        checked={sel.type === "list" ? sel.frame ?? true : nodeFramed(sel)}
                         onChange={(e) => patchNode(sel.id, { frame: e.target.checked })} />
                       Cadre
                     </label>

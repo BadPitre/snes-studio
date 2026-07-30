@@ -271,10 +271,13 @@ TOML — la communauté pourra en partager.
     gap), `hbox` (alignement horizontal, gap) ;
   - feuilles : `label` (texte statique), `value` (variable, width 1-5,
     alignée à droite), `image` (suite d'icônes), + les widgets W1
-    (`gauge`/`icon_row`/`icon_value`/`variable_display`) ;
+    (`gauge`/`icon_row`/`icon_value`/`variable_display`), + `list`
+    (B6 : menu à curseur — `items = ["Attaque", ...]` 2-16 items ASCII,
+    frame défaut true, taille AUTO : 1 colonne curseur + item le plus
+    long ; piloté par l'opcode LISTSEL, voir SPEC_FORMATS §2) ;
   - `parent = "id"` rattache à un conteneur, une racine a `pos` ;
   - uigen APLATIT l'arbre en primitives positionnées en tiles (types
-    moteur 4 panel / 5 label / 6 image — STATIQUES, plus 0-3 W1, cap
+    moteur 4 panel / 5 label / 6 image — STATIQUES, 7 list (B6), plus 0-3 W1, cap
     32 primitives, tableau `ui_ov_bg` : les cellules vides d'un widget
     posé dans une window prennent le fond du cadre au lieu de percer
     jusqu'au jeu). Zéro conteneur au runtime.

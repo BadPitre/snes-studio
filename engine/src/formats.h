@@ -303,6 +303,19 @@
                               speed = frames par image de la planche.
                               NON bloquant. */
 #define VM_OP_VIGHIDE 0x39 /* slot u8 — cache la vignette du slot. */
+#define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — B6 : menu à
+                              curseur BLOQUANT sur un widget « list » du
+                              layout UI. Affiche le widget, curseur en
+                              haut ; haut/bas naviguent (bouclage), A
+                              valide (var = index 0..n-1), B annule
+                              (var = 255) si flags bit 0. flags bit 1 :
+                              le widget RESTE affiché à la fermeture
+                              (multi-panneaux — sans curseur) ; bit 2 :
+                              Gauche/Droite sortent aussi (var = 254
+                              gauche, 253 droite — le script enchaîne
+                              sur la liste voisine). Sinon le widget est
+                              recaché. Widget sans liste : commande
+                              ignorée (var intacte). */
 #define VM_OP_SPOTLIGHT 0x2F /* radius, dark (u8 x2) — SPOTLIGHT (S16,
                                 HDMA) : cercle de lumière radius 16-96 px
                                 (0 = off) qui SUIT le héros, décor

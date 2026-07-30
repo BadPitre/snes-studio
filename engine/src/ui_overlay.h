@@ -22,4 +22,12 @@ void overlay_refresh(void);
    Les widgets sont CACHÉS par défaut (sauf « Visible au démarrage »). */
 void overlay_show(u8 widget, u8 on);
 
+/* Liste à curseur (B6) — pilotée par la VM (opcode LISTSEL, bloquant).
+   open : affiche le widget, curseur en haut, renvoie le nombre d'items
+   (0 = le widget n'a pas de primitive liste : la commande est ignorée). */
+u8 overlay_list_open(u8 widget);
+void overlay_list_cursor(u8 sel);
+void overlay_list_close(u8 keep); /* libère le curseur ; keep = 1 :
+    le widget reste affiché (multi-panneaux), 0 : il est recaché */
+
 #endif /* UI_OVERLAY_H */
