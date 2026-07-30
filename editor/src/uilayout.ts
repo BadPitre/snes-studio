@@ -24,6 +24,7 @@ export const NODE_KINDS = [
   "icon_row",
   "icon_value",
   "variable_display",
+  "list",
 ] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
@@ -51,6 +52,8 @@ export interface UiNode {
   visible?: boolean;
   // racines : fonte du WIDGET (S2 — PNG 768x8, défaut : assets.font)
   font?: string;
+  // list (B6) : items du menu à curseur, un par rangée
+  items?: string[];
 }
 
 // Style de boîte de dialogue (S1) — style 0 (défaut) = thème + [message]
@@ -170,6 +173,13 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
       return [Math.max(n.width ?? 1, 1), 1];
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
+    case "list": {
+      // taille AUTO : 1 colonne curseur + item le plus long (+ cadre)
+      const items = n.items ?? [];
+      const f = (n.frame ?? true) ? 2 : 0;
+      const wmax = items.reduce((m, t) => Math.max(m, t.length), 1);
+      return [1 + wmax + f, Math.max(items.length, 1) + f];
+    }
   }
 }
 
@@ -341,6 +351,18 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         });
         break;
       }
+      case "list": {
+        const items = n.items ?? [];
+        if (items.length < 2 || items.length > 16)
+          errors.push(`« ${n.id} » : la liste demande 2 à 16 items`);
+        for (const t of items)
+          if (!t || !/^[ -~]+$/.test(t)) errors.push(`« ${n.id} » : item vide ou non-ASCII`);
+        emit({
+          x, y, w: size[0], h: size[1], kind: 7, frame: n.frame ?? true,
+          ...base, text: items.join("\n"),
+        });
+        break;
+      }
     }
   };
 
@@ -447,13 +469,17 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.width !== undefined) s += `width = ${n.width}\n`;
     if (n.var !== undefined) s += `var = ${n.var}\n`;
     if (n.label) s += `label = ${JSON.stringify(n.label)}\n`;
-    if (n.frame !== undefined && n.frame !== (n.type === "variable_display"))
+    if (
+      n.frame !== undefined &&
+      n.frame !== (n.type === "variable_display" || n.type === "list")
+    )
       s += `frame = ${n.frame}\n`;
     if (n.max_var !== undefined) s += `max_var = ${n.max_var}\n`;
     else if (n.max !== undefined) s += `max = ${n.max}\n`;
     if (n.icon !== undefined) s += `icon = ${n.icon}\n`;
     if (n.dir === "v") s += `dir = "v"\n`;
     if (n.pad) s += `pad = ${n.pad}\n`;
+    if (n.items) s += `items = [${n.items.map((t) => JSON.stringify(t)).join(", ")}]\n`;
     if (n.align === "left") s += `align = "left"\n`;
     if (!n.parent && n.visible) s += `visible = true\n`;
     if (!n.parent && n.font) s += `font = ${JSON.stringify(n.font)}\n`;

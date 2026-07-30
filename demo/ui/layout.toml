@@ -65,3 +65,11 @@ size = [32, 8]
 # content = "variable_display"
 # var = 5
 # label = "Fleurs"
+
+# Menu de combat (B6) : liste à curseur — CACHÉ au boot, ouvert par la
+# commande d'event « Choix dans une liste » (index -> variable, B = 255)
+[[node]]
+id = "menu_combat"
+type = "list"
+pos = [2, 2]
+items = ["Attaque", "Magie", "Objet", "Fuite"]

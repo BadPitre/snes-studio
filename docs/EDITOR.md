@@ -444,8 +444,14 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   **Palette** à gauche (clic = ajouter) : Fenêtre (cadre 9-slice,
   conteneur), Liste verticale et Boîte horizontale (empilent leurs
   enfants, espacement réglable), Label (texte fixe), Image (icônes de
-  la planche), Valeur (variable alignée à droite), et les widgets
-  Zelda (Jauge, Cœurs, Icône + compteur, Libellé + valeur). L'objet
+  la planche), Valeur (variable alignée à droite), les widgets
+  Zelda (Jauge, Cœurs, Icône + compteur, Libellé + valeur) et **Liste
+  (curseur)** (B6 : menu navigable — items éditables un par ligne dans
+  l'inspecteur, cadre par défaut, taille auto ; en jeu la commande
+  **« Choix dans une liste »** l'ouvre, haut/bas naviguent en bouclant,
+  A écrit l'index dans une variable, B écrit 255 si l'annulation est
+  permise — le menu Attaque/Magie/Objet/Fuite sans bricolage KEYIN,
+  catégorie Écran du picker). L'objet
   s'ajoute DANS le conteneur sélectionné (sinon à côté, sinon sur le
   canvas). **Arborescence** : la structure (fenêtre > listes > lignes >
   labels), sélection au clic. **Canvas 256x224 fidèle tiles** (2x,

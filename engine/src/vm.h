@@ -16,6 +16,8 @@
 #define VM_WAIT_CAM 6     /* WAITCAM : fin du pan camera (v0.13) */
 #define VM_WAIT_SCREEN 7  /* SCRHIDE/SCRSHOW : fin du fondu (v0.15) */
 #define VM_WAIT_STAGE 8   /* STAGEPOSE/CLEAR : fin du transfert (B3) */
+#define VM_WAIT_LIST 9    /* LISTSEL : menu à curseur (B6) — A valide,
+                             B annule si permis, bouclage haut/bas */
 
 /* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
    le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),
@@ -37,8 +39,9 @@ typedef struct
   u16 keyin_mask;  /* KEYIN : touches autorisées (bit 1<<code, Ph. 12) */
   u8 keyin_dst;    /* KEYIN : variable destination du code de touche */
   u8 choice_var;   /* variable destination du CHOICE en cours */
-  u8 choice_count; /* nombre d'options (2-4) */
+  u8 choice_count; /* nombre d'options (2-4) — partagé par LISTSEL (B6) */
   u8 choice_sel;   /* option sous le curseur */
+  u8 list_cancel;  /* LISTSEL (B6) : 1 = B annule (var = 255) */
 } VmState;
 
 extern VmState vm;

@@ -262,6 +262,17 @@ résout le nom vers son index de racine (`SHOWUI <widget> <0|1>`, opcode
 0x24). Nom introuvable = erreur de compilation avec la liste des
 widgets du projet.
 
+**B6 (menu à curseur)** : un `[[node]]` `type = "list"` dans
+ui/layout.toml (`items = ["Attaque", "Magie", ...]` — 2-16 items ASCII,
+`frame` défaut true, taille AUTO : 1 colonne curseur + item le plus
+long, une rangée par item). La commande
+`{"c":"list_select","widget":"<id>","var":n,"cancel":true|false}`
+(BLOQUANTE, `LISTSEL <widget> <var> <flags>`, opcode 0x3A) affiche le
+widget, laisse naviguer haut/bas (bouclage), écrit l'index choisi
+(0 = premier item) dans `vars16[var]` sur A — ou 255 sur B si `cancel`
+— puis recache le widget. Enchaîner avec des `if_var` sur l'index :
+le menu Attaque/Magie/Objet/Fuite se construit sans KEYIN.
+
 **Phase 12 (Key Input Processing, façon RM2003)** :
 `{"c":"key_input","var":n,"wait":true|false,"keys":[codes 1-12]}` —
 écrit dans `vars16[var]` le code de la touche (1 bas, 2 gauche,

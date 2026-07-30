@@ -130,6 +130,9 @@ function labelOf(c: Command, ceNames?: string[]): string {
         c.b < 0 ? "cet event" : `l'event ${c.b}`}`;
     case "ui_show":
       return `${c.on ? "Afficher" : "Cacher"} le widget UI « ${c.widget || "?"} »`;
+    case "list_select":
+      return `Choix dans la liste « ${c.widget || "?"} » → [${c.var}]${
+        c.cancel ? "" : " (B désactivé)"}`;
     case "key_input":
       return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
     case "sysmenu":
@@ -539,6 +542,8 @@ export function CommandListEditor(props: {
         return { c: "swappos", a: -1, b: 0 };
       case "ui_show":
         return { c: "ui_show", widget: "", on: true };
+      case "list_select":
+        return { c: "list_select", widget: "", var: 0, cancel: true };
       case "key_input":
         return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
       case "sysmenu":
@@ -2040,6 +2045,48 @@ function CommandForm(props: {
           <span className="hint">
             Les widgets sont CACHÉS au démarrage (sauf « Visible au démarrage »
             dans la fenêtre UI) — cette commande les affiche ou les cache.
+          </span>
+        </>
+      );
+      break;
+    case "list_select":
+      valid = cmd.widget !== "";
+      body = (
+        <>
+          <label>
+            Widget liste (fenêtre UI — type « Liste (curseur) »)
+            <select
+              value={cmd.widget} autoFocus
+              onChange={(e) => onChange({ ...cmd, widget: e.target.value })}
+            >
+              <option value="">(choisir)</option>
+              {props.uiWidgets.map((w) => (
+                <option key={w} value={w}>{w}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Variable destination (index choisi, 0 = premier item)
+            <div className="row" style={{ gap: 4 }}>
+              <input type="number" min={0} max={255} value={cmd.var}
+                onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+              <button className="browse"
+                onClick={() => props.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+                …
+              </button>
+            </div>
+            <span className="hint">{props.varNames[cmd.var] || ""}</span>
+          </label>
+          <label className="checkline">
+            <input type="checkbox" checked={cmd.cancel}
+              onChange={(e) => onChange({ ...cmd, cancel: e.target.checked })} />
+            B annule (la variable reçoit 255)
+          </label>
+          <span className="hint">
+            BLOQUANT : le menu s'ouvre (le widget est affiché), haut/bas
+            naviguent avec bouclage, A valide. Le widget est recaché à la
+            fermeture — enchaîner avec des « Condition (variable) » sur
+            l'index : 0 = premier item (Attaque), 1 = deuxième (Magie)…
           </span>
         </>
       );

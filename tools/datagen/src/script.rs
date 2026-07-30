@@ -90,6 +90,7 @@ const OP_SLOTFX: u8 = 0x36;
 const OP_VIGSHOW: u8 = 0x37;
 const OP_VIGPLAY: u8 = 0x38;
 const OP_VIGHIDE: u8 = 0x39;
+const OP_LISTSEL: u8 = 0x3A;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -265,6 +266,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "VIGPLAY" => 4,
         // VIGHIDE <slot 0-1> — cacher la vignette (B5)
         "VIGHIDE" => 2,
+        // LISTSEL <widget> <var> <flags> — menu a curseur (B6)
+        "LISTSEL" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -799,6 +802,13 @@ pub fn assemble(
                 if argc != 1 { bail!("VIGHIDE <slot>"); }
                 code.push(OP_VIGHIDE);
                 code.push(parse_u8(args[0])?);
+            }
+            // LISTSEL <widget> <var> <flags bit0=annulable> — menu a
+            // curseur sur un widget « list » du layout UI (B6, bloquant)
+            "LISTSEL" => {
+                if argc != 3 { bail!("LISTSEL <widget> <var> <flags>"); }
+                code.push(OP_LISTSEL);
+                for t in args { code.push(parse_u8(t)?); }
             }
             // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
             "WEATHER" => {

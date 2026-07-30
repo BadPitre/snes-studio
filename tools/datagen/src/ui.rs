@@ -14,6 +14,10 @@
 //!                       alignée à droite)
 //!     type = "image"    suite d'icônes de la planche (icon, w)
 //!     type = "gauge" / "icon_row" / "icon_value" / "variable_display"
+//!     type = "list"     menu à curseur (B6) : items = ["Attaque", ...],
+//!                       frame défaut true, taille AUTO (1 colonne
+//!                       curseur + item le plus long) — piloté par la
+//!                       commande d'event « Choix dans une liste »
 //!                       les widgets W1 (mêmes props), size explicite
 //!     parent = "id"     rattache à un conteneur ; sans parent = RACINE
 //!                       avec pos = [x, y] obligatoire
@@ -25,6 +29,7 @@
 //! tiles (le moteur ne connaît ni vbox ni hbox — zéro coût runtime) :
 //!   0 variable_display  1 gauge  2 icon_row  3 icon_value
 //!   4 panel (cadre seul)  5 label (texte statique)  6 image (icônes)
+//!   7 list (menu à curseur B6 — items dans text, séparés par \n)
 //! Les types 4-6 sont STATIQUES (jamais redessinés sur changement de
 //! variable, seulement au refresh).
 //!
@@ -161,6 +166,9 @@ pub struct Node {
     /// Tout le texte du widget (labels, valeurs, compteurs) l'utilise.
     #[serde(default)]
     pub font: Option<String>,
+    /// list (B6) : les items du menu, un par rangée
+    #[serde(default)]
+    pub items: Option<Vec<String>>,
 }
 
 /// Primitive aplatie — ce que le moteur dessine
@@ -169,7 +177,7 @@ pub struct Prim {
     pub y: i64,
     pub w: i64,
     pub h: i64,
-    pub kind: i64, // 0-6
+    pub kind: i64, // 0-7
     pub frame: bool,
     pub var: u8,
     pub icon: u8,
@@ -223,6 +231,7 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         align: None,
         visible: Some(true), // compat W1 : les overlays plats restent visibles
         font: None,
+        items: None,
     }
 }
 
@@ -286,6 +295,14 @@ impl<'a> Flattener<'a> {
             "value" => [n.width.unwrap_or(3).clamp(1, 5), 1],
             "image" => [n.width.unwrap_or(1).max(1), 1],
             "icon_value" => [n.width.unwrap_or(4).max(2), 1],
+            "list" => {
+                // taille AUTO : 1 colonne curseur + item le plus long,
+                // une rangée par item, +2 dans chaque sens si cadre
+                let items = n.items.clone().unwrap_or_default();
+                let f = if n.frame.unwrap_or(true) { 2 } else { 0 };
+                let wmax = items.iter().map(|t| t.chars().count() as i64).max().unwrap_or(1);
+                [1 + wmax + f, items.len().max(1) as i64 + f]
+            }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
         })
     }
@@ -461,6 +478,26 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h,
                     kind: 3, frame: f, var, icon, vertical: false,
                     pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                })?;
+            }
+            "list" => {
+                let items = n.items.clone().unwrap_or_default();
+                if items.len() < 2 || items.len() > 16 {
+                    bail!("nœud « {} » : list demande 2 à 16 items", n.id);
+                }
+                for t in &items {
+                    if t.is_empty() || !ascii_ok(t) {
+                        bail!("nœud « {} » : item vide ou non-ASCII", n.id);
+                    }
+                    if t.contains('\n') {
+                        bail!("nœud « {} » : item multi-lignes", n.id);
+                    }
+                }
+                self.emit(Prim {
+                    x, y, w: size[0], h: size[1],
+                    kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: 0,
+                    vertical: false, pad: 0, max: 0, max_var: None, bg: in_window,
+                    widget: 0, text: items.join("\n"), font: None,
                 })?;
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),

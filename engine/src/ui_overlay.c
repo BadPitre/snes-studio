@@ -14,6 +14,9 @@
  *   4 panel            — cadre seul (fenêtre du designer) — STATIQUE
  *   5 label            — texte fixe (ui_ov_label) — STATIQUE
  *   6 image            — suite d'icônes de la planche — STATIQUE
+ *   7 list             — menu à curseur (B6) : items dans ui_ov_label
+ *                        séparés par '\n', 1 colonne réservée au
+ *                        curseur '>' — piloté par l'opcode LISTSEL
  * ui_ov_frame : cadre 9-slice/boîte, ou widget nu sur le jeu.
  * Icônes : chars UI_ICON_BASE+n (planche ui.icons, après le windowskin) ;
  * gauge/icon_row : icon, icon+1, icon+2 = pleine, demie, vide.
@@ -74,6 +77,10 @@ static u16 ov_lastm[UI_OV_COUNT]; /* dernier maximum (max_var) */
 static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibilité
     runtime par widget (Phase 12) : caché par défaut, piloté par SHOWUI */
 static char ov_num[5];
+/* liste à curseur ACTIVE (B6) — une seule à la fois, pilotée par la VM
+   (LISTSEL). Init explicite : tcc-816 ne remet pas le BSS à zéro. */
+static u8 ls_prim = 0xFF; /* primitive type 7 en cours (0xFF = aucune) */
+static u8 ls_sel = 0;     /* rangée sous le curseur */
 
 /* maximum courant d'un widget : constante compilée ou variable */
 static u16 ov_max(u8 i)
@@ -193,6 +200,24 @@ static void ov_draw(u8 i)
       ui_map[base + x + k] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + k);
     break;
 
+  case 7: /* list (B6) : un item par rangée, colonne 0 = curseur '>' */
+    l = ui_ov_label[i];
+    for (cy = 0; cy < h; cy++)
+    {
+      if (i == ls_prim && cy == ls_sel)
+        ui_map[base + (u16)cy * 32 + x] = OV_ENTRY(OV_FCHAR('>'));
+      cx = (u8)(x + 1);
+      while (*l && *l != '\n' && cx < (u8)(x + w))
+        ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*l++));
+      while (*l && *l != '\n') /* item plus large que le widget : coupé */
+        l++;
+      if (*l == '\n')
+        l++;
+      else
+        break; /* plus d'items : les rangées restantes gardent le fond */
+    }
+    break;
+
   case 3: /* icon_value : icône + compteur aligné à droite, zéros pad */
     ui_map[base + x] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i]);
     d = 0;
@@ -309,6 +334,60 @@ void overlay_show(u8 widget, u8 on)
   }
 }
 
+/* ---- liste à curseur (B6) — pilotée par la VM (opcode LISTSEL) ---- */
+
+/* nombre d'items du label (séparés par '\n'), plafonné aux rangées de
+   contenu du widget — le curseur ne descend jamais sur une rangée vide */
+static u8 ov_list_count(u8 i)
+{
+  const char *l = ui_ov_label[i];
+  u8 rows = (u8)(ui_ov_h[i] - (ui_ov_frame[i] << 1));
+  u8 n = 1;
+
+  if (!*l)
+    return 0;
+  while (*l)
+    if (*l++ == '\n')
+      n++;
+  return n < rows ? n : rows;
+}
+
+u8 overlay_list_open(u8 widget)
+{
+  u8 i;
+
+  for (i = 0; i < UI_OV_COUNT; i++)
+  {
+    if (ui_ov_type[i] == 7 && ui_ov_widget[i] == widget)
+    {
+      ls_prim = i;
+      ls_sel = 0;
+      overlay_show(widget, 1); /* redessine — le curseur part en haut */
+      return ov_list_count(i);
+    }
+  }
+  return 0; /* le widget n'a pas de liste : LISTSEL est ignoré */
+}
+
+void overlay_list_cursor(u8 sel)
+{
+  if (ls_prim == 0xFF)
+    return;
+  ls_sel = sel;
+  ov_draw(ls_prim); /* petit rect : redessin complet, plus simple */
+}
+
+void overlay_list_close(void)
+{
+  u8 w;
+
+  if (ls_prim == 0xFF)
+    return;
+  w = ui_ov_widget[ls_prim];
+  ls_prim = 0xFF;
+  overlay_show(w, 0);
+}
+
 #else /* pas d'overlay dans le layout : module inerte */
 
 void overlay_init(void)
@@ -327,6 +406,21 @@ void overlay_show(u8 widget, u8 on)
 {
   (void)widget;
   (void)on;
+}
+
+u8 overlay_list_open(u8 widget)
+{
+  (void)widget;
+  return 0;
+}
+
+void overlay_list_cursor(u8 sel)
+{
+  (void)sel;
+}
+
+void overlay_list_close(void)
+{
 }
 
 #endif /* UI_OV_COUNT */
