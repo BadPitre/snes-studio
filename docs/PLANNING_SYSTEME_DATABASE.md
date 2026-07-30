@@ -73,12 +73,13 @@ runtime_copy = true    # @runtime_copy — valeur de base copiée en WRAM à
 | `flags8` | 1 octet (bit i = flags[i]) | 8 noms max | 8 cases à cocher |
 | `ref:<table>` | 1 octet (index dans la table cible) | table ≤ 255 entrées ; `optional = true` → 0xFF = aucun | menu déroulant |
 | `text_id` | 2 octets (id dans la banque de textes, little-endian) | nom d'un texte de texts.json ; `optional = true` → 0xFFFF = aucun | sélecteur de texte |
+| `picture` / `sound` / `music` | 1 octet (index dans la liste projet — le même que SHOWPIC/PLAYSFX/PLAYBGM) | nom (stem) d'une ressource de project.json ; `optional = true` → 0xFF = aucune ; nom inconnu = erreur de build (B7) | menu déroulant par nom + ▶ play/pause (son/musique) |
 
 Attributs de champ : `default` (valeur à la création — pour `ref:` le
 nom symbolique cible, pour `flags8` une liste de noms), `optional`
-(refs/text_id seulement), `runtime_copy` (documentaire), `min`/`max`
-(resserrer les bornes d'un type numérique — validées par dbgen ET par
-l'éditeur).
+(refs/text_id/ressources seulement), `runtime_copy` (documentaire),
+`min`/`max` (resserrer les bornes d'un type numérique — validées par
+dbgen ET par l'éditeur).
 
 **Dégradation élégante** : un type inconnu (version future) est affiché
 en lecture seule par l'éditeur avec un avertissement ; dbgen, lui,

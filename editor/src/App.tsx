@@ -2435,6 +2435,10 @@ export default function App() {
         <DatabaseModal
           db={db ?? { schemas: [], entries: {} }}
           textNames={data.texts.map((t) => t.name)}
+          root={data.root}
+          pictures={(data.project.pictures ?? []).map(picPath)}
+          sounds={data.project.sounds ?? []}
+          musics={data.project.musics ?? []}
           onOk={(next, removedTables) => {
             setDb(next);
             setDbOpen(false);

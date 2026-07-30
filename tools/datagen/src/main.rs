@@ -932,7 +932,11 @@ fn main() -> Result<()> {
     }
     match &mut database {
         Some(d) => {
-            db::encode(d, &text_ids)?;
+            db::encode(d, &text_ids, &db::ResNames {
+                pictures: &pic_names,
+                sounds: &sound_names,
+                musics: &music_names,
+            })?;
             for (name, content) in db::emit_files(d) {
                 write_out(&out_dir, &name, content)?;
             }

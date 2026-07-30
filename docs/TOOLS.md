@@ -247,6 +247,14 @@ maintenu par l'éditeur pour son mode navigateur — ignoré par dbgen (le
 dossier fait foi).
 
 **v0.17 (lire la database depuis les events)** :
+**B7 (champs ressource)** : les schémas acceptent `type = "picture"`,
+`"sound"` et `"music"` — la valeur TOML est le NOM (stem) d'une
+ressource du projet, dbgen la résout vers son index de liste (le même
+que les opcodes SHOWPIC/PLAYSFX/PLAYBGM) et refuse le build si le nom
+n'existe plus ; `optional = true` → 0xFF = aucune. Fini les numéros
+magiques : la fiche d'un monstre pointe son image de combat, son cri
+et son thème par nom.
+
 `{"c":"db_read","table":"stats","from":"const"|"var","entry":"slime"|
 <n° de variable>,"field":"attack","dst":n}` — `vars16[dst]` = champ de
 la fiche ; `from:"var"` lit le n° de fiche dans une variable (hors

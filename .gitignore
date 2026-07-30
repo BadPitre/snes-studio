@@ -15,3 +15,4 @@ soundbank.asm
 soundbank.bnk
 soundbank.h
 *.bnk
+editor/public/project

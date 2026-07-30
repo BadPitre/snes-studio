@@ -437,7 +437,13 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   « 🗑 » supprime la table (bloqué tant que des `ref:` la visent) et ses
   fichiers. OK écrit aussi `schemas/*.toml` — identiques à des schémas
   écrits à la main, dbgen ne voit pas la différence. Un projet sans
-  database crée ses dossiers `schemas/`+`data/` à la première table.
+  database crée ses dossiers `schemas/`+`data/` à la première table. Champs
+  RESSOURCE (B7) : types `picture`/`sound`/`music` — menu déroulant des
+  ressources du projet PAR NOM, bouton ▶/⏸ à côté des sons et musiques
+  pour les écouter sans lancer le jeu (aperçu libopenmpt pour les .it) ;
+  même bouton dans le Gestionnaire de ressources (catégories Son et
+  Musique). dbgen vérifie les noms au build (ressource supprimée ou
+  renommée = erreur claire, jamais un index silencieusement faux).
 - **Fenêtres « UI »** (Tools → UI → **sous-menu** : « Widgets… » et
   « Dialogues et choix… », Phase 12, réf
   `SPEC_SYSTEME_UI.md`) : un éditeur d'interface à canvas, modèle UMG.

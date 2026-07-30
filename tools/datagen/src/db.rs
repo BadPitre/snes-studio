@@ -75,6 +75,10 @@ fn field_size(ty: &str) -> Result<usize> {
     Ok(match ty {
         "u8" | "s8" | "flags8" => 1,
         "u16" | "s16" | "text_id" => 2,
+        // B7 : ressources du projet par NOM — un index u8 en ROM
+        // (l'ordre des listes de project.json, le même que les opcodes
+        // SHOWPIC/PLAYSFX/PLAYBGM), 0xFF = absent (optional)
+        "picture" | "sound" | "music" => 1,
         t if t.starts_with("ref:") => 1,
         other => bail!("type de champ inconnu : « {} »", other),
     })
@@ -179,9 +183,11 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
                     sc.name, f.name
                 );
             }
-            if f.optional && !(f.ty.starts_with("ref:") || f.ty == "text_id") {
+            let is_res = matches!(f.ty.as_str(), "picture" | "sound" | "music");
+            if f.optional && !(f.ty.starts_with("ref:") || f.ty == "text_id" || is_res) {
                 bail!(
-                    "schema {}, champ « {} » : optional est reserve aux ref:/text_id",
+                    "schema {}, champ « {} » : optional est reserve aux \
+                     ref:/text_id/ressources",
                     sc.name, f.name
                 );
             }
@@ -253,7 +259,15 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
 
 /// Encodage byte-packed, champ par champ dans l'ordre du schéma — à
 /// appeler quand la banque de textes est CLOSE (text_id résolus ici).
-pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>) -> Result<()> {
+/// Noms des ressources du projet (B7) — l'index dans chaque liste est
+/// la valeur ROM des champs picture/sound/music
+pub struct ResNames<'a> {
+    pub pictures: &'a [String],
+    pub sounds: &'a [String],
+    pub musics: &'a [String],
+}
+
+pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> Result<()> {
     let Db { schemas, ids, entries, blobs } = db;
     let table_idx: HashMap<String, usize> = schemas
         .iter()
@@ -318,6 +332,33 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>) -> Result<()> {
                             }
                         }
                         blob.push(byte);
+                    }
+                    "picture" | "sound" | "music" => {
+                        // B7 : nom -> index de la liste projet (0xFF = absent)
+                        let (list, what): (&[String], &str) = match f.ty.as_str() {
+                            "picture" => (res.pictures, "picture"),
+                            "sound" => (res.sounds, "son"),
+                            _ => (res.musics, "musique"),
+                        };
+                        match raw.and_then(|v| v.as_str()) {
+                            None | Some("") => {
+                                if !f.optional {
+                                    bail!("{} : {} requis(e)", ctx(), what);
+                                }
+                                blob.push(0xFF);
+                            }
+                            Some(name) => {
+                                let idx = list.iter().position(|n| n == name)
+                                    .with_context(|| {
+                                        format!(
+                                            "{} : {} « {} » introuvable au projet \
+                                             (supprimee ou renommee ?)",
+                                            ctx(), what, name
+                                        )
+                                    })?;
+                                blob.push(idx as u8);
+                            }
+                        }
                     }
                     "text_id" => match raw.and_then(|v| v.as_str()) {
                         None | Some("") => {

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { loadAssetPng } from "../io";
 import { assetStem } from "../types";
+import AudioPreviewButton, { stopPreview } from "./AudioPreview";
 
 type Cat =
   | "charset" | "chipset" | "windowskin" | "iconset" | "fontset"
@@ -265,7 +266,7 @@ export default function ResourceManagerModal(p: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={p.onClose}>
+    <div className="modal-backdrop" onClick={() => { stopPreview(); p.onClose(); }}>
       <div className="modal resmgr" onClick={(e) => e.stopPropagation()}>
         <div className="panel-title">Gestionnaire de ressources</div>
         <div className="resmgr-body">
@@ -446,6 +447,8 @@ export default function ResourceManagerModal(p: Props) {
                                 }}
                               >
                                 ♪ {assetStem(rel)}
+                                <span style={{ flex: 1 }} />
+                                <AudioPreviewButton path={rel} root={p.root} />
                               </div>
                             ))
                           : cat === "music"
@@ -459,6 +462,8 @@ export default function ResourceManagerModal(p: Props) {
                                   }}
                                 >
                                   ♫ {assetStem(rel)}
+                                  <span style={{ flex: 1 }} />
+                                  <AudioPreviewButton path={rel} root={p.root} />
                                 </div>
                               ))
                             : p.vignettes.map((rel) => (
@@ -658,7 +663,7 @@ export default function ResourceManagerModal(p: Props) {
         </div>
         <canvas ref={previewRef} width={520} height={100} className="resmgr-preview" />
         <div className="row">
-          <button onClick={p.onClose}>Fermer</button>
+          <button onClick={() => { stopPreview(); p.onClose(); }}>Fermer</button>
         </div>
       </div>
     </div>
