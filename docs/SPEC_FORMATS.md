@@ -392,6 +392,37 @@ décodage, la textbox insère `vars16[n]` en décimal (1 à 5 chiffres)
 dans le buffer AVANT le wrap par mot — la mise en page suit la valeur.
 Marche dans les messages ET les choix.
 
+**T2 — codes spéciaux des textes (modèle RM2003) :** mêmes règles
+d'encodage que `\v[n]` (octets de contrôle < 0x20, opaques pour le
+DTE, recopiés par le décodage) — ils sont interprétés par la machine à
+écrire, invisibles pour le wrap par mot, et ignorés par le rendu
+instantané (`text_speed` 0) et les lignes d'option des choix, sauf
+mention contraire. Un code inconnu est une ERREUR datagen.
+
+| Source | Encodage | Effet |
+|---|---|---|
+| `\v[n]` | `[0x01][n+1]` | variable n (0-254) en décimal |
+| `\s[n]` | `[0x02][n+1]` | vitesse : n frames/caractère (0-19, 0 = instantané jusqu'à la fin) — reprend au caractère suivant, oubliée au message suivant |
+| `\.` | `[0x03]` | pause courte (15 frames) |
+| `\|` | `[0x04]` | pause longue (60 frames) |
+| `\!` | `[0x05]` | suspend la révélation jusqu'à un appui sur A (le « tout révéler » du premier A s'arrête aussi là) |
+| `\^` | `[0x06]` | le message se ferme SANS appui une fois tout révélé (effectif aussi en rendu instantané) |
+| `\>` | `[0x07]` | début de bloc instantané |
+| `\<` | `[0x08]` | fin de bloc instantané |
+| `\\` | `\` | backslash littéral |
+
+Hors périmètre (pas d'équivalent moteur) : `\N[n]` (pas de système de
+groupe), `\$` (pas d'argent moteur — une variable + `\v[n]` fait le
+travail), `\_` demi-espace (fonte en tiles), `\C[n]` couleur (les
+palettes BG3 au-delà de CGRAM 16-19 appartiennent aux tilesets — à
+revoir si un vrai besoin arrive).
+
+**T2 — message par référence :** la commande `msg` accepte `text_ref`
+(nom d'une entrée de `texts.json`, catalogue Tools > Textes) à la place
+de `text` : plusieurs commandes partagent alors la MÊME entrée de la
+bank textes, modifiable au catalogue sans toucher aux events. Référence
+inconnue = erreur datagen.
+
 ---
 
 

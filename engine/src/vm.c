@@ -801,13 +801,21 @@ void vm_update(void)
     textbox_tick(); /* machine à écrire (Phase 11, thème text_speed) */
     if (padsDown(0) & KEY_A)
     {
-      if (textbox_busy())
-        textbox_finish(); /* premier A : tout révéler */
+      if (textbox_waiting_key())
+        textbox_resume(); /* point d'attente \! : reprendre (T2) */
+      else if (textbox_busy())
+        textbox_finish(); /* premier A : tout révéler (jusqu'à un \!) */
       else
       {
         textbox_close();
         vm.wait_mode = VM_WAIT_NONE;
       }
+    }
+    else if (!textbox_busy() && textbox_autoclose())
+    {
+      /* \^ (T2) : le message se ferme seul une fois tout révélé */
+      textbox_close();
+      vm.wait_mode = VM_WAIT_NONE;
     }
     return; /* la VM reprend à la frame suivante */
   }

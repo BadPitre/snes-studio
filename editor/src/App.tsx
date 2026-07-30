@@ -2531,6 +2531,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
           tintPresets={data.project.tint_presets ?? []}
           soundNames={(data.project.sounds ?? []).map(musicStem)}
@@ -2566,6 +2567,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
@@ -2629,6 +2631,7 @@ export default function App() {
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
+          texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}

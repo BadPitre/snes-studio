@@ -54,8 +54,17 @@ function checkScene(
     // textes des commandes : non-ASCII refuse par datagen
     const scan = (cmds: import("./types").Command[]) => {
       for (const cmd of cmds) {
-        if (cmd.c === "msg" && ![...cmd.text].every((ch) => ch >= " " && ch <= "~"))
-          err(`${who} : message « ${cmd.text.slice(0, 24)}… » avec accents (non supportes en v0)`);
+        if (cmd.c === "msg" && cmd.text_ref !== undefined) {
+          if (!data.texts.some((t) => t.name === cmd.text_ref))
+            err(`${who} : texte du catalogue « ${cmd.text_ref} » introuvable (Tools > Textes)`);
+        } else if (cmd.c === "msg") {
+          if (![...cmd.text].every((ch) => ch >= " " && ch <= "~"))
+            err(`${who} : message « ${cmd.text.slice(0, 24)}… » avec accents (non supportes en v0)`);
+          // codes speciaux (T2) : memes regles que datagen
+          const bad = cmd.text.match(/\\(?!v\[\d+\]|s\[\d+\]|[.|!^><\\])/);
+          if (bad)
+            err(`${who} : code « \\${cmd.text[(bad.index ?? 0) + 1] ?? ""} » inconnu (codes : \\v[n] \\s[n] \\. \\| \\! \\^ \\> \\< \\\\)`);
+        }
         if (cmd.c === "choice") cmd.options.forEach((o) => scan(o.do));
         if (cmd.c === "if") {
           scan(cmd.then);

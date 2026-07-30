@@ -22,6 +22,7 @@ interface Props {
   db: Database | null; // commande db_read (v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
+  texts: import("../types").TextEntry[]; // catalogue (msg par référence, T2)
   pictures: string[]; // stems des images (S3) — commande pic_show
   tintPresets: import("../types").TintPreset[]; // presets de teinte (S12b)
   soundNames: string[]; // stems des sons (B1)
@@ -182,6 +183,7 @@ export default function CommonEventsModal(props: Props) {
                   db={props.db}
                   uiWidgets={props.uiWidgets}
                   uiStyles={props.uiStyles}
+                  texts={props.texts}
                   pictures={props.pictures}
                   tintPresets={props.tintPresets}
                   soundNames={props.soundNames}

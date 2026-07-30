@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
+import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
 import { DIRECTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -32,6 +32,7 @@ interface Props {
   db: Database | null; // database du projet (commande db_read, v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
+  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
   pictures: string[]; // stems des images (S3) — commande pic_show
   tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
   soundNames: string[]; // stems des sons du projet (B1)
@@ -67,7 +68,9 @@ function picDurLabel(dur?: number, fade?: boolean): string {
 function labelOf(c: Command, ceNames?: string[]): string {
   switch (c.c) {
     case "msg":
-      return `Message${c.style ? ` [${c.style}]` : ""} : ${c.text}`;
+      return `Message${c.style ? ` [${c.style}]` : ""} : ${
+        c.text_ref !== undefined ? `«${c.text_ref}» (catalogue)` : c.text
+      }`;
     case "choice":
       return `Afficher un choix…${c.style ? ` [${c.style}]` : ""}`;
     case "set":
@@ -377,6 +380,7 @@ export function CommandListEditor(props: {
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
+  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
   pictures: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
@@ -665,6 +669,7 @@ export function CommandListEditor(props: {
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
+              texts={props.texts}
               pictures={props.pictures}
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
@@ -1080,6 +1085,7 @@ export default function EventEditorModal(props: Props) {
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
+              texts={props.texts}
               pictures={props.pictures}
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
@@ -1158,6 +1164,7 @@ function CommandForm(props: {
   commonNames: string[];
   uiWidgets: string[];
   uiStyles: string[];
+  texts: TextEntry[];
   pictures: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
@@ -1215,27 +1222,79 @@ function CommandForm(props: {
   let body = null;
   let valid = true;
   switch (cmd.c) {
-    case "msg":
-      valid = cmd.text.trim().length > 0;
+    case "msg": {
+      const fromCat = cmd.text_ref !== undefined;
+      const catEntry = fromCat
+        ? props.texts.find((t) => t.name === cmd.text_ref)
+        : undefined;
+      valid = fromCat ? !!catEntry : cmd.text.trim().length > 0;
       body = (
         <>
-          <label>
-            Texte du message
-            <textarea
-              rows={3}
-              value={cmd.text}
-              autoFocus
-              onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={fromCat}
+              onChange={(e) => {
+                if (e.target.checked)
+                  onChange({ ...cmd, text_ref: props.texts[0]?.name ?? "" });
+                else {
+                  const { text_ref: _drop, ...rest } = cmd;
+                  onChange(rest);
+                }
+              }}
             />
+            Texte du catalogue (Tools → Textes) — modifiable au catalogue
+            sans retoucher l'event
           </label>
+          {fromCat ? (
+            <>
+              <label>
+                Texte
+                <select
+                  value={cmd.text_ref ?? ""}
+                  onChange={(e) => onChange({ ...cmd, text_ref: e.target.value })}
+                >
+                  {props.texts.length === 0 && (
+                    <option value="">(catalogue vide)</option>
+                  )}
+                  {props.texts.map((t) => (
+                    <option key={t.name} value={t.name}>
+                      {t.name}
+                      {t.cat ? ` — ${t.cat}` : ""}
+                    </option>
+                  ))}
+                  {cmd.text_ref && !catEntry && (
+                    <option value={cmd.text_ref}>{cmd.text_ref} (?)</option>
+                  )}
+                </select>
+              </label>
+              {catEntry ? (
+                <span className="hint">« {catEntry.text} »</span>
+              ) : cmd.text_ref ? (
+                <span className="hint">
+                  ⚠ texte « {cmd.text_ref} » introuvable au catalogue
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <label>
+              Texte du message
+              <textarea
+                rows={3}
+                value={cmd.text}
+                autoFocus
+                onChange={(e) => onChange({ ...cmd, text: e.target.value })}
+              />
+            </label>
+          )}
           <span className="hint">
-            \v[n] affiche la variable n au moment de l'affichage (ex. « Tu
-            as \v[12] pièces d'or ») — marche aussi dans les choix.
+            {"Codes : \\v[n] variable · \\s[n] vitesse (frames/caractère, 0 = instantané) · \\. pause courte · \\| pause longue · \\! attendre A · \\^ ferme sans appui · \\>…\\< bloc instantané · \\\\ backslash"}
           </span>
           {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
         </>
       );
       break;
+    }
     case "choice":
       valid = cmd.options.length >= 2 && cmd.options.every((o) => o.text.trim());
       body = (

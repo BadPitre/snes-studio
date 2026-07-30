@@ -237,6 +237,17 @@ choix) acceptent `\v[n]` — la valeur de la variable 16-bit n (0-254)
 est insérée en décimal au moment de l'affichage (spec §2). Exemple :
 `"Tu as \v[12] pieces d'or."`.
 
+**Codes spéciaux des textes (T2, spec §2)** : dans un message, `\s[n]`
+change la vitesse (n frames/caractère, 0 = instantané jusqu'à la fin),
+`\.` pause courte, `\|` pause longue, `\!` attend un appui sur A,
+`\^` ferme le message sans appui, `\>`…`\<` bloc affiché d'un coup,
+`\\` backslash littéral. Code inconnu = erreur de build.
+
+**Message par référence (T2)** : `{"c":"msg","text_ref":"nom"}`
+affiche l'entrée « nom » du catalogue `texts.json` (Tools > Textes) —
+partagée entre plusieurs commandes, éditable au catalogue sans toucher
+aux events. `text_ref` prime sur `text` ; nom inconnu = erreur.
+
 **Database (Phase 10)** : datagen embarque « dbgen » (module `db.rs`) —
 `schemas/*.toml` + `data/*.toml` → `db_<table>.c` (tables byte-packed)
 + `db_index.c` (registre pour l'opcode DBREAD, toujours émis — vide
