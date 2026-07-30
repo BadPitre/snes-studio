@@ -131,7 +131,7 @@ export default function ScreensModal(props: Props) {
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal cevents" onClick={(e) => e.stopPropagation()}>
+      <div className="modal cevents screens" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Écrans composés</div>
         <div className="cevents-body">
           <div className="cevents-list">
@@ -197,17 +197,15 @@ export default function ScreensModal(props: Props) {
           </div>
           <div className="cevents-form" style={{ overflow: "auto" }}>
             {!cur ? (
-              <span className="hint">
-                Un ÉCRAN COMPOSÉ est une mise en scène : un fond + des
-                images posées à la souris + un script — l'écran de
-                combat (fond + monstres), un écran titre, une carte du
-                monde… Il se joue par la commande d'event
-                « Aller à l'écran » ; « Fermer l'écran composé » rend la
-                scène. ＋ Ajouter pour commencer.
+              <span
+                className="hint"
+                title="Un écran composé = un fond + des images posées + un script (combat, titre, carte du monde…). Joué par « Aller à l'écran » ; « Fermer l'écran composé » rend la scène."
+              >
+                Aucun écran — ＋ pour en créer un.
               </span>
             ) : (
               <>
-                <div className="row">
+                <div className="cmdpick-tabs">
                   <button
                     className={tab === "compo" ? "active" : ""}
                     onClick={() => setTab("compo")}
@@ -222,103 +220,13 @@ export default function ScreensModal(props: Props) {
                   </button>
                 </div>
                 {tab === "compo" ? (
-                  <>
-                    <div className="row">
-                      <label>
-                        Fond (picture plein écran)
-                        <select
-                          value={cur.backdrop}
-                          onChange={(e) => patch({ backdrop: e.target.value })}
-                        >
-                          <option value="">(aucun — noir)</option>
-                          {props.pictures.map((n) => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        disabled={freeSlot() === null || props.pictures.length === 0}
-                        title="Poser une image sur l'écran (glisser ensuite à la souris)"
-                        onClick={() => {
-                          const slot = freeSlot();
-                          if (slot === null) return;
-                          patch({
-                            slots: [
-                              ...cur.slots,
-                              {
-                                slot,
-                                pic: props.pictures[0],
-                                x: 96,
-                                y: 80,
-                                name: `image${slot}`,
-                              },
-                            ],
-                          });
-                          setSelSlot(slot);
-                        }}
-                      >
-                        ＋ Ajouter une image
-                      </button>
-                    </div>
-                    {cur.slots.length > 0 && (
-                      <div className="evedit-cmds" style={{ maxHeight: 120, overflow: "auto" }}>
-                        {cur.slots.map((sl) => (
-                          <div
-                            key={sl.slot}
-                            className={"evedit-line" + (sl.slot === selSlot ? " active" : "")}
-                            onClick={() => setSelSlot(sl.slot)}
-                            style={{ display: "flex", gap: 6, alignItems: "center" }}
-                          >
-                            <span style={{ minWidth: 18 }}>{sl.slot}</span>
-                            <input
-                              value={sl.name ?? ""}
-                              placeholder="nom (gobelin gauche…)"
-                              style={{ width: 130 }}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) =>
-                                patch({
-                                  slots: cur.slots.map((x) =>
-                                    x.slot === sl.slot ? { ...x, name: e.target.value } : x
-                                  ),
-                                })
-                              }
-                            />
-                            <select
-                              value={sl.pic}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) =>
-                                patch({
-                                  slots: cur.slots.map((x) =>
-                                    x.slot === sl.slot ? { ...x, pic: e.target.value } : x
-                                  ),
-                                })
-                              }
-                            >
-                              {props.pictures.map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                              ))}
-                            </select>
-                            <span className="hint">{sl.x},{sl.y}</span>
-                            <button
-                              className="danger"
-                              title="Retirer cette image"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                patch({ slots: cur.slots.filter((x) => x.slot !== sl.slot) });
-                                if (selSlot === sl.slot) setSelSlot(null);
-                              }}
-                            >
-                              🗑
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="compo-body">
                     <canvas
                       ref={canvasRef}
                       width={512}
                       height={448}
-                      style={{ border: "1px solid #444", cursor: "move", imageRendering: "pixelated" }}
+                      className="compo-canvas"
+                      title="Glisser les images à la souris (magnétisme 8 px). Aperçu fidèle au pixel. Chaque image = un slot 1-5 avec sa palette (effets par slot). Éviter les chevauchements."
                       onMouseDown={(e) => {
                         const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
                         const px = Math.floor((e.clientX - r.left) / 2);
@@ -348,15 +256,92 @@ export default function ScreensModal(props: Props) {
                       onMouseUp={() => (dragRef.current = null)}
                       onMouseLeave={() => (dragRef.current = null)}
                     />
-                    <span className="hint">
-                      Glisser les images à la souris (magnétisme 8 px —
-                      la grille de la console). L'aperçu est fidèle au
-                      pixel. Chaque image = un slot (1-5) avec SA
-                      palette : les effets par slot (flash, fondu de
-                      mort…) ne toucheront qu'elle. Éviter les
-                      chevauchements (couche unique).
-                    </span>
-                  </>
+                    <div className="compo-side">
+                      <label title="Image plein écran affichée en fond de l'écran composé">
+                        Fond
+                        <select
+                          value={cur.backdrop}
+                          onChange={(e) => patch({ backdrop: e.target.value })}
+                        >
+                          <option value="">(aucun — noir)</option>
+                          {props.pictures.map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="compo-imgs-head">
+                        <span className="palette-title" style={{ margin: 0 }}>Images</span>
+                        <button
+                          disabled={freeSlot() === null || props.pictures.length === 0}
+                          title="Ajouter une image (glisser ensuite à la souris)"
+                          onClick={() => {
+                            const slot = freeSlot();
+                            if (slot === null) return;
+                            patch({
+                              slots: [
+                                ...cur.slots,
+                                { slot, pic: props.pictures[0], x: 96, y: 80, name: `image${slot}` },
+                              ],
+                            });
+                            setSelSlot(slot);
+                          }}
+                        >
+                          ＋
+                        </button>
+                      </div>
+                      <div className="compo-imgs">
+                        {cur.slots.map((sl) => (
+                          <div
+                            key={sl.slot}
+                            className={"compo-img" + (sl.slot === selSlot ? " active" : "")}
+                            onClick={() => setSelSlot(sl.slot)}
+                          >
+                            <div className="row" style={{ gap: 4, alignItems: "center" }}>
+                              <span className="varlist-num">{sl.slot}</span>
+                              <input
+                                value={sl.name ?? ""}
+                                placeholder="nom…"
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  patch({
+                                    slots: cur.slots.map((x) =>
+                                      x.slot === sl.slot ? { ...x, name: e.target.value } : x
+                                    ),
+                                  })
+                                }
+                              />
+                              <button
+                                className="danger"
+                                title="Retirer cette image"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  patch({ slots: cur.slots.filter((x) => x.slot !== sl.slot) });
+                                  if (selSlot === sl.slot) setSelSlot(null);
+                                }}
+                              >
+                                🗑
+                              </button>
+                            </div>
+                            <select
+                              value={sl.pic}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                patch({
+                                  slots: cur.slots.map((x) =>
+                                    x.slot === sl.slot ? { ...x, pic: e.target.value } : x
+                                  ),
+                                })
+                              }
+                            >
+                              {props.pictures.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
@@ -370,6 +355,7 @@ export default function ScreensModal(props: Props) {
                         </button>
                       ))}
                       <button
+                        style={{ flex: "0 0 auto", width: 30, padding: "3px 0" }}
                         title="Ajouter un script (appelable par « Appeler un script de l'écran »)"
                         onClick={() => {
                           let i = cur.scripts.length + 1;
@@ -388,6 +374,7 @@ export default function ScreensModal(props: Props) {
                       {cur.scripts.length > 1 && (
                         <button
                           className="danger"
+                          style={{ flex: "0 0 auto", width: 30, padding: "3px 0" }}
                           title="Supprimer ce script"
                           onClick={() => {
                             if (!confirm(`Supprimer le script « ${cur.scripts[selScript]?.name} » ?`)) return;
@@ -416,7 +403,7 @@ export default function ScreensModal(props: Props) {
                           }
                         />
                       </label>
-                      <label>
+                      <label title="▶ À l'ouverture : joué quand l'écran s'ouvre, dans l'ordre des scripts — avec une condition, seulement si elle est vraie (l'intro du premier combat, la phase 2 d'un boss selon une variable…). ☎ Par appel : joué par « Appeler un script de l'écran » (sous-routines : tour_joueur, victoire…).">
                         Déclencheur
                         <select
                           value={cur.scripts[selScript]?.trigger ?? "call"}
@@ -561,14 +548,6 @@ export default function ScreensModal(props: Props) {
                           )}
                         </div>
                       )}
-                    <span className="hint">
-                      ▶ À l'ouverture : joué quand l'écran s'ouvre, dans
-                      l'ordre des scripts — avec une condition, seulement
-                      si elle est vraie (l'intro du premier combat, la
-                      phase 2 d'un boss selon une variable…).
-                      ☎ Par appel : joué par « Appeler un script de
-                      l'écran » (sous-routines : tour_joueur, victoire…).
-                    </span>
                     <CommandListEditor
                       key={`${name}-${selScript}`}
                       cmds={cur.scripts[selScript]?.commands ?? []}
@@ -595,21 +574,13 @@ export default function ScreensModal(props: Props) {
                       onTintPresets={props.onTintPresets}
                       onRenameVars={props.onRenameVars}
                     />
-                    <span className="hint">
-                      La logique de l'écran vit ICI : dialogues, choix,
-                      sons, vignettes, effets par slot, variables…
-                      Terminer par « Fermer l'écran composé » pour
-                      rendre la scène. Le script peut poser/retirer des
-                      images par-dessus la composition (renforts,
-                      morts).
-                    </span>
                   </>
                 )}
               </>
             )}
           </div>
         </div>
-        <div className="row">
+        <div className="modal-actions">
           <button onClick={() => props.onOk(names, draft)}>OK</button>
           <button onClick={props.onClose}>Annuler</button>
         </div>

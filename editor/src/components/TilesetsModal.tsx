@@ -299,33 +299,27 @@ export default function TilesetsModal(props: Props) {
                 </label>
               </div>
             )}
-            {/* onglets de couche, comme RM2003 */}
-            <div className="tabs">
-              <button className={tab === "lower" ? "active" : ""} onClick={() => setTab("lower")}>
-                Couche basse
-              </button>
-              <button className={tab === "upper" ? "active" : ""} onClick={() => setTab("upper")}>
-                Couche haute
-              </button>
-            </div>
             <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
               {/* modes d'édition en colonne (Editing Mode de RM2003) */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 170 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "0 0 200px" }}>
                 <button className={mode === "pass" ? "active" : ""} onClick={() => setMode("pass")}
-                  title="O passable, X solide, ☆ au-dessus du héros — clic = cycle">
+                  title="Clic : O (passable) → X (solide) → ☆ (au-dessus du héros) → O. Autotiles compris.">
                   Passabilité O/X/☆
                 </button>
                 <button className={mode === "dirs" ? "active" : ""} onClick={() => setMode("dirs")}
-                  title="Côtés fermés (flèche rouge = ne se franchit plus) — clic près d'un bord">
+                  title="Clic près d'un bord : ferme/rouvre ce côté (flèche rouge = infranchissable, héros et événements). Tiles de grille, hors solide.">
                   ✥ Directionnel
                 </button>
                 <button className={mode === "anims" ? "active" : ""} onClick={() => setMode("anims")}
-                  title="Séquences de tiles animées (eau, torches…)">
+                  title="Séquences de tiles animées (eau, torches…). La PREMIÈRE tile (B) est celle posée sur les maps, les suivantes ses frames. Clic sur la grille : ajouter/retirer.">
                   ▶ Animations
                 </button>
                 {mode === "anims" && (
                   <>
-                    <div className="evedit-cmds" style={{ maxHeight: 140, overflowY: "auto" }}>
+                    <div
+                      className="evedit-cmds"
+                      style={{ flex: "0 0 auto", minHeight: 40, maxHeight: 80, overflowY: "auto" }}
+                    >
                       {anims.map((a, i) => (
                         <div
                           key={i}
@@ -400,17 +394,26 @@ export default function TilesetsModal(props: Props) {
                     ))}
                   </>
                 )}
-                <p className="hint">
-                  {mode === "pass" &&
-                    "Clic : O (passable) → X (solide) → ☆ (au-dessus du héros) → O. Autotiles compris."}
-                  {mode === "dirs" &&
-                    "Clic PRÈS D'UN BORD : ferme/rouvre ce côté (rouge = infranchissable, héros et événements). Tiles de grille, hors solide."}
-                  {mode === "anims" &&
-                    "La PREMIÈRE tile (B) est celle posée sur les maps, les suivantes ses frames (mêmes couleurs). Clic sur la grille : ajouter/retirer."}
-                </p>
               </div>
-              {/* grille du tileset */}
-              <div style={{ maxHeight: 400, overflowY: "auto" }}>
+              {/* grille du tileset — onglets de couche juste au-dessus */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div className="tabs">
+                  <button
+                    className={tab === "lower" ? "active" : ""}
+                    style={{ flex: "0 0 auto", padding: "3px 12px" }}
+                    onClick={() => setTab("lower")}
+                  >
+                    Couche basse
+                  </button>
+                  <button
+                    className={tab === "upper" ? "active" : ""}
+                    style={{ flex: "0 0 auto", padding: "3px 12px" }}
+                    onClick={() => setTab("upper")}
+                  >
+                    Couche haute
+                  </button>
+                </div>
+                <div style={{ maxHeight: 360, overflowY: "auto" }}>
                 {!def?.file ? (
                   <p className="hint" style={{ width: 240 }}>
                     Tileset vide — choisir un « Fichier tileset » ci-dessus.
@@ -426,16 +429,12 @@ export default function TilesetsModal(props: Props) {
                 ) : (
                   <canvas ref={ref} onMouseDown={onClick} style={{ cursor: "pointer" }} />
                 )}
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div className="row">
-          <span className="hint" style={{ flex: 1 }}>
-            Deux tilesets qui partagent un même fichier partagent sa
-            passabilité, ses côtés fermés et ses animations (sidecar du
-            fichier).
-          </span>
+        <div className="modal-actions">
           <button
             disabled={defs.some(
               (d, i) =>

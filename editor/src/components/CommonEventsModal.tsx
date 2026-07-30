@@ -65,6 +65,7 @@ export default function CommonEventsModal(props: Props) {
             </div>
             <div className="row">
               <button
+                title="Ajouter un common event"
                 onClick={() => {
                   setDraft([
                     ...draft,
@@ -73,7 +74,7 @@ export default function CommonEventsModal(props: Props) {
                   setSel(draft.length);
                 }}
               >
-                ＋ Ajouter
+                ＋
               </button>
               <button
                 className="danger"
@@ -122,18 +123,21 @@ export default function CommonEventsModal(props: Props) {
                     </select>
                   </label>
                   <label style={{ opacity: cur.trigger !== "none" ? 1 : 0.5 }}>
-                    <span className="checkline" style={{ marginBottom: 2 }}>
+                    Condition switch
+                    <span
+                      className="row"
+                      style={{ gap: 4, alignItems: "center" }}
+                      title="Condition switch : le common event n'est actif que si ce switch est ON"
+                    >
                       <input
                         type="checkbox"
+                        style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
                         disabled={cur.trigger === "none"}
                         checked={cur.switch !== undefined}
                         onChange={(e) =>
                           patch({ switch: e.target.checked ? 0 : undefined })
                         }
                       />
-                      Condition switch
-                    </span>
-                    <span className="row" style={{ gap: 4 }}>
                       <input
                         type="number" min={0} max={511}
                         disabled={cur.trigger === "none" || cur.switch === undefined}
@@ -143,11 +147,6 @@ export default function CommonEventsModal(props: Props) {
                       <button className="browse" title="Choisir dans la liste"
                         disabled={cur.trigger === "none" || cur.switch === undefined}
                         onClick={() => setSwPick(true)}>…</button>
-                    </span>
-                    <span className="hint">
-                      {cur.trigger !== "none" && cur.switch !== undefined
-                        ? props.switchNames[cur.switch] || ""
-                        : ""}
                     </span>
                   </label>
                 </div>
@@ -197,7 +196,7 @@ export default function CommonEventsModal(props: Props) {
             )}
           </div>
         </div>
-        <div className="row">
+        <div className="modal-actions">
           <button
             onClick={() =>
               props.onOk(
