@@ -359,10 +359,14 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .compo-img.active { box-shadow: var(--bev-field), inset 0 0 0 2px var(--sel); }
 :root[data-theme="dark"] .compo-img { background: #1c1d21; }
 .compo-img .danger { flex: 0 0 auto; padding: 2px 8px; }
-.cevents-body { display: flex; gap: 10px; height: 480px; }
+.cevents-body { display: flex; gap: 10px; height: min(720px, calc(100vh - 190px)); }
 .cevents-list { display: flex; flex-direction: column; gap: 6px; width: 210px; }
 .cevents-right { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.cevents-right .evedit-cmds { flex: 1; overflow-y: auto; }
+.cevents-right .evedit-cmds { flex: 1; max-height: none; overflow-y: auto; }
+/* le panneau de droite des écrans composés remplit toute la hauteur ;
+   la liste de commandes du script prend l'espace restant */
+.cevents-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cevents-form .evedit-cmds { flex: 1; max-height: none; overflow-y: auto; }
 /* Fenêtre d'options d'une commande (double-clic sur une ligne pleine) */
 .modal.cmdform { width: 520px; }
 .modal.cmdform .evedit-form { border: none; padding: 0; background: none; box-shadow: none; }
