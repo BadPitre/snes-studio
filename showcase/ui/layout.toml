@@ -1,0 +1,33 @@
+# Layout UI du showcase JRPG — menus de combat et d'inventaire (B6),
+# HUD de PV pendant les combats. Positions en tiles (ecran 32x28).
+
+[message]
+pos = [0, 20]
+size = [32, 8]
+
+[choice]
+pos = [0, 20]
+size = [32, 8]
+
+# menu de combat (liste a curseur) — ouvert par les ecrans composes
+[[node]]
+id = "menu_combat"
+type = "list"
+pos = [2, 2]
+items = ["Attaque", "Objet", "Fuite"]
+
+# menu d'inventaire — ouvert par Start (common event « inventaire »)
+[[node]]
+id = "menu_objets"
+type = "list"
+pos = [2, 10]
+items = ["Potion", "Etat", "Fermer"]
+
+# PV du heros pendant le combat (cadre libelle + valeur)
+[[node]]
+id = "hud_pv"
+type = "variable_display"
+pos = [22, 2]
+size = [8, 3]
+var = 10
+label = "PV"

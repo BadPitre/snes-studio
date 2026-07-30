@@ -1,0 +1,14 @@
+# Table des objets — prix lus par le marchand (db_read)
+name  = "items"
+title = "Objets"
+max   = 255
+
+[[fields]]
+name    = "price"
+type    = "u16"
+default = 10
+
+[[fields]]
+name    = "heal"
+type    = "u8"
+default = 0

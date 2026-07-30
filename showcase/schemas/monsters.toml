@@ -1,0 +1,39 @@
+# Table des monstres (B8) — les stats du bestiaire, avec ressources par NOM
+name  = "monsters"
+title = "Monstres"
+max   = 255
+
+[[fields]]
+name    = "max_hp"
+type    = "u16"
+default = 10
+
+[[fields]]
+name    = "attack"
+type    = "u8"
+default = 1
+
+[[fields]]
+name    = "defense"
+type    = "u8"
+default = 0
+
+[[fields]]
+name    = "xp"
+type    = "u16"
+default = 5
+
+[[fields]]
+name    = "gold"
+type    = "u16"
+default = 0
+
+[[fields]]
+name     = "battle_pic"
+type     = "picture"
+optional = true
+
+[[fields]]
+name     = "cry_sfx"
+type     = "sound"
+optional = true

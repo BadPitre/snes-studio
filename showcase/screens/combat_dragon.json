@@ -1,0 +1,567 @@
+{
+  "backdrop": "fond_prairie",
+  "slots": [
+    {
+      "slot": 1,
+      "pic": "dragon",
+      "x": 96,
+      "y": 56,
+      "name": "dragon"
+    }
+  ],
+  "scripts": [
+    {
+      "name": "principal",
+      "trigger": "auto",
+      "commands": [
+        {
+          "c": "rem",
+          "text": "stats du monstre depuis la database (B8)"
+        },
+        {
+          "c": "db_read",
+          "table": "monsters",
+          "from": "const",
+          "entry": "dragon",
+          "field": "max_hp",
+          "dst": 60
+        },
+        {
+          "c": "db_read",
+          "table": "monsters",
+          "from": "const",
+          "entry": "dragon",
+          "field": "attack",
+          "dst": 61
+        },
+        {
+          "c": "db_read",
+          "table": "monsters",
+          "from": "const",
+          "entry": "dragon",
+          "field": "defense",
+          "dst": 62
+        },
+        {
+          "c": "db_read",
+          "table": "monsters",
+          "from": "const",
+          "entry": "dragon",
+          "field": "xp",
+          "dst": 63
+        },
+        {
+          "c": "db_read",
+          "table": "monsters",
+          "from": "const",
+          "entry": "dragon",
+          "field": "gold",
+          "dst": 64
+        },
+        {
+          "c": "bgm",
+          "music": "battle"
+        },
+        {
+          "c": "ui_show",
+          "widget": "hud_pv",
+          "on": true
+        },
+        {
+          "c": "vig_show",
+          "slot": 2,
+          "vig": "exclam",
+          "x": 104,
+          "y": 22,
+          "anchor": "screen"
+        },
+        {
+          "c": "vig_play",
+          "slot": 2,
+          "mode": "once",
+          "speed": 6
+        },
+        {
+          "c": "msg",
+          "text": "Le Dragon se dresse devant toi !"
+        },
+        {
+          "c": "loop",
+          "do": [
+            {
+              "c": "list_select",
+              "widget": "menu_combat",
+              "var": 20,
+              "cancel": false,
+              "keep": true
+            },
+            {
+              "c": "if_var",
+              "n": 20,
+              "op": "==",
+              "value": 0,
+              "then": [
+                {
+                  "c": "screen_call",
+                  "script": "attaque"
+                },
+                {
+                  "c": "screen_call",
+                  "script": "riposte"
+                }
+              ],
+              "else": []
+            },
+            {
+              "c": "if_var",
+              "n": 20,
+              "op": "==",
+              "value": 1,
+              "then": [
+                {
+                  "c": "if_var",
+                  "n": 17,
+                  "op": "==",
+                  "value": 0,
+                  "then": [
+                    {
+                      "c": "msg",
+                      "text": "Aucune potion dans le sac !"
+                    }
+                  ],
+                  "else": [
+                    {
+                      "c": "var",
+                      "n": 17,
+                      "op": "-",
+                      "from": "const",
+                      "value": 1
+                    },
+                    {
+                      "c": "var",
+                      "n": 10,
+                      "op": "+",
+                      "from": "const",
+                      "value": 25
+                    },
+                    {
+                      "c": "var",
+                      "n": 44,
+                      "op": "=",
+                      "from": "var",
+                      "value": 10
+                    },
+                    {
+                      "c": "var",
+                      "n": 44,
+                      "op": "-",
+                      "from": "var",
+                      "value": 11
+                    },
+                    {
+                      "c": "if_var",
+                      "n": 44,
+                      "op": ">=",
+                      "value": 32768,
+                      "then": [],
+                      "else": [
+                        {
+                          "c": "var",
+                          "n": 10,
+                          "op": "=",
+                          "from": "var",
+                          "value": 11
+                        }
+                      ]
+                    },
+                    {
+                      "c": "sfx",
+                      "sound": "curseur"
+                    },
+                    {
+                      "c": "msg",
+                      "text": "Glou glou... PV \\v[10]/\\v[11]."
+                    }
+                  ]
+                }
+              ],
+              "else": []
+            },
+            {
+              "c": "if_var",
+              "n": 20,
+              "op": "==",
+              "value": 2,
+              "then": [
+                {
+                  "c": "var",
+                  "n": 42,
+                  "op": "rand",
+                  "from": "const",
+                  "value": 4
+                },
+                {
+                  "c": "if_var",
+                  "n": 42,
+                  "op": ">=",
+                  "value": 1,
+                  "then": [
+                    {
+                      "c": "ui_show",
+                      "widget": "hud_pv",
+                      "on": false
+                    },
+                    {
+                      "c": "ui_show",
+                      "widget": "menu_combat",
+                      "on": false
+                    },
+                    {
+                      "c": "msg",
+                      "text": "Tu prends la fuite !"
+                    },
+                    {
+                      "c": "stage_close",
+                      "dur": 20
+                    },
+                    {
+                      "c": "break"
+                    }
+                  ],
+                  "else": [
+                    {
+                      "c": "msg",
+                      "text": "Impossible de fuir !"
+                    },
+                    {
+                      "c": "screen_call",
+                      "script": "riposte"
+                    }
+                  ]
+                }
+              ],
+              "else": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "attaque",
+      "trigger": "call",
+      "commands": [
+        {
+          "c": "rem",
+          "text": "attaque : degats = ATK heros - DEF monstre (min 1)"
+        },
+        {
+          "c": "sfx",
+          "sound": "attaque"
+        },
+        {
+          "c": "vig_show",
+          "slot": 1,
+          "vig": "coup",
+          "x": 112,
+          "y": 30,
+          "anchor": "screen"
+        },
+        {
+          "c": "vig_play",
+          "slot": 1,
+          "mode": "once",
+          "speed": 4
+        },
+        {
+          "c": "slot_fx",
+          "slot": 1,
+          "fx": "flash",
+          "frames": 16
+        },
+        {
+          "c": "wait",
+          "frames": 24
+        },
+        {
+          "c": "var",
+          "n": 40,
+          "op": "=",
+          "from": "var",
+          "value": 12
+        },
+        {
+          "c": "var",
+          "n": 40,
+          "op": "-",
+          "from": "var",
+          "value": 62
+        },
+        {
+          "c": "if_var",
+          "n": 40,
+          "op": ">=",
+          "value": 32768,
+          "then": [
+            {
+              "c": "var",
+              "n": 40,
+              "op": "=",
+              "from": "const",
+              "value": 1
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "if_var",
+          "n": 40,
+          "op": "==",
+          "value": 0,
+          "then": [
+            {
+              "c": "var",
+              "n": 40,
+              "op": "=",
+              "from": "const",
+              "value": 1
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "var",
+          "n": 60,
+          "op": "-",
+          "from": "var",
+          "value": 40
+        },
+        {
+          "c": "if_var",
+          "n": 60,
+          "op": ">=",
+          "value": 32768,
+          "then": [
+            {
+              "c": "var",
+              "n": 60,
+              "op": "=",
+              "from": "const",
+              "value": 0
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "if_var",
+          "n": 60,
+          "op": "==",
+          "value": 0,
+          "then": [
+            {
+              "c": "ui_show",
+              "widget": "hud_pv",
+              "on": false
+            },
+            {
+              "c": "ui_show",
+              "widget": "menu_combat",
+              "on": false
+            },
+            {
+              "c": "rem",
+              "text": "VICTOIRE - gains AVANT stage_close (le warp coupe le script)"
+            },
+            {
+              "c": "slot_fx",
+              "slot": 1,
+              "fx": "fadeout",
+              "frames": 50
+            },
+            {
+              "c": "wait",
+              "frames": 50
+            },
+            {
+              "c": "bgm",
+              "music": "victory"
+            },
+            {
+              "c": "msg",
+              "text": "Le Dragon est terrasse !"
+            },
+            {
+              "c": "var",
+              "n": 15,
+              "op": "+",
+              "from": "var",
+              "value": 63
+            },
+            {
+              "c": "var",
+              "n": 18,
+              "op": "+",
+              "from": "var",
+              "value": 64
+            },
+            {
+              "c": "msg",
+              "text": "Tu gagnes \\v[63] XP et \\v[64] or !"
+            },
+            {
+              "c": "call",
+              "n": 1
+            },
+            {
+              "c": "switch",
+              "n": 32,
+              "on": true
+            },
+            {
+              "c": "stage_close",
+              "dur": 30
+            },
+            {
+              "c": "break"
+            }
+          ],
+          "else": []
+        }
+      ]
+    },
+    {
+      "name": "riposte",
+      "trigger": "call",
+      "commands": [
+        {
+          "c": "rem",
+          "text": "riposte : degats = ATK monstre - DEF heros (min 1)"
+        },
+        {
+          "c": "sfx",
+          "sound": "attaque"
+        },
+        {
+          "c": "flash",
+          "r": 31,
+          "g": 4,
+          "b": 4,
+          "frames": 10
+        },
+        {
+          "c": "shake",
+          "power": 3,
+          "speed": 6,
+          "frames": 14
+        },
+        {
+          "c": "var",
+          "n": 41,
+          "op": "=",
+          "from": "var",
+          "value": 61
+        },
+        {
+          "c": "var",
+          "n": 41,
+          "op": "-",
+          "from": "var",
+          "value": 13
+        },
+        {
+          "c": "if_var",
+          "n": 41,
+          "op": ">=",
+          "value": 32768,
+          "then": [
+            {
+              "c": "var",
+              "n": 41,
+              "op": "=",
+              "from": "const",
+              "value": 1
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "if_var",
+          "n": 41,
+          "op": "==",
+          "value": 0,
+          "then": [
+            {
+              "c": "var",
+              "n": 41,
+              "op": "=",
+              "from": "const",
+              "value": 1
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "var",
+          "n": 10,
+          "op": "-",
+          "from": "var",
+          "value": 41
+        },
+        {
+          "c": "if_var",
+          "n": 10,
+          "op": ">=",
+          "value": 32768,
+          "then": [
+            {
+              "c": "var",
+              "n": 10,
+              "op": "=",
+              "from": "const",
+              "value": 0
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "if_var",
+          "n": 10,
+          "op": "==",
+          "value": 0,
+          "then": [
+            {
+              "c": "ui_show",
+              "widget": "hud_pv",
+              "on": false
+            },
+            {
+              "c": "ui_show",
+              "widget": "menu_combat",
+              "on": false
+            },
+            {
+              "c": "msg",
+              "text": "Tes forces t'abandonnent..."
+            },
+            {
+              "c": "switch",
+              "n": 30,
+              "on": true
+            },
+            {
+              "c": "stage_close",
+              "dur": 30
+            },
+            {
+              "c": "break"
+            }
+          ],
+          "else": []
+        },
+        {
+          "c": "wait",
+          "frames": 10
+        }
+      ]
+    }
+  ]
+}
