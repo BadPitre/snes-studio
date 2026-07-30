@@ -37,6 +37,8 @@ export interface Project {
   // { path, trans: true } = image à TRANSPARENCE (le décor de la carte
   // se voit à travers les pixels percés à l'import)
   pictures?: PictureEntry[];
+  // T2 — entrées tileset nommées (fenêtre Tools → Tilesets, RM2003)
+  tileset_defs?: TilesetDef[];
   // presets de teinte nommés (S12b — éditeur seulement, voir TintPreset)
   tint_presets?: TintPreset[];
 }
@@ -130,6 +132,19 @@ export function musicStem(path: string): string {
 // tilesets du projet (l'ordre donne les tileset_id) — défaut : assets.tileset
 export function projectTilesets(p: Project): string[] {
   return p.tilesets && p.tilesets.length > 0 ? p.tilesets : [p.assets.tileset];
+}
+
+// T2 — entrées TILESET façon RM2003 : une entrée NOMMÉE pointe un
+// fichier chipset importé (Gestionnaire de ressources). Les scènes
+// référencent le FICHIER (stem) — l'entrée est le visage éditeur.
+export interface TilesetDef {
+  name: string;
+  file: string; // chemin projet du PNG ("" = pas encore assigné)
+}
+
+export function projectTilesetDefs(p: Project): TilesetDef[] {
+  if (p.tileset_defs && p.tileset_defs.length) return p.tileset_defs;
+  return projectTilesets(p).map((f) => ({ name: assetStem(f), file: f }));
 }
 
 export type Direction = "down" | "up" | "left" | "right";

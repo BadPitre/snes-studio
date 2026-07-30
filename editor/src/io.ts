@@ -99,6 +99,14 @@ export async function pickProjectDir(): Promise<string | null> {
 
 export async function loadProject(root: string): Promise<ProjectData> {
   const project: Project = JSON.parse(await readTextFile(`${root}/project.json`));
+  // T2 : migration — les projets sans entrées tileset en reçoivent une
+  // par fichier (nom = stem), le format que la fenêtre Tilesets édite
+  if (!project.tileset_defs || !project.tileset_defs.length) {
+    project.tileset_defs = projectTilesets(project).map((f) => ({
+      name: assetStem(f),
+      file: f,
+    }));
+  }
   const texts: TextEntry[] = JSON.parse(await readTextFile(`${root}/texts.json`));
   const scenes: Record<string, Scene> = {};
   for (const name of project.scenes) {

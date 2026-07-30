@@ -37,6 +37,7 @@ interface Props {
   canWrite: boolean;
   onImportCharset: () => void;
   onImportChipset: () => void;
+  onImportTilesetPng: () => void; // grille PNG libre (pas un chipset RM2003)
   onImportWindowskin: () => void;
   onImportIconset: () => void;
   onImportFont: () => void;
@@ -502,8 +503,17 @@ export default function ResourceManagerModal(p: Props) {
                                 : p.onImportVignette
               }
             >
-              Importer…
+              {cat === "chipset" ? "Chipset RM2003…" : "Importer…"}
             </button>
+            {cat === "chipset" && (
+              <button
+                disabled={!p.canWrite}
+                title="Importer une grille PNG libre (multiple de 16, ≤ 16 couleurs)"
+                onClick={p.onImportTilesetPng}
+              >
+                PNG libre…
+              </button>
+            )}
             <button
               disabled={
                 !p.canWrite ||

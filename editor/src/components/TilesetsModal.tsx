@@ -1,34 +1,34 @@
-// Fenêtre « Tilesets » (Tools →, T1) — l'onglet Tileset de la Database
-// RM2003 : liste des tilesets, import (PNG libre ou chipset RM2003), et
-// trois modes d'édition sur la grille :
+// Fenêtre « Tilesets » (Tools →, T1/T2) — l'onglet Tileset de la Database
+// RM2003 : la LISTE des tilesets du projet à gauche (＋ en crée un VIDE,
+// on lui assigne ensuite un fichier chipset importé via le Gestionnaire
+// de ressources), Nom + Fichier en tête, deux onglets Couche basse /
+// Couche haute, et les modes d'édition en colonne à gauche de la grille :
 //   Passabilité   : O passable, X solide, ☆ au-dessus du héros (cycle)
 //   Directionnel  : 4 flèches par tile — un côté FERMÉ ne se franchit
 //                   plus (comptoirs, corniches) ; clic près d'un bord
 //   Animations    : séquences de tiles animées façon eau RM2003
 //                   (2-4 tiles de grille, 1-2-3 ou 1-2-3-2, vitesse)
-// Tout vit dans le sidecar assets/<stem>.json — dirs (côtés fermés par
-// id) et anims (séquences), compilés par datagen (collision nibble haut
-// + data_tileanim.c).
+// La passabilité & co vivent dans le sidecar du FICHIER (assets/<stem>
+// .json) : deux tilesets qui partagent un fichier partagent ses réglages.
 
 import { useEffect, useRef, useState } from "react";
-import type { TilesetMeta } from "../types";
-import { AUTOTILE_BASE } from "../types";
+import type { TilesetDef, TilesetMeta } from "../types";
+import { AUTOTILE_BASE, assetStem } from "../types";
 import { isAboveId, isSolidId, cyclePassability } from "../state";
 import { drawAutotilePreview } from "../autotile";
 
 interface Props {
-  tilesetNames: string[]; // stems, ordre du projet
-  tilesets: Record<string, ImageBitmap>;
+  defs: TilesetDef[]; // entrées nommées (project.tileset_defs)
+  files: string[]; // chipsets importés (project.tilesets — chemins PNG)
+  tilesets: Record<string, ImageBitmap>; // bitmaps par stem de fichier
   autoImgs: Record<string, ImageBitmap[]>; // autotiles par stem
-  meta: Record<string, TilesetMeta>;
-  canImport: boolean;
-  onImport: () => void; // PNG libre (les handlers App gèrent tout)
-  onImportChipset: () => void;
-  onOk: (meta: Record<string, TilesetMeta>) => void;
+  meta: Record<string, TilesetMeta>; // sidecars par stem
+  onOk: (defs: TilesetDef[], meta: Record<string, TilesetMeta>) => void;
   onClose: () => void;
 }
 
 type Mode = "pass" | "dirs" | "anims";
+type Tab = "lower" | "upper";
 
 const COLS = 6;
 const CELL = 40; // tile 16x16 affichée x2 + marge pour les flèches
@@ -37,32 +37,54 @@ const CELL = 40; // tile 16x16 affichée x2 + marge pour les flèches
 const B_DOWN = 1, B_UP = 2, B_LEFT = 4, B_RIGHT = 8;
 
 export default function TilesetsModal(props: Props) {
+  const [defs, setDefs] = useState<TilesetDef[]>(() => structuredClone(props.defs));
   const [draft, setDraft] = useState<Record<string, TilesetMeta>>(() =>
     structuredClone(props.meta)
   );
-  const [stem, setStem] = useState(props.tilesetNames[0] ?? "");
+  const [sel, setSel] = useState(0);
   const [mode, setMode] = useState<Mode>("pass");
+  const [tab, setTab] = useState<Tab>("lower");
   const [seqSel, setSeqSel] = useState(0);
   const ref = useRef<HTMLCanvasElement>(null);
 
-  const bmp = props.tilesets[stem] ?? null;
-  const autos = props.autoImgs[stem] ?? [];
+  const def = defs[sel];
+  const stem = def?.file ? assetStem(def.file) : "";
+  const bmp = (stem && props.tilesets[stem]) || null;
+  const autos = (stem && props.autoImgs[stem]) || [];
   const meta: TilesetMeta =
-    draft[stem] ?? { autotiles: [], solid: [], above: [] };
+    (stem && draft[stem]) || { autotiles: [], solid: [], above: [] };
   const gridCount = bmp
     ? Math.max(1, Math.floor(bmp.width / 16)) * Math.max(1, Math.floor(bmp.height / 16))
     : 0;
   const anims = meta.anims ?? [];
 
-  // cellules affichées : autotiles puis grille (ids logiques)
+  // cellules affichées, filtrées par ONGLET (chipsets RM2003 :
+  // upper_start sépare les sections ; sans lui, tout vit en couche basse)
+  const us = meta.upper_start;
   const cells: number[] = [];
-  for (let k = 0; k < autos.length; k++) cells.push(AUTOTILE_BASE + k);
-  for (let t = 0; t < gridCount; t++) cells.push(t);
+  if (tab === "lower") {
+    for (let k = 0; k < autos.length; k++) cells.push(AUTOTILE_BASE + k);
+    const t1 = us !== undefined ? Math.min(us, gridCount) : gridCount;
+    for (let t = 0; t < t1; t++) cells.push(t);
+  } else {
+    const t0 = us !== undefined ? Math.min(us, gridCount) : gridCount;
+    for (let t = t0; t < gridCount; t++) cells.push(t);
+  }
   const rows = Math.max(1, Math.ceil(cells.length / COLS));
 
-  const patch = (m: TilesetMeta) => setDraft({ ...draft, [stem]: m });
+  const patch = (m: TilesetMeta) => {
+    if (stem) setDraft({ ...draft, [stem]: m });
+  };
 
-  // ---- rendu -----------------------------------------------------------
+  // nom libre le plus proche pour une nouvelle entrée
+  function freeName(): string {
+    for (let i = defs.length + 1; ; i++) {
+      const n = `tileset${i}`;
+      if (!defs.some((d) => d.name === n)) return n;
+    }
+  }
+
+  // ---- rendu de la grille ----------------------------------------------
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
@@ -72,14 +94,15 @@ export default function TilesetsModal(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#14161c";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    const srcCols = bmp ? Math.max(1, Math.floor(bmp.width / 16)) : 1;
+    if (!bmp) return;
+    const srcCols = Math.max(1, Math.floor(bmp.width / 16));
     cells.forEach((id, i) => {
       const x = (i % COLS) * CELL + 4;
       const y = Math.floor(i / COLS) * CELL + 4;
       if (id >= AUTOTILE_BASE) {
         const a = autos[id - AUTOTILE_BASE];
         if (a) drawAutotilePreview(ctx, a, x, y, 2);
-      } else if (bmp) {
+      } else {
         const sx = (id % srcCols) * 16;
         const sy = Math.floor(id / srcCols) * 16;
         ctx.drawImage(bmp, sx, sy, 16, 16, x, y, 32, 32);
@@ -101,9 +124,7 @@ export default function TilesetsModal(props: Props) {
           ctx.fillRect(x, y, 32, 32);
           return;
         }
-        const arrow = (
-          dx: number, dy: number, closed: boolean, rot: number
-        ) => {
+        const arrow = (dx: number, dy: number, closed: boolean, rot: number) => {
           ctx.save();
           ctx.translate(x + 16 + dx, y + 16 + dy);
           ctx.rotate(rot);
@@ -143,10 +164,11 @@ export default function TilesetsModal(props: Props) {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bmp, autos, meta, mode, seqSel, rows, stem]);
+  }, [bmp, autos, meta, mode, tab, seqSel, rows, stem]);
 
-  // ---- clics -------------------------------------------------------------
+  // ---- clics sur la grille -----------------------------------------------
   function onClick(e: React.MouseEvent) {
+    if (!bmp) return;
     const rect = ref.current!.getBoundingClientRect();
     const cx = Math.floor((e.clientX - rect.left) / CELL);
     const cy = Math.floor((e.clientY - rect.top) / CELL);
@@ -160,7 +182,6 @@ export default function TilesetsModal(props: Props) {
     if (id >= AUTOTILE_BASE) return; // dirs/anims : tiles de grille seules
     if (mode === "dirs") {
       if (isSolidId(meta, id)) return; // un solide n'a pas de côtés
-      // côté le plus proche du clic dans la cellule
       const lx = e.clientX - rect.left - cx * CELL - 20; // centre 0
       const ly = e.clientY - rect.top - cy * CELL - 20;
       const bit =
@@ -175,7 +196,6 @@ export default function TilesetsModal(props: Props) {
       patch({ ...meta, dirs });
       return;
     }
-    // anims : ajoute/retire la tile de la séquence sélectionnée
     const seq = anims[seqSel];
     if (!seq) return;
     const list = [...anims];
@@ -193,163 +213,236 @@ export default function TilesetsModal(props: Props) {
         : null
     )
     .filter(Boolean) as string[];
+  const nameBad =
+    !!def && (def.name.trim() === "" || defs.some((d, i) => i !== sel && d.name === def.name));
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Tilesets</div>
-        <div className="row" style={{ alignItems: "flex-end", gap: 8 }}>
-          <label style={{ minWidth: 180 }}>
-            Tileset
-            <select value={stem} onChange={(e) => { setStem(e.target.value); setSeqSel(0); }}>
-              {props.tilesetNames.map((n) => (
-                <option key={n} value={n}>{n}</option>
+        <div className="db-body">
+          {/* ---- colonne gauche : la liste, façon Database RM2003 ---- */}
+          <div className="db-tablecol">
+            <div className="evedit-cmds db-tables">
+              {defs.map((d, i) => (
+                <div
+                  key={i}
+                  className={"evedit-line" + (i === sel ? " active" : "")}
+                  onClick={() => {
+                    setSel(i);
+                    setSeqSel(0);
+                    setTab("lower");
+                  }}
+                >
+                  {String(i + 1).padStart(4, "0")}: {d.name || "(sans nom)"}
+                  {!d.file && <span className="db-badge">vide</span>}
+                </div>
               ))}
-            </select>
-          </label>
-          {props.canImport && (
-            <button onClick={props.onImport} title="Importer un PNG de tileset dans le projet">
-              Importer…
-            </button>
-          )}
-          {props.canImport && (
-            <button
-              onClick={props.onImportChipset}
-              title="Importer un chipset RPG Maker 2003 (PNG 480x256) : tiles, autotiles et couches découpés automatiquement"
-            >
-              Chipset RM2003…
-            </button>
-          )}
-          <span style={{ flex: 1 }} />
-          <div className="row" style={{ gap: 4 }}>
-            <button className={mode === "pass" ? "active" : ""} onClick={() => setMode("pass")}
-              title="O passable, X solide, ☆ au-dessus du héros — clic = cycle">
-              Passabilité O/X/☆
-            </button>
-            <button className={mode === "dirs" ? "active" : ""} onClick={() => setMode("dirs")}
-              title="Côtés fermés (flèche rouge = ne se franchit plus) — clic près d'un bord">
-              ✥ Directionnel
-            </button>
-            <button className={mode === "anims" ? "active" : ""} onClick={() => setMode("anims")}
-              title="Séquences de tiles animées (eau, torches…)">
-              ▶ Animations
-            </button>
+            </div>
+            <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
+              <button
+                title="Nouveau tileset (vide — assigner ensuite un fichier)"
+                onClick={() => {
+                  setDefs([...defs, { name: freeName(), file: "" }]);
+                  setSel(defs.length);
+                }}
+              >
+                ＋
+              </button>
+              <button
+                className="danger"
+                disabled={!def || defs.length <= 1}
+                title="Retirer l'entrée (le fichier chipset reste au projet)"
+                onClick={() => {
+                  setDefs(defs.filter((_, i) => i !== sel));
+                  setSel(Math.max(0, sel - 1));
+                }}
+              >
+                🗑
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="row" style={{ alignItems: "flex-start", gap: 12 }}>
-          <div style={{ maxHeight: 420, overflowY: "auto" }}>
-            <canvas ref={ref} onMouseDown={onClick} style={{ cursor: "pointer" }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 260 }}>
-            {mode === "pass" && (
-              <p className="hint">
-                Clic sur une tile : O (passable) → X (solide) → ☆ (au-dessus du
-                héros, passable) → O. S'applique aussi aux autotiles. La même
-                édition reste disponible dans l'onglet Scène (bouton
-                Passabilité).
-              </p>
+
+          {/* ---- panneau principal ---- */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            {def && (
+              <div className="row" style={{ gap: 8 }}>
+                <label style={{ flex: 1 }}>
+                  Nom
+                  <input
+                    value={def.name}
+                    style={nameBad ? { outline: "1px solid #ff7070" } : undefined}
+                    onChange={(e) => {
+                      const list = [...defs];
+                      list[sel] = { ...def, name: e.target.value };
+                      setDefs(list);
+                    }}
+                  />
+                </label>
+                <label style={{ flex: 1 }}>
+                  Fichier tileset (chipsets importés — Gestionnaire de ressources)
+                  <select
+                    value={def.file}
+                    onChange={(e) => {
+                      const list = [...defs];
+                      list[sel] = { ...def, file: e.target.value };
+                      setDefs(list);
+                    }}
+                  >
+                    <option value="">(aucun — tileset vide)</option>
+                    {props.files.map((f) => (
+                      <option key={f} value={f}>
+                        {assetStem(f)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             )}
-            {mode === "dirs" && (
-              <p className="hint">
-                Passage directionnel (RM2003) : cliquer PRÈS D'UN BORD ferme ou
-                rouvre ce côté (flèche rouge = fermé). Un côté fermé ne se
-                franchit plus, ni en sortant ni en entrant — comptoirs de
-                magasin, corniches à sens unique. Héros ET événements mobiles.
-                Tiles de GRILLE uniquement (pas les autotiles), et inutile sur
-                du solide.
-              </p>
-            )}
-            {mode === "anims" && (
-              <>
-                <p className="hint">
-                  Façon eau RM2003 : la PREMIÈRE tile (B) est celle posée sur
-                  les maps, les suivantes (1, 2…) sont ses frames — mêmes
-                  couleurs, pixels propres à la séquence. Clic sur une tile de
-                  la grille : l'ajouter / la retirer de la séquence.
-                </p>
-                <div className="evedit-cmds" style={{ maxHeight: 150, overflowY: "auto" }}>
-                  {anims.map((a, i) => (
-                    <div
-                      key={i}
-                      className={"evedit-line" + (i === seqSel ? " active" : "")}
-                      onClick={() => setSeqSel(i)}
-                    >
-                      ▶ {a.tiles.length ? a.tiles.join(" → ") : "(vide)"} · {a.mode} ·{" "}
-                      {a.speed}f
+            {/* onglets de couche, comme RM2003 */}
+            <div className="tabs">
+              <button className={tab === "lower" ? "active" : ""} onClick={() => setTab("lower")}>
+                Couche basse
+              </button>
+              <button className={tab === "upper" ? "active" : ""} onClick={() => setTab("upper")}>
+                Couche haute
+              </button>
+            </div>
+            <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
+              {/* modes d'édition en colonne (Editing Mode de RM2003) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 170 }}>
+                <button className={mode === "pass" ? "active" : ""} onClick={() => setMode("pass")}
+                  title="O passable, X solide, ☆ au-dessus du héros — clic = cycle">
+                  Passabilité O/X/☆
+                </button>
+                <button className={mode === "dirs" ? "active" : ""} onClick={() => setMode("dirs")}
+                  title="Côtés fermés (flèche rouge = ne se franchit plus) — clic près d'un bord">
+                  ✥ Directionnel
+                </button>
+                <button className={mode === "anims" ? "active" : ""} onClick={() => setMode("anims")}
+                  title="Séquences de tiles animées (eau, torches…)">
+                  ▶ Animations
+                </button>
+                {mode === "anims" && (
+                  <>
+                    <div className="evedit-cmds" style={{ maxHeight: 140, overflowY: "auto" }}>
+                      {anims.map((a, i) => (
+                        <div
+                          key={i}
+                          className={"evedit-line" + (i === seqSel ? " active" : "")}
+                          onClick={() => setSeqSel(i)}
+                        >
+                          ▶ {a.tiles.length ? a.tiles.join("→") : "(vide)"} · {a.speed}f
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <div className="row" style={{ gap: 4, marginTop: 4 }}>
-                  <button
-                    title="Nouvelle séquence"
-                    onClick={() => {
-                      patch({
-                        ...meta,
-                        anims: [...anims, { tiles: [], mode: "1232", speed: 20 }],
-                      });
-                      setSeqSel(anims.length);
-                    }}
-                  >
-                    ＋
-                  </button>
-                  <button
-                    className="danger"
-                    disabled={!anims[seqSel]}
-                    title="Supprimer la séquence"
-                    onClick={() => {
-                      patch({ ...meta, anims: anims.filter((_, i) => i !== seqSel) });
-                      setSeqSel(0);
-                    }}
-                  >
-                    🗑
-                  </button>
-                </div>
-                {anims[seqSel] && (
-                  <div className="row" style={{ gap: 8, marginTop: 4 }}>
-                    <label>
-                      Séquence
-                      <select
-                        value={anims[seqSel].mode}
-                        onChange={(e) => {
-                          const list = [...anims];
-                          list[seqSel] = { ...list[seqSel], mode: e.target.value };
-                          patch({ ...meta, anims: list });
+                    <div className="row" style={{ gap: 4 }}>
+                      <button
+                        disabled={!stem}
+                        title="Nouvelle séquence"
+                        onClick={() => {
+                          patch({
+                            ...meta,
+                            anims: [...anims, { tiles: [], mode: "1232", speed: 20 }],
+                          });
+                          setSeqSel(anims.length);
                         }}
                       >
-                        <option value="123">1-2-3 (boucle)</option>
-                        <option value="1232">1-2-3-2 (aller-retour)</option>
-                      </select>
-                    </label>
-                    <label>
-                      Vitesse (frames par image)
-                      <input
-                        type="number" min={1} max={255}
-                        value={anims[seqSel].speed}
-                        onChange={(e) => {
-                          const list = [...anims];
-                          list[seqSel] = {
-                            ...list[seqSel],
-                            speed: Math.max(1, Math.min(255, Number(e.target.value) || 1)),
-                          };
-                          patch({ ...meta, anims: list });
+                        ＋
+                      </button>
+                      <button
+                        className="danger"
+                        disabled={!anims[seqSel]}
+                        title="Supprimer la séquence"
+                        onClick={() => {
+                          patch({ ...meta, anims: anims.filter((_, i) => i !== seqSel) });
+                          setSeqSel(0);
                         }}
-                      />
-                    </label>
-                  </div>
+                      >
+                        🗑
+                      </button>
+                    </div>
+                    {anims[seqSel] && (
+                      <>
+                        <label>
+                          Séquence
+                          <select
+                            value={anims[seqSel].mode}
+                            onChange={(e) => {
+                              const list = [...anims];
+                              list[seqSel] = { ...list[seqSel], mode: e.target.value };
+                              patch({ ...meta, anims: list });
+                            }}
+                          >
+                            <option value="123">1-2-3 (boucle)</option>
+                            <option value="1232">1-2-3-2 (aller-retour)</option>
+                          </select>
+                        </label>
+                        <label>
+                          Vitesse (frames)
+                          <input
+                            type="number" min={1} max={255}
+                            value={anims[seqSel].speed}
+                            onChange={(e) => {
+                              const list = [...anims];
+                              list[seqSel] = {
+                                ...list[seqSel],
+                                speed: Math.max(1, Math.min(255, Number(e.target.value) || 1)),
+                              };
+                              patch({ ...meta, anims: list });
+                            }}
+                          />
+                        </label>
+                      </>
+                    )}
+                    {animErrors.map((er) => (
+                      <p className="hint" key={er} style={{ color: "#ff9090" }}>⚠ {er}</p>
+                    ))}
+                  </>
                 )}
-                {animErrors.map((e) => (
-                  <p className="hint" key={e} style={{ color: "#ff9090" }}>⚠ {e}</p>
-                ))}
-              </>
-            )}
+                <p className="hint">
+                  {mode === "pass" &&
+                    "Clic : O (passable) → X (solide) → ☆ (au-dessus du héros) → O. Autotiles compris."}
+                  {mode === "dirs" &&
+                    "Clic PRÈS D'UN BORD : ferme/rouvre ce côté (rouge = infranchissable, héros et événements). Tiles de grille, hors solide."}
+                  {mode === "anims" &&
+                    "La PREMIÈRE tile (B) est celle posée sur les maps, les suivantes ses frames (mêmes couleurs). Clic sur la grille : ajouter/retirer."}
+                </p>
+              </div>
+              {/* grille du tileset */}
+              <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                {!def?.file ? (
+                  <p className="hint" style={{ width: 240 }}>
+                    Tileset vide — choisir un « Fichier tileset » ci-dessus.
+                    Les chipsets s'importent dans le Gestionnaire de
+                    ressources (catégorie ChipSet).
+                  </p>
+                ) : cells.length === 0 ? (
+                  <p className="hint" style={{ width: 240 }}>
+                    {tab === "upper"
+                      ? "Pas de section couche haute (chipsets RM2003 uniquement — upper_start)."
+                      : "Grille vide."}
+                  </p>
+                ) : (
+                  <canvas ref={ref} onMouseDown={onClick} style={{ cursor: "pointer" }} />
+                )}
+              </div>
+            </div>
           </div>
         </div>
         <div className="row">
-          <span style={{ flex: 1 }} />
+          <span className="hint" style={{ flex: 1 }}>
+            Deux tilesets qui partagent un même fichier partagent sa
+            passabilité, ses côtés fermés et ses animations (sidecar du
+            fichier).
+          </span>
           <button
-            disabled={animErrors.length > 0}
-            title={animErrors.length ? "Corriger les séquences d'abord" : undefined}
-            onClick={() => props.onOk(draft)}
+            disabled={defs.some(
+              (d, i) =>
+                d.name.trim() === "" || defs.some((o, j) => j !== i && o.name === d.name)
+            ) || animErrors.length > 0}
+            title="Désactivé tant qu'un nom est vide/en double ou qu'une séquence est invalide"
+            onClick={() => props.onOk(defs, draft)}
           >
             OK
           </button>

@@ -247,6 +247,13 @@ maintenu par l'éditeur pour son mode navigateur — ignoré par dbgen (le
 dossier fait foi).
 
 **v0.17 (lire la database depuis les events)** :
+**T2 (entrées tileset)** : `project.tileset_defs` =
+`[{"name": "...", "file": "assets/xxx.png"}]` — les tilesets NOMMÉS de
+la fenêtre Tools → Tilesets (file vide = entrée pas encore assignée).
+Purement éditeur : datagen l'ignore, les scènes référencent toujours le
+fichier par stem. Projets existants : migrés à l'ouverture (une entrée
+par fichier, nom = stem).
+
 **T1 (tilesets — sidecar assets/<stem>.json)** : en plus de
 `solid`/`above`/`autotiles`, deux clés :
 `"dirs": {"<id>": masque}` — côtés FERMÉS d'une tile de grille (bits :
