@@ -182,10 +182,23 @@ export async function loadProject(root: string): Promise<ProjectData> {
       screens[n] = {
         backdrop: sc.backdrop ?? "",
         slots: sc.slots ?? [],
-        script: sc.script ?? [],
+        // héritage : l'ancien champ « script » devient le premier
+        // script nommé (lancé à l'ouverture)
+        scripts: (
+          sc.scripts ?? [{ name: "principal", commands: sc.script ?? [] }]
+        ).map((x: { name: string; trigger?: string; cond?: unknown; commands?: unknown[] }, i: number) => ({
+          name: x.name ?? `script${i + 1}`,
+          trigger: x.trigger ?? (i === 0 ? "auto" : "call"),
+          cond: x.cond,
+          commands: x.commands ?? [],
+        })),
       };
     } catch {
-      screens[n] = { backdrop: "", slots: [], script: [] };
+      screens[n] = {
+        backdrop: "",
+        slots: [],
+        scripts: [{ name: "principal", trigger: "auto", commands: [] }],
+      };
     }
   }
   return { root, project, scenes, texts, tilesetMeta, screens };

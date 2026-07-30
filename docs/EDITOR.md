@@ -376,18 +376,26 @@ Pas encore : animation des autotiles (eau), édition des gfx.
   plateau, carte, scène illustrée. Budget ~511 tuiles par écran ;
   éviter de faire se chevaucher deux images (couche unique). Les
   dialogues, choix et widgets fonctionnent par-dessus l'écran.
-- **Fenêtre « Écrans composés »** (Tools →, B6bis) : les mises en
-  scène se COMPOSENT À LA SOURIS — liste des écrans à gauche
-  (＋/renommer/🗑), et pour chacun deux onglets : **Composition**
-  (choisir le fond parmi les Pictures, poser des images dessus et les
-  GLISSER à la souris — magnétisme 8 px, aperçu fidèle au pixel, un
-  slot 1-5 par image) et **Script** (le même éditeur de commandes que
-  les events, lancé à l'ouverture de l'écran : la logique du combat
-  vit là — terminer par « Fermer l'écran composé »). En jeu, la
+- **Fenêtre « Écrans composés »** (Tools →, B6bis ; multi-scripts
+  B6bis-2) : les mises en scène se COMPOSENT À LA SOURIS — liste des
+  écrans à gauche (＋/renommer/🗑), et pour chacun deux onglets :
+  **Composition** (choisir le fond parmi les Pictures, bouton
+  « ＋ Ajouter une image », liste des images posées — chaque image a
+  un NOM libre, son slot 1-5, sa picture et ses coordonnées — et le
+  canvas où on les GLISSE à la souris, magnétisme 8 px, aperçu fidèle
+  au pixel) et **Scripts** (PLUSIEURS scripts NOMMÉS par écran, avec
+  chacun son **déclencheur** : **Automatique** — joué à l'ouverture,
+  éventuellement sous **condition** de switch ou de variable — ou
+  **Par appel** — joué via la commande « Appeler un script de
+  l'écran » depuis un autre script du même écran ; chaque script
+  s'édite avec le même éditeur de commandes que les events — la
+  logique du combat vit là, terminer par « Fermer l'écran composé »,
+  qui masque aussi les vignettes encore affichées). En jeu, la
   commande **« Aller à l'écran »** joue tout : c'est du sucre —
-  datagen déroule la composition en commandes « Écran composé »
-  ordinaires, le moteur ne change pas, et le script de l'écran peut
-  toujours poser/retirer/flasher dynamiquement par-dessus.
+  datagen déroule la composition et les scripts automatiques en
+  commandes « Écran composé » ordinaires, le moteur ne change pas, et
+  les scripts peuvent toujours poser/retirer/flasher dynamiquement
+  par-dessus.
 - **Fenêtre « Common events »** (Tools →, v0.16 — onglet Common Events
   de la Database RM2003) : liste numérotée à gauche (＋ Ajouter / 🗑),
   à droite Nom, Déclencheur — **None (appelé)**, **Autorun** ou

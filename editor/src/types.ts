@@ -239,6 +239,7 @@ export type Command =
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
   | { c: "screen"; name: string; dur?: number }
+  | { c: "screen_call"; script: string }
   | { c: "stage_open"; pic: string; dur?: number }
   | { c: "stage_pose"; slot: number; pic: string; x: number; y: number }
   | { c: "stage_clear"; slot: number }
@@ -494,7 +495,27 @@ export interface TextEntry {
 export interface Screen {
   backdrop: string; // stem d'une picture, "" = fond noir
   slots: ScreenSlot[];
-  script: Command[];
+  // scripts NOMMÉS : le PREMIER est lancé à l'ouverture, les autres
+  // s'appellent via « Appeler un script de l'écran » (déroulés inline)
+  scripts: ScreenScript[];
+}
+
+export interface ScreenScript {
+  name: string;
+  // déclenchement : "auto" = à l'ouverture de l'écran (dans l'ordre),
+  // "call" = par « Appeler un script de l'écran ». Un script auto peut
+  // porter une CONDITION (switch/variable) — compilée en if autour.
+  trigger: "auto" | "call";
+  cond?: ScreenCond;
+  commands: Command[];
+}
+
+export interface ScreenCond {
+  kind: "switch" | "var";
+  n: number;
+  on?: boolean; // switch
+  op?: "==" | "!=" | ">="; // variable
+  value?: number;
 }
 
 export interface ScreenSlot {
@@ -502,6 +523,7 @@ export interface ScreenSlot {
   pic: string; // stem
   x: number; // pixels (multiples de 8)
   y: number;
+  name?: string; // libellé d'auteur (« gobelin gauche ») — éditeur seul
 }
 
 export interface ProjectData {

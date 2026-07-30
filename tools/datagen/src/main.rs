@@ -217,6 +217,35 @@ fn main() -> Result<()> {
         if screens.iter().any(|s| s.name == def.name) {
             bail!("écran '{}' : nom en double", name);
         }
+        // héritage : l'ancien champ « script » devient le premier
+        // script nommé
+        if def.scripts.is_empty() {
+            def.scripts.push(project::ScreenScript {
+                name: "principal".to_string(),
+                trigger: "auto".to_string(),
+                cond: None,
+                commands: std::mem::take(&mut def.script),
+            });
+        }
+        for (i, sc) in def.scripts.iter_mut().enumerate() {
+            if sc.trigger.is_empty() {
+                sc.trigger = if i == 0 { "auto" } else { "call" }.to_string();
+            }
+            if sc.trigger != "auto" && sc.trigger != "call" {
+                bail!(
+                    "écran '{}' : script '{}' — déclencheur inconnu '{}'",
+                    name, sc.name, sc.trigger
+                );
+            }
+        }
+        {
+            let mut seen = std::collections::HashSet::new();
+            for sc in &def.scripts {
+                if !seen.insert(sc.name.clone()) {
+                    bail!("écran '{}' : script '{}' en double", name, sc.name);
+                }
+            }
+        }
         for sl in &def.slots {
             if sl.slot < 1 || sl.slot > 5 {
                 bail!("écran '{}' : slot {} (attendu 1-5)", name, sl.slot);

@@ -5,35 +5,52 @@
       "slot": 1,
       "pic": "dragon",
       "x": 24,
-      "y": 48
+      "y": 48,
+      "name": "dragon"
     },
     {
       "slot": 2,
       "pic": "gobelin",
       "x": 144,
-      "y": 104
+      "y": 104,
+      "name": "gobelin_bas"
     },
     {
       "slot": 3,
       "pic": "gobelin",
       "x": 200,
-      "y": 64
+      "y": 64,
+      "name": "gobelin_haut"
     }
   ],
-  "script": [
+  "scripts": [
     {
-      "c": "wait",
-      "frames": 60
+      "name": "principal",
+      "commands": [
+        {
+          "c": "wait",
+          "frames": 60
+        },
+        {
+          "c": "screen_call",
+          "script": "attaque_dragon"
+        },
+        {
+          "c": "wait",
+          "frames": 120
+        }
+      ]
     },
     {
-      "c": "slot_fx",
-      "slot": 1,
-      "fx": "flash",
-      "frames": 20
-    },
-    {
-      "c": "wait",
-      "frames": 120
+      "name": "attaque_dragon",
+      "commands": [
+        {
+          "c": "slot_fx",
+          "slot": 1,
+          "fx": "flash",
+          "frames": 20
+        }
+      ]
     }
   ]
 }

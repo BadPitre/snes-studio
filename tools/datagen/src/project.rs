@@ -64,9 +64,41 @@ pub struct ScreenDef {
     /// images posées à l'ouverture (slot 1-5, position en pixels)
     #[serde(default)]
     pub slots: Vec<ScreenSlot>,
-    /// script joué à l'ouverture (mêmes commandes que les events)
+    /// héritage : ancien script unique (devient scripts[0])
     #[serde(default)]
     pub script: Vec<serde_json::Value>,
+    /// scripts NOMMÉS : le premier est joué à l'ouverture, les autres
+    /// s'appellent via {"c":"screen_call","script":"nom"} (inline)
+    #[serde(default)]
+    pub scripts: Vec<ScreenScript>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ScreenScript {
+    #[serde(default)]
+    pub name: String,
+    /// "auto" = à l'ouverture (dans l'ordre), "call" = par screen_call.
+    /// Absent : le premier script est auto, les autres call (héritage).
+    #[serde(default)]
+    pub trigger: String,
+    /// condition d'un script auto (switch ou variable) — compilée en
+    /// if autour du corps
+    #[serde(default)]
+    pub cond: Option<ScreenCond>,
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ScreenCond {
+    pub kind: String, // "switch" | "var"
+    pub n: u16,
+    #[serde(default)]
+    pub on: Option<bool>,
+    #[serde(default)]
+    pub op: Option<String>,
+    #[serde(default)]
+    pub value: Option<i64>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -77,6 +109,10 @@ pub struct ScreenSlot {
     pub x: u16,
     #[serde(default)]
     pub y: u16,
+    /// libellé d'auteur — purement éditeur, ignoré ici
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub name: String,
 }
 
 /// Entrée du registre pictures : chemin nu, ou objet avec le drapeau de

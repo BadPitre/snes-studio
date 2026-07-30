@@ -48,12 +48,16 @@ static u8 tile_blocked(u8 tx, u8 ty)
    et arrive sur une tile COL_WARP (pas de re-déclenchement sur place).
    Même logique pour les déclencheurs de CONTACT (acteurs invisibles,
    spec §1.3 v0.6) : leur script part quand on marche sur leur tile. */
-static u8 prev_ctx, prev_cty;
-static u8 warp_pending;
-static u8 warp_dest_scene, warp_dest_x, warp_dest_y;
+/* init EXPLICITE : tcc-816 ne remet pas le BSS à zéro — un static nu garde
+   le motif de boot de la console/émulateur (0x55 sur snes9x). Le warp
+   interne de fermeture d'écran composé (B3) consommait warp_dest_dir avant
+   toute écriture : dir = 0x54 → chars hors table → héros invisible/noir. */
+static u8 prev_ctx = 0, prev_cty = 0;
+static u8 warp_pending = 0;
+static u8 warp_dest_scene = 0, warp_dest_x = 0, warp_dest_y = 0;
 /* Direction d'arrivée (v0.16, WarpDef.flags bits 0-2) : 0 = conserver,
    1-4 = DIR_* + 1 — consommée par do_warp via player_take_warp_dir. */
-static u8 warp_dest_dir;
+static u8 warp_dest_dir = 0;
 
 static void check_warp(void)
 {
@@ -108,7 +112,12 @@ void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
    à lire juste après player_take_warp(). */
 u8 player_take_warp_dir(void)
 {
-  return warp_dest_dir;
+  u8 d = warp_dest_dir;
+
+  /* consommée : un warp SANS direction (fermeture d'écran composé,
+     chargement de partie) ne doit pas hériter de celle du warp précédent */
+  warp_dest_dir = 0;
+  return d;
 }
 
 void player_set_pos(u8 tx, u8 ty)

@@ -66,6 +66,9 @@ pub struct EventCompiler<'a> {
     vignettes: Vec<String>,
     /// écrans composés (B6bis) — déroulés par la commande "screen"
     screens: Vec<ScreenDef>,
+    /// pile des écrans en cours de déroulage (screen_call — les noms de
+    /// scripts se résolvent dans l'écran COURANT)
+    screen_stack: Vec<usize>,
     /// contenu → nom (dédoublonnage des textes inline, projets entiers)
     text_of: HashMap<String, String>,
     label_seq: usize,
@@ -98,6 +101,7 @@ impl<'a> EventCompiler<'a> {
             musics: Vec::new(),
             vignettes: Vec::new(),
             screens: Vec::new(),
+            screen_stack: Vec::new(),
             text_of,
             label_seq: 0,
             gfx_blocks: Vec::new(),
@@ -673,7 +677,60 @@ impl<'a> EventCompiler<'a> {
                             sl.slot - 1, pid, sl.x / 8, sl.y / 8
                         ));
                     }
-                    self.compile_list(&sc.script, depth + 1, out)?;
+                    // les scripts AUTO sont joués à l'ouverture, dans
+                    // l'ordre ; une condition (switch/variable) devient
+                    // un if autour du corps — les "call" attendent
+                    // screen_call (contexte empilé)
+                    self.screen_stack.push(idx);
+                    for scr in &sc.scripts {
+                        if scr.trigger != "auto" {
+                            continue;
+                        }
+                        let body = match &scr.cond {
+                            None => serde_json::Value::Array(scr.commands.clone()),
+                            Some(c) if c.kind == "switch" => serde_json::json!([{
+                                "c": "if_sw",
+                                "n": c.n,
+                                "on": c.on.unwrap_or(true),
+                                "then": scr.commands.clone(),
+                                "else": []
+                            }]),
+                            Some(c) => serde_json::json!([{
+                                "c": "if_var",
+                                "n": c.n,
+                                "op": c.op.clone().unwrap_or_else(|| "==".to_string()),
+                                "value": c.value.unwrap_or(0),
+                                "then": scr.commands.clone(),
+                                "else": []
+                            }]),
+                        };
+                        let list = body.as_array().cloned().unwrap_or_default();
+                        self.compile_list(&list, depth + 1, out)?;
+                    }
+                    self.screen_stack.pop();
+                }
+                // B6bis-2 — appelle un AUTRE script de l'écran courant,
+                // déroulé inline (MAX_DEPTH protège des boucles d'appels)
+                "screen_call" => {
+                    let sname = cmd["script"].as_str().unwrap_or("");
+                    let sidx = *self.screen_stack.last().with_context(|| {
+                        "screen_call : uniquement depuis un script \
+                         d'écran composé"
+                            .to_string()
+                    })?;
+                    let body = self.screens[sidx]
+                        .scripts
+                        .iter()
+                        .find(|sc| sc.name == sname)
+                        .map(|sc| sc.commands.clone())
+                        .with_context(|| {
+                            format!(
+                                "screen_call : script '{}' introuvable dans \
+                                 l'écran '{}'",
+                                sname, self.screens[sidx].name
+                            )
+                        })?;
+                    self.compile_list(&body, depth + 1, out)?;
                 }
                 // B3 — écran composé : fond + images posées multi-slots
                 "stage_open" => {

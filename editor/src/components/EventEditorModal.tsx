@@ -38,6 +38,7 @@ interface Props {
   musicNames: string[]; // stems des musiques du projet (B1)
   vigNames: string[]; // stems des vignettes (B5)
   screenNames: string[]; // écrans composés (B6bis)
+  screenScriptNames?: string[]; // scripts de l'écran courant (B6bis-2)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -174,6 +175,8 @@ function labelOf(c: Command, ceNames?: string[]): string {
       );
     case "screen":
       return `Aller à l'écran « ${c.name} »`;
+    case "screen_call":
+      return `Appeler le script d'écran « ${c.script} »`;
     case "stage_open":
       return c.pic === ""
         ? "Écran composé : ouvrir (fond noir)"
@@ -271,6 +274,7 @@ function cmdTitle(c: Command["c"]): string {
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
     screen: "Aller à l'écran",
+    screen_call: "Appeler un script de l'écran",
     stage_open: "Ouvrir un écran composé",
     stage_pose: "Poser une image (slot)",
     stage_clear: "Retirer une image (slot)",
@@ -375,6 +379,7 @@ export function CommandListEditor(props: {
   musicNames: string[];
   vigNames: string[];
   screenNames: string[];
+  screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -554,6 +559,8 @@ export function CommandListEditor(props: {
         return { c: "weather", kind: "rain", power: 2 };
       case "screen":
         return { c: "screen", name: "", dur: 20 };
+      case "screen_call":
+        return { c: "screen_call", script: "" };
       case "stage_open":
         return { c: "stage_open", pic: "", dur: 20 };
       case "stage_pose":
@@ -658,6 +665,7 @@ export function CommandListEditor(props: {
               musicNames={props.musicNames}
               vigNames={props.vigNames}
               screenNames={props.screenNames}
+              screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1072,6 +1080,7 @@ export default function EventEditorModal(props: Props) {
               musicNames={props.musicNames}
               vigNames={props.vigNames}
               screenNames={props.screenNames}
+              screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1149,6 +1158,7 @@ function CommandForm(props: {
   musicNames: string[];
   vigNames: string[];
   screenNames: string[];
+  screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -2335,6 +2345,39 @@ function CommandForm(props: {
             suite Ouvrir + Poser + … écrite à la main — mais composée à
             la souris. L'écran se referme par « Fermer l'écran
             composé » (dans son script, ou après).
+          </span>
+        </>
+      );
+      break;
+    case "screen_call":
+      body = (
+        <>
+          <label>
+            Script de l'écran
+            {props.screenScriptNames ? (
+              <select
+                value={cmd.script}
+                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
+              >
+                <option value="">(choisir…)</option>
+                {props.screenScriptNames.slice(1).map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={cmd.script}
+                placeholder="nom du script"
+                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
+              />
+            )}
+          </label>
+          <span className="hint">
+            Joue un AUTRE script du même écran composé (tes
+            sous-routines locales : tour_joueur, victoire…) — comme
+            « Appeler un common event », mais rangé dans l'écran.
+            Valable uniquement depuis un script d'écran (le build le
+            vérifie).
           </span>
         </>
       );

@@ -139,6 +139,10 @@ void stage_reset(void)
   sg_on = 0; /* scene_load (warp) recharge décor, sprites et scrolls */
   up_act = 0;
   sg_req = 0;
+  /* les vignettes affichées pendant l'écran font partie de sa mise en
+     scène : la fermeture les masque (sinon elles flottent sur la map) */
+  vig_hide(0);
+  vig_hide(1);
 }
 
 /* fondus maison sur $2100 — recette picture (S7), durée en frames */

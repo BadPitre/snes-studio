@@ -44,6 +44,7 @@ export default function ScreensModal(props: Props) {
   const [tab, setTab] = useState<"compo" | "script">("compo");
   const [bmps, setBmps] = useState<Record<string, ImageBitmap>>({});
   const [selSlot, setSelSlot] = useState<number | null>(null);
+  const [selScript, setSelScript] = useState(0);
   const [renaming, setRenaming] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ slot: number; dx: number; dy: number } | null>(null);
@@ -116,7 +117,14 @@ export default function ScreensModal(props: Props) {
     while (names.includes(`${base}${i}`)) i++;
     const n = `${base}${i}`;
     setNames([...names, n]);
-    setDraft({ ...draft, [n]: { backdrop: "", slots: [], script: [] } });
+    setDraft({
+      ...draft,
+      [n]: {
+        backdrop: "",
+        slots: [],
+        scripts: [{ name: "principal", trigger: "auto", commands: [] }],
+      },
+    });
     setSel(names.length);
   };
 
@@ -134,6 +142,7 @@ export default function ScreensModal(props: Props) {
                   onClick={() => {
                     setSel(i);
                     setSelSlot(null);
+                    setSelScript(0);
                     setRenaming(null);
                   }}
                 >
@@ -142,7 +151,7 @@ export default function ScreensModal(props: Props) {
               ))}
             </div>
             <div className="row">
-              <button onClick={addScreen}>＋ Ajouter</button>
+              <button onClick={addScreen} title="Ajouter un écran">＋</button>
               <button
                 className="danger"
                 disabled={!name}
@@ -208,7 +217,7 @@ export default function ScreensModal(props: Props) {
                     className={tab === "script" ? "active" : ""}
                     onClick={() => setTab("script")}
                   >
-                    Script ({cur.script.length})
+                    Scripts ({cur.scripts.length})
                   </button>
                 </div>
                 {tab === "compo" ? (
@@ -226,41 +235,84 @@ export default function ScreensModal(props: Props) {
                           ))}
                         </select>
                       </label>
-                      <label>
-                        Poser une image (slot {freeSlot() ?? "—"})
-                        <select
-                          value=""
-                          disabled={freeSlot() === null}
-                          onChange={(e) => {
-                            const slot = freeSlot();
-                            if (!e.target.value || slot === null) return;
-                            patch({
-                              slots: [
-                                ...cur.slots,
-                                { slot, pic: e.target.value, x: 96, y: 80 },
-                              ],
-                            });
-                            setSelSlot(slot);
-                          }}
-                        >
-                          <option value="">(choisir…)</option>
-                          {props.pictures.map((n) => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
-                        </select>
-                      </label>
-                      {selSlot !== null && (
-                        <button
-                          className="danger"
-                          onClick={() => {
-                            patch({ slots: cur.slots.filter((s) => s.slot !== selSlot) });
-                            setSelSlot(null);
-                          }}
-                        >
-                          🗑 Slot {selSlot}
-                        </button>
-                      )}
+                      <button
+                        disabled={freeSlot() === null || props.pictures.length === 0}
+                        title="Poser une image sur l'écran (glisser ensuite à la souris)"
+                        onClick={() => {
+                          const slot = freeSlot();
+                          if (slot === null) return;
+                          patch({
+                            slots: [
+                              ...cur.slots,
+                              {
+                                slot,
+                                pic: props.pictures[0],
+                                x: 96,
+                                y: 80,
+                                name: `image${slot}`,
+                              },
+                            ],
+                          });
+                          setSelSlot(slot);
+                        }}
+                      >
+                        ＋ Ajouter une image
+                      </button>
                     </div>
+                    {cur.slots.length > 0 && (
+                      <div className="evedit-cmds" style={{ maxHeight: 120, overflow: "auto" }}>
+                        {cur.slots.map((sl) => (
+                          <div
+                            key={sl.slot}
+                            className={"evedit-line" + (sl.slot === selSlot ? " active" : "")}
+                            onClick={() => setSelSlot(sl.slot)}
+                            style={{ display: "flex", gap: 6, alignItems: "center" }}
+                          >
+                            <span style={{ minWidth: 18 }}>{sl.slot}</span>
+                            <input
+                              value={sl.name ?? ""}
+                              placeholder="nom (gobelin gauche…)"
+                              style={{ width: 130 }}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                patch({
+                                  slots: cur.slots.map((x) =>
+                                    x.slot === sl.slot ? { ...x, name: e.target.value } : x
+                                  ),
+                                })
+                              }
+                            />
+                            <select
+                              value={sl.pic}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                patch({
+                                  slots: cur.slots.map((x) =>
+                                    x.slot === sl.slot ? { ...x, pic: e.target.value } : x
+                                  ),
+                                })
+                              }
+                            >
+                              {props.pictures.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                            <span className="hint">{sl.x},{sl.y}</span>
+                            <button
+                              className="danger"
+                              title="Retirer cette image"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                patch({ slots: cur.slots.filter((x) => x.slot !== sl.slot) });
+                                if (selSlot === sl.slot) setSelSlot(null);
+                              }}
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <canvas
                       ref={canvasRef}
                       width={512}
@@ -306,12 +358,219 @@ export default function ScreensModal(props: Props) {
                   </>
                 ) : (
                   <>
-                    <div className="palette-title">
-                      Script de l'écran (lancé à l'ouverture)
+                    <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
+                      {cur.scripts.map((sc, i) => (
+                        <button
+                          key={i}
+                          className={i === selScript ? "active" : ""}
+                          onClick={() => setSelScript(i)}
+                        >
+                          {sc.trigger === "auto" ? "▶ " : "☎ "}{sc.name} ({sc.commands.length})
+                        </button>
+                      ))}
+                      <button
+                        title="Ajouter un script (appelable par « Appeler un script de l'écran »)"
+                        onClick={() => {
+                          let i = cur.scripts.length + 1;
+                          while (cur.scripts.some((sc) => sc.name === `script${i}`)) i++;
+                          patch({
+                            scripts: [
+                              ...cur.scripts,
+                              { name: `script${i}`, trigger: "call", commands: [] },
+                            ],
+                          });
+                          setSelScript(cur.scripts.length);
+                        }}
+                      >
+                        ＋
+                      </button>
+                      {cur.scripts.length > 1 && (
+                        <button
+                          className="danger"
+                          title="Supprimer ce script"
+                          onClick={() => {
+                            if (!confirm(`Supprimer le script « ${cur.scripts[selScript]?.name} » ?`)) return;
+                            patch({ scripts: cur.scripts.filter((_, i) => i !== selScript) });
+                            setSelScript(0);
+                          }}
+                        >
+                          🗑
+                        </button>
+                      )}
                     </div>
+                    <div className="row">
+                      <label>
+                        Nom du script
+                        <input
+                          value={cur.scripts[selScript]?.name ?? ""}
+                          disabled={!cur.scripts[selScript]}
+                          onChange={(e) =>
+                            patch({
+                              scripts: cur.scripts.map((sc, i) =>
+                                i === selScript
+                                  ? { ...sc, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") }
+                                  : sc
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Déclencheur
+                        <select
+                          value={cur.scripts[selScript]?.trigger ?? "call"}
+                          onChange={(e) =>
+                            patch({
+                              scripts: cur.scripts.map((sc, i) =>
+                                i === selScript
+                                  ? { ...sc, trigger: e.target.value as "auto" | "call" }
+                                  : sc
+                              ),
+                            })
+                          }
+                        >
+                          <option value="auto">▶ À l'ouverture</option>
+                          <option value="call">☎ Par appel</option>
+                        </select>
+                      </label>
+                      {cur.scripts[selScript]?.trigger === "auto" && (
+                        <label>
+                          Condition
+                          <select
+                            value={cur.scripts[selScript]?.cond?.kind ?? ""}
+                            onChange={(e) => {
+                              const k = e.target.value;
+                              patch({
+                                scripts: cur.scripts.map((sc, i) =>
+                                  i === selScript
+                                    ? {
+                                        ...sc,
+                                        cond: k === ""
+                                          ? undefined
+                                          : k === "switch"
+                                            ? { kind: "switch", n: 0, on: true }
+                                            : { kind: "var", n: 0, op: "==", value: 0 },
+                                      }
+                                    : sc
+                                ),
+                              });
+                            }}
+                          >
+                            <option value="">(aucune — toujours)</option>
+                            <option value="switch">Switch</option>
+                            <option value="var">Variable</option>
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                    {cur.scripts[selScript]?.trigger === "auto" &&
+                      cur.scripts[selScript]?.cond && (
+                        <div className="row">
+                          {cur.scripts[selScript].cond!.kind === "switch" ? (
+                            <>
+                              <label>
+                                Switch n°
+                                <input
+                                  type="number" min={0} max={511}
+                                  value={cur.scripts[selScript].cond!.n}
+                                  onChange={(e) =>
+                                    patch({
+                                      scripts: cur.scripts.map((sc, i) =>
+                                        i === selScript
+                                          ? { ...sc, cond: { ...sc.cond!, n: Number(e.target.value) } }
+                                          : sc
+                                      ),
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                État
+                                <select
+                                  value={cur.scripts[selScript].cond!.on ? "on" : "off"}
+                                  onChange={(e) =>
+                                    patch({
+                                      scripts: cur.scripts.map((sc, i) =>
+                                        i === selScript
+                                          ? { ...sc, cond: { ...sc.cond!, on: e.target.value === "on" } }
+                                          : sc
+                                      ),
+                                    })
+                                  }
+                                >
+                                  <option value="on">ON</option>
+                                  <option value="off">OFF</option>
+                                </select>
+                              </label>
+                            </>
+                          ) : (
+                            <>
+                              <label>
+                                Variable n°
+                                <input
+                                  type="number" min={0} max={255}
+                                  value={cur.scripts[selScript].cond!.n}
+                                  onChange={(e) =>
+                                    patch({
+                                      scripts: cur.scripts.map((sc, i) =>
+                                        i === selScript
+                                          ? { ...sc, cond: { ...sc.cond!, n: Number(e.target.value) } }
+                                          : sc
+                                      ),
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Opérateur
+                                <select
+                                  value={cur.scripts[selScript].cond!.op ?? "=="}
+                                  onChange={(e) =>
+                                    patch({
+                                      scripts: cur.scripts.map((sc, i) =>
+                                        i === selScript
+                                          ? { ...sc, cond: { ...sc.cond!, op: e.target.value as "==" | "!=" | ">=" } }
+                                          : sc
+                                      ),
+                                    })
+                                  }
+                                >
+                                  <option value="==">==</option>
+                                  <option value="!=">!=</option>
+                                  <option value=">=">&gt;=</option>
+                                </select>
+                              </label>
+                              <label>
+                                Valeur
+                                <input
+                                  type="number" min={-32768} max={32767}
+                                  value={cur.scripts[selScript].cond!.value ?? 0}
+                                  onChange={(e) =>
+                                    patch({
+                                      scripts: cur.scripts.map((sc, i) =>
+                                        i === selScript
+                                          ? { ...sc, cond: { ...sc.cond!, value: Number(e.target.value) } }
+                                          : sc
+                                      ),
+                                    })
+                                  }
+                                />
+                              </label>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    <span className="hint">
+                      ▶ À l'ouverture : joué quand l'écran s'ouvre, dans
+                      l'ordre des scripts — avec une condition, seulement
+                      si elle est vraie (l'intro du premier combat, la
+                      phase 2 d'un boss selon une variable…).
+                      ☎ Par appel : joué par « Appeler un script de
+                      l'écran » (sous-routines : tour_joueur, victoire…).
+                    </span>
                     <CommandListEditor
-                      key={name}
-                      cmds={cur.script}
+                      key={`${name}-${selScript}`}
+                      cmds={cur.scripts[selScript]?.commands ?? []}
                       commit={() => setDraft({ ...draft })}
                       shortcutsOff={false}
                       sceneNames={props.sceneNames}
@@ -330,6 +589,7 @@ export default function ScreensModal(props: Props) {
                       musicNames={props.musicNames}
                       vigNames={props.vigNames}
                       screenNames={names}
+                      screenScriptNames={cur.scripts.map((sc) => sc.name)}
                       onTintPresets={props.onTintPresets}
                       onRenameVars={props.onRenameVars}
                     />
