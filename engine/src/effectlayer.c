@@ -34,11 +34,13 @@
 #include "vram.h"
 
 /* data_effects.c (toujours émis par datagen) — indexé par scene_id */
-extern const u8 eff_pic[];   /* index picture, 0xFF = pas d'effet */
-extern const u8 eff_blend[]; /* 0 opaque, 1 semi, 2 additif, 3 soustractif */
-extern const u8 eff_par[];   /* suivi caméra (S11) : camera >> n, 0 = fixe */
-extern const u16 eff_dx[];   /* dérive 8.8 par frame (complément à 2) */
+extern const u8 eff_pic[];    /* index picture, 0xFF = pas d'effet */
+extern const u8 eff_blend[];  /* 0 opaque, 1 semi, 2 additif, 3 soustractif */
+extern const u8 eff_par[];    /* suivi caméra (S11) : camera >> n, 0 = fixe */
+extern const u16 eff_dx[];    /* dérive 8.8 par frame (complément à 2) */
 extern const u16 eff_dy[];
+extern const u8 eff_mode[];   /* 0 front (surimpression), 1 back panorama (S17) */
+extern const u8 eff_repeat[]; /* 1 répété (défile), 0 fixe */
 
 /* registre pictures (data_pictures.c) : le motif EST une picture */
 extern const u8 pic_count;
@@ -51,16 +53,23 @@ static u8 eff_on = 0;
 static u8 eff_cur = 0;  /* id picture du motif (posé par effect_load) */
 static u8 eff_bl = 0;   /* mode de mélange de la scène courante */
 static u8 eff_pr = 0;   /* parallaxe : scroll += camera >> eff_pr (0 = non) */
+static u8 eff_bk = 0;   /* 1 = panorama derrière la carte (S17) */
 static u16 eff_vx = 0;  /* dérive par frame (8.8) */
 static u16 eff_vy = 0;
 static u16 eff_x8 = 0;  /* position accumulée (8.8) — wrap 256 px */
 static u16 eff_y8 = 0;
-/* carte du motif avec bit de priorité — composée au chargement */
+/* carte du motif (bit de priorité en surimpression seulement) — composée
+   au chargement */
 static u16 eff_buf[1024];
 
 u8 effect_active(void)
 {
   return eff_on;
+}
+
+u8 effect_is_back(void)
+{
+  return (u8)(eff_on && eff_bk);
 }
 
 /* Registres BG1 + color math + palette 7 — partagés load/restore */
@@ -70,7 +79,7 @@ static void eff_regs(void)
   bgSetMapPtr(0, VRAM_EFF_MAP, SC_32x32);
   dmaCopyCGram((u8 *)pic_pals[eff_cur] + 2, 113, 30);
   if (eff_bl)
-  {
+  { /* mélange : surimpression uniquement (le panorama est opaque) */
     u8 adsub = eff_bl == 1 ? 0x41 /* semi-transparent */
                            : (eff_bl == 2 ? 0x01 /* additif */
                                           : 0x81 /* soustractif */);
@@ -105,13 +114,26 @@ void effect_load(u8 scene_id)
   }
   eff_on = 1;
   eff_cur = p;
-  eff_bl = eff_blend[scene_id];
+  eff_bk = eff_mode[scene_id];
+  /* Panorama (back) : opaque et DERRIÈRE — pas de mélange même si demandé.
+     Surimpression (front) : mélange de la scène. */
+  eff_bl = eff_bk ? 0 : eff_blend[scene_id];
   eff_pr = eff_par[scene_id];
   eff_vx = eff_dx[scene_id];
   eff_vy = eff_dy[scene_id];
+  if (!eff_repeat[scene_id])
+  {
+    /* image fixe (non répétée) : ni dérive ni parallaxe — un seul cadre */
+    eff_vx = 0;
+    eff_vy = 0;
+    eff_pr = 0;
+  }
   dmaCopyVram((u8 *)pic_chars[p], VRAM_EFF_GFX, *pic_chars_sizes[p]);
   for (i = 0; i < 1024; i++)
-    eff_buf[i] = pic_maps[p][i] | 0x2000; /* priorité : devant les sprites */
+    /* front : priorité (devant les sprites). back : pas de priorité, le
+       motif est BG1 basse priorité, DERRIÈRE la carte (map.c force la
+       priorité de la couche basse). */
+    eff_buf[i] = eff_bk ? pic_maps[p][i] : (pic_maps[p][i] | 0x2000);
   dmaCopyVram((u8 *)eff_buf, VRAM_EFF_MAP, 1024 * 2);
   eff_regs();
 }

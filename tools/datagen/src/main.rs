@@ -842,11 +842,21 @@ fn main() -> Result<()> {
         let mut e_par = vec![0u8; n];
         let mut e_dx = vec![0u16; n];
         let mut e_dy = vec![0u16; n];
+        let mut e_mode = vec![0u8; n]; // 0 = front (surimpression), 1 = back (panorama)
+        let mut e_repeat = vec![1u8; n]; // 1 = répété (défile), 0 = fixe
         for (i, sc) in scenes.iter().enumerate() {
             let eff = match &sc.effect {
                 Some(e) => e,
                 None => continue,
             };
+            // Position du plan (S17) : "front" surimpression, "back" panorama
+            let is_back = match eff.mode.as_deref() {
+                None | Some("front") => false,
+                Some("back") => true,
+                Some(o) => bail!("scene '{}' : mode d'effet inconnu « {} » (front, back)", sc.name, o),
+            };
+            e_mode[i] = is_back as u8;
+            e_repeat[i] = eff.repeat.unwrap_or(true) as u8;
             let idx = pic_names.iter().position(|p| p == &eff.pic).with_context(|| {
                 format!(
                     "scene '{}' : image d'effet « {} » introuvable dans \
@@ -856,11 +866,20 @@ fn main() -> Result<()> {
                     if pic_names.is_empty() { "aucune".to_string() } else { pic_names.join(", ") }
                 )
             })?;
+            // Le plan d'effet vit sur la palette BG 7 (slot dédié) : l'image
+            // DOIT être importée « avec transparence » — c'est ce qui la
+            // range sur la palette 7 (sinon elle pointe la palette 0 du
+            // décor, couleurs fausses). Front : les pixels index 0 laissent
+            // voir le décor. Back (panorama) : index 0 = transparent aussi
+            // (on voit le fond noir) — réserver l'index 0 dans l'image.
             if !pic_trans[idx] {
                 bail!(
                     "scene '{}' : l'image d'effet « {} » doit être importée AVEC \
-                     transparence (le décor se voit par les pixels percés)",
-                    sc.name, eff.pic
+                     transparence (le plan d'effet utilise la palette dédiée ; \
+                     {})",
+                    sc.name, eff.pic,
+                    if is_back { "panorama : reserver l'index 0, il reste transparent" }
+                    else { "le decor se voit par les pixels perces" }
                 );
             }
             let chars = pic_data[idx].0.len() / 32;
@@ -926,6 +945,8 @@ fn main() -> Result<()> {
         s.push_str(&dump_u8("eff_par", &e_par));
         s.push_str(&dump_u16("eff_dx", &e_dx));
         s.push_str(&dump_u16("eff_dy", &e_dy));
+        s.push_str(&dump_u8("eff_mode", &e_mode)); /* 0 front, 1 back panorama (S17) */
+        s.push_str(&dump_u8("eff_repeat", &e_repeat)); /* 1 répété, 0 fixe */
         write_out(&out_dir, "data_effects.c", s)?;
         if e_pic.iter().any(|&p| p != 0xFF) {
             println!("  couche d'effet : active sur {} scene(s)",

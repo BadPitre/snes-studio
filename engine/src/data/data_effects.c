@@ -10,3 +10,5 @@ const u8 eff_blend[3] = { 0, 0, 0, };
 const u8 eff_par[3] = { 0, 0, 0, };
 const u16 eff_dx[3] = { 0, 0, 0, };
 const u16 eff_dy[3] = { 0, 0, 0, };
+const u8 eff_mode[3] = { 0, 0, 0, };
+const u8 eff_repeat[3] = { 1, 1, 1, };

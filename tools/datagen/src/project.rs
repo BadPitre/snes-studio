@@ -237,6 +237,15 @@ pub struct Effect {
     /// motif est fixe à l'écran (très lointain), seule la dérive bouge
     #[serde(default)]
     pub parallax: Option<String>,
+    /// Position du plan (S17) : "front" (défaut) = surimpression au-dessus
+    /// du jeu (nuages, brume) ; "back" = PANORAMA derrière la carte, vu
+    /// par les tuiles gommées de la couche basse (façon RPG Maker).
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Panorama : répéter l'image (défaut true = motif qui boucle et peut
+    /// défiler) ou non (false = image fixe unique, sans défilement).
+    #[serde(default)]
+    pub repeat: Option<bool>,
 }
 
 #[derive(Deserialize)]

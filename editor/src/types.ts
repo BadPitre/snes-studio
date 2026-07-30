@@ -480,6 +480,13 @@ export interface SceneEffect {
   // décor quand la caméra bouge (profondeur) ; "full" = collé au décor
   // (1:1 — ombres au sol) ; absent = fixe à l'écran
   parallax?: "half" | "quarter" | "full";
+  // S17 : position du plan — "front" (défaut) = surimpression (nuages,
+  // brume) ; "back" = PANORAMA derrière la carte, vu par les tuiles
+  // gommées de la couche basse (façon RPG Maker)
+  mode?: "front" | "back";
+  // S17 : panorama — répéter (défaut true, motif qui boucle et défile)
+  // ou image fixe unique (false)
+  repeat?: boolean;
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

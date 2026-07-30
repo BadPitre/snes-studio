@@ -38,6 +38,11 @@
 static const u16 *mt_table;
 static const u8 *prio_table;
 
+/* Priorité forcée de la couche basse (S17) : BG_PRIO quand un panorama
+   est actif — la couche basse (BG2.1) couvre alors le motif BG1 basse
+   priorité, sauf sur les tuiles gommées. 0 sinon (rendu inchangé). */
+static u16 lo_prio;
+
 /* Coin haut-gauche de la fenêtre, en metatiles */
 static u16 win_x, win_y;
 
@@ -111,7 +116,7 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
         continue;
       }
       entry = (u16)(*src) << 2; /* base dans la table de metatiles */
-      pr = 0;
+      pr = with_prio ? 0 : lo_prio; /* couche basse : priorité si panorama */
       if (with_prio && prio_table[*src])
         pr = BG_PRIO;
       src++;
@@ -132,6 +137,10 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
 
 void map_init(void)
 {
+  /* Panorama (S17) : la couche basse passe en priorité pour couvrir le
+     motif BG1 (basse priorité) derrière elle — sauf sur les tuiles
+     gommées, qui laissent voir le panorama. 0 = rendu inchangé. */
+  lo_prio = effect_is_back() ? BG_PRIO : 0;
   win_x = map_win_target(camera.x, scene_ctx.map_w);
   win_y = map_win_target(camera.y, scene_ctx.map_h);
   col_pending = 0;
@@ -173,10 +182,10 @@ static void map_queue_col(u16 mx)
     mt = mt_table + ((u16)(*src) << 2);
     um = mt_table + ((u16)(*usrc) << 2);
     pr = prio_table[*usrc] ? BG_PRIO : 0;
-    col_lo[0][y] = mt[0];     /* TL */
-    col_lo[0][y + 1] = mt[2]; /* BL */
-    col_lo[1][y] = mt[1];     /* TR */
-    col_lo[1][y + 1] = mt[3]; /* BR */
+    col_lo[0][y] = mt[0] | lo_prio;     /* TL */
+    col_lo[0][y + 1] = mt[2] | lo_prio; /* BL */
+    col_lo[1][y] = mt[1] | lo_prio;     /* TR */
+    col_lo[1][y + 1] = mt[3] | lo_prio; /* BR */
     col_up[0][y] = um[0] | pr;
     col_up[0][y + 1] = um[2] | pr;
     col_up[1][y] = um[1] | pr;
@@ -217,10 +226,10 @@ static void map_queue_row(u16 my)
     mt = mt_table + ((u16)(*src) << 2);
     um = mt_table + ((u16)(*usrc) << 2);
     pr = prio_table[*usrc] ? BG_PRIO : 0;
-    row_lo[0][x] = mt[0];     /* TL */
-    row_lo[0][x + 1] = mt[1]; /* TR */
-    row_lo[1][x] = mt[2];     /* BL */
-    row_lo[1][x + 1] = mt[3]; /* BR */
+    row_lo[0][x] = mt[0] | lo_prio;     /* TL */
+    row_lo[0][x + 1] = mt[1] | lo_prio; /* TR */
+    row_lo[1][x] = mt[2] | lo_prio;     /* BL */
+    row_lo[1][x + 1] = mt[3] | lo_prio; /* BR */
     row_up[0][x] = um[0] | pr;
     row_up[0][x + 1] = um[1] | pr;
     row_up[1][x] = um[2] | pr;

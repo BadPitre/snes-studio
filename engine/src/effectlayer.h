@@ -16,6 +16,12 @@ void effect_load(u8 scene_id);
    BG1, la boucle principale route le scroll BG1 vers effect_vblank. */
 u8 effect_active(void);
 
+/* 1 si la couche d'effet est un PANORAMA (S17, mode « back ») : le motif
+   passe DERRIÈRE la carte (BG1 basse priorité) — map.c force alors la
+   priorité de la couche basse pour qu'elle couvre le panorama sauf sur
+   les tuiles gommées. 0 = surimpression (nuages) ou pas d'effet. */
+u8 effect_is_back(void);
+
 /* Re-pose registres BG1 + color math + palette 7 après une picture
    (picture_hide) — les données VRAM du motif n'ont pas bougé. */
 void effect_restore(void);
