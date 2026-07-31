@@ -6,7 +6,7 @@
 //!
 //! Sorties :
 //!  - engine/src/data/scenes.bin + texts.bin — format binaire byte-exact
-//!    (spec §1-2), épinglés en banks $82/$86 par engine/databanks.asm
+//!    (spec §1-2), épinglés en banks $82/$86 par src/data/databanks.asm
 //!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
 
 mod binbank;
