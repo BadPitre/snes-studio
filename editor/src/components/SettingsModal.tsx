@@ -29,9 +29,9 @@ export default function SettingsModal({ config, onSave, onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Réglages (cette machine)</div>
+        <div className="panel-title">Réglages (cette machine)<button className="modal-x" title="Fermer" onClick={onClose}>✕</button></div>
         <label>
           Bash MSYS2 (pour « make »)
           <div className="row">

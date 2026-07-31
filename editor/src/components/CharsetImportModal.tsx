@@ -46,9 +46,9 @@ export default function CharsetImportModal(props: Props) {
   }, [bitmap, full, perso]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" style={{ width: 340 }} onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Importer un charset RM2003</div>
+        <div className="panel-title">Importer un charset RM2003<button className="modal-x" title="Fermer" onClick={onClose}>✕</button></div>
         <canvas
           ref={canvasRef}
           width={bitmap.width}

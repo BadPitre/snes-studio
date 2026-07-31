@@ -47,9 +47,9 @@ export default function CommonEventsModal(props: Props) {
     setDraft(draft.map((ce, i) => (i === sel ? { ...ce, ...p } : ce)));
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal cevents" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Common events</div>
+        <div className="palette-title">Common events<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="cevents-body">
           <div className="cevents-list">
             <div className="evedit-cmds" style={{ flex: 1 }}>

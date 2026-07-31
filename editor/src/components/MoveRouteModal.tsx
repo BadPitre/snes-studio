@@ -68,9 +68,9 @@ export default function MoveRouteModal(props: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal moveroute" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Itinéraire</div>
+        <div className="palette-title">Itinéraire<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="row">
           {!props.hideTarget && (
           <label style={{ flex: 2 }}>

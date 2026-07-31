@@ -554,3 +554,13 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 .graphicpick-list { width: 200px; overflow-y: auto; }
 .graphicpick-side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .graphicpick-side canvas { box-shadow: var(--bev-field); align-self: center; }
+
+/* Fermeture des fenêtres : croix dans l'en-tête — le clic HORS de la
+   fenêtre ne ferme plus (protège des fermetures accidentelles) */
+.palette-title:has(> .modal-x), .panel-title:has(> .modal-x) {
+  display: flex; align-items: center; gap: 8px;
+}
+.modal-x {
+  margin-left: auto; flex: 0 0 auto; width: 24px; min-width: 24px;
+  padding: 1px 0 2px; font-size: 12px; line-height: 1;
+}

@@ -217,9 +217,9 @@ export default function TilesetsModal(props: Props) {
     !!def && (def.name.trim() === "" || defs.some((d, i) => i !== sel && d.name === def.name));
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Tilesets</div>
+        <div className="palette-title">Tilesets<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="db-body">
           {/* ---- colonne gauche : la liste, façon Database RM2003 ---- */}
           <div className="db-tablecol">

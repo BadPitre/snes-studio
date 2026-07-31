@@ -70,11 +70,21 @@ const TABS: Tab[] = [
       { c: "spotlight", label: "Spotlight (cercle de lumière)" },
       { c: "flash", label: "Flash d'écran" },
       { c: "shake", label: "Secouer l'écran" },
-      { c: "ui_show", label: "Afficher/cacher un widget UI" },
-      { c: "list_select", label: "Choix dans une liste (menu à curseur)" },
+    ],
+  },
+  {
+    title: "Image",
+    items: [
       { c: "pic_show", label: "Afficher une image" },
       { c: "pic_move", label: "Déplacer l'image" },
       { c: "pic_hide", label: "Effacer l'image" },
+    ],
+  },
+  {
+    title: "UI",
+    items: [
+      { c: "ui_show", label: "Afficher/cacher un widget UI" },
+      { c: "list_select", label: "Choix dans une liste (menu à curseur)" },
     ],
   },
   {
@@ -124,9 +134,9 @@ export default function EventCommandPicker(props: Props) {
   const [tab, setTab] = useState(0);
   const cur = TABS[tab];
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal cmdpick" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Commande d'événement</div>
+        <div className="palette-title">Commande d'événement<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="cmdpick-tabs">
           {TABS.map((t, i) => (
             <button

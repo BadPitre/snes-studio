@@ -88,11 +88,11 @@ export default function SchemaEditorModal(props: Props) {
   const typeValue = cur?.type.startsWith("ref:") ? "ref" : cur?.type ?? "u8";
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal schemaedit" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           Structure de la table « {draft.title || draft.name} »
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="row">
           <label style={{ flex: 1 }}>
             Titre affiché

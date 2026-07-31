@@ -130,9 +130,9 @@ export default function ScreensModal(props: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal cevents screens" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Écrans composés</div>
+        <div className="palette-title">Écrans composés<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="cevents-body">
           <div className="cevents-list">
             <div className="evedit-cmds" style={{ flex: 1 }}>

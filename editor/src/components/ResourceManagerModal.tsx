@@ -267,9 +267,9 @@ export default function ResourceManagerModal(p: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => { stopPreview(); p.onClose(); }}>
+    <div className="modal-backdrop">
       <div className="modal resmgr" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Gestionnaire de ressources</div>
+        <div className="panel-title">Gestionnaire de ressources<button className="modal-x" title="Fermer" onClick={() => { stopPreview(); p.onClose(); }}>✕</button></div>
         <div className="resmgr-body">
           <div className="resmgr-cats">
             <div

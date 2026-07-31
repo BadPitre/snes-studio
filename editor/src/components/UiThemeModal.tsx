@@ -589,7 +589,7 @@ export default function UiThemeModal(props: Props) {
   );
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal uitheme" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           {props.mode === "dialogs"
@@ -597,7 +597,7 @@ export default function UiThemeModal(props: Props) {
             : view === "list"
               ? "UI — Widgets"
               : `UI — Designer « ${scope ?? "écran"} »`}
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         {props.mode === "dialogs" && (
           <div className="uitheme-listview">
             <div className="uitheme-listcol">

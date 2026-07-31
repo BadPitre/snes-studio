@@ -107,9 +107,9 @@ export default function GraphicPickerModal(props: Props) {
     props.usedBlocks.length >= 5;
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal graphicpick" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Apparence</div>
+        <div className="palette-title">Apparence<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="graphicpick-body">
           <div className="evedit-cmds graphicpick-list">
             <div

@@ -31,9 +31,9 @@ export function SavePrefabModal(props: {
   const [name, setName] = useState(props.defaultName);
   const [cat, setCat] = useState("");
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Enregistrer comme prefab</div>
+        <div className="palette-title">Enregistrer comme prefab<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <label>
           Nom du prefab
           <input value={name} autoFocus onChange={(e) => setName(e.target.value)} />
@@ -90,11 +90,11 @@ export function PrefabsModal(props: {
   };
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal prefabs" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           {props.pick ? "Nouvel événement depuis un prefab" : "Prefabs"}
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         {draft.length === 0 ? (
           <p className="hint">
             Aucun prefab — clic droit sur un event de la carte →

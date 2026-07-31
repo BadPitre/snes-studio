@@ -46,9 +46,11 @@ export default function VarListModal(props: Props) {
     props.onOk({ switches: sw, variables: va, picked: props.pick ? selIn : undefined, kind });
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal varlist" onClick={(e) => e.stopPropagation()}>
         <div className="cmdpick-tabs">
+          <button className="modal-x" title="Fermer" onClick={props.onClose}
+            style={{ order: 99, marginLeft: "auto" }}>✕</button>
           {(["switch", "var"] as VarKind[]).map((k) => (
             <button
               key={k}

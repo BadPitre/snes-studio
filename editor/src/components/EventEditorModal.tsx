@@ -685,9 +685,9 @@ export function CommandListEditor(props: {
       </div>
 
       {form && (
-        <div className="modal-backdrop" onClick={() => setForm(null)}>
+        <div className="modal-backdrop">
           <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
-            <div className="palette-title">{cmdTitle(form.c)}</div>
+            <div className="palette-title">{cmdTitle(form.c)}<button className="modal-x" title="Fermer" onClick={() => setForm(null)}>✕</button></div>
             <CommandForm
               cmd={form}
               sceneNames={props.sceneNames}
@@ -876,7 +876,7 @@ export default function EventEditorModal(props: Props) {
 
   return (
     <>
-      <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="modal-backdrop">
       <div className="modal evedit" onClick={(e) => e.stopPropagation()}>
         <div className="evedit-top">
           <label>
@@ -921,6 +921,7 @@ export default function EventEditorModal(props: Props) {
               🗑 page
             </button>
           </span>
+          <button className="modal-x" title="Fermer" onClick={props.onClose} style={{ alignSelf: "flex-start" }}>✕</button>
         </div>
         <div className="evedit-body">
           <div className="evedit-left">

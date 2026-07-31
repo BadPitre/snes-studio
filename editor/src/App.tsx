@@ -2776,9 +2776,9 @@ export default function App() {
         />
       )}
       {showAbout && (
-        <div className="modal-backdrop" onClick={() => setShowAbout(false)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-title">SNES Studio — éditeur</div>
+            <div className="panel-title">SNES Studio — éditeur<button className="modal-x" title="Fermer" onClick={() => setShowAbout(false)}>✕</button></div>
             <p>Version {pkg.version}</p>
             <p className="hint">
               Créateur de jeux Super Nintendo sans code, dans l'esprit de

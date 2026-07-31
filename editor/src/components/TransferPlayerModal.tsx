@@ -107,11 +107,11 @@ export default function TransferPlayerModal(props: Props) {
 
   const sceneIdx = Math.max(0, props.sceneNames.indexOf(to));
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal transfer" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           Téléporter — warp en ({props.warp.x},{props.warp.y})
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="transfer-body">
           <div className="evedit-cmds transfer-tree">
             {ordered.map(({ name, depth }) => (
