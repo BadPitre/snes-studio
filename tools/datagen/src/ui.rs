@@ -259,6 +259,12 @@ struct Flattener<'a> {
     /// — il dépend du plan VRAM complet (fontes, cadres, icônes) calculé
     /// dans main.rs, qui corrige les primitives après coup.
     pics: Vec<(String, Vec<u8>, u8, u8)>,
+    /// variante de chaque entrée de `pics` : true = « fond de panneau »
+    /// (pixels transparents remplacés par le fond du cadre)
+    pic_bg: Vec<bool>,
+    /// tailles en tuiles, connues dès la pré-passe (elles ne dépendent
+    /// pas de la variante)
+    pic_size: HashMap<String, (u8, u8)>,
     pic_dir: &'a Path,
     pic_paths: &'a HashMap<String, String>,
     ui_pal: &'a [u16],
@@ -267,8 +273,13 @@ struct Flattener<'a> {
 impl<'a> Flattener<'a> {
     /// Charge et convertit l'image d'un nœud « image » en mode picture,
     /// une seule fois par picture. Renvoie (index dans pics, w, h tuiles).
-    fn need_pic(&mut self, n: &Node, name: &str) -> Result<(u8, i64, i64)> {
-        if let Some(k) = self.pics.iter().position(|(p, _, _, _)| p == name) {
+    fn need_pic(&mut self, n: &Node, name: &str, bg: bool) -> Result<(u8, i64, i64)> {
+        if let Some(k) = self
+            .pics
+            .iter()
+            .zip(self.pic_bg.iter())
+            .position(|((p, _, _, _), b)| p == name && *b == bg)
+        {
             let (_, _, w, h) = &self.pics[k];
             return Ok((k as u8, *w as i64, *h as i64));
         }
@@ -280,13 +291,20 @@ impl<'a> Flattener<'a> {
         })?;
         let img = crate::gfx::load_indexed_png(&self.pic_dir.join(path))
             .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
+        // Dans une window, les pixels TRANSPARENTS de l'image doivent
+        // montrer le cadre, pas le jeu : le compositing SNES est par
+        // tuiles, on résout donc à la compilation en remplaçant la
+        // transparence par le fond du panneau — même recette que les
+        // variantes d'icônes (gfx::to_icons_bg).
         let (chars, w, h) = img
-            .to_ui_image(self.ui_pal)
+            .to_ui_image_bg(self.ui_pal, bg)
             .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
         if self.pics.len() >= 255 {
             bail!("ui : trop d'images de widgets");
         }
+        self.pic_size.insert(name.to_string(), (w, h));
         self.pics.push((name.to_string(), chars, w, h));
+        self.pic_bg.push(bg);
         Ok(((self.pics.len() - 1) as u8, w as i64, h as i64))
     }
 }
@@ -341,10 +359,9 @@ impl<'a> Flattener<'a> {
             "value" => [n.width.unwrap_or(3).clamp(1, 5), 1],
             "image" => match &n.pic {
                 // mode picture : la taille vient de l'image elle-même
-                Some(p) => match self.pics.iter().find(|(k, _, _, _)| k == p) {
-                    Some((_, _, w, h)) => [*w as i64, *h as i64],
-                    // pas encore convertie : size_of est appelé avant place()
-                    None => [1, 1],
+                Some(p) => match self.pic_size.get(p) {
+                    Some((w, h)) => [*w as i64, *h as i64],
+                    None => [1, 1], /* pré-passe pas encore passée */
                 },
                 None => [n.width.unwrap_or(1).max(1), 1],
             },
@@ -457,7 +474,7 @@ impl<'a> Flattener<'a> {
                 if let Some(name) = n.pic.clone() {
                     // mode picture : rectangle de chars consécutifs, le
                     // « icon » porte provisoirement l'index de l'image
-                    let (idx, w, h) = self.need_pic(n, &name)?;
+                    let (idx, w, h) = self.need_pic(n, &name, in_window)?;
                     self.emit(Prim {
                         x, y, w, h,
                         kind: 8, frame: false, var: 0, icon: idx, vertical: false,
@@ -700,7 +717,8 @@ pub fn load(
 
     let mut fl = Flattener {
         children, nodes: &nodes, icon_count, widget: 0, font: None, prims: Vec::new(),
-        pics: Vec::new(), pic_dir: proj_dir, pic_paths, ui_pal,
+        pics: Vec::new(), pic_bg: Vec::new(), pic_size: HashMap::new(),
+        pic_dir: proj_dir, pic_paths, ui_pal,
     };
     // Les images des widgets sont converties AVANT le calcul des tailles :
     // c'est l'image qui donne la taille du nœud, et size_of ne peut pas
@@ -709,7 +727,7 @@ pub fn load(
         if fl.nodes[i].kind == "image" {
             if let Some(name) = fl.nodes[i].pic.clone() {
                 let n = fl.nodes[i].clone();
-                fl.need_pic(&n, &name)?;
+                fl.need_pic(&n, &name, false)?;
             }
         }
     }

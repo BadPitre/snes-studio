@@ -90,7 +90,7 @@ export interface Prim {
   y: number;
   w: number;
   h: number;
-  kind: number; // 0-6
+  kind: number; // 0-8 (8 = image en mode picture)
   frame: boolean;
   var: number;
   icon: number;
@@ -98,6 +98,8 @@ export interface Prim {
   pad: number;
   max: number;
   maxVar?: number;
+  /** kind 8 : nom de la picture affichée (aperçu du designer) */
+  pic?: string;
   bg: boolean;
   text: string;
   nodeId: string;
@@ -322,8 +324,13 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base, vertical: n.align === "left" });
         break;
       case "image":
-        needIcon(n, size[0]);
-        emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
+        if (n.pic) {
+          // mode picture : le widget fait la taille de l'image
+          emit({ x, y, w: size[0], h: size[1], kind: 8, frame: false, ...base, pic: n.pic });
+        } else {
+          needIcon(n, size[0]);
+          emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
+        }
         break;
       case "variable_display": {
         if (n.var === undefined) errors.push(`« ${n.id} » : variable requise`);

@@ -298,6 +298,15 @@ export default function UiThemeModal(props: Props) {
         case 6:
           for (let k = 0; k < p.w; k++) icon(p.icon + k, (x0 + k) * 8, y0 * 8);
           break;
+        case 8: {
+          // image du projet : on montre l'image telle qu'elle est. En jeu
+          // elle sera ramenée aux 4 couleurs de la fonte (rappel affiché
+          // dans l'inspecteur) — l'aperçu situe et dimensionne, il ne
+          // simule pas la réduction de couleurs.
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
+          break;
+        }
         case 0: {
           text(p.text, x0, y0, cw - 1, pf);
           const val = "42";

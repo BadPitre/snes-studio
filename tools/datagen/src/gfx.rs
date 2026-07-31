@@ -518,6 +518,15 @@ impl IndexedImage {
     /// proche : l'auteur n'a pas à caler ses pixels sur la grille de
     /// tuiles. Renvoie (chars, largeur, hauteur) en TUILES.
     pub fn to_ui_image(&self, ui_pal: &[u16]) -> Result<(Vec<u8>, u8, u8)> {
+        self.to_ui_image_bg(ui_pal, false)
+    }
+
+    /// Idem, variante « fond de panneau » : quand le widget vit DANS une
+    /// window du designer, les pixels transparents (et le complément à la
+    /// grille de tuiles) prennent la couleur de FOND du cadre au lieu de
+    /// laisser voir le jeu — le compositing SNES étant par tuiles, ça se
+    /// résout à la compilation, comme pour les icônes (to_icons_bg).
+    pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool) -> Result<(Vec<u8>, u8, u8)> {
         if self.width == 0 || self.height == 0 {
             bail!("image UI : image vide");
         }
@@ -529,11 +538,16 @@ impl IndexedImage {
                 self.width, self.height, tw, th
             );
         }
+        // Dans une window, le « vide » (transparent + complément à la
+        // grille) prend le FOND du cadre (index 1) au lieu de laisser
+        // voir le jeu au travers.
+        let void = if bg { 1u8 } else { 0u8 };
         // correspondance couleur de l'image -> index 0-3 de la palette UI
-        let mut map = vec![0u8; self.palette.len().max(1)];
+        let mut map = vec![void; self.palette.len().max(1)];
         for (i, &c) in self.palette.iter().enumerate() {
             if i == 0 {
-                continue; /* transparent, reste 0 */
+                map[i] = void; /* transparent : rien, ou le fond du cadre */
+                continue;
             }
             let mut best = 1usize;
             let mut best_d = u32::MAX;
@@ -550,14 +564,14 @@ impl IndexedImage {
         let mut padded = IndexedImage {
             width: tw * 8,
             height: th * 8,
-            pixels: vec![0u8; tw * 8 * th * 8],
+            pixels: vec![void; tw * 8 * th * 8],
             palette: self.palette.clone(),
             palette_rgb: self.palette_rgb.clone(),
         };
         for y in 0..self.height {
             for x in 0..self.width {
                 let src = self.pixels[y * self.width + x] as usize;
-                padded.pixels[y * padded.width + x] = *map.get(src).unwrap_or(&0);
+                padded.pixels[y * padded.width + x] = *map.get(src).unwrap_or(&void);
             }
         }
         let mut out = Vec::new();
