@@ -1002,3 +1002,15 @@ void actor_interact(u8 index)
     vm.script_actor = index; /* cible du ROUTE « cet event » (v0.12) */
   }
 }
+
+/* Position PIXEL (monde) d'un acteur — ancrage des animations (A1) :
+   une animation accrochée à un event le suit s'il marche. */
+u16 actor_pos_x(u8 index)
+{
+  return (index < ACTOR_SLOTS) ? actor_px[index] : 0;
+}
+
+u16 actor_pos_y(u8 index)
+{
+  return (index < ACTOR_SLOTS) ? actor_py[index] : 0;
+}

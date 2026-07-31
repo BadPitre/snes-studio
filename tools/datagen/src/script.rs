@@ -91,6 +91,8 @@ const OP_VIGSHOW: u8 = 0x37;
 const OP_VIGPLAY: u8 = 0x38;
 const OP_VIGHIDE: u8 = 0x39;
 const OP_LISTSEL: u8 = 0x3A;
+const OP_ANIMPLAY: u8 = 0x3B;
+const OP_ANIMSTOP: u8 = 0x3C;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -268,6 +270,10 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "VIGHIDE" => 2,
         // LISTSEL <widget> <var> <flags> — menu a curseur (B6)
         "LISTSEL" => 4,
+        // ANIMPLAY <anim> <ancre 0-2> <cible> <flags bit0=attendre> (A1)
+        "ANIMPLAY" => 5,
+        // ANIMSTOP — arrete toutes les animations en cours (A1)
+        "ANIMSTOP" => 1,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -818,6 +824,20 @@ pub fn assemble(
                 if argc != 1 { bail!("VIGHIDE <slot>"); }
                 code.push(OP_VIGHIDE);
                 code.push(parse_u8(args[0])?);
+            }
+            // ANIMPLAY/ANIMSTOP — animations image par image (A1)
+            "ANIMPLAY" => {
+                if argc != 4 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags>"); }
+                code.push(OP_ANIMPLAY);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+                // « cet event » : 255, resolu a l'execution (vm.script_actor)
+                code.push(if args[2] == "self" { 255 } else { parse_u8(args[2])? });
+                code.push(parse_u8(args[3])?);
+            }
+            "ANIMSTOP" => {
+                if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }
+                code.push(OP_ANIMSTOP);
             }
             // LISTSEL <widget> <var> <flags bit0=annulable> — menu a
             // curseur sur un widget « list » du layout UI (B6, bloquant)

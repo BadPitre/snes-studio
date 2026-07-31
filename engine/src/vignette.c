@@ -16,6 +16,7 @@
 #include <snes.h>
 #include "vignette.h"
 #include "player.h"
+#include "actors.h"
 #include "camera.h"
 #include "vram.h"
 
@@ -35,28 +36,42 @@ static u8 v_speed[VIG_SLOTS];
 static u8 v_timer[VIG_SLOTS];
 static u8 v_x[VIG_SLOTS];
 static u8 v_y[VIG_SLOTS];
-static u8 v_anc[VIG_SLOTS];   /* 0 écran, 1 héros (offsets signés) */
+static u8 v_anc[VIG_SLOTS];   /* VIG_ANC_* (offsets signés si suivi) */
+static u8 v_act[VIG_SLOTS];   /* acteur suivi (VIG_ANC_ACTOR) */
+static u8 v_own[VIG_SLOTS];   /* 1 = piloté par le lecteur d'animations */
 static u8 v_dirty = 0;        /* bitmask : frame à transférer */
 static u8 v_pal = 0;          /* bitmask : palette à transférer */
 static u8 v_init = 0;         /* statics posés (init explicite tcc) */
 
-void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
+static void vig_init_once(void)
 {
   u8 i;
 
-  if (!v_init)
+  if (v_init)
+    return;
+  v_init = 1;
+  for (i = 0; i < VIG_SLOTS; i++)
   {
-    v_init = 1;
-    for (i = 0; i < VIG_SLOTS; i++)
-      v_id[i] = 0xFF;
-    v_dirty = 0;
-    v_pal = 0;
+    v_id[i] = 0xFF;
+    v_own[i] = 0;
+    v_anc[i] = VIG_ANC_SCREEN;
+    v_act[i] = 0xFF;
   }
+  v_dirty = 0;
+  v_pal = 0;
+}
+
+void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
+{
+  vig_init_once();
   if (slot >= VIG_SLOTS || vig_id >= vig_count)
     return;
   v_id[slot] = vig_id;
   v_frame[slot] = 0;
   v_mode[slot] = 0;
+  v_own[slot] = 0; /* préemption : un vig_show scripté reprend le slot
+                      au lecteur d'animations, qui le verra à sa frame
+                      suivante et arrêtera l'animation sans rien cacher */
   v_x[slot] = x;
   v_y[slot] = y;
   v_dirty |= (u8)(1 << slot);
@@ -67,6 +82,55 @@ void vig_anchor(u8 slot, u8 anchor)
 {
   if (slot < VIG_SLOTS)
     v_anc[slot] = anchor;
+}
+
+void vig_anchor_actor(u8 slot, u8 index)
+{
+  if (slot >= VIG_SLOTS)
+    return;
+  v_anc[slot] = VIG_ANC_ACTOR;
+  v_act[slot] = index;
+}
+
+void vig_set_frame(u8 slot, u8 frame)
+{
+  if (slot >= VIG_SLOTS || v_id[slot] == 0xFF)
+    return;
+  if (frame >= vig_frames[v_id[slot]] || frame == v_frame[slot])
+    return; /* même cellule : pas de DMA (une frame de vignette = 512 o) */
+  v_frame[slot] = frame;
+  v_dirty |= (u8)(1 << slot);
+}
+
+void vig_move(u8 slot, u8 x, u8 y)
+{
+  if (slot >= VIG_SLOTS)
+    return;
+  v_x[slot] = x;
+  v_y[slot] = y;
+}
+
+u8 vig_free_slot(void)
+{
+  u8 s;
+
+  vig_init_once();
+  s = VIG_SLOTS;
+  while (s--)
+    if (v_id[s] == 0xFF)
+      return s;
+  return 0xFF;
+}
+
+void vig_own_anim(u8 slot)
+{
+  if (slot < VIG_SLOTS)
+    v_own[slot] = 1;
+}
+
+u8 vig_is_anim(u8 slot)
+{
+  return (slot < VIG_SLOTS) ? v_own[slot] : 0;
 }
 
 void vig_play(u8 slot, u8 mode, u8 speed)
@@ -83,6 +147,7 @@ void vig_hide(u8 slot)
   if (slot >= VIG_SLOTS)
     return;
   v_id[slot] = 0xFF;
+  v_own[slot] = 0;
   oamSetVisible(VIG_OAM(slot), OBJ_HIDE);
 }
 
@@ -128,9 +193,17 @@ void vig_update(void)
       }
       v_dirty |= (u8)(1 << s);
     }
-    /* position : écran, ou accrochée au héros (offsets signés — le
-       (0,0) ancre le coin de la vignette sur la tête du joueur) */
-    if (v_anc[s])
+    /* position : écran, ou accrochée au héros / à un acteur (offsets
+       signés — le (0,0) ancre le coin de la vignette sur le coin du
+       metasprite suivi) */
+    if (v_anc[s] == VIG_ANC_ACTOR)
+    {
+      wx = actor_pos_x(v_act[s]) - camera.x + (s8)v_x[s];
+      wy = actor_pos_y(v_act[s]) - camera.y + (s8)v_y[s];
+      sx = (u8)wx;
+      sy = (u8)wy;
+    }
+    else if (v_anc[s])
     {
       wx = player.x - camera.x + (s8)v_x[s];
       wy = player.y - camera.y + (s8)v_y[s];

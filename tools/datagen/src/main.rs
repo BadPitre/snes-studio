@@ -481,6 +481,7 @@ fn main() -> Result<()> {
                 &sound_names,
                 &music_names,
                 &vig_names,
+                &anim_names,
                 &screens,
                 &scene_ts,
                 &mut tile_blocks,

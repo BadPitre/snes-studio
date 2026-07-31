@@ -18,6 +18,8 @@
 #define VM_WAIT_STAGE 8   /* STAGEPOSE/CLEAR : fin du transfert (B3) */
 #define VM_WAIT_LIST 9    /* LISTSEL : menu à curseur (B6) — A valide,
                              B annule si permis, bouclage haut/bas */
+#define VM_WAIT_ANIM 10   /* ANIMPLAY « attendre la fin » : fin des
+                             animations image par image non bouclées (A1) */
 
 /* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
    le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),
