@@ -353,6 +353,11 @@ pub struct Event {
     /// Bloc de personnage ; -1 = invisible (touch/auto)
     #[serde(default = "minus_one")]
     pub sprite: i16,
+    /// T4 — apparence TILE : id de grille de la couche haute du tileset
+    /// de la scène (exclusif avec sprite ; datagen compose un bloc de
+    /// sprite virtuel depuis la tile)
+    #[serde(default)]
+    pub tile: Option<u16>,
     #[serde(default = "dir_down")]
     pub dir: String,
     /// Label d'un script écrit à la main (avancé) — ignoré si commands
@@ -391,6 +396,9 @@ pub struct EventPage {
     pub trigger: String,
     #[serde(default = "minus_one")]
     pub sprite: i16,
+    /// T4 — apparence tile (voir Event::tile)
+    #[serde(default)]
+    pub tile: Option<u16>,
     #[serde(default = "dir_down")]
     pub dir: String,
     #[serde(default)]

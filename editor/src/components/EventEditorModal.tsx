@@ -44,6 +44,9 @@ interface Props {
   sceneNames: string[];
   scenes: Record<string, Scene>;
   blockCount: number;
+  // T4 — apparence tile : chipset de la scène + ids de la couche haute
+  tilesetBmp?: ImageBitmap | null;
+  upperCells?: number[];
   blockNames: string[];
   // charsets déjà affichés par la scène (héros + AUTRES events) : sert à
   // avertir dès qu'une apparence ferait dépasser les 5 charsets/scène
@@ -854,7 +857,14 @@ export default function EventEditorModal(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#16181c";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    if (props.sprites && cur.sprite >= 0) {
+    if (cur.tile !== undefined && props.tilesetBmp) {
+      const perRow = Math.max(1, Math.floor(props.tilesetBmp.width / 16));
+      ctx.drawImage(
+        props.tilesetBmp,
+        (cur.tile % perRow) * 16, Math.floor(cur.tile / perRow) * 16, 16, 16,
+        8, 18, 48, 48
+      );
+    } else if (props.sprites && cur.sprite >= 0) {
       const f = eventFrame({ sprite: cur.sprite, dir: cur.dir } as GameEvent);
       ctx.drawImage(props.sprites, f * 16, 0, 16, 24, 8, 6, 48, 72);
     } else {
@@ -977,10 +987,12 @@ export default function EventEditorModal(props: Props) {
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
                   <span className="hint">
-                    {cur.sprite < 0
-                      ? "(invisible)"
-                      : (props.blockNames[cur.sprite] ?? `Bloc ${cur.sprite}`) +
-                        ` — ${cur.dir}`}
+                    {cur.tile !== undefined
+                      ? `Tile ${cur.tile} (couche haute)`
+                      : cur.sprite < 0
+                        ? "(invisible)"
+                        : (props.blockNames[cur.sprite] ?? `Bloc ${cur.sprite}`) +
+                          ` — ${cur.dir}`}
                   </span>
                   <button onClick={() => setGraphicOpen(true)}>Choisir…</button>
                   {cur.sprite >= 0 &&
@@ -1176,9 +1188,12 @@ export default function EventEditorModal(props: Props) {
           usedBlocks={props.usedBlocks}
           sprite={cur.sprite}
           dir={cur.dir}
+          tileset={props.tilesetBmp}
+          upperCells={props.upperCells}
+          tile={cur.tile}
           onClose={() => setGraphicOpen(false)}
-          onOk={(sprite, dir) => {
-            patchCur({ sprite, dir });
+          onOk={(sprite, dir, tile) => {
+            patchCur({ sprite, dir, tile });
             setGraphicOpen(false);
           }}
         />

@@ -290,6 +290,26 @@ fn main() -> Result<()> {
         .map(|m| Path::new(m).file_stem().unwrap().to_str().unwrap().to_string())
         .collect();
 
+    // T4 — apparences TILE : la feuille de sprites est chargée AVANT la
+    // compilation des events (les blocs virtuels s'indexent après les
+    // blocs réels), le registre global collecte les (tileset, tile)
+    // rencontrés — la feuille étendue est composée après la boucle.
+    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
+        .with_context(|| format!("sprites {}", project.assets.sprites))?;
+    let real_sprite_blocks = sprites.sprite_blocks()?;
+    let mut tile_blocks: Vec<(String, u16)> = Vec::new();
+    let default_ts_stem = {
+        let first = project
+            .tilesets
+            .first()
+            .unwrap_or(&project.assets.tileset);
+        Path::new(first)
+            .file_stem()
+            .and_then(|x| x.to_str())
+            .with_context(|| format!("nom de tileset invalide : '{}'", first))?
+            .to_string()
+    };
+
     for name in &project.scenes {
         let mut scene: project::Scene =
             read_json(&proj_dir.join("scenes").join(format!("{}.json", name)))
@@ -310,6 +330,10 @@ fn main() -> Result<()> {
         // table CETAB des common events auto (offset 0, lue par le moteur),
         // même vide.
         {
+            let scene_ts = match &scene.tileset {
+                Some(t) => t.clone(),
+                None => default_ts_stem.clone(),
+            };
             let mut ec = events::EventCompiler::new(&mut texts);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
@@ -324,6 +348,9 @@ fn main() -> Result<()> {
                 &music_names,
                 &vig_names,
                 &screens,
+                &scene_ts,
+                &mut tile_blocks,
+                real_sprite_blocks,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -614,9 +641,91 @@ fn main() -> Result<()> {
     // Sets compilés PAR SCÈNE (v0.5, comme les tilesets) : chaque scène
     // n'embarque que le bloc joueur (0) + les blocs de ses acteurs (5 max),
     // datagen remappe les sprite_id binaires vers les slots locaux.
-    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
-        .with_context(|| format!("sprites {}", project.assets.sprites))?;
-    let sprite_blocks = sprites.sprite_blocks()?;
+    // T4 — feuille ÉTENDUE : les blocs virtuels des apparences tile sont
+    // composés à la suite des blocs réels (12 frames identiques 16x24,
+    // la tile posée lignes 8-23 : alignée sur la cellule en jeu). Les
+    // couleurs de la tile rejoignent la palette de la feuille (index 0
+    // transparent) — to_obj_sheet ré-indexe ensuite par bloc comme pour
+    // n'importe quel charset.
+    let sprites = if tile_blocks.is_empty() {
+        sprites
+    } else {
+        let mut ext = sprites;
+        let new_w = ext.width + tile_blocks.len() * 12 * 16;
+        let mut px = vec![0u8; new_w * 24];
+        for y in 0..24 {
+            px[y * new_w..y * new_w + ext.width]
+                .copy_from_slice(&ext.pixels[y * ext.width..(y + 1) * ext.width]);
+        }
+        for (k, (ts_stem, tile)) in tile_blocks.iter().enumerate() {
+            let path = tileset_paths
+                .iter()
+                .find(|t| {
+                    Path::new(t).file_stem().and_then(|x| x.to_str())
+                        == Some(ts_stem.as_str())
+                })
+                .with_context(|| {
+                    format!("apparence tile : tileset '{}' introuvable", ts_stem)
+                })?;
+            let img = gfx::load_indexed_png(&proj_dir.join(path))?;
+            let per_row = (img.width / 16).max(1);
+            let tx = (*tile as usize % per_row) * 16;
+            let ty = (*tile as usize / per_row) * 16;
+            if ty + 16 > img.height {
+                bail!(
+                    "apparence tile : tile {} hors du chipset '{}'",
+                    tile, ts_stem
+                );
+            }
+            let mut remap = [0usize; 256];
+            let fx0 = ext.width + k * 12 * 16;
+            for yy in 0..16 {
+                for xx in 0..16 {
+                    let src = img.pixels[(ty + yy) * img.width + tx + xx] as usize;
+                    if src == 0 {
+                        continue; // transparent
+                    }
+                    if remap[src] == 0 {
+                        let c = img.palette[src];
+                        remap[src] = match ext
+                            .palette
+                            .iter()
+                            .skip(1)
+                            .position(|&pc| pc == c)
+                        {
+                            Some(i) => i + 1,
+                            None => {
+                                if ext.palette.len() >= 256 {
+                                    // palette pleine : plus proche existant
+                                    let mut best = (1usize, u32::MAX);
+                                    for (i, &pc) in
+                                        ext.palette.iter().enumerate().skip(1)
+                                    {
+                                        let d = tileset::dist555(pc, c);
+                                        if d < best.1 {
+                                            best = (i, d);
+                                        }
+                                    }
+                                    best.0
+                                } else {
+                                    ext.palette.push(c);
+                                    ext.palette.len() - 1
+                                }
+                            }
+                        };
+                    }
+                    let v = remap[src] as u8;
+                    for f in 0..12 {
+                        px[(8 + yy) * new_w + fx0 + f * 16 + xx] = v;
+                    }
+                }
+            }
+        }
+        ext.width = new_w;
+        ext.pixels = px;
+        ext
+    };
+    let sprite_blocks = real_sprite_blocks + tile_blocks.len();
     let mut ss_ids: HashMap<Vec<usize>, u8> = HashMap::new();
     let mut sprite_sets: Vec<(Vec<u8>, Vec<u16>)> = Vec::new();
     let mut sprite_set_ids: Vec<u8> = Vec::new();
@@ -624,7 +733,7 @@ fn main() -> Result<()> {
     for (sci, sc) in scenes.iter().enumerate() {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for &b in &scene_gfx_blocks[sci] {
-            if (b as usize) >= sprite_blocks {
+            if (b as usize) >= real_sprite_blocks {
                 bail!(
                     "scene '{}' : pas gfx:{} — bloc hors feuille de sprites ({} bloc(s))",
                     sc.name, b, sprite_blocks
@@ -651,6 +760,10 @@ fn main() -> Result<()> {
             // deborde mais la variete d'apparences (VRAM OBJ = 16 Ko, soit
             // 5 charsets par scene, heros compris).
             let charset_name = |b: usize| -> String {
+                if b >= real_sprite_blocks {
+                    let (ts, t) = &tile_blocks[b - real_sprite_blocks];
+                    return format!("tile {} ({})", t, ts);
+                }
                 match project.charsets.get(b) {
                     Some(n) if !n.is_empty() => format!("bloc {} « {} »", b, n),
                     _ if b == 0 => "bloc 0 (heros)".to_string(),

@@ -1280,6 +1280,9 @@ impl<'a> EventCompiler<'a> {
         musics: &[String],
         vignettes: &[String],
         screens: &[ScreenDef],
+        scene_tileset: &str,
+        tile_blocks: &mut Vec<(String, u16)>,
+        real_blocks: usize,
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -1300,21 +1303,22 @@ impl<'a> EventCompiler<'a> {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
             #[allow(clippy::type_complexity)]
-            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8)> =
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8, Option<u16>)> =
                 if ev.pages.is_empty() {
                     vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
                           &ev.entry, ev.commands.as_slice(), &ev.r#move,
-                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0))]
+                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0),
+                          ev.tile)]
                 } else {
                     ev.pages
                         .iter()
                         .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
                                   p.dir.as_str(), &p.entry, p.commands.as_slice(),
                                   &p.r#move, &p.move_route, &p.priority,
-                                  p.speed.unwrap_or(0)))
+                                  p.speed.unwrap_or(0), p.tile))
                         .collect()
                 };
-            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed)) in
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed, tile)) in
                 pages.iter().enumerate()
             {
                 let kind = match *trigger {
@@ -1327,7 +1331,7 @@ impl<'a> EventCompiler<'a> {
                         scene_name, ev.name, k + 1, other
                     ),
                 };
-                if kind == "npc" && *sprite < 0 {
+                if kind == "npc" && *sprite < 0 && tile.is_none() {
                     bail!(
                         "scene '{}', event « {} » page {} : un event « touche action » doit \
                          avoir une apparence (choisir un personnage, ou passer en \
@@ -1451,8 +1455,32 @@ impl<'a> EventCompiler<'a> {
                     x: ev.x,
                     y: ev.y,
                     // 255 = invisible (spec §1.3 v0.8) — une apparence est
-                    // permise sur TOUT declencheur (coffre visible au contact)
-                    sprite: if *sprite < 0 { 255 } else { *sprite as u8 },
+                    // permise sur TOUT declencheur (coffre visible au contact).
+                    // T4 : apparence TILE -> bloc de sprite VIRTUEL (compose
+                    // par datagen depuis la couche haute du tileset)
+                    sprite: match tile {
+                        Some(t) => {
+                            let key = (scene_tileset.to_string(), *t);
+                            let k = match tile_blocks.iter().position(|e| *e == key) {
+                                Some(k) => k,
+                                None => {
+                                    tile_blocks.push(key);
+                                    tile_blocks.len() - 1
+                                }
+                            };
+                            let b = real_blocks + k;
+                            if b > 254 {
+                                bail!(
+                                    "event « {} » : trop d'apparences tile                                      distinctes dans le projet",
+                                    ev.name
+                                );
+                            }
+                            b as u8
+                        }
+                        None => {
+                            if *sprite < 0 { 255 } else { *sprite as u8 }
+                        }
+                    },
                     dir: dir.to_string(),
                     entry,
                     cont: k > 0,

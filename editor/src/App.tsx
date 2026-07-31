@@ -2739,6 +2739,18 @@ export default function App() {
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
           sprites={sprites}
+          tilesetBmp={tilesets[scene.tileset ?? tilesetNames[0] ?? ""] ?? null}
+          upperCells={(() => {
+            // T4 : tiles de la section couche haute du chipset de la scène
+            const stem = scene.tileset ?? tilesetNames[0] ?? "";
+            const us = data.tilesetMeta[stem]?.upper_start;
+            const bmp = tilesets[stem];
+            if (us === undefined || !bmp) return [];
+            const count =
+              Math.max(1, Math.floor(bmp.width / 16)) *
+              Math.max(1, Math.floor(bmp.height / 16));
+            return Array.from({ length: Math.max(0, count - us) }, (_, i) => us + i);
+          })()}
           labels={scriptLabels(scene.script)}
           onSave={(ev) => {
             setScene((sc) => updateEvent(sc, evEdit.index, ev));

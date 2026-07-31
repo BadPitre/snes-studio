@@ -161,6 +161,9 @@ export interface Actor {
   x: number;
   y: number;
   sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string;
 }
@@ -380,6 +383,9 @@ export interface EventPage {
   condition?: PageCondition;
   trigger: EventTrigger;
   sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string;
   commands: Command[];
@@ -394,7 +400,10 @@ export interface GameEvent {
   x: number;
   y: number;
   trigger: EventTrigger;
-  sprite: number; // bloc de personnage ; -1 = invisible
+  sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string; // label d'un script écrit à la main (avancé)
   commands: Command[];

@@ -138,6 +138,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
         e.speed = p1.speed;
         e.trigger = p1.trigger;
         e.sprite = p1.sprite;
+        e.tile = p1.tile;
         e.dir = p1.dir;
         e.entry = p1.entry;
         e.commands = p1.commands ?? [];
@@ -145,6 +146,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
           condition: p.condition,
           trigger: p.trigger ?? "action",
           sprite: p.sprite ?? -1,
+          tile: p.tile,
           dir: p.dir ?? "down",
           entry: p.entry,
           commands: p.commands ?? [],
@@ -274,6 +276,7 @@ function sceneToJson(sc: Scene): string {
       speed: e.speed,
       trigger: e.trigger,
       sprite: e.sprite,
+      tile: e.tile,
       dir: e.dir,
       entry: e.entry,
       commands: e.commands,
