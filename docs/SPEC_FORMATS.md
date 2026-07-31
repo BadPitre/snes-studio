@@ -279,9 +279,13 @@ remises à zéro, gvars conservées) → ouverture, selon le champ trans
 (S18) : fondu (défaut, recette historique setFadeEffect), instantané
 (coupe sèche), ou mosaïque — $2106 sur BG1-3, la taille des blocs monte
 pendant que la luminosité descend (16 pas, 1 frame chacun), et l'inverse
-à l'arrivée. JSON : `"trans": "fade" | "none" | "mosaic"` (absent =
-fondu) sur l'entrée warp, et le même champ sur les commandes d'event
-warp / warp_var / screen / stage_open / stage_close. Pas de re-déclenchement
+à l'arrivée. S18b — balayages (rideau noir HDMA canal 2 sur $2100,
+bandes de scanlines) : 3 = wipe_down (le noir descend du haut), 4 =
+wipe_up (le noir monte du bas), 5 = wipe_center (deux bandes se
+rejoignent au milieu) — et l'inverse à l'ouverture. JSON : `"trans":
+"fade" | "none" | "mosaic" | "wipe_down" | "wipe_up" | "wipe_center"`
+(absent = fondu) sur l'entrée warp, et le même champ sur les commandes
+d'event warp / warp_var / screen / stage_open / stage_close. Pas de re-déclenchement
 tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
 v0.16 : à l'arrivée, la direction du héros est celle des flags — ou
 CONSERVÉE (modèle « Retain » de RM2003) si les flags valent 0 ; les warps

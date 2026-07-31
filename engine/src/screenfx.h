@@ -87,6 +87,18 @@ u16 screenfx_shake_x(void);
 void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub);
 void screenfx_cm_hold(u8 on);
 
+/* Balayage (S18) : HDMA canal 2 → luminosité $2100 par bandes de
+   scanlines — des bandes NOIRES qui grandissent. trans : 3 = vers le
+   bas (le noir descend du haut), 4 = vers le haut (le noir monte du
+   bas), 5 = vers le centre (deux bandes se rejoignent au milieu).
+   black = total de lignes noires (0-224). À utiliser UNIQUEMENT dans
+   les boucles bloquantes de transition (warp, écran composé), un appel
+   par frame juste après WaitForVBlank : hdmafx (propriétaire de $420C
+   en régime normal) ne tourne pas pendant ces boucles et réaffirme son
+   masque au VBlank suivant la fin. */
+void screenfx_wipe_step(u8 trans, u16 black);
+void screenfx_wipe_off(void);
+
 /* Un pas d'effet par frame (boucle principale, toujours). */
 void screenfx_update(void);
 

@@ -169,11 +169,23 @@ static void sg_trans_regs(u8 trans, u8 b)
 
 static void sg_fade_out(u8 dur, u8 trans)
 {
-  u16 step, lvl;
-  u8 f;
+  u16 step, lvl, f;
 
   if (!dur || trans == 1)
     return;
+  if (trans >= 3)
+  {
+    /* balayage (S18b) : le rideau noir grandit sur dur frames */
+    for (f = 1; f <= dur; f++)
+    {
+      WaitForVBlank();
+      screenfx_wipe_step(trans, (u16)(224u * f / dur));
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0; /* reste noir jusqu'au setScreenOff */
+    return;
+  }
   step = 0x0F00 / dur;
   lvl = 0x0F00;
   for (f = 0; f < dur; f++)
@@ -186,13 +198,28 @@ static void sg_fade_out(u8 dur, u8 trans)
 
 static void sg_fade_in(u8 dur, u8 trans)
 {
-  u16 step, lvl;
-  u8 f;
+  u16 step, lvl, f;
 
   if (!dur || trans == 1)
   {
     if (trans == 2)
       REG_MOSAIC = 0; /* rampe sautée : ne pas rester pixelisé */
+    return;
+  }
+  if (trans >= 3)
+  {
+    /* balayage : rideau complet armé avant de rallumer (setScreenOn a
+       posé 15 — le HDMA écrit $2100 dès la ligne 0 de la frame) */
+    REG_INIDISP = 0;
+    screenfx_wipe_step(trans, 224);
+    for (f = 1; f <= dur; f++)
+    {
+      WaitForVBlank();
+      screenfx_wipe_step(trans, (u16)(224u - 224u * f / dur));
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0x0F; /* la dernière valeur HDMA peut être un 0 de bande */
     return;
   }
   step = 0x0F00 / dur;

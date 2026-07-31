@@ -333,6 +333,69 @@ u16 screenfx_shake_x(void)
   return shake_phase ? v : (u16)(0 - v); /* wrap u16 = soustraction */
 }
 
+/* ---- Balayage (S18) : rideau HDMA sur la luminosité ------------------
+   Canal 2 (libre : 3 = spotlight, 4 = dégradé, 5/6 = vague, 7 = OAM du
+   NMI), mode 0 (1 octet vers $2100), table WRAM reconstruite à chaque
+   pas. Une bande = [count][valeur] — la valeur écrite en début de bande
+   tient jusqu'à la suivante ; les bandes > 127 lignes sont découpées. */
+#define WP_LINES 224
+
+static u8 wp_tbl[16]; /* 6 entrées max (3 bandes découpées) + terminateur */
+
+static u8 *wp_band(u8 *p, u16 lines, u8 val)
+{
+  u8 n;
+
+  while (lines)
+  {
+    n = lines > 127 ? 127 : (u8)lines;
+    *p++ = n;
+    *p++ = val;
+    lines -= (u16)n;
+  }
+  return p;
+}
+
+void screenfx_wipe_step(u8 trans, u16 black)
+{
+  u8 *p = wp_tbl;
+  u16 a, half;
+
+  if (black > WP_LINES)
+    black = WP_LINES;
+  if (trans == 3) /* vers le bas : le noir descend du haut */
+  {
+    p = wp_band(p, black, 0x00);
+    p = wp_band(p, WP_LINES - black, 0x0F);
+  }
+  else if (trans == 4) /* vers le haut : le noir monte du bas */
+  {
+    p = wp_band(p, WP_LINES - black, 0x0F);
+    p = wp_band(p, black, 0x00);
+  }
+  else /* vers le centre : deux bandes se rejoignent au milieu */
+  {
+    half = black >> 1;
+    p = wp_band(p, half, 0x00);
+    p = wp_band(p, WP_LINES - (half << 1), 0x0F);
+    p = wp_band(p, half, 0x00);
+  }
+  *p = 0; /* terminateur HDMA */
+
+  *(vuint8 *)0x4320 = 0x00; /* DMAP2 : mode 0, un octet par entrée */
+  *(vuint8 *)0x4321 = 0x00; /* BBAD2 : $2100 (INIDISP) */
+  a = (u16)(u8 *)wp_tbl;
+  *(vuint8 *)0x4322 = (u8)a;
+  *(vuint8 *)0x4323 = (u8)(a >> 8);
+  *(vuint8 *)0x4324 = 0x7E;
+  REG_HDMAEN = 0x04; /* seul canal actif pendant la boucle bloquante */
+}
+
+void screenfx_wipe_off(void)
+{
+  REG_HDMAEN = 0; /* hdmafx réaffirme son masque au prochain VBlank */
+}
+
 void screenfx_update(void)
 {
   if (fade_level < fade_target)

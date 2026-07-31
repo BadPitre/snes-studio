@@ -266,13 +266,19 @@ pub struct Warp {
     pub trans: Option<String>,
 }
 
-/// Code moteur d'une transition d'écran (S18)
+/// Code moteur d'une transition d'écran (S18/S18b)
 pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
     Ok(match trans.as_deref() {
         None | Some("") | Some("fade") => 0,
         Some("none") => 1,
         Some("mosaic") => 2,
-        Some(o) => anyhow::bail!("transition inconnue : '{}' (fade, none, mosaic)", o),
+        Some("wipe_down") => 3,
+        Some("wipe_up") => 4,
+        Some("wipe_center") => 5,
+        Some(o) => anyhow::bail!(
+            "transition inconnue : '{}' (fade, none, mosaic, wipe_down, wipe_up, wipe_center)",
+            o
+        ),
     })
 }
 

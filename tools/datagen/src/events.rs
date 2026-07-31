@@ -248,13 +248,21 @@ impl<'a> EventCompiler<'a> {
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
     }
 
-    /// Transition d'écran (S18) : "fade" (défaut) 0, "none" 1, "mosaic" 2
+    /// Transition d'écran (S18) : "fade" (défaut) 0, "none" 1, "mosaic" 2,
+    /// balayages (S18b) : "wipe_down" 3, "wipe_up" 4, "wipe_center" 5
     fn trans_field(cmd: &Value) -> Result<u8> {
         Ok(match cmd["trans"].as_str() {
             None | Some("") | Some("fade") => 0,
             Some("none") => 1,
             Some("mosaic") => 2,
-            Some(o) => bail!("transition inconnue « {} » (fade, none, mosaic)", o),
+            Some("wipe_down") => 3,
+            Some("wipe_up") => 4,
+            Some("wipe_center") => 5,
+            Some(o) => bail!(
+                "transition inconnue « {} » (fade, none, mosaic, wipe_down, \
+                 wipe_up, wipe_center)",
+                o
+            ),
         })
     }
 

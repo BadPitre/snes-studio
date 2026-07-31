@@ -438,12 +438,22 @@ export interface Warp {
   trans?: ScreenTrans; // S18 — transition (absente = fondu)
 }
 
-// Transition d'écran (S18) : fondu (défaut), instantané, mosaïque
-export type ScreenTrans = "fade" | "none" | "mosaic";
+// Transition d'écran (S18) : fondu (défaut), instantané, mosaïque,
+// balayages (S18b — rideau noir ligne à ligne)
+export type ScreenTrans =
+  | "fade"
+  | "none"
+  | "mosaic"
+  | "wipe_down"
+  | "wipe_up"
+  | "wipe_center";
 export const TRANS_OPTIONS: { value: ScreenTrans; label: string }[] = [
   { value: "fade", label: "Fondu (défaut)" },
   { value: "none", label: "Instantané" },
   { value: "mosaic", label: "Mosaïque" },
+  { value: "wipe_down", label: "Balayage vers le bas" },
+  { value: "wipe_up", label: "Balayage vers le haut" },
+  { value: "wipe_center", label: "Balayage vers le centre" },
 ];
 
 export interface Scene {

@@ -45,6 +45,7 @@ static void warp_close(u8 trans)
 {
   u8 f;
   u8 b;
+  u16 l;
 
   if (trans == 1)
     return; /* instantané : setScreenOff suffit */
@@ -59,6 +60,21 @@ static void warp_close(u8 trans)
     }
     return;
   }
+  if (trans >= 3)
+  {
+    /* balayage (S18b) : rideau noir HDMA — 16 pas de 14 lignes */
+    l = 0;
+    for (f = 0; f < 16; f++)
+    {
+      l += 14;
+      WaitForVBlank();
+      screenfx_wipe_step(trans, l);
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0; /* reste noir jusqu'au setScreenOff */
+    return;
+  }
   setFadeEffect(FADE_OUT);
 }
 
@@ -66,6 +82,7 @@ static void warp_open(u8 trans)
 {
   u8 f;
   u8 b;
+  u16 l;
 
   if (trans == 1)
   {
@@ -83,6 +100,24 @@ static void warp_open(u8 trans)
     }
     WaitForVBlank();
     REG_MOSAIC = 0; /* effet rendu (taille 1, aucun BG) */
+    return;
+  }
+  if (trans >= 3)
+  {
+    /* balayage : rideau complet armé AVANT de rallumer (pas de flash —
+       luminosité de base 0, le HDMA écrit $2100 ligne à ligne) */
+    REG_INIDISP = 0;
+    screenfx_wipe_step(trans, 224);
+    l = 224;
+    for (f = 0; f < 16; f++)
+    {
+      l -= 14;
+      WaitForVBlank();
+      screenfx_wipe_step(trans, l);
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0x0F; /* la dernière valeur HDMA peut être un 0 de bande */
     return;
   }
   setScreenOn();
