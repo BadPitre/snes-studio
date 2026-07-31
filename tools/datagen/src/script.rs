@@ -675,17 +675,18 @@ pub fn assemble(
                 code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
                 code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
             }
-            // Effets d'écran (v0.15) — fx optionnel (S18c) : 0 fondu,
-            // 1 instantané, 2 mosaïque, 3-5 balayage bas/haut/centre
+            // Effets d'écran (v0.15) — durée en frames (S18d) + fx
+            // optionnel (S18c) : 0 fondu, 1 instantané, 2 mosaïque,
+            // 3-5 balayage bas/haut/centre
             "SCRHIDE" | "SCRSHOW" => {
-                if argc != 1 && argc != 2 { bail!("{} <vitesse 1-15> [fx 0-5]", op); }
-                let speed: u8 = args[0]
+                if argc != 1 && argc != 2 { bail!("{} <frames 1-255> [fx 0-5]", op); }
+                let dur: u8 = args[0]
                     .parse()
                     .ok()
-                    .filter(|&v| (1..=15).contains(&v))
-                    .with_context(|| format!("vitesse invalide : '{}' (1-15)", args[0]))?;
+                    .filter(|&v| v >= 1)
+                    .with_context(|| format!("durée invalide : '{}' (1-255 frames)", args[0]))?;
                 code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
-                code.push(speed);
+                code.push(dur);
                 code.push(if argc == 2 { parse_u8(args[1])? } else { 0 });
             }
             // TINT <off|add|sub> <r> <g> <b> (0-31) ; TINTG + <dur 1-255>

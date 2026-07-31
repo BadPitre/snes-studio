@@ -197,9 +197,9 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "pic_hide":
       return `Effacer l'image${picDurLabel(c.dur, c.fade)}`;
     case "scr_hide":
-      return `Cacher l'écran (vitesse ${c.speed})`;
+      return `Cacher l'écran (${c.frames ?? Math.ceil(15 / (c.speed || 15))}f)`;
     case "scr_show":
-      return `Montrer l'écran (vitesse ${c.speed})`;
+      return `Montrer l'écran (${c.frames ?? Math.ceil(15 / (c.speed || 15))}f)`;
     case "tint":
       return (
         (c.mode === "off"
@@ -587,9 +587,9 @@ export function CommandListEditor(props: {
       case "pic_hide":
         return { c: "pic_hide" };
       case "scr_hide":
-        return { c: "scr_hide", speed: 1 };
+        return { c: "scr_hide", frames: 30 };
       case "scr_show":
-        return { c: "scr_show", speed: 1 };
+        return { c: "scr_show", frames: 30 };
       case "tint":
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
@@ -2194,16 +2194,19 @@ function CommandForm(props: {
       );
       break;
     case "scr_hide":
-    case "scr_show":
-      valid = cmd.speed >= 1 && cmd.speed <= 15;
+    case "scr_show": {
+      const fr = cmd.frames ?? Math.ceil(15 / (cmd.speed || 15));
+      valid = fr >= 1 && fr <= 255;
       body = (
         <>
           <div className="row">
             <label>
-              Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
+              Durée (frames, 60 = 1 seconde)
               <input
-                type="number" min={1} max={15} value={cmd.speed} autoFocus
-                onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+                type="number" min={1} max={255} value={fr} autoFocus
+                onChange={(e) =>
+                  onChange({ ...cmd, frames: Number(e.target.value), speed: undefined })
+                }
               />
             </label>
             <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
@@ -2216,6 +2219,7 @@ function CommandForm(props: {
         </>
       );
       break;
+    }
     case "tint":
       valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
       body = (

@@ -161,11 +161,11 @@
                               échange les positions de deux events */
 
 /* v0.15 : effets d'écran (module screenfx) */
-#define VM_OP_SCRHIDE 0x1C /* vitesse (u8 1-15, pas de luminosité/frame),
-                              fx (u8, S18c : 0 fondu, 1 instantané, 2
+#define VM_OP_SCRHIDE 0x1C /* durée (u8 1-255 frames, rampe 8.8 — S18c),
+                              fx (u8 : 0 fondu, 1 instantané, 2
                               mosaïque, 3-5 balayage bas/haut/centre) —
                               cache l'écran, BLOQUANT */
-#define VM_OP_SCRSHOW 0x1D /* vitesse (u8), fx (u8) — montre l'écran,
+#define VM_OP_SCRSHOW 0x1D /* durée (u8), fx (u8) — montre l'écran,
                               BLOQUANT */
 #define VM_OP_TINT    0x1E /* mode (u8 : 0 normale, 1 eclaircir, 2
                               assombrir), r, g, b (u8 0-31) — teinte du

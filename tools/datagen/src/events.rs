@@ -525,11 +525,23 @@ impl<'a> EventCompiler<'a> {
                 }
                 // v0.15 — effets d'écran
                 "scr_hide" | "scr_show" => {
-                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=15).contains(&v)).unwrap_or(1);
+                    // durée en FRAMES (S18d) — héritage : l'ancien champ
+                    // speed (1-15 niveaux de luminosité par frame) est
+                    // converti en durée équivalente (~15/speed)
+                    let dur = match cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)) {
+                        Some(v) => v,
+                        None => {
+                            let speed = cmd["speed"]
+                                .as_u64()
+                                .filter(|&v| (1..=15).contains(&v))
+                                .unwrap_or(1);
+                            (15 + speed - 1) / speed
+                        }
+                    };
                     out.push(format!(
                         "  {} {} {}",
                         if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
-                        speed,
+                        dur,
                         Self::trans_field(cmd)?
                     ));
                 }

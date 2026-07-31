@@ -499,8 +499,8 @@ sur les mêmes variables.
 
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
-| 0x1C | SCRHIDE | vitesse u8 (1-15), fx u8 | cache l'écran (INIDISP, `vitesse` niveaux de luminosité par frame), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume). fx (S18c) : 0 fondu, 1 instantané (vitesse ignorée), 2 mosaïque couplée au fondu, 3-5 balayage bas/haut/centre (rideau HDMA canal 2, masque composé par hdmafx — actif aussi sur picture/écran composé) |
-| 0x1D | SCRSHOW | vitesse u8, fx u8 | montre l'écran, BLOQUANT — mêmes fx que SCRHIDE (le balayage se rejoue à l'envers) |
+| 0x1C | SCRHIDE | durée u8 (1-255 frames, rampe 8.8 — S18d), fx u8 | cache l'écran (INIDISP), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume). fx (S18c) : 0 fondu, 1 instantané (vitesse ignorée), 2 mosaïque couplée au fondu, 3-5 balayage bas/haut/centre (rideau HDMA canal 2, masque composé par hdmafx — actif aussi sur picture/écran composé) |
+| 0x1D | SCRSHOW | durée u8 (frames), fx u8 | montre l'écran, BLOQUANT — mêmes fx que SCRHIDE (le balayage se rejoue à l'envers) |
 | 0x1E | TINT | mode u8, r u8, g u8, b u8 | teinte du décor : 0 normale, 1 éclaircir (addition), 2 assombrir (soustraction), composantes 0-31 — color math couleur fixe ($2130-$2132) sur BG1+BG2+fond ; BG3 (textbox) exclu, et les OBJ ne participent pas (palettes 0-3, limite hardware). Immédiate, persiste entre les scènes (réaffirmée après warp). |
 | 0x1F | FLASH | r u8, g u8, b u8, frames u8 | addition décroissant linéairement sur `frames`, puis la teinte courante revient — NON bloquant |
 | 0x20 | SHAKE | power u8 (0-8), vitesse u8 (1-8), frames u8 | secousse : offset de scroll horizontal ±power px alternant toutes `vitesse` frames pendant `frames` frames ; power 0 = stop — NON bloquant |

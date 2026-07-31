@@ -16,12 +16,13 @@ void screenfx_init(void);
    scènes (modèle RM2003). */
 void screenfx_warp_reset(void);
 
-/* Fondu scripté : cacher (vers noir) / montrer (vers 15), speed = pas de
-   luminosité par frame (1-15). Bloquants côté VM via screenfx_busy.
-   fx (S18c) : 0 fondu, 1 instantané (speed ignoré), 2 mosaïque, 3-5
-   balayage bas/haut/centre (rideau HDMA, mêmes codes que les warps). */
-void screenfx_hide(u8 speed, u8 fx);
-void screenfx_show(u8 speed, u8 fx);
+/* Fondu scripté : cacher (vers noir) / montrer (vers plein), dur =
+   DURÉE en frames (1-255, rampe 8.8). Bloquants côté VM via
+   screenfx_busy. fx (S18c) : 0 fondu, 1 instantané (dur ignoré),
+   2 mosaïque, 3-5 balayage bas/haut/centre (rideau HDMA, mêmes codes
+   que les warps). */
+void screenfx_hide(u8 dur, u8 fx);
+void screenfx_show(u8 dur, u8 fx);
 u8 screenfx_busy(void);
 
 /* Teinte : poser r/g/b (0-31) PUIS appliquer le mode — deux appels
