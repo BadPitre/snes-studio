@@ -123,12 +123,21 @@ static u16 common_lookup(u8 kind)
   p = 1;
   for (i = 0; i < n; i++)
   {
-    sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
-    ofs = (u16)scene_ctx.scripts[p + 3] |
-          ((u16)scene_ctx.scripts[p + 4] << 8);
-    /* switch 0xFFFF = pas de condition (case décochée) : toujours actif */
-    if (scene_ctx.scripts[p] == kind && (sw == 0xFFFF || vm_switch_get(sw)))
-      return ofs;
+    /* type d'abord : sw/ofs ne sont lus que pour les entrées du bon
+       kind — ce scan tourne chaque frame (parallel process) et chaque
+       lecture du bloc scripts passe par un pointeur far */
+    if (scene_ctx.scripts[p] == kind)
+    {
+      sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
+      /* switch 0xFFFF = pas de condition (case décochée) : toujours
+         actif */
+      if (sw == 0xFFFF || vm_switch_get(sw))
+      {
+        ofs = (u16)scene_ctx.scripts[p + 3] |
+              ((u16)scene_ctx.scripts[p + 4] << 8);
+        return ofs;
+      }
+    }
     p += 5;
   }
   return SCRIPT_NONE;
@@ -179,10 +188,18 @@ static u16 keyin_bit(u8 code)
 static u8 keyin_scan(u16 mask, u16 pressed)
 {
   u8 code;
+  u16 bit;
 
+  /* bit avance par <<= 1 : un shift variable (1 << code) coûte une
+     boucle de décalages avec tcc-816 — trop cher pour un scan par
+     frame (le KEYIN non bloquant du parallel process) */
+  bit = 2;
   for (code = 1; code <= 12; code++)
-    if ((mask & ((u16)1 << code)) && (pressed & keyin_bit(code)))
+  {
+    if ((mask & bit) && (pressed & keyin_bit(code)))
       return code;
+    bit <<= 1;
+  }
   return 0;
 }
 
@@ -192,7 +209,7 @@ static u8 p_keyin_dst;
 
 static void pvm_swap(void)
 {
-  u8 i, t8;
+  u8 i, n, t8;
   u16 t16;
 
   t8 = vm.active;      vm.active = p_active;         p_active = t8;
@@ -203,7 +220,14 @@ static void pvm_swap(void)
   t8 = vm.call_sp;     vm.call_sp = p_call_sp;       p_call_sp = t8;
   t16 = vm.keyin_mask; vm.keyin_mask = p_keyin_mask;  p_keyin_mask = t16;
   t8 = vm.keyin_dst;   vm.keyin_dst = p_keyin_dst;    p_keyin_dst = t8;
-  for (i = 0; i < VM_CALL_DEPTH; i++)
+  /* seules les entrées < sp sont vivantes (CALL écrit avant que RET ne
+     lise) : n'échanger que celles-là — le cas courant, deux piles
+     vides, ne copie rien (deux swaps par frame quand un parallel
+     process tourne, ce budget compte) */
+  n = vm.call_sp;
+  if (p_call_sp > n)
+    n = p_call_sp;
+  for (i = 0; i < n; i++)
   {
     t16 = vm.call_stack[i];
     vm.call_stack[i] = p_call_stack[i];
