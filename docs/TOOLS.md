@@ -529,6 +529,25 @@ non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 (`SHAKE`). La teinte et le flash ne touchent ni le texte ni les
 personnages (hardware SNES : color math OBJ limité aux palettes 4-7).
 
+**animations image par image (A1)** : `project.animations` liste des
+entrées `{"name","vignette":"stem","loop":bool,"frames":[...]}`. La
+planche de cellules EST une vignette du projet (§B5) — zéro nouveau
+chemin graphique, l'animation n'ajoute que la piste de frames. Chaque
+frame : `{"cell","x","y","dur":1-255,"sfx":"stem"}` — `x`/`y` sont des
+décalages SIGNÉS (−128..127) par rapport au point d'ancrage, `sfx` est
+joué À L'ENTRÉE de la frame. datagen émet `data_anims.c` (piste
+APLATIE, 5 octets par frame et pas FIXE : le lecteur avance de +5 sans
+multiplier ni décoder une longueur variable) et refuse au build : nom
+en double, vignette inconnue, cellule hors planche, durée nulle,
+décalage hors bornes, son inconnu.
+`{"c":"anim_play","anim":"nom","anchor":"screen"|"hero"|"event",
+"event":-1|0-23,"wait":bool}` (`ANIMPLAY`, `event: -1` = « cet event »,
+`wait` bloque le script — jamais pour une animation en boucle, qui ne
+finit pas) ; `{"c":"anim_stop"}` (`ANIMSTOP`). Ancrage `screen` : les
+décalages partent du CENTRE de l'écran ; `hero`/`event` : du coin de
+tile du metasprite suivi, recalculé chaque frame (l'animation suit un
+PNJ qui marche). Composées dans Tools → Animations.
+
 **v0.15** : `{"c":"loop","do":[...]}` — boucle RM2003 : le corps se
 répète pour toujours ; `{"c":"break"}` saute à la fin de la boucle la
 plus proche (hors d'une boucle : erreur datagen). Compilation pure

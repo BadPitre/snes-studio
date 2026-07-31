@@ -30,6 +30,7 @@ interface Props {
   soundNames: string[];
   musicNames: string[];
   vigNames: string[];
+  animNames: string[];
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (names: string[], screens: Record<string, Screen>) => void;
@@ -569,6 +570,7 @@ export default function ScreensModal(props: Props) {
                       soundNames={props.soundNames}
                       musicNames={props.musicNames}
                       vigNames={props.vigNames}
+                      animNames={props.animNames}
                       screenNames={names}
                       screenScriptNames={cur.scripts.map((sc) => sc.name)}
                       onTintPresets={props.onTintPresets}

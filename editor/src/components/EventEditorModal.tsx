@@ -69,6 +69,7 @@ interface Props {
   soundNames: string[]; // stems des sons du projet (B1)
   musicNames: string[]; // stems des musiques du projet (B1)
   vigNames: string[]; // stems des vignettes (B5)
+  animNames: string[]; // noms des animations image par image (A1)
   screenNames: string[]; // écrans composés (B6bis)
   screenScriptNames?: string[]; // scripts de l'écran courant (B6bis-2)
   onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
@@ -231,6 +232,19 @@ function labelOf(c: Command, ceNames?: string[]): string {
         : `Vignette ${c.slot} : ${c.mode === "once" ? "jouer une fois" : "boucler"} (${c.speed ?? 8}f/img)`;
     case "vig_hide":
       return `Cacher la vignette ${c.slot}`;
+    case "anim_play": {
+      const ou =
+        c.anchor === "hero"
+          ? "sur le héros"
+          : c.anchor === "event"
+            ? (c.event ?? -1) < 0
+              ? "sur cet event"
+              : `sur l'event ${c.event}`
+            : "à l'écran";
+      return `Animation « ${c.anim} » ${ou}${c.wait ? " (attendre la fin)" : ""}`;
+    }
+    case "anim_stop":
+      return "Arrêter les animations";
     case "slot_fx":
       return c.fx === "restore"
         ? `Slot ${c.slot} : restaurer les couleurs`
@@ -320,6 +334,8 @@ function cmdTitle(c: Command["c"]): string {
     vig_show: "Afficher une vignette",
     vig_play: "Animer la vignette",
     vig_hide: "Cacher la vignette",
+    anim_play: "Jouer une animation",
+    anim_stop: "Arrêter les animations",
     stage_close: "Fermer l'écran composé",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
@@ -417,6 +433,7 @@ export function CommandListEditor(props: {
   soundNames: string[];
   musicNames: string[];
   vigNames: string[];
+  animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
@@ -616,6 +633,10 @@ export function CommandListEditor(props: {
         return { c: "vig_play", slot: 1, mode: "once", speed: 8 };
       case "vig_hide":
         return { c: "vig_hide", slot: 1 };
+      case "anim_play":
+        return { c: "anim_play", anim: "", anchor: "screen", event: -1, wait: false };
+      case "anim_stop":
+        return { c: "anim_stop" };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -706,6 +727,7 @@ export function CommandListEditor(props: {
               soundNames={props.soundNames}
               musicNames={props.musicNames}
               vigNames={props.vigNames}
+              animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
@@ -1125,6 +1147,7 @@ export default function EventEditorModal(props: Props) {
               soundNames={props.soundNames}
               musicNames={props.musicNames}
               vigNames={props.vigNames}
+              animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
@@ -1222,6 +1245,7 @@ function CommandForm(props: {
   soundNames: string[];
   musicNames: string[];
   vigNames: string[];
+  animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
@@ -2863,6 +2887,85 @@ function CommandForm(props: {
             rapide). Non bloquant — enchaîner avec « Attendre ».
           </span>
         </>
+      );
+      break;
+    case "anim_play":
+      valid = cmd.anim !== "";
+      body = (
+        <>
+          <div className="row">
+            <label>
+              Animation
+              <select
+                value={cmd.anim}
+                onChange={(e) => onChange({ ...cmd, anim: e.target.value })}
+              >
+                <option value="">(choisir une animation…)</option>
+                {props.animNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Sur quoi
+              <select
+                value={cmd.anchor}
+                onChange={(e) =>
+                  onChange({ ...cmd, anchor: e.target.value as "screen" | "hero" | "event" })
+                }
+              >
+                <option value="screen">L'écran</option>
+                <option value="hero">Le héros</option>
+                <option value="event">Un event</option>
+              </select>
+            </label>
+            {cmd.anchor === "event" && (
+              <label>
+                Event
+                <select
+                  value={cmd.event ?? -1}
+                  onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
+                >
+                  <option value={-1}>Cet event</option>
+                  {props.entryNames.map((n, i) => (
+                    <option key={i} value={i}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <label className="checkline">
+            <input
+              type="checkbox"
+              checked={!!cmd.wait}
+              onChange={(e) => onChange({ ...cmd, wait: e.target.checked })}
+            />
+            Attendre la fin de l'animation
+          </label>
+          {props.animNames.length === 0 && (
+            <span className="hint">
+              Aucune animation dans le projet — Tools → Animations… pour
+              en composer une.
+            </span>
+          )}
+          <span className="hint">
+            Suite de cellules 32x32 avec position et son par image
+            (Tools → Animations…). Passe PAR-DESSUS le décor et les
+            personnages. Posée sur le héros ou sur un event, elle le
+            SUIT s'il se déplace. Sans « attendre la fin », le script
+            continue et l'animation vit sa vie — c'est ce qui permet
+            d'animer pendant un dialogue. Une animation en boucle ne
+            s'arrête jamais toute seule : « Arrêter les animations ».
+          </span>
+        </>
+      );
+      break;
+    case "anim_stop":
+      body = (
+        <span className="hint">
+          Arrête TOUTES les animations en cours et range leurs sprites.
+          Sert à sortir d'une animation lancée en boucle.
+        </span>
       );
       break;
     case "vig_hide":

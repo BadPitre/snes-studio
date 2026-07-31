@@ -71,6 +71,8 @@ function checkScene(
           scan(cmd.else);
         }
         if (cmd.c === "warp" && !data.scenes[cmd.to]) err(`${who} : téléport vers une scène inconnue « ${cmd.to} »`);
+        if (cmd.c === "anim_play" && !(data.project.animations ?? []).some((a) => a.name === cmd.anim))
+          err(`${who} : animation « ${cmd.anim} » introuvable (Tools > Animations)`);
       }
     };
     scan(e.commands);
@@ -112,6 +114,30 @@ export function checkProject(data: ProjectData, blockCount: number): Diag[] {
         where: "textes",
         msg: `« ${t.name} » : caractère non-ASCII (accents non supportés en v0)`,
       });
+  }
+
+  // Animations (A1) : ce que datagen refusera, avec le « où » lisible
+  const vigStems = new Set(
+    (data.project.vignettes ?? []).map((p) => (p.split(/[\\/]/).pop() ?? p).replace(/\.[^.]+$/, ""))
+  );
+  const sndStems = new Set(
+    (data.project.sounds ?? []).map((p) => (p.split(/[\\/]/).pop() ?? p).replace(/\.[^.]+$/, ""))
+  );
+  const seenAnim = new Set<string>();
+  for (const a of data.project.animations ?? []) {
+    const err = (msg: string) => out.push({ level: "error", where: "animations", msg });
+    if (seenAnim.has(a.name)) err(`« ${a.name} » : nom en double`);
+    seenAnim.add(a.name);
+    if (!a.vignette || !vigStems.has(a.vignette))
+      err(`« ${a.name} » : planche « ${a.vignette} » introuvable dans les vignettes du projet`);
+    if (a.frames.length === 0) err(`« ${a.name} » : aucune frame`);
+    for (const [i, f] of a.frames.entries()) {
+      if (f.dur < 1) err(`« ${a.name} », frame ${i + 1} : durée nulle`);
+      if (f.x < -128 || f.x > 127 || f.y < -128 || f.y > 127)
+        err(`« ${a.name} », frame ${i + 1} : décalage hors de -128..127`);
+      if (f.sfx && !sndStems.has(f.sfx))
+        err(`« ${a.name} », frame ${i + 1} : son « ${f.sfx} » introuvable`);
+    }
   }
 
   for (const name of data.project.scenes) {

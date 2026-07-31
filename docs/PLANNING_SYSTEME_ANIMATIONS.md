@@ -160,12 +160,20 @@ Fenêtre « Animations » (Tools), sur le modèle de l'éditeur d'écrans :
 - **Timeline** en bas : une colonne par frame, la durée en largeur, une
   pastille sur les frames qui portent un son. Ajouter / dupliquer /
   supprimer une frame, glisser pour réordonner.
-- **Canevas** au centre : la cellule de la frame courante posée sur une
-  silhouette de référence (héros ou fond d'écran au choix), déplaçable
-  à la souris — c'est ce qui fixe `x`/`y`.
+- **Canevas** au centre : la cellule de la frame courante posée sur un
+  repère au choix (centre de l'écran ou silhouette du héros),
+  déplaçable à la souris — c'est ce qui fixe `x`/`y`. Le canevas
+  applique EXACTEMENT la règle du moteur (§3.2) : ce qu'on place ici
+  est ce que le jeu affiche.
 - **Inspecteur** à droite : cellule (grille de la planche), durée, son.
 - **Lecture** : bouton play qui joue l'animation dans le canevas à la
-  vitesse réelle, sons compris.
+  vitesse réelle (60 images/seconde), sons compris.
+- **Avertissements** : ce que datagen refuserait au build (planche
+  absente, cellule hors planche, son disparu, nom en double) est dit
+  DANS la fenêtre, pendant l'édition — l'erreur de génération est un
+  filet, pas le premier retour. La fenêtre « Vérifier le projet » les
+  reprend au niveau projet, et signale les commandes qui pointent une
+  animation supprimée.
 
 ## 7. Limites à annoncer dans l'éditeur
 
@@ -184,9 +192,11 @@ Fenêtre « Animations » (Tools), sur le modèle de l'éditeur d'écrans :
    `anim_play`/`anim_stop` côté datagen. Testable par un projet écrit à
    la main, sans éditeur — c'est ce qui a servi à valider les trois
    ancrages, l'attente, la boucle et l'auto-rangement.
-2. **A1-b** — formulaire de la commande dans l'éditeur d'events.
-3. **A1-c** — fenêtre Animations : timeline, canevas, inspecteur,
-   lecture.
+2. **A1-b** — ✅ formulaire « Jouer une animation » dans l'éditeur
+   d'events (animation, cible écran / héros / cet event / event n,
+   case « attendre la fin ») + « Arrêter les animations ».
+3. **A1-c** — ✅ fenêtre Animations (Tools) : timeline, canevas,
+   inspecteur, lecture.
 4. **A1-d** — passage à 4 emplacements simultanés (petit, séparé : il
    touche aux vignettes existantes).
 
