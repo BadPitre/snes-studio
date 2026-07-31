@@ -28,6 +28,14 @@ export const NODE_KINDS = [
 ] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
+/** Tailles EN TUILES des pictures du projet, renseignées par la fenêtre
+ *  UI (elle seule sait charger les images) — le calcul de taille d'un
+ *  widget « image » en mode picture s'y réfère. */
+let picSizes: Record<string, [number, number]> = {};
+export function setPicSizes(m: Record<string, [number, number]>) {
+  picSizes = m;
+}
+
 export interface UiNode {
   id: string;
   parent?: string;
@@ -38,6 +46,10 @@ export interface UiNode {
   gap?: number; // vbox/hbox
   text?: string; // label
   width?: number; // value (1-5) / image (icônes) / icon_value
+  // image : nom d'une PICTURE du projet au lieu d'icônes. La taille du
+  // widget vient alors de l'image (ramenée aux 4 couleurs de la couche
+  // UI à la compilation, comme les icônes — voir gfx::to_ui_image).
+  pic?: string;
   var?: number;
   label?: string; // variable_display
   frame?: boolean;
@@ -170,6 +182,11 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
     case "value":
       return [Math.min(Math.max(n.width ?? 3, 1), 5), 1];
     case "image":
+      if (n.pic) {
+        const s = picSizes[n.pic];
+        if (!s) errors?.push(`« ${n.id} » : image « ${n.pic} » introuvable`);
+        return s ?? [1, 1];
+      }
       return [Math.max(n.width ?? 1, 1), 1];
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
@@ -466,7 +483,8 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.margin) s += `margin = [${n.margin}]\n`;
     if (n.gap !== undefined && n.gap !== 0) s += `gap = ${n.gap}\n`;
     if (n.text !== undefined) s += `text = ${JSON.stringify(n.text)}\n`;
-    if (n.width !== undefined) s += `width = ${n.width}\n`;
+    if (n.width !== undefined && !n.pic) s += `width = ${n.width}\n`;
+    if (n.pic) s += `pic = ${JSON.stringify(n.pic)}\n`;
     if (n.var !== undefined) s += `var = ${n.var}\n`;
     if (n.label) s += `label = ${JSON.stringify(n.label)}\n`;
     if (
