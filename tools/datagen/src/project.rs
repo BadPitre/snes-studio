@@ -45,6 +45,9 @@ pub struct Project {
     /// portraits, animations d'attaque. L'ordre donne les vig_id.
     #[serde(default)]
     pub vignettes: Vec<String>,
+    /// Animations image par image (A1) — voir docs/PLANNING_SYSTEME_ANIMATIONS
+    #[serde(default)]
+    pub animations: Vec<AnimEntry>,
     /// Écrans composés (B6bis) : noms des fichiers screens/<nom>.json —
     /// compositions visuelles (fond + slots) + script, DÉROULÉES par la
     /// commande {"c":"screen"} en STAGEOPEN/STAGEPOSE + script inline.
@@ -496,4 +499,41 @@ pub fn dir_code(dir: &str) -> anyhow::Result<u8> {
         "right" => 3,
         other => anyhow::bail!("direction inconnue : '{}'", other),
     })
+}
+
+/// Une frame d'animation (A1) : quelle cellule de la vignette, où, combien
+/// de temps, et un son optionnel joué à l'entrée de la frame.
+#[derive(Deserialize)]
+pub struct AnimFrame {
+    /// index de cellule DANS la vignette servant de planche
+    pub cell: u8,
+    /// décalage signé en pixels par rapport au point d'ancrage
+    #[serde(default)]
+    pub x: i16,
+    #[serde(default)]
+    pub y: i16,
+    /// durée en frames écran (1-255)
+    #[serde(default = "anim_dur_default")]
+    pub dur: u8,
+    /// son joué À L'ENTRÉE de cette frame (nom du projet)
+    #[serde(default)]
+    pub sfx: Option<String>,
+}
+
+fn anim_dur_default() -> u8 {
+    4
+}
+
+/// Animation image par image (A1). La planche de cellules est une
+/// VIGNETTE du projet : le pipeline graphique (chars OBJ 32x32, palette,
+/// transfert au VBlank) est déjà écrit et testé, l'animation n'ajoute
+/// que la piste de frames.
+#[derive(Deserialize)]
+pub struct AnimEntry {
+    pub name: String,
+    /// nom (stem) de la vignette servant de planche de cellules
+    pub vignette: String,
+    #[serde(default)]
+    pub r#loop: bool,
+    pub frames: Vec<AnimFrame>,
 }

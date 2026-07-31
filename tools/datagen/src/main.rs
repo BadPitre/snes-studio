@@ -327,6 +327,97 @@ fn main() -> Result<()> {
     if project.sounds.len() > sfx::SFX_MAX_COUNT {
         bail!("trop de sons (max {})", sfx::SFX_MAX_COUNT);
     }
+
+    // ---- Animations image par image (A1) ----------------------------
+    // La planche de cellules est une VIGNETTE du projet : le pipeline
+    // graphique (chars OBJ 32x32, palette, transfert au VBlank) existe
+    // deja et est teste, l'animation n'ajoute que la piste de frames.
+    // Piste APLATIE, 5 octets par frame et taille FIXE — le moteur avance
+    // d'un pas constant, sans decodage a longueur variable :
+    //   [cellule][dx signe][dy signe][duree 1-255][son, 0xFF = aucun]
+    let mut anim_names: Vec<String> = Vec::new();
+    let mut anim_vig: Vec<u8> = Vec::new();
+    let mut anim_flags: Vec<u8> = Vec::new();
+    let mut anim_nframes: Vec<u8> = Vec::new();
+    let mut anim_ofs: Vec<u16> = Vec::new();
+    let mut anim_track: Vec<u8> = Vec::new();
+    for a in &project.animations {
+        if anim_names.contains(&a.name) {
+            bail!("animation '{}' : nom en double", a.name);
+        }
+        let vig = vig_names
+            .iter()
+            .position(|v| v == &a.vignette)
+            .with_context(|| {
+                format!(
+                    "animation '{}' : vignette '{}' introuvable (vignettes du projet : {})",
+                    a.name,
+                    a.vignette,
+                    if vig_names.is_empty() {
+                        "aucune".to_string()
+                    } else {
+                        vig_names.join(", ")
+                    }
+                )
+            })?;
+        let cells = vig_data[vig].1;
+        if a.frames.is_empty() {
+            bail!("animation '{}' : aucune frame", a.name);
+        }
+        if a.frames.len() > 255 {
+            bail!("animation '{}' : {} frames (max 255)", a.name, a.frames.len());
+        }
+        if anim_track.len() + a.frames.len() * 5 > 65535 {
+            bail!("animations : piste trop longue (max 64 Ko)");
+        }
+        anim_ofs.push(anim_track.len() as u16);
+        for (i, f) in a.frames.iter().enumerate() {
+            if (f.cell as usize) >= cells {
+                bail!(
+                    "animation '{}', frame {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
+                    a.name, i + 1, f.cell, a.vignette, cells
+                );
+            }
+            if f.dur == 0 {
+                bail!("animation '{}', frame {} : duree nulle", a.name, i + 1);
+            }
+            if f.x < -128 || f.x > 127 || f.y < -128 || f.y > 127 {
+                bail!(
+                    "animation '{}', frame {} : decalage [{}, {}] hors de -128..127",
+                    a.name, i + 1, f.x, f.y
+                );
+            }
+            let sfx = match &f.sfx {
+                None => 0xFFu8,
+                Some(n) => *sound_ids.get(n).with_context(|| {
+                    format!(
+                        "animation '{}', frame {} : son '{}' introuvable dans le projet",
+                        a.name, i + 1, n
+                    )
+                })?,
+            };
+            anim_track.push(f.cell);
+            anim_track.push(f.x as i8 as u8);
+            anim_track.push(f.y as i8 as u8);
+            anim_track.push(f.dur);
+            anim_track.push(sfx);
+        }
+        anim_vig.push(vig as u8);
+        anim_flags.push(a.r#loop as u8);
+        anim_nframes.push(a.frames.len() as u8);
+        anim_names.push(a.name.clone());
+    }
+    if anim_names.len() > 255 {
+        bail!("{} animations (max 255)", anim_names.len());
+    }
+    if !anim_names.is_empty() {
+        println!(
+            "  animations : {} ({} frames, {} octets de piste)",
+            anim_names.len(),
+            anim_track.len() / 5,
+            anim_track.len()
+        );
+    }
     let music_names: Vec<String> = project
         .musics
         .iter()
@@ -981,6 +1072,33 @@ fn main() -> Result<()> {
     // picture.c inconditionnellement, tables factices si aucune image)
     for (name, content) in gen_vignette_files(&vig_names, &vig_data) {
         write_out(&out_dir, &name, content)?;
+    }
+    // Animations (A1) : registre TOUJOURS emis — le moteur compile anim.c
+    // inconditionnellement, avec des tables factices si le projet n'en a
+    // aucune (meme recette que les vignettes et les pictures).
+    {
+        let mut s = String::from(emit::HEADER);
+        let one = |v: &Vec<u8>| -> Vec<u8> {
+            if v.is_empty() { vec![0] } else { v.clone() }
+        };
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!("const u8 anim_count = {};\n\n", anim_names.len()));
+        s.push_str("/* vignette servant de planche de cellules, par animation */\n");
+        s.push_str(&emit::u8_array("anim_vig", &one(&anim_vig), 16, false));
+        s.push_str("\n/* bit 0 = boucle */\n");
+        s.push_str(&emit::u8_array("anim_flags", &one(&anim_flags), 16, false));
+        s.push_str("\n/* nombre de frames */\n");
+        s.push_str(&emit::u8_array("anim_nframes", &one(&anim_nframes), 16, false));
+        s.push_str("\n/* offset de la premiere frame dans anim_track */\n");
+        s.push_str(&emit::u16_array(
+            "anim_ofs",
+            &(if anim_ofs.is_empty() { vec![0] } else { anim_ofs.clone() }),
+        ));
+        s.push_str(
+            "\n/* piste aplatie : 5 octets par frame\n   [cellule][dx signe][dy signe][duree][son, 0xFF = aucun] */\n",
+        );
+        s.push_str(&emit::u8_array("anim_track", &one(&anim_track), 16, false));
+        write_out(&out_dir, "data_anims.c", s)?;
     }
     for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
         write_out(&out_dir, &name, content)?;
