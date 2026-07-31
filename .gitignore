@@ -24,3 +24,8 @@ soundbank.bnk
 soundbank.h
 *.bnk
 editor/public/project
+
+# regression pixel : le core libretro n' est pas versionne (2,4 Mo)
+tools/regress/snes9x_libretro.*
+tools/regress/harness
+tools/regress/out/

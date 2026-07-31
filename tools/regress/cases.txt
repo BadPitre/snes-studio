@@ -1,0 +1,25 @@
+# Cas de régression pixel — un par ligne : <nom> <frames> [<entrées>]
+#
+# Le ROM est construit depuis le projet demo/ : ces images décrivent un
+# état SAIN de la demo, pas un rendu quelconque. Changer demo/ change les
+# références (regress.sh --bless).
+#
+# Entrées : "premiere-derniere:TOUCHE" séparées par des virgules.
+#   A B U D L R  S=Start  E=Select  W=R
+#
+# RÈGLE À NE PAS CASSER : la route ne doit traverser AUCUN warp. Une
+# capture qui dépend d'un chargement de scène devient sensible au timing
+# et la comparaison octet à octet perd son sens. Le trajet ci-dessous
+# longe la plaine sans sortir de la scène de boot.
+
+# écran de boot stabilisé — attrape tout ce qui touche au chargement de
+# scène, aux palettes, au HUD permanent
+boot 200
+
+# le héros marche puis parle à un PNJ : dialogue en cours de frappe.
+# C'est ce cas qui a attrapé le bug tcc-816 « variable déclarée dans un
+# case » (rangée de cœurs du HUD corrompue en silence).
+d340 340 210-290:R,300-302:D,310-311:A
+
+# même trajet, dialogue entièrement révélé
+d460 460 210-290:R,300-302:D,310-311:A
