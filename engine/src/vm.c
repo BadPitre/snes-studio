@@ -163,43 +163,43 @@ static u8 p_call_sp;
 static u16 p_call_stack[VM_CALL_DEPTH];
 
 /* KEYIN (Ph. 12) : code de la première touche du masque présente dans
-   « pressed » — codes RM2003 étendus SNES (formats.h). If-chain : pas de
-   table u16 (piège toolchain). */
-static u16 keyin_bit(u8 code)
-{
-  switch (code)
-  {
-  case 1: return KEY_DOWN;
-  case 2: return KEY_LEFT;
-  case 3: return KEY_RIGHT;
-  case 4: return KEY_UP;
-  case 5: return KEY_A;
-  case 6: return KEY_B;
-  case 7: return KEY_Y;
-  case 8: return KEY_X;
-  case 9: return KEY_L;
-  case 10: return KEY_R;
-  case 11: return KEY_SELECT;
-  case 12: return KEY_START;
-  }
-  return 0;
-}
-
+   « pressed » — codes RM2003 étendus SNES (formats.h).
+   PERF (P2) : un KEYIN non bloquant dans un common event « parallel »
+   s'exécute à CHAQUE frame. La version en boucle (12 tours, un appel de
+   fonction par tour pour convertir le code en bit SNES) coûtait à elle
+   seule ~15 lignes d'écran. Ici, chaîne de tests sur CONSTANTES : le
+   compilateur n'a plus ni boucle, ni appel, ni décalage variable, et le
+   cas « rien d'enfoncé » sort au premier test. L'ordre des codes est
+   celui de la spec — le premier code du masque effectivement enfoncé
+   gagne, comme avant. */
 static u8 keyin_scan(u16 mask, u16 pressed)
 {
-  u8 code;
-  u16 bit;
-
-  /* bit avance par <<= 1 : un shift variable (1 << code) coûte une
-     boucle de décalages avec tcc-816 — trop cher pour un scan par
-     frame (le KEYIN non bloquant du parallel process) */
-  bit = 2;
-  for (code = 1; code <= 12; code++)
-  {
-    if ((mask & bit) && (pressed & keyin_bit(code)))
-      return code;
-    bit <<= 1;
-  }
+  if (!pressed)
+    return 0;
+  if ((mask & 0x0002) && (pressed & KEY_DOWN))
+    return 1;
+  if ((mask & 0x0004) && (pressed & KEY_LEFT))
+    return 2;
+  if ((mask & 0x0008) && (pressed & KEY_RIGHT))
+    return 3;
+  if ((mask & 0x0010) && (pressed & KEY_UP))
+    return 4;
+  if ((mask & 0x0020) && (pressed & KEY_A))
+    return 5;
+  if ((mask & 0x0040) && (pressed & KEY_B))
+    return 6;
+  if ((mask & 0x0080) && (pressed & KEY_Y))
+    return 7;
+  if ((mask & 0x0100) && (pressed & KEY_X))
+    return 8;
+  if ((mask & 0x0200) && (pressed & KEY_L))
+    return 9;
+  if ((mask & 0x0400) && (pressed & KEY_R))
+    return 10;
+  if ((mask & 0x0800) && (pressed & KEY_SELECT))
+    return 11;
+  if ((mask & 0x1000) && (pressed & KEY_START))
+    return 12;
   return 0;
 }
 

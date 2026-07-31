@@ -292,6 +292,11 @@ void actors_init(void)
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
   }
+  /* Le resolve_pages ci-dessus a construit la liste des bloqueurs AVANT
+     que cette boucle ne pose les positions et les priorités : elle est
+     donc à refaire ici. Tant qu'actors_update la reconstruisait à chaque
+     frame, l'erreur se corrigeait toute seule à la frame suivante. */
+  actors_rebuild_blockers();
 }
 
 void actors_draw(void)
@@ -640,6 +645,7 @@ void actors_update(void)
   u8 i, d, tx, ty, mt;
   const ActorDef *a = scene_ctx.actors;
   u8 frozen = vm_active();
+  u8 moved = 0; /* un acteur a-t-il changé de position cette frame ? */
 
   mv_phase ^= 1;
 
@@ -709,6 +715,7 @@ void actors_update(void)
       {
         actor_px[i] += mv_dx[d];
         actor_py[i] += mv_dy[d];
+        moved = 1;
         actor_step[i]--;
         px--;
         if ((actor_step[i] & 7) == 0)
@@ -717,7 +724,14 @@ void actors_update(void)
     }
   }
 
-  actors_rebuild_blockers(); /* positions à jour pour la frame suivante */
+  /* PERF (P2) : la liste des bloqueurs ne dépend que des positions et des
+     pages actives. Les téléportations (SETPOS/SWAPPOS) et les changements
+     de page la reconstruisent déjà elles-mêmes ; il ne reste ici que le
+     déplacement frame par frame. Une scène de PNJ immobiles la
+     reconstruisait 60 fois par seconde pour rien — 10 % du temps de la
+     frame, mesuré au compteur de scanline. */
+  if (moved)
+    actors_rebuild_blockers();
 }
 
 u8 actor_at_tile(u8 tx, u8 ty)
