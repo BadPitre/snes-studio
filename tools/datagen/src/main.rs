@@ -332,12 +332,16 @@ fn main() -> Result<()> {
     // La planche de cellules est une VIGNETTE du projet : le pipeline
     // graphique (chars OBJ 32x32, palette, transfert au VBlank) existe
     // deja et est teste, l'animation n'ajoute que la piste de frames.
-    // Piste APLATIE, 5 octets par frame et taille FIXE — le moteur avance
-    // d'un pas constant, sans decodage a longueur variable :
-    //   [cellule][dx signe][dy signe][duree 1-255][son, 0xFF = aucun]
+    // Piste APLATIE et de pas FIXE — le moteur avance d'un pas constant,
+    // sans decodage a longueur variable. Par frame : L enregistrements de
+    // 3 octets [cellule][dx signe][dy signe] (un par CALQUE, cellule 0xFF
+    // = ce calque n'affiche rien), puis [duree 1-255][son, 0xFF = aucun].
+    // Le pas vaut donc 3L + 2 ; a un calque, c'est exactement le format
+    // d'origine (5 octets).
     let mut anim_names: Vec<String> = Vec::new();
     let mut anim_vig: Vec<u8> = Vec::new();
     let mut anim_flags: Vec<u8> = Vec::new();
+    let mut anim_layers: Vec<u8> = Vec::new();
     let mut anim_nframes: Vec<u8> = Vec::new();
     let mut anim_ofs: Vec<u16> = Vec::new();
     let mut anim_track: Vec<u8> = Vec::new();
@@ -367,25 +371,54 @@ fn main() -> Result<()> {
         if a.frames.len() > 255 {
             bail!("animation '{}' : {} frames (max 255)", a.name, a.frames.len());
         }
-        if anim_track.len() + a.frames.len() * 5 > 65535 {
+        // calques : bornes du moteur (slots de vignette + entrees OAM)
+        let nl = a.layers as usize;
+        if !(1..=4).contains(&nl) {
+            bail!(
+                "animation '{}' : {} calques (1 a 4 — au dela, plus de slot de vignette)",
+                a.name, a.layers
+            );
+        }
+        let stride = nl * 3 + 2;
+        if anim_track.len() + a.frames.len() * stride > 65535 {
             bail!("animations : piste trop longue (max 64 Ko)");
         }
         anim_ofs.push(anim_track.len() as u16);
         for (i, f) in a.frames.iter().enumerate() {
-            if (f.cell as usize) >= cells {
+            let posed = f.posed();
+            if posed.len() > nl {
                 bail!(
-                    "animation '{}', frame {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
-                    a.name, i + 1, f.cell, a.vignette, cells
+                    "animation '{}', frame {} : {} cellules posees pour {} calque(s)",
+                    a.name, i + 1, posed.len(), nl
                 );
             }
             if f.dur == 0 {
                 bail!("animation '{}', frame {} : duree nulle", a.name, i + 1);
             }
-            if f.x < -128 || f.x > 127 || f.y < -128 || f.y > 127 {
-                bail!(
-                    "animation '{}', frame {} : decalage [{}, {}] hors de -128..127",
-                    a.name, i + 1, f.x, f.y
-                );
+            for l in 0..nl {
+                // un calque non renseigne sur cette frame n'affiche rien —
+                // c'est ce qui permet a un calque d'apparaitre en cours de
+                // route sans une seconde timeline
+                let (c, x, y) = posed.get(l).copied().unwrap_or((-1, 0, 0));
+                if c < 0 {
+                    anim_track.extend_from_slice(&[0xFF, 0, 0]);
+                    continue;
+                }
+                if c as usize >= cells {
+                    bail!(
+                        "animation '{}', frame {}, calque {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
+                        a.name, i + 1, l + 1, c, a.vignette, cells
+                    );
+                }
+                if !(-128..=127).contains(&x) || !(-128..=127).contains(&y) {
+                    bail!(
+                        "animation '{}', frame {}, calque {} : decalage [{}, {}] hors de -128..127",
+                        a.name, i + 1, l + 1, x, y
+                    );
+                }
+                anim_track.push(c as u8);
+                anim_track.push(x as i8 as u8);
+                anim_track.push(y as i8 as u8);
             }
             let sfx = match &f.sfx {
                 None => 0xFFu8,
@@ -396,14 +429,35 @@ fn main() -> Result<()> {
                     )
                 })?,
             };
-            anim_track.push(f.cell);
-            anim_track.push(f.x as i8 as u8);
-            anim_track.push(f.y as i8 as u8);
             anim_track.push(f.dur);
             anim_track.push(sfx);
         }
+        // Budget VBlank : une cellule = 4 DMA, et il n'en passe qu'UNE par
+        // image ecran (mesure, cf. VIG_VB_MAX dans engine/src/vignette.c).
+        // Si K calques changent de cellule en entrant dans une frame, il
+        // leur faut K images pour se mettre a jour : une frame plus courte
+        // affiche un calque en retard. On le DIT, on ne l'interdit pas —
+        // l'auteur peut vouloir ce clignotement.
+        for i in 1..a.frames.len() {
+            let prev = a.frames[i - 1].posed();
+            let cur = a.frames[i].posed();
+            let changed = (0..nl)
+                .filter(|&l| {
+                    let p = prev.get(l).map(|c| c.0).unwrap_or(-1);
+                    let c = cur.get(l).map(|c| c.0).unwrap_or(-1);
+                    p != c
+                })
+                .count();
+            if changed > a.frames[i].dur as usize {
+                println!(
+                    "  attention : animation '{}', frame {} — {} cellules changent                      pour une duree de {} image(s) : une cellule aura du retard                      (allonger la duree, ou echelonner les changements)",
+                    a.name, i + 1, changed, a.frames[i].dur
+                );
+            }
+        }
         anim_vig.push(vig as u8);
         anim_flags.push(a.r#loop as u8);
+        anim_layers.push(nl as u8);
         anim_nframes.push(a.frames.len() as u8);
         anim_names.push(a.name.clone());
     }
@@ -411,10 +465,13 @@ fn main() -> Result<()> {
         bail!("{} animations (max 255)", anim_names.len());
     }
     if !anim_names.is_empty() {
+        let frames: usize = anim_nframes.iter().map(|&n| n as usize).sum();
+        let maxl = anim_layers.iter().copied().max().unwrap_or(1);
         println!(
-            "  animations : {} ({} frames, {} octets de piste)",
+            "  animations : {} ({} frames, jusqu'a {} calque(s), {} octets de piste)",
             anim_names.len(),
-            anim_track.len() / 5,
+            frames,
+            maxl,
             anim_track.len()
         );
     }
@@ -1088,6 +1145,8 @@ fn main() -> Result<()> {
         s.push_str(&emit::u8_array("anim_vig", &one(&anim_vig), 16, false));
         s.push_str("\n/* bit 0 = boucle */\n");
         s.push_str(&emit::u8_array("anim_flags", &one(&anim_flags), 16, false));
+        s.push_str("\n/* cellules simultanees (calques) : pas de piste = 3L + 2 */\n");
+        s.push_str(&emit::u8_array("anim_layers", &one(&anim_layers), 16, false));
         s.push_str("\n/* nombre de frames */\n");
         s.push_str(&emit::u8_array("anim_nframes", &one(&anim_nframes), 16, false));
         s.push_str("\n/* offset de la premiere frame dans anim_track */\n");
@@ -1096,7 +1155,7 @@ fn main() -> Result<()> {
             &(if anim_ofs.is_empty() { vec![0] } else { anim_ofs.clone() }),
         ));
         s.push_str(
-            "\n/* piste aplatie : 5 octets par frame\n   [cellule][dx signe][dy signe][duree][son, 0xFF = aucun] */\n",
+            "\n/* piste aplatie, pas FIXE de 3L + 2 octets par frame :\n                L x [cellule (0xFF = calque vide)][dx signe][dy signe]\n                puis [duree][son, 0xFF = aucun] */\n",
         );
         s.push_str(&emit::u8_array("anim_track", &one(&anim_track), 16, false));
         write_out(&out_dir, "data_anims.c", s)?;

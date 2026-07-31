@@ -501,13 +501,32 @@ pub fn dir_code(dir: &str) -> anyhow::Result<u8> {
     })
 }
 
-/// Une frame d'animation (A1) : quelle cellule de la vignette, où, combien
-/// de temps, et un son optionnel joué à l'entrée de la frame.
+/// Une cellule POSÉE (A1-e) : le calque affiche `cell` de la planche au
+/// décalage (x, y). `cell = -1` = ce calque n'affiche RIEN sur cette
+/// frame — même convention que `event: -1` ailleurs dans le format.
+#[derive(Deserialize)]
+pub struct AnimCell {
+    /// index de cellule DANS la vignette servant de planche, -1 = rien
+    pub cell: i16,
+    /// décalage signé en pixels par rapport au point d'ancrage
+    #[serde(default)]
+    pub x: i16,
+    #[serde(default)]
+    pub y: i16,
+}
+
+/// Une frame d'animation (A1) : les cellules affichées SIMULTANÉMENT
+/// (une par calque), combien de temps, et un son optionnel joué à
+/// l'entrée de la frame.
 #[derive(Deserialize)]
 pub struct AnimFrame {
-    /// index de cellule DANS la vignette servant de planche
-    pub cell: u8,
-    /// décalage signé en pixels par rapport au point d'ancrage
+    /// une entrée par CALQUE (A1-e)
+    #[serde(default)]
+    pub cells: Vec<AnimCell>,
+    /// forme HÉRITÉE mono-calque (projets d'avant les calques) — lue
+    /// quand `cells` est absent, jamais réécrite par l'éditeur
+    #[serde(default)]
+    pub cell: Option<i16>,
     #[serde(default)]
     pub x: i16,
     #[serde(default)]
@@ -524,6 +543,16 @@ fn anim_dur_default() -> u8 {
     4
 }
 
+impl AnimFrame {
+    /// Cellules posées de la frame, forme héritée comprise.
+    pub fn posed(&self) -> Vec<(i16, i16, i16)> {
+        if !self.cells.is_empty() {
+            return self.cells.iter().map(|c| (c.cell, c.x, c.y)).collect();
+        }
+        vec![(self.cell.unwrap_or(0), self.x, self.y)]
+    }
+}
+
 /// Animation image par image (A1). La planche de cellules est une
 /// VIGNETTE du projet : le pipeline graphique (chars OBJ 32x32, palette,
 /// transfert au VBlank) est déjà écrit et testé, l'animation n'ajoute
@@ -535,5 +564,14 @@ pub struct AnimEntry {
     pub vignette: String,
     #[serde(default)]
     pub r#loop: bool,
+    /// Cellules affichées SIMULTANÉMENT (1-4). Un calque coûte un slot
+    /// de vignette mais AUCUNE palette de plus : tous viennent de la
+    /// même planche (voir engine/src/vignette.h).
+    #[serde(default = "anim_layers_default")]
+    pub layers: u8,
     pub frames: Vec<AnimFrame>,
+}
+
+fn anim_layers_default() -> u8 {
+    1
 }

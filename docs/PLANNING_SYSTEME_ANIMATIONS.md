@@ -91,21 +91,61 @@ pose le coin de la cellule sur le coin du metasprite suivi. Même règle
 dans l'éditeur et dans le moteur — c'est ce qui garantit que le
 canevas de l'éditeur montre ce que le jeu affichera.
 
-### 3.3 Binaire (bank data)
+### 3.3 Calques — plusieurs cellules à la fois (A1-e)
 
-Cinq tables parallèles indexées par animation (`anim_vig`,
-`anim_flags`, `anim_nframes`, `anim_ofs`) plus la piste aplatie
-`anim_track`. Une frame fait **5 octets de taille FIXE** :
+Une animation déclare **1 à 4 calques** et affiche donc jusqu'à 4
+cellules EN MÊME TEMPS. Le coût réel, mesuré avant d'écrire la
+première ligne :
+
+- **palettes : zéro.** Toutes les cellules d'une animation viennent de
+  sa planche, donc de la même palette OBJ. C'est la ressource la plus
+  rare (les sets de personnages prennent 0-4, la météo 7 : il reste
+  DEUX palettes), et les calques n'y touchent pas. Limite qui en
+  découle : 2 planches DISTINCTES à l'écran à la fois.
+- **OAM : zéro souci.** Les vignettes tiennent aux entrées 96-99 ; les
+  entrées 50-95 sont inutilisées.
+- **VRAM : 4 blocs** dans la bande réservée (chars 384-447). Les
+  rangées 28-31 en accepteraient trois de plus (chars 448, 456, 460 —
+  celui à 452 tomberait sur la météo) si on en voulait davantage.
+- **VBlank : le vrai plafond, à UNE cellule par image écran.** Une
+  cellule = 4 DMA de 128 octets (le bloc 32x32 occupe 4 rangées non
+  contiguës de la grille de names). À deux cellules, les DEUX
+  dernières rangées tombent hors fenêtre et la VRAM les IGNORE : la
+  moitié basse de la seconde cellule reste vide (constaté sur dump
+  VRAM, pas déduit). Avancer `vig_vblank` dans la séquence n'en fait
+  passer que 6 sur 8 — c'est un plafond de temps, pas d'ordre.
+
+Conséquence pour l'auteur, et c'est une RÈGLE VÉRIFIABLE plutôt qu'une
+limite vague : quand K calques changent de cellule à la même frame,
+ils se mettent à jour en K images. datagen et la fenêtre Animations
+préviennent quand la durée d'une frame est plus courte que ça.
+
+Une cellule d'index **-1 n'affiche rien** sur cette frame. C'est ce qui
+donne la souplesse de pistes indépendantes (un calque qui apparaît
+frame 3 et disparaît frame 6) avec une SEULE timeline dans l'éditeur —
+deux timelines parallèles auraient rendu la fenêtre illisible.
+
+Ordre : le calque 1 est au fond, les suivants passent devant.
+
+### 3.4 Binaire (bank data)
+
+Six tables parallèles indexées par animation (`anim_vig`,
+`anim_flags`, `anim_layers`, `anim_nframes`, `anim_ofs`) plus la piste
+aplatie `anim_track`. Une frame porte **L enregistrements de 3 octets**
+(un par calque) puis la durée et le son :
 
 ```
-[cellule][dx signé][dy signé][durée 1-255][son, 0xFF = aucun]
+L x [cellule (0xFF = calque vide)][dx signé][dy signé]
+    puis [durée 1-255][son, 0xFF = aucun]
 ```
 
-Le pas fixe est un choix de PERFORMANCE, pas de compacité : le lecteur
-garde l'offset de la frame courante et lui ajoute 5, sans jamais
+Le pas vaut donc `3L + 2` — FIXE, calculé une fois au lancement. À un
+calque, c'est exactement le format d'origine (5 octets). Le pas fixe
+est un choix de PERFORMANCE, pas de compacité : le lecteur garde
+l'offset de la frame courante et lui ajoute le pas, sans jamais
 multiplier ni décoder une longueur variable. tcc-816 compile chaque
 accès indexé en une lecture indirecte longue (~11 instructions, leçon
-de P3). Une animation de 12 frames tient en 60 octets.
+de P3). Une animation de 12 frames à un calque tient en 60 octets.
 
 ## 4. Lecteur runtime (`anim.c`)
 
@@ -118,9 +158,17 @@ anim_play(id, ancre, cible)   anim_stop()   anim_busy()
 anim_update()   (une fois par frame, AVANT vig_update)
 ```
 
+Une animation à L calques emprunte L slots de vignette (4 en tout).
 Tout le chemin graphique reste celui des vignettes : chars OBJ 32x32,
-palette OBJ dédiée, transfert de la cellule au VBlank, écriture du
-shadow OAM. `vig_vblank()` fait déjà le travail — pas de `anim_vblank`.
+palette OBJ, transfert de la cellule au VBlank, écriture du shadow
+OAM. `vig_vblank()` fait déjà le travail — pas de `anim_vblank`.
+
+Les palettes de vignette sont allouées PAR PLANCHE et comptées en
+références : deux slots qui affichent la même vignette la partagent.
+Sans palette disponible, `anim_play` ne joue RIEN plutôt que de jouer
+aux couleurs d'une autre image. Sans assez de slots, l'animation la
+plus AVANCÉE cède les siens — écourter se voit moins que ne pas
+partir.
 
 Par frame et par animation active : décrémenter le compteur de durée.
 Au changement de frame SEULEMENT — lire les 5 octets, marquer la
@@ -178,12 +226,13 @@ Fenêtre « Animations » (Tools), sur le modèle de l'éditeur d'écrans :
 ## 7. Limites à annoncer dans l'éditeur
 
 - Cellules **32×32**, 16 couleurs, une planche par animation.
-- **2 cellules simultanées** aujourd'hui (emplacements de vignettes) ;
-  la bande VRAM réservée en accepte **4** — vérifié : chaque bloc 32×32
-  occupe un quart des chars 384-447, et les entrées OAM 98-99 sont
-  libres jusqu'à la météo (100+).
-- Une animation qui change de cellule à chaque frame écran sature le
-  VBlank : viser 6 à 10 images par seconde, comme les jeux de l'époque.
+- **4 cellules simultanées** au total, partagées entre les calques des
+  animations en cours et les vignettes affichées par script.
+- **2 planches DISTINCTES** à l'écran en même temps (2 palettes OBJ
+  libres). Les calques d'une même animation n'en consomment qu'une.
+- Une cellule transférée par image écran : voir la règle des K
+  changements en §3.3. Viser 6 à 10 images par seconde, comme les jeux
+  de l'époque.
 
 ## 8. Découpage
 
@@ -197,8 +246,10 @@ Fenêtre « Animations » (Tools), sur le modèle de l'éditeur d'écrans :
    case « attendre la fin ») + « Arrêter les animations ».
 3. **A1-c** — ✅ fenêtre Animations (Tools) : timeline, canevas,
    inspecteur, lecture.
-4. **A1-d** — passage à 4 emplacements simultanés (petit, séparé : il
-   touche aux vignettes existantes).
+4. **A1-e** — ✅ calques (plusieurs cellules simultanées) : format,
+   datagen, lecteur, et l'éditeur (onglets de calque, cellule « rien »,
+   glisser n'importe quelle cellule). Absorbe l'ancien A1-d — il fallait
+   de toute façon passer les vignettes à 4 emplacements.
 
 Chaque cran est livrable et vérifiable seul ; la régression pixel
 couvre le moteur à chaque étape.

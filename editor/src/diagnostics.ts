@@ -4,7 +4,7 @@
 // la fenêtre) — ces contrôles donnent le « où » lisible.
 
 import type { ProjectData, Scene } from "./types";
-import { MIN_H, MIN_W, SCENE_SPRITE_BLOCKS_MAX, sceneSpriteBlocks } from "./types";
+import { MIN_H, MIN_W, SCENE_SPRITE_BLOCKS_MAX, animFrameCells, sceneSpriteBlocks } from "./types";
 import { scriptLabels } from "./state";
 
 export interface Diag {
@@ -131,10 +131,14 @@ export function checkProject(data: ProjectData, blockCount: number): Diag[] {
     if (!a.vignette || !vigStems.has(a.vignette))
       err(`« ${a.name} » : planche « ${a.vignette} » introuvable dans les vignettes du projet`);
     if (a.frames.length === 0) err(`« ${a.name} » : aucune frame`);
+    const nl = Math.max(1, Math.min(4, a.layers ?? 1));
+    if ((a.layers ?? 1) < 1 || (a.layers ?? 1) > 4)
+      err(`« ${a.name} » : ${a.layers} calques (1 à 4)`);
     for (const [i, f] of a.frames.entries()) {
       if (f.dur < 1) err(`« ${a.name} », frame ${i + 1} : durée nulle`);
-      if (f.x < -128 || f.x > 127 || f.y < -128 || f.y > 127)
-        err(`« ${a.name} », frame ${i + 1} : décalage hors de -128..127`);
+      for (const c of animFrameCells(f, nl))
+        if (c.x < -128 || c.x > 127 || c.y < -128 || c.y > 127)
+          err(`« ${a.name} », frame ${i + 1} : décalage hors de -128..127`);
       if (f.sfx && !sndStems.has(f.sfx))
         err(`« ${a.name} », frame ${i + 1} : son « ${f.sfx} » introuvable`);
     }

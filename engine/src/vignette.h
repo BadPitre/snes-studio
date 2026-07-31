@@ -4,11 +4,18 @@
  * têtes (« ! », « ? »), objets brandis, scintillements, et les
  * ANIMATIONS D'ATTAQUE par-dessus les monstres de l'écran composé.
  *
- * 2 slots simultanés (palettes OBJ 5 et 6 réservées — les sprite sets
- * de scène plafonnent aux palettes 0-4, la météo est en 7). Seule la
- * frame COURANTE vit en VRAM (chars 384-447, sous les sets de scène) :
- * un changement de frame = 512 octets de DMA. Une vignette = UNE
- * entrée OAM 32x32 (OBJ_LARGE), entrées 96-97 réservées.
+ * 4 slots simultanés (chars 384-447, entrées OAM 96-99). Seule la
+ * frame COURANTE vit en VRAM : un changement de frame = 512 octets de
+ * DMA. Une vignette = UNE entrée OAM 32x32 (OBJ_LARGE).
+ *
+ * Les palettes OBJ sont la ressource RARE : les sets de personnages de
+ * scène occupent 0-4 et la météo 7, il n'en reste que DEUX (5 et 6).
+ * Elles sont donc allouées PAR PLANCHE et non par slot : plusieurs
+ * slots qui affichent la MÊME vignette partagent une palette. C'est ce
+ * qui rend les calques d'animation (A1-e) gratuits en palettes — les
+ * cellules simultanées d'une animation viennent toutes de sa planche.
+ * Limite assumée : 2 planches DISTINCTES à l'écran en même temps ; au
+ * delà, vig_show est ignoré (et anim_play refuse de démarrer).
  *
  * Ancrage : écran (fixe), héros (suit le joueur — émoticônes) ou
  * ACTEUR (suit un event — ancrage des animations A1).
@@ -28,7 +35,8 @@
 
 #include <snes.h>
 
-#define VIG_SLOTS 2
+#define VIG_SLOTS 4
+#define VIG_PALS 2 /* palettes OBJ disponibles (5 et 6) — voir ci-dessus */
 
 #define VIG_ANC_SCREEN 0
 #define VIG_ANC_HERO 1
@@ -49,9 +57,20 @@ void vig_anchor_actor(u8 slot, u8 index);
 void vig_set_frame(u8 slot, u8 frame);
 void vig_move(u8 slot, u8 x, u8 y);
 
+/* Masque le sprite du slot SANS le libérer : un calque d'animation qui
+   n'affiche rien cette frame garde sa place (bloc VRAM + palette), sinon
+   un autre la prendrait entre deux frames. */
+void vig_set_visible(u8 slot, u8 on);
+
 /* Slot libre pour un usage automatique — le PLUS HAUT non occupé, pour
    laisser les slots bas aux vig_show scriptés. 0xFF si aucun. */
 u8 vig_free_slot(void);
+
+/* 1 si une palette peut encore accueillir cette planche (elle la détient
+   déjà, ou l'une des deux est inutilisée) — le lecteur d'animations le
+   demande AVANT de réserver ses slots, pour ne pas laisser une animation
+   à moitié posée. */
+u8 vig_pal_available(u8 vig_id);
 
 /* Propriété du slot : posée par le lecteur d'animations, retirée par
    tout vig_show scripté (préemption) et par vig_hide. */

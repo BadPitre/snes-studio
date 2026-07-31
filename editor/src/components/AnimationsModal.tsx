@@ -1,7 +1,8 @@
-// Fenêtre « Animations » (Tools →, A1-c) : éditeur image par image façon
-// « Battle Animation » de RPG Maker 2003. L'auteur compose une suite de
-// frames en choisissant à chaque frame la CELLULE affichée, sa POSITION
-// (à la souris sur le canevas) et le SON joué.
+// Fenêtre « Animations » (Tools →, A1-c/A1-e) : éditeur image par image
+// façon « Battle Animation » de RPG Maker 2003. L'auteur compose une
+// suite de frames en choisissant à chaque frame les CELLULES affichées
+// (une par CALQUE), leur POSITION (à la souris sur le canevas) et le
+// SON joué.
 //
 // La planche de cellules est une VIGNETTE du projet : pas de second
 // pipeline graphique côté moteur, l'animation n'ajoute que la piste de
@@ -11,9 +12,12 @@
 //   ancrage écran  -> coin de la cellule = (112 + x, 96 + y)
 //   ancrage héros  -> coin de la cellule = (coin de tile du héros + x, y)
 // C'est ce qui garantit que ce qu'on place ici est ce que le jeu affiche.
+// Ordre des calques identique au moteur : le calque 1 est DERRIÈRE, les
+// suivants passent devant (leurs entrées OAM sont plus prioritaires).
 
 import { useEffect, useRef, useState } from "react";
-import type { AnimationDef, AnimFrame } from "../types";
+import type { AnimationDef, AnimCell, AnimFrame } from "../types";
+import { ANIM_LAYERS_MAX, animFrameCells } from "../types";
 import { loadAssetPng } from "../io";
 import AudioPreviewButton, { previewSound } from "./AudioPreview";
 
@@ -43,18 +47,22 @@ export default function AnimationsModal(props: Props) {
   );
   const [sel, setSel] = useState(0);
   const [fsel, setFsel] = useState(0);
+  const [lsel, setLsel] = useState(0);
   const [bmps, setBmps] = useState<Record<string, ImageBitmap>>({});
   const [ref, setRef] = useState<"screen" | "hero">("screen");
   const [playing, setPlaying] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const dragRef = useRef<{ layer: number; dx: number; dy: number } | null>(null);
   const playRef = useRef<{ i: number; left: number } | null>(null);
 
   const cur = draft[sel] as AnimationDef | undefined;
+  const nl = Math.max(1, Math.min(ANIM_LAYERS_MAX, cur?.layers ?? 1));
   const sheet = cur ? bmps[cur.vignette] : undefined;
   const cells = sheet ? Math.max(1, Math.floor(sheet.width / 32)) : 0;
   const frame = cur?.frames[fsel] as AnimFrame | undefined;
+  const posed = frame ? animFrameCells(frame, nl) : [];
+  const lay = Math.min(lsel, nl - 1);
 
   const patch = (p: Partial<AnimationDef>) => {
     if (!cur) return;
@@ -63,6 +71,14 @@ export default function AnimationsModal(props: Props) {
   const patchFrame = (p: Partial<AnimFrame>) => {
     if (!cur) return;
     patch({ frames: cur.frames.map((f, i) => (i === fsel ? { ...f, ...p } : f)) });
+  };
+  // écrit une cellule posée — normalise TOUJOURS la frame vers la forme
+  // multi-calques, la forme héritée n'est jamais réécrite
+  const patchCell = (l: number, p: Partial<AnimCell>) => {
+    if (!frame) return;
+    const list = animFrameCells(frame, nl);
+    list[l] = { ...list[l], ...p };
+    patchFrame({ cells: list, cell: undefined, x: undefined, y: undefined });
   };
 
   // planches des animations (cache par stem de vignette)
@@ -110,8 +126,8 @@ export default function AnimationsModal(props: Props) {
     if (playing) setPlaying(false);
   };
 
-  const cellPos = (f: AnimFrame, r: "screen" | "hero"): [number, number] =>
-    r === "hero" ? [HERO_X + f.x, HERO_Y + f.y] : [SCR_X + f.x, SCR_Y + f.y];
+  const cellPos = (c: AnimCell, r: "screen" | "hero"): [number, number] =>
+    r === "hero" ? [HERO_X + c.x, HERO_Y + c.y] : [SCR_X + c.x, SCR_Y + c.y];
 
   // ---- canevas ---------------------------------------------------------
   useEffect(() => {
@@ -148,13 +164,20 @@ export default function AnimationsModal(props: Props) {
     ctx.lineTo(ax * 2 + 0.5, ay * 2 + 12);
     ctx.stroke();
 
-    if (!cur || !frame) return;
-    const [cx, cy] = cellPos(frame, ref);
-    if (sheet && frame.cell < cells)
-      ctx.drawImage(sheet, frame.cell * 32, 0, 32, 32, cx * 2, cy * 2, 64, 64);
-    ctx.strokeStyle = "rgba(255,210,74,.9)";
-    ctx.strokeRect(cx * 2 + 0.5, cy * 2 + 0.5, 63, 63);
-  }, [cur, frame, sheet, cells, ref, props.sprites]);
+    if (!frame) return;
+    // calque 1 au fond, les suivants par-dessus — comme le moteur
+    posed.forEach((c, l) => {
+      if (c.cell < 0) return;
+      const [cx, cy] = cellPos(c, ref);
+      if (sheet && c.cell < cells) {
+        ctx.globalAlpha = l === lay ? 1 : 0.55;
+        ctx.drawImage(sheet, c.cell * 32, 0, 32, 32, cx * 2, cy * 2, 64, 64);
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeStyle = l === lay ? "rgba(255,210,74,.9)" : "rgba(255,255,255,.3)";
+      ctx.strokeRect(cx * 2 + 0.5, cy * 2 + 0.5, 63, 63);
+    });
+  }, [cur, frame, posed, sheet, cells, ref, lay, props.sprites]);
 
   const clamp = (v: number) => Math.max(-128, Math.min(127, v));
 
@@ -166,19 +189,46 @@ export default function AnimationsModal(props: Props) {
       name: `animation${i}`,
       vignette: props.vigNames[0] ?? "",
       loop: false,
-      frames: [{ cell: 0, x: 0, y: 0, dur: 4 }],
+      layers: 1,
+      frames: [{ cells: [{ cell: 0, x: 0, y: 0 }], dur: 4 }],
     };
     setDraft([...draft, n]);
     setSel(draft.length);
     setFsel(0);
+    setLsel(0);
+  };
+
+  const setLayers = (n: number) => {
+    if (!cur) return;
+    stopPlay();
+    // toutes les frames sont normalisées d'un coup : un calque ajouté
+    // arrive VIDE partout, l'auteur le remplit là où il le veut
+    patch({
+      layers: n,
+      frames: cur.frames.map((f) => ({
+        ...f,
+        cells: animFrameCells(f, n),
+        cell: undefined,
+        x: undefined,
+        y: undefined,
+      })),
+    });
+    setLsel(Math.min(lsel, n - 1));
   };
 
   const addFrame = (dup: boolean) => {
     if (!cur) return;
     stopPlay();
-    const base: AnimFrame = dup && frame
-      ? { ...frame }
-      : { cell: 0, x: frame?.x ?? 0, y: frame?.y ?? 0, dur: 4 };
+    const base: AnimFrame =
+      dup && frame
+        ? { cells: animFrameCells(frame, nl), dur: frame.dur, sfx: frame.sfx }
+        : {
+            cells: frame
+              ? animFrameCells(frame, nl).map((c) => ({ ...c, cell: -1 }))
+              : Array.from({ length: nl }, () => ({ cell: -1, x: 0, y: 0 })),
+            dur: 4,
+          };
+    if (!dup && base.cells.length) base.cells[0] = { ...base.cells[0], cell: 0 };
     const at = cur.frames.length === 0 ? 0 : fsel + 1;
     const list = [...cur.frames];
     list.splice(at, 0, base);
@@ -197,8 +247,9 @@ export default function AnimationsModal(props: Props) {
     setFsel(j);
   };
 
-  // ---- ce que datagen refusera : dit ICI, pas au build -----------------
+  // ---- ce que datagen refusera (ou signalera) : dit ICI, pas au build ---
   const problems: string[] = [];
+  const warnings: string[] = [];
   if (cur) {
     if (draft.filter((a) => a.name === cur.name).length > 1)
       problems.push(`Le nom « ${cur.name} » est utilisé par une autre animation.`);
@@ -206,10 +257,23 @@ export default function AnimationsModal(props: Props) {
     else if (!props.vigPaths[cur.vignette])
       problems.push(`La planche « ${cur.vignette} » n'existe plus dans le projet.`);
     if (cur.frames.length === 0) problems.push("Aucune frame — l'animation n'a rien à jouer.");
-    if (sheet && cur.frames.some((f) => f.cell >= cells))
-      problems.push(`Une frame pointe une cellule au-delà de la planche (${cells} cellule(s)).`);
+    if (sheet && cur.frames.some((f) => animFrameCells(f, nl).some((c) => c.cell >= cells)))
+      problems.push(`Une cellule pointe au-delà de la planche (${cells} cellule(s)).`);
     const bad = cur.frames.find((f) => f.sfx && !props.soundNames.includes(f.sfx));
     if (bad) problems.push(`Le son « ${bad.sfx} » n'existe plus dans le projet.`);
+    if (cur.frames.some((f) => animFrameCells(f, nl).every((c) => c.cell < 0)))
+      warnings.push("Une frame n'affiche aucune cellule : l'animation aura un blanc.");
+    // budget VBlank : une seule cellule est transférée par image écran
+    for (let i = 1; i < cur.frames.length; i++) {
+      const a = animFrameCells(cur.frames[i - 1], nl);
+      const b = animFrameCells(cur.frames[i], nl);
+      const changed = b.filter((c, l) => c.cell !== a[l].cell).length;
+      if (changed > cur.frames[i].dur)
+        warnings.push(
+          `Frame ${i + 1} : ${changed} cellules changent pour ${cur.frames[i].dur} image(s) — ` +
+            "une cellule s'affichera avec du retard (allonger la durée, ou échelonner les changements)."
+        );
+    }
   }
 
   const total = cur ? cur.frames.reduce((n, f) => n + f.dur, 0) : 0;
@@ -231,6 +295,7 @@ export default function AnimationsModal(props: Props) {
                   onClick={() => {
                     setSel(i);
                     setFsel(0);
+                    setLsel(0);
                     setPlaying(false);
                     setRenaming(null);
                   }}
@@ -314,6 +379,17 @@ export default function AnimationsModal(props: Props) {
                       ))}
                     </select>
                   </label>
+                  <label title="Cellules affichées EN MÊME TEMPS. Elles viennent toutes de la planche, donc partagent sa palette : un calque ne coûte pas de couleur, seulement un emplacement de sprite (4 en tout, partagés avec les vignettes des scripts).">
+                    Calques
+                    <select
+                      value={nl}
+                      onChange={(e) => setLayers(Number(e.target.value))}
+                    >
+                      {[1, 2, 3, 4].map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
                   <label title="Repère affiché derrière la cellule. Ne change QUE l'aperçu : la cible réelle est choisie dans la commande d'event.">
                     Repère
                     <select
@@ -351,25 +427,33 @@ export default function AnimationsModal(props: Props) {
                     width={512}
                     height={448}
                     className="compo-canvas"
-                    title="Glisser la cellule à la souris pour fixer son décalage (au pixel). La croix marque le point d'ancrage."
+                    title="Glisser une cellule à la souris pour fixer son décalage (au pixel) — cliquer sur une cellule sélectionne son calque. La croix marque le point d'ancrage."
                     onMouseDown={(e) => {
                       if (!frame) return;
                       const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
                       const px = Math.floor((e.clientX - r.left) / 2);
                       const py = Math.floor((e.clientY - r.top) / 2);
-                      const [cx, cy] = cellPos(frame, ref);
-                      if (px < cx || px >= cx + 32 || py < cy || py >= cy + 32) return;
-                      stopPlay();
-                      dragRef.current = { dx: px - cx, dy: py - cy };
+                      // du calque le plus en AVANT vers l'arrière, comme
+                      // à l'écran : on attrape ce qu'on voit
+                      for (let l = posed.length - 1; l >= 0; l--) {
+                        const c = posed[l];
+                        if (c.cell < 0) continue;
+                        const [cx, cy] = cellPos(c, ref);
+                        if (px < cx || px >= cx + 32 || py < cy || py >= cy + 32) continue;
+                        stopPlay();
+                        setLsel(l);
+                        dragRef.current = { layer: l, dx: px - cx, dy: py - cy };
+                        return;
+                      }
                     }}
                     onMouseMove={(e) => {
                       const d = dragRef.current;
-                      if (!d || !frame) return;
+                      if (!d) return;
                       const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
                       const px = Math.floor((e.clientX - r.left) / 2);
                       const py = Math.floor((e.clientY - r.top) / 2);
                       const [ox, oy] = ref === "hero" ? [HERO_X, HERO_Y] : [SCR_X, SCR_Y];
-                      patchFrame({
+                      patchCell(d.layer, {
                         x: clamp(px - d.dx - ox),
                         y: clamp(py - d.dy - oy),
                       });
@@ -385,17 +469,50 @@ export default function AnimationsModal(props: Props) {
                         <span className="palette-title" style={{ margin: 0 }}>
                           Frame {fsel + 1} / {cur.frames.length}
                         </span>
+                        {nl > 1 && (
+                          <div className="cmdpick-tabs anim-lay-tabs">
+                            {posed.map((c, l) => (
+                              <button
+                                key={l}
+                                className={l === lay ? "active" : ""}
+                                title={
+                                  l === 0
+                                    ? "Calque 1 — le plus en ARRIÈRE"
+                                    : `Calque ${l + 1} — devant le calque ${l}`
+                                }
+                                onClick={() => setLsel(l)}
+                              >
+                                {l + 1}{c.cell < 0 ? " ·" : ""}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <label>
-                          Cellule de la planche
+                          Cellule {nl > 1 ? `du calque ${lay + 1}` : "de la planche"}
                           <div className="anim-cells">
+                            <button
+                              className={
+                                "anim-cell anim-cell-none" +
+                                (posed[lay]?.cell < 0 ? " active" : "")
+                              }
+                              title="Ce calque n'affiche rien sur cette frame"
+                              onClick={() => {
+                                stopPlay();
+                                patchCell(lay, { cell: -1 });
+                              }}
+                            >
+                              ∅
+                            </button>
                             {Array.from({ length: cells }, (_, c) => (
                               <button
                                 key={c}
-                                className={"anim-cell" + (c === frame.cell ? " active" : "")}
+                                className={
+                                  "anim-cell" + (c === posed[lay]?.cell ? " active" : "")
+                                }
                                 title={`Cellule ${c}`}
                                 onClick={() => {
                                   stopPlay();
-                                  patchFrame({ cell: c });
+                                  patchCell(lay, { cell: c });
                                 }}
                               >
                                 <CellThumb sheet={sheet} cell={c} />
@@ -420,7 +537,7 @@ export default function AnimationsModal(props: Props) {
                             }}
                           />
                         </label>
-                        <label title="Son joué à L'ENTRÉE de cette frame — c'est ce qui cale un impact sur l'image exacte.">
+                        <label title="Son joué à L'ENTRÉE de cette frame — c'est ce qui cale un impact sur l'image exacte. Un son par frame, quel que soit le nombre de calques.">
                           Son
                           <div className="row">
                             <select
@@ -447,20 +564,24 @@ export default function AnimationsModal(props: Props) {
                           <label>
                             Décalage X
                             <input
-                              type="number" min={-128} max={127} value={frame.x}
+                              type="number" min={-128} max={127}
+                              value={posed[lay]?.x ?? 0}
+                              disabled={(posed[lay]?.cell ?? -1) < 0}
                               onChange={(e) => {
                                 stopPlay();
-                                patchFrame({ x: clamp(Number(e.target.value) || 0) });
+                                patchCell(lay, { x: clamp(Number(e.target.value) || 0) });
                               }}
                             />
                           </label>
                           <label>
                             Décalage Y
                             <input
-                              type="number" min={-128} max={127} value={frame.y}
+                              type="number" min={-128} max={127}
+                              value={posed[lay]?.y ?? 0}
+                              disabled={(posed[lay]?.cell ?? -1) < 0}
                               onChange={(e) => {
                                 stopPlay();
-                                patchFrame({ y: clamp(Number(e.target.value) || 0) });
+                                patchCell(lay, { y: clamp(Number(e.target.value) || 0) });
                               }}
                             />
                           </label>
@@ -469,6 +590,7 @@ export default function AnimationsModal(props: Props) {
                           Décalages SIGNÉS (−128 à 127) par rapport au point
                           d'ancrage — la croix jaune. Sur le héros ou sur un
                           event, l'animation le SUIT s'il se déplace.
+                          {nl > 1 && " Le calque 1 est au fond, les suivants passent devant."}
                         </span>
                       </>
                     )}
@@ -507,33 +629,45 @@ export default function AnimationsModal(props: Props) {
                   </div>
                 </div>
                 <div className="anim-tl">
-                  {cur.frames.map((f, i) => (
-                    <div
-                      key={i}
-                      className={"anim-tl-f" + (i === fsel ? " active" : "")}
-                      style={{ width: Math.max(28, Math.min(120, 10 + f.dur * 4)) }}
-                      title={`Frame ${i + 1} — cellule ${f.cell}, ${f.dur} images${f.sfx ? `, son « ${f.sfx} »` : ""}`}
-                      onClick={() => {
-                        stopPlay();
-                        setFsel(i);
-                      }}
-                    >
-                      <CellThumb sheet={sheet} cell={f.cell} />
-                      <span className="anim-tl-n">
-                        {i + 1}
-                        {f.sfx ? " ●" : ""}
-                      </span>
-                    </div>
-                  ))}
+                  {cur.frames.map((f, i) => {
+                    const pc = animFrameCells(f, nl);
+                    const shown = pc.filter((c) => c.cell >= 0);
+                    return (
+                      <div
+                        key={i}
+                        className={"anim-tl-f" + (i === fsel ? " active" : "")}
+                        style={{ width: Math.max(28, Math.min(120, 10 + f.dur * 4)) }}
+                        title={
+                          `Frame ${i + 1} — ${shown.length} cellule(s) : ` +
+                          pc.map((c, l) => `calque ${l + 1} = ${c.cell < 0 ? "rien" : c.cell}`).join(", ") +
+                          `, ${f.dur} images${f.sfx ? `, son « ${f.sfx} »` : ""}`
+                        }
+                        onClick={() => {
+                          stopPlay();
+                          setFsel(i);
+                        }}
+                      >
+                        <CellThumb sheet={sheet} cell={shown[0]?.cell ?? -1} />
+                        <span className="anim-tl-n">
+                          {i + 1}
+                          {shown.length > 1 ? `×${shown.length}` : ""}
+                          {f.sfx ? " ●" : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
                   {cur.frames.length === 0 && (
                     <span className="hint">Aucune frame — ＋ pour en ajouter une.</span>
                   )}
                 </div>
 
-                {problems.length > 0 && (
+                {(problems.length > 0 || warnings.length > 0) && (
                   <div className="anim-warn">
                     {problems.map((p, i) => (
-                      <div key={i}>⚠ {p}</div>
+                      <div key={`e${i}`}>⚠ {p}</div>
+                    ))}
+                    {warnings.map((p, i) => (
+                      <div key={`w${i}`} className="soft">ℹ {p}</div>
                     ))}
                   </div>
                 )}
@@ -559,7 +693,7 @@ function CellThumb(props: { sheet: ImageBitmap | undefined; cell: number }) {
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, 32, 32);
-    if (props.sheet && props.cell * 32 < props.sheet.width)
+    if (props.cell >= 0 && props.sheet && props.cell * 32 < props.sheet.width)
       ctx.drawImage(props.sheet, props.cell * 32, 0, 32, 32, 0, 0, 32, 32);
   }, [props.sheet, props.cell]);
   return <canvas ref={ref} width={32} height={32} className="anim-thumb" />;

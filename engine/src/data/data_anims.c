@@ -16,6 +16,11 @@ const u8 anim_flags[] = {
   0x00,
 };
 
+/* cellules simultanees (calques) : pas de piste = 3L + 2 */
+const u8 anim_layers[] = {
+  0x00,
+};
+
 /* nombre de frames */
 const u8 anim_nframes[] = {
   0x00,
@@ -26,8 +31,9 @@ const u16 anim_ofs[1] = {
   0x0000,
 };
 
-/* piste aplatie : 5 octets par frame
-   [cellule][dx signe][dy signe][duree][son, 0xFF = aucun] */
+/* piste aplatie, pas FIXE de 3L + 2 octets par frame :
+                L x [cellule (0xFF = calque vide)][dx signe][dy signe]
+                puis [duree][son, 0xFF = aucun] */
 const u8 anim_track[] = {
   0x00,
 };

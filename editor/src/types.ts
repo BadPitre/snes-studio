@@ -47,22 +47,49 @@ export interface Project {
   tint_presets?: TintPreset[];
 }
 
-// Une frame d'animation (A1) : la cellule de la planche, son décalage
-// SIGNÉ par rapport au point d'ancrage, sa durée en frames écran, et le
-// son joué à SON ENTRÉE. Miroir de AnimFrame (tools/datagen/project.rs).
-export interface AnimFrame {
-  cell: number;
+// Une cellule POSÉE (A1-e) : ce que le CALQUE affiche sur cette frame.
+// cell = -1 : ce calque n'affiche rien ici — c'est ce qui donne la
+// souplesse de pistes indépendantes avec une seule timeline.
+export interface AnimCell {
+  cell: number; // -1 = rien
   x: number; // -128..127
   y: number; // -128..127
+}
+
+// Une frame d'animation (A1) : les cellules affichées SIMULTANÉMENT (une
+// par calque), la durée en frames écran, et le son joué à SON ENTRÉE.
+// Miroir de AnimFrame (tools/datagen/project.rs).
+export interface AnimFrame {
+  cells: AnimCell[]; // une entrée par calque
   dur: number; // 1..255 frames écran
   sfx?: string; // stem d'un son du projet
+  // forme HÉRITÉE mono-calque (projets d'avant les calques) — lue par
+  // animFrameCells, jamais réécrite
+  cell?: number;
+  x?: number;
+  y?: number;
 }
 
 export interface AnimationDef {
   name: string;
   vignette: string; // stem de la vignette servant de planche de cellules
   loop?: boolean;
+  layers?: number; // cellules simultanées (1-4), défaut 1
   frames: AnimFrame[];
+}
+
+export const ANIM_LAYERS_MAX = 4;
+
+// Cellules posées d'une frame, complétées à `layers` entrées (un calque
+// non renseigné n'affiche rien) et forme héritée comprise.
+export function animFrameCells(f: AnimFrame, layers: number): AnimCell[] {
+  const base: AnimCell[] =
+    f.cells && f.cells.length
+      ? f.cells
+      : [{ cell: f.cell ?? 0, x: f.x ?? 0, y: f.y ?? 0 }];
+  const out = base.slice(0, layers).map((c) => ({ ...c }));
+  while (out.length < layers) out.push({ cell: -1, x: 0, y: 0 });
+  return out;
 }
 
 export type PictureEntry = string | { path: string; trans?: boolean };

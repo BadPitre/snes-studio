@@ -530,16 +530,25 @@ non bloquant (`FLASH`) ; `{"c":"shake","power":0-8,"speed":1-8,
 personnages (hardware SNES : color math OBJ limité aux palettes 4-7).
 
 **animations image par image (A1)** : `project.animations` liste des
-entrées `{"name","vignette":"stem","loop":bool,"frames":[...]}`. La
-planche de cellules EST une vignette du projet (§B5) — zéro nouveau
-chemin graphique, l'animation n'ajoute que la piste de frames. Chaque
-frame : `{"cell","x","y","dur":1-255,"sfx":"stem"}` — `x`/`y` sont des
+entrées `{"name","vignette":"stem","loop":bool,"layers":1-4,
+"frames":[...]}`. La planche de cellules EST une vignette du projet
+(§B5) — zéro nouveau chemin graphique, l'animation n'ajoute que la
+piste de frames. Chaque frame :
+`{"cells":[{"cell","x","y"}...],"dur":1-255,"sfx":"stem"}` — une entrée
+de `cells` par CALQUE (cellule affichée en même temps que les autres),
+`cell: -1` = ce calque n'affiche rien sur cette frame, `x`/`y` sont des
 décalages SIGNÉS (−128..127) par rapport au point d'ancrage, `sfx` est
-joué À L'ENTRÉE de la frame. datagen émet `data_anims.c` (piste
-APLATIE, 5 octets par frame et pas FIXE : le lecteur avance de +5 sans
-multiplier ni décoder une longueur variable) et refuse au build : nom
-en double, vignette inconnue, cellule hors planche, durée nulle,
-décalage hors bornes, son inconnu.
+joué À L'ENTRÉE de la frame. Forme héritée mono-calque acceptée en
+lecture (`cell`/`x`/`y` à plat sur la frame). datagen émet
+`data_anims.c` (piste APLATIE, pas FIXE de 3L+2 octets par frame : le
+lecteur avance du pas sans multiplier ni décoder une longueur variable)
+et refuse au build : nom en double, vignette inconnue, calques hors
+1-4, plus de cellules que de calques, cellule hors planche, durée
+nulle, décalage hors bornes, son inconnu. Il PRÉVIENT (sans refuser)
+quand K calques changent de cellule pour une durée < K images : une
+seule cellule est transférée par image écran, la dernière s'afficherait
+en retard. Calque 1 au fond, les suivants devant ; 4 cellules
+simultanées et 2 planches distinctes au maximum (palettes OBJ).
 `{"c":"anim_play","anim":"nom","anchor":"screen"|"hero"|"event",
 "event":-1|0-23,"wait":bool}` (`ANIMPLAY`, `event: -1` = « cet event »,
 `wait` bloque le script — jamais pour une animation en boucle, qui ne

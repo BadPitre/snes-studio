@@ -8,10 +8,15 @@
  * changement de frame = 4 DMA de 128 octets (au VBlank, un slot par
  * frame au plus — budget du panneau S6).
  *
- * OAM : entrées 96-97 (le joueur occupe 0-1, les acteurs 2-49, la
+ * OAM : entrées 96-99 (le joueur occupe 0-1, les acteurs 2-49, la
  * météo 100-123). Écriture DIRECTE du shadow (oamMemory) chaque
  * frame + oamSetEx (taille LARGE 32x32 + visibilité) — réaffirmé
  * chaque frame : l'ouverture d'un écran composé cache tout l'OAM.
+ *
+ * Palettes : allouées PAR PLANCHE (voir vignette.h). pal_vig[p] retient
+ * la vignette chargée dans la palette OBJ 5+p et pal_rc[p] compte les
+ * slots qui s'en servent — deux calques d'une même animation ne coûtent
+ * donc qu'UNE palette.
  */
 #include <snes.h>
 #include "vignette.h"
@@ -39,9 +44,45 @@ static u8 v_y[VIG_SLOTS];
 static u8 v_anc[VIG_SLOTS];   /* VIG_ANC_* (offsets signés si suivi) */
 static u8 v_act[VIG_SLOTS];   /* acteur suivi (VIG_ANC_ACTOR) */
 static u8 v_own[VIG_SLOTS];   /* 1 = piloté par le lecteur d'animations */
+static u8 v_pi[VIG_SLOTS];    /* palette utilisée (0/1), 0xFF = aucune */
+static u8 v_off[VIG_SLOTS];   /* 1 = sprite masqué, slot toujours réservé */
+static u8 pal_vig[VIG_PALS];  /* vignette chargée dans la palette 5+p */
+static u8 pal_rc[VIG_PALS];   /* slots qui l'utilisent */
 static u8 v_dirty = 0;        /* bitmask : frame à transférer */
-static u8 v_pal = 0;          /* bitmask : palette à transférer */
+static u8 v_pal = 0;          /* bitmask (par PALETTE) : CGRAM à charger */
 static u8 v_init = 0;         /* statics posés (init explicite tcc) */
+
+/* Réserve une palette pour cette planche : celle qui la détient déjà, ou
+   une inutilisée. 0xFF si les deux sont prises par d'autres planches. */
+static u8 pal_acquire(u8 vig_id)
+{
+  u8 p;
+
+  for (p = 0; p < VIG_PALS; p++)
+    if (pal_rc[p] && pal_vig[p] == vig_id)
+    {
+      pal_rc[p]++;
+      return p;
+    }
+  for (p = 0; p < VIG_PALS; p++)
+    if (!pal_rc[p])
+    {
+      pal_vig[p] = vig_id;
+      pal_rc[p] = 1;
+      v_pal |= (u8)(1 << p); /* CGRAM à (re)charger au VBlank */
+      return p;
+    }
+  return 0xFF;
+}
+
+static void pal_release(u8 slot)
+{
+  u8 p = v_pi[slot];
+
+  if (p < VIG_PALS && pal_rc[p])
+    pal_rc[p]--;
+  v_pi[slot] = 0xFF;
+}
 
 static void vig_init_once(void)
 {
@@ -56,16 +97,46 @@ static void vig_init_once(void)
     v_own[i] = 0;
     v_anc[i] = VIG_ANC_SCREEN;
     v_act[i] = 0xFF;
+    v_pi[i] = 0xFF;
+    v_off[i] = 0;
+  }
+  for (i = 0; i < VIG_PALS; i++)
+  {
+    pal_vig[i] = 0xFF;
+    pal_rc[i] = 0;
   }
   v_dirty = 0;
   v_pal = 0;
 }
 
+u8 vig_pal_available(u8 vig_id)
+{
+  u8 p;
+
+  vig_init_once();
+  for (p = 0; p < VIG_PALS; p++)
+    if (!pal_rc[p] || pal_vig[p] == vig_id)
+      return 1;
+  return 0;
+}
+
 void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
 {
+  u8 p;
+
   vig_init_once();
   if (slot >= VIG_SLOTS || vig_id >= vig_count)
     return;
+  /* la palette d'abord : si les deux sont prises par d'autres planches,
+     mieux vaut ne RIEN afficher que d'afficher aux mauvaises couleurs */
+  pal_release(slot);
+  p = pal_acquire(vig_id);
+  if (p == 0xFF)
+  {
+    vig_hide(slot);
+    return;
+  }
+  v_pi[slot] = p;
   v_id[slot] = vig_id;
   v_frame[slot] = 0;
   v_mode[slot] = 0;
@@ -74,8 +145,8 @@ void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
                       suivante et arrêtera l'animation sans rien cacher */
   v_x[slot] = x;
   v_y[slot] = y;
+  v_off[slot] = 0;
   v_dirty |= (u8)(1 << slot);
-  v_pal |= (u8)(1 << slot);
 }
 
 void vig_anchor(u8 slot, u8 anchor)
@@ -100,6 +171,15 @@ void vig_set_frame(u8 slot, u8 frame)
     return; /* même cellule : pas de DMA (une frame de vignette = 512 o) */
   v_frame[slot] = frame;
   v_dirty |= (u8)(1 << slot);
+}
+
+void vig_set_visible(u8 slot, u8 on)
+{
+  if (slot >= VIG_SLOTS)
+    return;
+  v_off[slot] = on ? 0 : 1;
+  if (!on)
+    oamSetVisible(VIG_OAM(slot), OBJ_HIDE);
 }
 
 void vig_move(u8 slot, u8 x, u8 y)
@@ -146,8 +226,10 @@ void vig_hide(u8 slot)
 {
   if (slot >= VIG_SLOTS)
     return;
+  pal_release(slot);
   v_id[slot] = 0xFF;
   v_own[slot] = 0;
+  v_dirty &= (u8)~(1 << slot);
   oamSetVisible(VIG_OAM(slot), OBJ_HIDE);
 }
 
@@ -161,7 +243,8 @@ void vig_reload(void)
     if (v_id[s] != 0xFF)
     {
       v_dirty |= (u8)(1 << s);
-      v_pal |= (u8)(1 << s);
+      if (v_pi[s] < VIG_PALS)
+        v_pal |= (u8)(1 << v_pi[s]);
     }
 }
 
@@ -177,6 +260,8 @@ void vig_update(void)
   {
     if (v_id[s] == 0xFF)
       continue;
+    if (v_off[s])
+      continue; /* calque d'animation vide cette frame : slot gardé */
     /* animation : un pas toutes les speed frames */
     if (v_mode[s] && --v_timer[s] == 0)
     {
@@ -219,47 +304,65 @@ void vig_update(void)
     om[0] = sx;
     om[1] = sy;
     om[2] = (u8)(VIG_CHAR(s) - 256); /* chars 384+ : 9e bit dans attr */
-    om[3] = 0x30 | ((u8)(5 + s) << 1) | 1; /* prio 3, palette 5/6 */
+    /* palette de la PLANCHE (5 ou 6), pas du slot : deux calques d'une
+       même animation partagent la leur */
+    om[3] = 0x30 | ((u8)(5 + v_pi[s]) << 1) | 1;
     oamSetEx(VIG_OAM(s), OBJ_LARGE, OBJ_SHOW); /* 32x32 + visible —
         réaffirmé chaque frame (l'écran composé cache tout l'OAM) */
   }
 }
 
+/* Cellules transférées au plus par VBlank. MESURÉ, pas estimé : une
+   cellule = 4 DMA de 128 octets (le bloc 32x32 est en 4 rangées de la
+   grille de names, non contiguës). À 2 cellules, les DEUX dernières
+   rangées tombent hors fenêtre VBlank et la VRAM les IGNORE — la moitié
+   basse de la seconde cellule reste vide à l'écran (constaté sur dump
+   VRAM). Avancer vig_vblank dans la séquence n'en fait passer que 6 sur
+   8 : c'est un plafond de temps, pas un problème d'ordre.
+   Conséquence pour les CALQUES : quand K calques changent de cellule à
+   la même frame, ils se mettent à jour en K frames écran. datagen
+   prévient quand la durée d'une frame est plus courte que ça. */
+#define VIG_VB_MAX 1
+
 void vig_vblank(void)
 {
-  u8 s, r;
+  u8 s, r, n;
   const u8 *src;
   u16 base;
 
   if (!v_dirty && !v_pal)
     return;
+  /* palettes d'abord, une par VBlank : elles ne bougent qu'à l'apparition
+     d'une planche, jamais frame par frame */
+  for (s = 0; s < VIG_PALS; s++)
+    if (v_pal & (1 << s))
+    {
+      if (pal_rc[s])
+        /* palette OBJ 5+s (CGRAM 128 + (5+s)*16), couleurs 1-15 */
+        dmaCopyCGram((u8 *)vig_pals[pal_vig[s]] + 2,
+                     (u16)(128 + ((u16)(5 + s) << 4) + 1), 30);
+      v_pal &= (u8)~(1 << s);
+      return;
+    }
+  n = 0;
   for (s = 0; s < VIG_SLOTS; s++)
   {
-    if (v_id[s] == 0xFF) /* caché entre-temps : bits sales oubliés */
+    if (!(v_dirty & (1 << s)))
+      continue;
+    if (v_id[s] == 0xFF) /* caché entre-temps : bit sale oublié */
     {
-      v_pal &= (u8)~(1 << s);
       v_dirty &= (u8)~(1 << s);
       continue;
     }
-    if (v_pal & (1 << s))
+    /* frame courante : 4 rangées de 4 chars (512 octets) */
+    src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9);
+    for (r = 0; r < 4; r++)
     {
-      /* palette OBJ 5+s (CGRAM 128 + (5+s)*16), couleurs 1-15 */
-      dmaCopyCGram((u8 *)vig_pals[v_id[s]] + 2,
-                   (u16)(128 + ((u16)(5 + s) << 4) + 1), 30);
-      v_pal &= (u8)~(1 << s);
-      return; /* un transfert par VBlank */
+      base = VRAM_OBJ_GFX + (((u16)VIG_CHAR(s) + ((u16)r << 4)) << 4);
+      dmaCopyVram((u8 *)src + ((u16)r << 7), base, 128);
     }
-    if (v_dirty & (1 << s))
-    {
-      /* frame courante : 4 rangées de 4 chars (512 octets) */
-      src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9);
-      for (r = 0; r < 4; r++)
-      {
-        base = VRAM_OBJ_GFX + (((u16)VIG_CHAR(s) + ((u16)r << 4)) << 4);
-        dmaCopyVram((u8 *)src + ((u16)r << 7), base, 128);
-      }
-      v_dirty &= (u8)~(1 << s);
+    v_dirty &= (u8)~(1 << s);
+    if (++n >= VIG_VB_MAX)
       return;
-    }
   }
 }

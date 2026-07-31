@@ -598,3 +598,10 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
    lieu d'étirer un vide sous la timeline */
 .modal.anims .cevents-body { height: auto; min-height: 540px; }
 .modal.anims .cevents-form { flex: 1 1 auto; }
+/* calques d'animation (A1-e) : onglets compacts + case « rien » */
+.anim-lay-tabs button { flex: 0 0 auto; min-width: 34px; }
+.anim-cell-none {
+  width: 36px; height: 36px; font-size: 15px; line-height: 1;
+  color: var(--text); opacity: .8;
+}
+.anim-warn .soft { color: inherit; opacity: .8; }
