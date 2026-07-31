@@ -16,8 +16,6 @@ engine/src/*.asm
 engine/src/*.ps
 engine/src/data/*.asm
 engine/src/data/*.ps
-# ... sauf les vraies sources assembleur, écrites ou générées comme telles
-!engine/src/data/databanks.asm
 linkfile
 soundbank.asm
 soundbank.bnk
