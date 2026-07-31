@@ -298,7 +298,7 @@ function sceneToJson(sc: Scene): string {
             (w) =>
               `    {"x": ${w.x}, "y": ${w.y}, "to": ${JSON.stringify(w.to)}, "tx": ${w.tx}, "ty": ${w.ty}${
                 w.dir ? `, "dir": ${JSON.stringify(w.dir)}` : ""
-              }}`
+              }${w.trans ? `, "trans": ${JSON.stringify(w.trans)}` : ""}}`
           )
           .join(",\n") +
         "\n  ]";
