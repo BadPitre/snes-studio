@@ -14,6 +14,10 @@ export interface Project {
   musics?: string[]; // chemins .it, l'ordre donne les music_id
   sounds?: string[]; // chemins .wav (B1), l'ordre donne les sfx_id
   vignettes?: string[]; // bandes de frames 32x32 (B5), l'ordre = vig_id
+  // animations image par image (A1) — l'ordre donne les anim_id. La
+  // planche de cellules est une VIGNETTE du projet : pas de second
+  // pipeline graphique, l'animation n'ajoute que la piste de frames.
+  animations?: AnimationDef[];
   screens?: string[]; // écrans composés (B6bis) — fichiers screens/<nom>.json
   tilesets?: string[]; // chemins .png 16x16, l'ordre donne les tileset_id
   charsets?: string[]; // noms des blocs de personnage (éditeur seulement,
@@ -41,6 +45,51 @@ export interface Project {
   tileset_defs?: TilesetDef[];
   // presets de teinte nommés (S12b — éditeur seulement, voir TintPreset)
   tint_presets?: TintPreset[];
+}
+
+// Une cellule POSÉE (A1-e) : ce que le CALQUE affiche sur cette frame.
+// cell = -1 : ce calque n'affiche rien ici — c'est ce qui donne la
+// souplesse de pistes indépendantes avec une seule timeline.
+export interface AnimCell {
+  cell: number; // -1 = rien
+  x: number; // -128..127
+  y: number; // -128..127
+}
+
+// Une frame d'animation (A1) : les cellules affichées SIMULTANÉMENT (une
+// par calque), la durée en frames écran, et le son joué à SON ENTRÉE.
+// Miroir de AnimFrame (tools/datagen/project.rs).
+export interface AnimFrame {
+  cells: AnimCell[]; // une entrée par calque
+  dur: number; // 1..255 frames écran
+  sfx?: string; // stem d'un son du projet
+  // forme HÉRITÉE mono-calque (projets d'avant les calques) — lue par
+  // animFrameCells, jamais réécrite
+  cell?: number;
+  x?: number;
+  y?: number;
+}
+
+export interface AnimationDef {
+  name: string;
+  vignette: string; // stem de la vignette servant de planche de cellules
+  loop?: boolean;
+  layers?: number; // cellules simultanées (1-4), défaut 1
+  frames: AnimFrame[];
+}
+
+export const ANIM_LAYERS_MAX = 4;
+
+// Cellules posées d'une frame, complétées à `layers` entrées (un calque
+// non renseigné n'affiche rien) et forme héritée comprise.
+export function animFrameCells(f: AnimFrame, layers: number): AnimCell[] {
+  const base: AnimCell[] =
+    f.cells && f.cells.length
+      ? f.cells
+      : [{ cell: f.cell ?? 0, x: f.x ?? 0, y: f.y ?? 0 }];
+  const out = base.slice(0, layers).map((c) => ({ ...c }));
+  while (out.length < layers) out.push({ cell: -1, x: 0, y: 0 });
+  return out;
 }
 
 export type PictureEntry = string | { path: string; trans?: boolean };
@@ -269,6 +318,11 @@ export type Command =
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
+  // A1 — animations image par image. anchor "event" + event = -1 pour
+  // « cet event ». wait : bloque le script jusqu'à la fin (jamais pour
+  // une animation en boucle, qui ne finit pas).
+  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean }
+  | { c: "anim_stop" }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }
   | { c: "wave"; power: number; speed?: number }

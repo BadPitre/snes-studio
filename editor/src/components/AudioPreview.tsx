@@ -87,6 +87,12 @@ async function start(key: string, path: string, root: string) {
   }
 }
 
+// Joue un son une fois, sans bouton — la LECTURE d'une animation (A1-c)
+// déclenche les sons de ses frames au fil du playhead.
+export function previewSound(path: string, root: string) {
+  void start(path, path, root).catch(() => setState(null, "off"));
+}
+
 function toggle(key: string, path: string, root: string) {
   if (curKey !== key) {
     void start(key, path, root).catch(() => setState(null, "off"));

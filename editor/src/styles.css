@@ -564,3 +564,44 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
   margin-left: auto; flex: 0 0 auto; width: 24px; min-width: 24px;
   padding: 1px 0 2px; font-size: 12px; line-height: 1;
 }
+
+/* Fenêtre Animations (A1-c) — timeline, grille de cellules, avertissements */
+.anim-thumb {
+  width: 32px; height: 32px; flex: 0 0 auto; image-rendering: pixelated;
+  background:
+    linear-gradient(45deg, #0000 75%, #8883 75%) 0 0/8px 8px,
+    linear-gradient(45deg, #8883 25%, #0000 25%) 4px 4px/8px 8px;
+}
+.anim-cells { display: flex; flex-wrap: wrap; gap: 3px; max-height: 148px; overflow-y: auto; }
+.anim-cell { flex: 0 0 auto; padding: 2px; line-height: 0; }
+.anim-cell.active { box-shadow: var(--bev-field), inset 0 0 0 2px var(--sel); }
+.anim-tl-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.anim-tl-head button { flex: 0 0 auto; padding: 2px 8px; }
+.anim-tl {
+  display: flex; gap: 3px; align-items: flex-start; overflow-x: auto;
+  min-height: 58px; padding: 4px; box-shadow: var(--bev-field);
+}
+.anim-tl-f {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+  gap: 2px; padding: 2px; cursor: pointer; box-shadow: var(--bev-field);
+  background: #fff;
+}
+:root[data-theme="dark"] .anim-tl-f { background: #1c1d21; }
+.anim-tl-f.active { box-shadow: var(--bev-field), inset 0 0 0 2px var(--sel); }
+.anim-tl-n { font-size: 10px; color: var(--text); }
+.anim-warn {
+  font-size: 11px; color: #a03000; background: #fff4d6;
+  padding: 4px 6px; box-shadow: var(--bev-field);
+}
+:root[data-theme="dark"] .anim-warn { color: #ffcf7a; background: #3a2c14; }
+/* la fenêtre Animations se cale sur son contenu (canevas + timeline) au
+   lieu d'étirer un vide sous la timeline */
+.modal.anims .cevents-body { height: auto; min-height: 540px; }
+.modal.anims .cevents-form { flex: 1 1 auto; }
+/* calques d'animation (A1-e) : onglets compacts + case « rien » */
+.anim-lay-tabs button { flex: 0 0 auto; min-width: 34px; }
+.anim-cell-none {
+  width: 36px; height: 36px; font-size: 15px; line-height: 1;
+  color: var(--text); opacity: .8;
+}
+.anim-warn .soft { color: inherit; opacity: .8; }

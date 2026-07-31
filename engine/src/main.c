@@ -27,6 +27,7 @@
 #include "hdmafx.h"
 #include "stage.h"
 #include "vignette.h"
+#include "anim.h"
 
 /* Fermeture/ouverture de l'écran autour d'un warp (S18) : 0 fondu
    (recette historique setFadeEffect, 16 frames), 1 instantané, 2 mosaïque
@@ -143,6 +144,8 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
   textbox_load_pal(); /* scene_load écrase la CGRAM 16-19 (fonte, spec §4) */
   vm_scene_reset();
   camera_init(); /* un pan scripté ne survit pas au changement de scène */
+  anim_stop(); /* idem : une animation accrochée à un event de l'ancienne
+                  scène n'a plus de cible */
   player_init();
   player_set_pos(dest_x, dest_y);
   wdir = player_take_warp_dir(); /* direction d'arrivée (v0.16) */
@@ -305,6 +308,9 @@ int main(void)
       actors_draw();
       weather_draw(); /* météo : simulation + sprites en une passe (S13) */
     }
+    anim_update(); /* animations image par image (A1) — AVANT vig_update :
+                      le lecteur pose cellule/position, la vignette écrit
+                      le shadow OAM */
     vig_update(); /* vignettes (B5) — sur la map ET l'écran composé */
 
     audio_process(); /* flux musique -> SPC */

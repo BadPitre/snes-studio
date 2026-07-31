@@ -64,6 +64,8 @@ pub struct EventCompiler<'a> {
     musics: Vec<String>,
     /// vignettes du projet (B5) — stems, résolus vers les vig_id
     vignettes: Vec<String>,
+    /// animations du projet (A1) — noms, résolus vers les anim_id
+    animations: Vec<String>,
     /// écrans composés (B6bis) — déroulés par la commande "screen"
     screens: Vec<ScreenDef>,
     /// pile des écrans en cours de déroulage (screen_call — les noms de
@@ -100,6 +102,7 @@ impl<'a> EventCompiler<'a> {
             sounds: Vec::new(),
             musics: Vec::new(),
             vignettes: Vec::new(),
+            animations: Vec::new(),
             screens: Vec::new(),
             screen_stack: Vec::new(),
             text_of,
@@ -913,6 +916,42 @@ impl<'a> EventCompiler<'a> {
                     let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
                     out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
                 }
+                // A1 — animations image par image (planche = vignette)
+                "anim_play" => {
+                    let name = cmd["anim"].as_str().unwrap_or("");
+                    let id = self
+                        .animations
+                        .iter()
+                        .position(|a| a == name)
+                        .with_context(|| {
+                            format!(
+                                "anim_play : animation '{}' introuvable \
+                                 (supprimée ou renommée ?)",
+                                name
+                            )
+                        })?;
+                    // ancrage : écran (décalages autour du centre de
+                    // l'écran), héros, ou event de la scène
+                    let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
+                        "hero" => 1u8,
+                        "event" => 2,
+                        _ => 0,
+                    };
+                    let target = if anchor == 2 {
+                        match cmd["event"].as_i64() {
+                            None | Some(-1) => "self".to_string(),
+                            Some(n) if (0..24).contains(&n) => n.to_string(),
+                            Some(n) => bail!("anim_play : event {} hors limite (0-23)", n),
+                        }
+                    } else {
+                        "0".to_string()
+                    };
+                    let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
+                    out.push(format!("  ANIMPLAY {} {} {} {}", id, anchor, target, wait));
+                }
+                "anim_stop" => {
+                    out.push("  ANIMSTOP".to_string());
+                }
                 "vig_hide" => {
                     let slot = cmd["slot"]
                         .as_u64()
@@ -1279,6 +1318,7 @@ impl<'a> EventCompiler<'a> {
         sounds: &[String],
         musics: &[String],
         vignettes: &[String],
+        animations: &[String],
         screens: &[ScreenDef],
         scene_tileset: &str,
         tile_blocks: &mut Vec<(String, u16)>,
@@ -1298,6 +1338,7 @@ impl<'a> EventCompiler<'a> {
         self.sounds = sounds.to_vec();
         self.musics = musics.to_vec();
         self.vignettes = vignettes.to_vec();
+        self.animations = animations.to_vec();
         self.screens = screens.to_vec();
         for (i, ev) in events.iter().enumerate() {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,

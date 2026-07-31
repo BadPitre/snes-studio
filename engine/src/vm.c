@@ -22,6 +22,7 @@
 #include "audio.h"   /* PLAYSFX / PLAYBGM : sons et musique (B1) */
 #include "stage.h"   /* écran composé (B3) */
 #include "vignette.h" /* vignettes animées (B5) */
+#include "anim.h"     /* ANIMPLAY : animations image par image (A1) */
 #include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -644,6 +645,22 @@ static void vm_step(void)
       vig_hide(fetch8());
       break;
 
+    case VM_OP_ANIMPLAY: /* animation image par image (A1) — bloquante
+                            seulement si le bit 0 des flags est levé */
+      var = fetch8();   /* animation */
+      val = fetch8();   /* ancrage */
+      idx16 = fetch8(); /* cible (acteur), 0xFF = event du script */
+      if (val == ANIM_ANC_ACTOR && (u8)idx16 == 0xFF)
+        idx16 = vm.script_actor;
+      anim_play(var, val, (u8)idx16);
+      if (fetch8() & 1)
+        vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignore les boucles */
+      break;
+
+    case VM_OP_ANIMSTOP:
+      anim_stop();
+      break;
+
     case VM_OP_LISTSEL: /* menu à curseur (B6) — BLOQUANT */
       var = fetch8();          /* widget (racine du layout) */
       vm.choice_var = fetch8(); /* variable destination */
@@ -876,6 +893,13 @@ void vm_update(void)
     else
       return;
   }
+  if (vm.wait_mode == VM_WAIT_ANIM)
+  {
+    if (!anim_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
   if (vm.wait_mode == VM_WAIT_TIMER)
   {
     if (vm.wait_timer)
@@ -999,6 +1023,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_STAGE)
   {
     if (stage_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_ANIM)
+  {
+    if (anim_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

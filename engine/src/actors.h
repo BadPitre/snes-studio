@@ -67,4 +67,8 @@ void actor_interact(u8 index);
 /* Direction courante d'un acteur (WRAM — FACE et face-au-héros) */
 void actor_face(u8 index, u8 dir);
 
+/* Position PIXEL (monde) d'un acteur — ancrage des animations (A1). */
+u16 actor_pos_x(u8 index);
+u16 actor_pos_y(u8 index);
+
 #endif /* ACTORS_H */

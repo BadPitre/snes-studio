@@ -110,6 +110,13 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Animations",
+    items: [
+      { c: "anim_play", label: "Jouer une animation" },
+      { c: "anim_stop", label: "Arrêter les animations" },
+    ],
+  },
+  {
     title: "Caméra",
     items: [
       { c: "campan", label: "Déplacer la caméra" },

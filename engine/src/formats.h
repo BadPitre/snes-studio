@@ -320,6 +320,20 @@
                               speed = frames par image de la planche.
                               NON bloquant. */
 #define VM_OP_VIGHIDE 0x39 /* slot u8 — cache la vignette du slot. */
+#define VM_OP_ANIMPLAY 0x3B /* anim u8, anchor u8, target u8, flags u8 —
+                               ANIMATION image par image (A1) : joue
+                               l'animation sur un slot de vignette (sa
+                               planche de cellules EST une vignette).
+                               anchor : 0 écran (décalages autour du
+                               CENTRE de l'écran), 1 héros, 2 event
+                               (target = index d'acteur, 0xFF = « cet
+                               event », résolu à l'exécution). flags
+                               bit 0 = ATTENDRE la fin (VM_WAIT_ANIM) ;
+                               une animation en BOUCLE ne bloque jamais,
+                               sinon l'attente ne finirait pas. */
+#define VM_OP_ANIMSTOP 0x3C /* arrête toutes les animations en cours et
+                               range leurs sprites (sortie d'une boucle
+                               lancée sans attente). */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — B6 : menu à
                               curseur BLOQUANT sur un widget « list » du
                               layout UI. Affiche le widget, curseur en

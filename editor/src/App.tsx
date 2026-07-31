@@ -63,6 +63,7 @@ import type { PlayConfig } from "./components/SettingsModal";
 import MapCanvas from "./components/MapCanvas";
 import TilePalette from "./components/TilePalette";
 import TilesetsModal from "./components/TilesetsModal";
+import AnimationsModal from "./components/AnimationsModal";
 import ScenePanel from "./components/ScenePanel";
 import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
@@ -169,6 +170,7 @@ export default function App() {
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // fenêtre Tilesets (T1)
+  const [animsOpen, setAnimsOpen] = useState(false); // fenêtre Animations (A1-c)
   // fenêtre Textes (Tools →) — remplace l'onglet de la sidebar
   const [textsOpen, setTextsOpen] = useState(false);
   // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
@@ -1924,6 +1926,12 @@ export default function App() {
           disabled: !data,
         },
         {
+          label: "Animations…",
+          tip: "Animations image par image (coup d'épée, explosion, soin) : cellule, position et son par frame — jouées par « Jouer une animation »",
+          action: () => setAnimsOpen(true),
+          disabled: !data,
+        },
+        {
           label: "Prefabs…",
           tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
           action: () => setPrefabMgr(true),
@@ -2566,6 +2574,29 @@ export default function App() {
           onClose={() => setTilesetsOpen(false)}
         />
       )}
+      {animsOpen && data && (
+        <AnimationsModal
+          root={data.root}
+          animations={data.project.animations ?? []}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          vigPaths={Object.fromEntries(
+            (data.project.vignettes ?? []).map((p) => [musicStem(p), p])
+          )}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          soundPaths={Object.fromEntries(
+            (data.project.sounds ?? []).map((p) => [musicStem(p), p])
+          )}
+          sprites={sprites}
+          onOk={(list) => {
+            mutate((d) => ({
+              ...d,
+              project: { ...d.project, animations: list.length ? list : undefined },
+            }));
+            setAnimsOpen(false);
+          }}
+          onClose={() => setAnimsOpen(false)}
+        />
+      )}
       {dbOpen && data && (
         <DatabaseModal
           db={db ?? { schemas: [], entries: {} }}
@@ -2631,6 +2662,7 @@ export default function App() {
           soundNames={(data.project.sounds ?? []).map(musicStem)}
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          animNames={(data.project.animations ?? []).map((a) => a.name)}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
           }
@@ -2667,6 +2699,7 @@ export default function App() {
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                animNames={(data.project.animations ?? []).map((a) => a.name)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2731,6 +2764,7 @@ export default function App() {
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
+                animNames={(data.project.animations ?? []).map((a) => a.name)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))

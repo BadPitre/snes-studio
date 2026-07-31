@@ -9,7 +9,22 @@ ifneq ($(strip $(AUDIOFILES)),)
 export SOUNDBANK := src/data/soundbank
 endif
 
+# PVSnesLib ramasse les .asm par WILDCARD (snes_rules §"Search all .asm").
+# Or les .asm de src/ sont les INTERMEDIAIRES de nos .c : un build
+# interrompu en laisse trainer, et le build suivant les prend pour des
+# SOURCES. Conséquences vues en vrai : l'objet entre DEUX FOIS dans
+# linkfile (lié en double), et le .c n'est plus seul maître de ce que
+# contient son objet — d'où des ROM qui gardent l'état d'un ancien
+# projet (widgets fantômes dessinés depuis une table périmée).
+# On les purge AVANT que le wildcard ne les voie, c'est-à-dire à la
+# LECTURE du Makefile. Après un build normal ils n'existent pas : ça ne
+# coûte rien, ça ne rattrape que les builds interrompus.
+$(shell rm -f $(foreach c,$(wildcard src/*.c) $(wildcard src/data/*.c),$(c:.c=.asm) $(c:.c=.ps)))
+
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
+
+# Deuxième filet : jamais deux fois le même objet dans linkfile.
+OFILES := $(sort $(OFILES))
 
 # snes_rules ne suit PAS les dépendances d'en-têtes : sans cette règle, un
 # build incrémental après un changement de struct (scene.h, formats.h…)

@@ -28,6 +28,7 @@ interface Props {
   soundNames: string[]; // stems des sons (B1)
   musicNames: string[]; // stems des musiques (B1)
   vigNames: string[]; // stems des vignettes (B5)
+  animNames: string[]; // noms des animations image par image (A1)
   screenNames: string[]; // écrans composés (B6bis)
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
@@ -188,6 +189,7 @@ export default function CommonEventsModal(props: Props) {
                   soundNames={props.soundNames}
                   musicNames={props.musicNames}
                   vigNames={props.vigNames}
+                  animNames={props.animNames}
                   screenNames={props.screenNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}
