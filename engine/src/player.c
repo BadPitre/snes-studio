@@ -401,6 +401,11 @@ void player_update(void)
   }
 }
 
+/* Mots OAM du héros (tile + attribut) : mis en cache, cf. player_draw */
+static u8 pl_lastf = 0xFF;
+static u16 pl_w1 = 0, pl_w3 = 0;
+static u8 pl_x9 = 0;
+
 void player_draw(void)
 {
   u16 sx = player.x - camera.x;
@@ -411,11 +416,41 @@ void player_draw(void)
   /* joueur = bloc 0 : frame = dir*3 + pas, palette OBJ 0 */
   u8 f = (u8)(player.dir * 3 + add);
 
-  /* 2 OBJs empilés, ancrés 8 px au-dessus de la tile (tête façon RM2003) —
+  /* Écriture OAM directe (P3) : passer par oamSet coûtait ~10 % de la
+     frame pour le seul héros — l'essentiel étant le marshalling des huit
+     arguments par tcc-816. Les mots « tile + attribut » ne changent qu'avec
+     la frame affichée, donc ils sont mis en cache.
+     2 OBJs empilés, ancrés 8 px au-dessus de la tile (tête façon RM2003) —
      un y négatif enroule au-delà de 224 : les lignes hautes disparaissent,
      les basses reviennent en haut d'écran = clipping correct au bord */
-  oamSet(PLAYER_OAM_TOP, sx, sy - SPRITE_Y_OVERLAP, PLAYER_OBJ_PRIO, 0, 0,
-         OBJ_TOP_TILE(f), 0);
-  oamSet(PLAYER_OAM_BOT, sx, sy + 16 - SPRITE_Y_OVERLAP, PLAYER_OBJ_PRIO, 0, 0,
-         OBJ_BOTTOM_TILE(f), 0);
+  {
+    u16 *o = (u16 *)&oamMemory[PLAYER_OAM_TOP];
+    u16 x8 = sx & 0xFF;
+    u16 y8 = (sy - SPRITE_Y_OVERLAP) & 0xFF;
+
+    if (f != pl_lastf)
+    {
+      u16 tile = OBJ_TOP_TILE(f);
+      u16 attr = (u16)PLAYER_OBJ_PRIO << 4; /* palette OBJ 0 */
+
+      pl_w1 = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+      tile += 32; /* OBJ_BOTTOM_TILE */
+      pl_w3 = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+      pl_lastf = f;
+    }
+    o[0] = x8 | (y8 << 8);
+    o[1] = pl_w1;
+    o[2] = x8 | (((y8 + 16) & 0xFF) << 8);
+    o[3] = pl_w3;
+    /* 9e bit de X : le héros ne franchit ce bord qu'au bout de la carte */
+    add = (sx & 0x100) ? 1 : 0;
+    if (add != pl_x9)
+    {
+      pl_x9 = add;
+      if (add)
+        oamMemory[512] |= 0x05; /* OBJ 0 et 1 : même octet de la table 2 */
+      else
+        oamMemory[512] &= (u8)~0x05;
+    }
+  }
 }
