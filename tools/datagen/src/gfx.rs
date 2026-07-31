@@ -505,6 +505,70 @@ impl IndexedImage {
         Ok(out)
     }
 
+    /// Image de la couche UI (widget « Image » en mode picture) : un
+    /// rectangle de tuiles 2bpp, comme une icône mais de taille libre.
+    ///
+    /// La couche UI de la SNES n'a que 4 couleurs et TOUT y partage la
+    /// palette de la fonte (glyphes, cadres, icônes) : les couleurs de
+    /// l'image sont donc ramenées à la plus proche de cette palette.
+    /// L'index 0 reste la transparence — un pixel transparent le demeure,
+    /// on ne lui cherche pas de voisin.
+    ///
+    /// L'image est complétée en transparent jusqu'au multiple de 8 le plus
+    /// proche : l'auteur n'a pas à caler ses pixels sur la grille de
+    /// tuiles. Renvoie (chars, largeur, hauteur) en TUILES.
+    pub fn to_ui_image(&self, ui_pal: &[u16]) -> Result<(Vec<u8>, u8, u8)> {
+        if self.width == 0 || self.height == 0 {
+            bail!("image UI : image vide");
+        }
+        let tw = (self.width + 7) / 8;
+        let th = (self.height + 7) / 8;
+        if tw > 32 || th > 28 {
+            bail!(
+                "image UI : {}x{} px = {}x{} tuiles, l'ecran en fait 32x28",
+                self.width, self.height, tw, th
+            );
+        }
+        // correspondance couleur de l'image -> index 0-3 de la palette UI
+        let mut map = vec![0u8; self.palette.len().max(1)];
+        for (i, &c) in self.palette.iter().enumerate() {
+            if i == 0 {
+                continue; /* transparent, reste 0 */
+            }
+            let mut best = 1usize;
+            let mut best_d = u32::MAX;
+            for j in 1..ui_pal.len().min(4) {
+                let d = color_dist(c, ui_pal[j]);
+                if d < best_d {
+                    best_d = d;
+                    best = j;
+                }
+            }
+            map[i] = best as u8;
+        }
+        // copie remappée, complétée à la grille de tuiles
+        let mut padded = IndexedImage {
+            width: tw * 8,
+            height: th * 8,
+            pixels: vec![0u8; tw * 8 * th * 8],
+            palette: self.palette.clone(),
+            palette_rgb: self.palette_rgb.clone(),
+        };
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let src = self.pixels[y * self.width + x] as usize;
+                padded.pixels[y * padded.width + x] = *map.get(src).unwrap_or(&0);
+            }
+        }
+        let mut out = Vec::new();
+        for ty in 0..th {
+            for tx in 0..tw {
+                out.extend_from_slice(&padded.char2bpp(tx * 8, ty * 8));
+            }
+        }
+        Ok((out, tw as u8, th as u8))
+    }
+
     /// Variantes « fond de panneau » des icônes (D1) : les pixels
     /// transparents (index 0) deviennent le FOND (index 1) — une icône
     /// posée dans une window montre le cadre derrière elle, pas le jeu

@@ -77,7 +77,26 @@ fn main() -> Result<()> {
         Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
         None => 0,
     };
-    let (ui_layout, ui_prims, ui_widgets) = ui::load(&proj_dir, ui_icon_count)?;
+    // Images des widgets « Image » en mode picture : elles sont ramenées
+    // à la palette de la fonte (la couche UI n'a que 4 couleurs), donc le
+    // layout a besoin de cette palette dès son chargement.
+    let ui_font_pal = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))
+        .with_context(|| format!("fonte {}", project.assets.font))?
+        .palette_n(4);
+    let ui_pic_paths: HashMap<String, String> = project
+        .pictures
+        .iter()
+        .map(|p| {
+            let p = p.path().to_string();
+            let stem = std::path::Path::new(&p)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (stem, p)
+        })
+        .collect();
+    let (ui_layout, mut ui_prims, ui_widgets, ui_pics) =
+        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal)?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
@@ -130,12 +149,36 @@ fn main() -> Result<()> {
             }
         }
     };
-    let ui_total_chars =
-        ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
+    // Images de widgets (mode picture) : leurs chars sont posés APRES les
+    // fontes supplementaires. Les primitives ne portaient jusqu'ici que
+    // l'index de l'image ; on le remplace par le char de base definitif.
+    let ui_pic_base = ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
+    let mut ui_pic_offsets: Vec<usize> = Vec::new();
+    let mut ui_pic_chars = 0usize;
+    for (_, chars, _, _) in ui_pics.iter() {
+        ui_pic_offsets.push(ui_pic_chars);
+        ui_pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
+    }
+    for p in ui_prims.iter_mut() {
+        if p.kind == 8 {
+            p.icon = (ui_pic_base + ui_pic_offsets[p.icon as usize]) as u8;
+        }
+    }
+    let ui_prims = ui_prims;
+    let ui_total_chars = ui_pic_base + ui_pic_chars;
     if ui_total_chars > 256 {
         bail!(
-            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96,              skin(s) {} x 9, {} icone(s) x 2. Retirer un style, une fonte ou des icones.",
-            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count
+            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
+             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
+             Retirer un style, une fonte, des icones, ou reduire une image.",
+            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count,
+            ui_pics.len(), ui_pic_chars
+        );
+    }
+    if ui_pic_chars > 0 {
+        println!(
+            "  ui : {} image(s) de widget -> {} chars BG3 ({} / 256 utilises)",
+            ui_pics.len(), ui_pic_chars, ui_total_chars
         );
     }
     // tables des styles : style 0 (defaut) puis les dialog_style
@@ -1189,7 +1232,7 @@ fn main() -> Result<()> {
             println!("  tiles animees : {} sequence(s)", nseq);
         }
     }
-    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
+    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..], &ui_pics)?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
     // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)
     {
@@ -1587,6 +1630,7 @@ fn gen_font(
     project: &project::Project,
     ui_skins: &[String],
     ui_extra_fonts: &[String],
+    ui_pics: &[(String, Vec<u8>, u8, u8)],
 ) -> Result<String> {
     let font = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))?;
 
@@ -1623,6 +1667,12 @@ fn gen_font(
         gfx_bytes.extend(f.to_font_glyphs().with_context(|| {
             format!("fonte de style {}", extra)
         })?);
+    }
+    // Images des widgets « Image » (mode picture) : posées en DERNIER,
+    // dans l'ordre où le layout les rencontre — même ordre que le plan de
+    // chars calculé en tête de main (ui_pic_base).
+    for (_, chars, _, _) in ui_pics.iter() {
+        gfx_bytes.extend_from_slice(chars);
     }
     s.push_str(&emit::u8_array("font_gfx", &gfx_bytes, 16, false));
     s.push_str("\nconst u16 font_gfx_size = sizeof(font_gfx);\n\n");
