@@ -524,12 +524,14 @@ static void vm_step(void)
       break;
 
     case VM_OP_SCRHIDE: /* fondu vers le noir — bloquant (v0.15) */
-      screenfx_hide(fetch8());
+      var = fetch8(); /* vitesse */
+      screenfx_hide(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 
     case VM_OP_SCRSHOW: /* fondu entrant — bloquant */
-      screenfx_show(fetch8());
+      var = fetch8(); /* vitesse */
+      screenfx_show(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 

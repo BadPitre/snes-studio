@@ -553,6 +553,11 @@ void hdmafx_vblank(void)
     A1B3 = 0x7E;
     m |= 0x08;
   }
+  /* balayage scripté (S18c, scr_hide/scr_show) : canal 2 de screenfx —
+     ses registres sont posés par screenfx_wipe_step, seul le masque est
+     composé ICI (ce module reste le propriétaire de $420C) */
+  if (screenfx_wipe_active())
+    m |= 0x04;
   if (m || hx_on)
     REG_HDMAEN = m;
   hx_on = m;
@@ -560,8 +565,16 @@ void hdmafx_vblank(void)
 
 void hdmafx_suspend(void)
 {
-  /* branche PICTURE du VBlank : l'image plein écran ne doit ni onduler
-     ni recevoir le dégradé — HDMA coupé tant qu'elle est là */
+  /* branche PICTURE/STAGE du VBlank : l'image plein écran ne doit ni
+     onduler ni recevoir le dégradé — HDMA coupé tant qu'elle est là.
+     Le balayage scripté (S18c), lui, reste actif : un scr_hide/scr_show
+     peut rideauter une picture ou un écran composé. */
+  if (screenfx_wipe_active())
+  {
+    REG_HDMAEN = 0x04;
+    hx_on = 0x04;
+    return;
+  }
   if (hx_on)
   {
     REG_HDMAEN = 0;

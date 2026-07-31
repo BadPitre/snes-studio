@@ -2198,17 +2198,20 @@ function CommandForm(props: {
       valid = cmd.speed >= 1 && cmd.speed <= 15;
       body = (
         <>
-          <label>
-            Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
-            <input
-              type="number" min={1} max={15} value={cmd.speed} autoFocus
-              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
-            />
-          </label>
+          <div className="row">
+            <label>
+              Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
+              <input
+                type="number" min={1} max={15} value={cmd.speed} autoFocus
+                onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
+              />
+            </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+          </div>
           <span className="hint">
             {cmd.c === "scr_hide"
-              ? "Fondu vers le noir — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
-              : "Fondu entrant — bloque le script jusqu'à la pleine luminosité."}
+              ? "Cache l'écran — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
+              : "Montre l'écran — bloque le script jusqu'à la pleine luminosité."}
           </span>
         </>
       );

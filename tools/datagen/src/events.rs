@@ -527,9 +527,10 @@ impl<'a> EventCompiler<'a> {
                 "scr_hide" | "scr_show" => {
                     let speed = cmd["speed"].as_u64().filter(|&v| (1..=15).contains(&v)).unwrap_or(1);
                     out.push(format!(
-                        "  {} {}",
+                        "  {} {} {}",
                         if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
-                        speed
+                        speed,
+                        Self::trans_field(cmd)?
                     ));
                 }
                 // Phase 12 — visibilité des widgets UI (SHOWUI)

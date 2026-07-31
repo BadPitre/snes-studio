@@ -17,9 +17,11 @@ void screenfx_init(void);
 void screenfx_warp_reset(void);
 
 /* Fondu scripté : cacher (vers noir) / montrer (vers 15), speed = pas de
-   luminosité par frame (1-15). Bloquants côté VM via screenfx_busy. */
-void screenfx_hide(u8 speed);
-void screenfx_show(u8 speed);
+   luminosité par frame (1-15). Bloquants côté VM via screenfx_busy.
+   fx (S18c) : 0 fondu, 1 instantané (speed ignoré), 2 mosaïque, 3-5
+   balayage bas/haut/centre (rideau HDMA, mêmes codes que les warps). */
+void screenfx_hide(u8 speed, u8 fx);
+void screenfx_show(u8 speed, u8 fx);
 u8 screenfx_busy(void);
 
 /* Teinte : poser r/g/b (0-31) PUIS appliquer le mode — deux appels
@@ -98,6 +100,8 @@ void screenfx_cm_hold(u8 on);
    masque au VBlank suivant la fin. */
 void screenfx_wipe_step(u8 trans, u16 black);
 void screenfx_wipe_off(void);
+/* rideau actif (S18c) — hdmafx ajoute le canal 2 à son masque $420C */
+u8 screenfx_wipe_active(void);
 
 /* Un pas d'effet par frame (boucle principale, toujours). */
 void screenfx_update(void);
