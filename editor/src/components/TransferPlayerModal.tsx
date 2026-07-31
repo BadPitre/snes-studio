@@ -6,19 +6,19 @@
 // d'arrivée dans WarpDef.flags).
 
 import { useEffect, useRef, useState } from "react";
-import type { Direction, Scene, TilesetMeta, Warp } from "../types";
-import { AUTOTILE_BASE, EMPTY_TILE, assetStem } from "../types";
+import type { Direction, Scene, ScreenTrans, TilesetMeta, Warp } from "../types";
+import { AUTOTILE_BASE, EMPTY_TILE, TRANS_OPTIONS, assetStem } from "../types";
 import { drawAutotileCell } from "../autotile";
 
 interface Props {
-  warp: Warp; // valeurs initiales (to/tx/ty/dir)
+  warp: Warp; // valeurs initiales (to/tx/ty/dir/trans)
   sceneNames: string[]; // ordre du projet
   scenes: Record<string, Scene>;
   tilesets: Record<string, ImageBitmap>; // par stem
   autoImgs: Record<string, ImageBitmap[]>; // autotiles par stem
   tilesetMeta: Record<string, TilesetMeta>;
   defaultTileset: string; // stem du tileset par défaut du projet
-  onOk: (patch: Pick<Warp, "to" | "tx" | "ty" | "dir">) => void;
+  onOk: (patch: Pick<Warp, "to" | "tx" | "ty" | "dir" | "trans">) => void;
   onClose: () => void;
 }
 
@@ -35,6 +35,7 @@ export default function TransferPlayerModal(props: Props) {
   const [tx, setTx] = useState(props.warp.tx);
   const [ty, setTy] = useState(props.warp.ty);
   const [dir, setDir] = useState<Direction | "">(props.warp.dir ?? "");
+  const [trans, setTrans] = useState<ScreenTrans>(props.warp.trans ?? "fade");
   const [zoom, setZoom] = useState(0.5); // 1/2 par défaut, comme RM2003
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dest = props.scenes[to];
@@ -106,11 +107,11 @@ export default function TransferPlayerModal(props: Props) {
 
   const sceneIdx = Math.max(0, props.sceneNames.indexOf(to));
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal transfer" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           Téléporter — warp en ({props.warp.x},{props.warp.y})
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="transfer-body">
           <div className="evedit-cmds transfer-tree">
             {ordered.map(({ name, depth }) => (
@@ -150,22 +151,38 @@ export default function TransferPlayerModal(props: Props) {
             )}
           </div>
         </div>
-        <fieldset className="evedit-box">
-          <legend>Direction à l'arrivée</legend>
-          <div className="row" style={{ gap: 12 }}>
-            {DIRS.map((d) => (
-              <label key={d.label} className="checkline">
-                <input
-                  type="radio"
-                  name="tp-dir"
-                  checked={dir === d.key}
-                  onChange={() => setDir(d.key)}
-                />
-                {d.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <div className="row" style={{ alignItems: "flex-end", gap: 10 }}>
+          <fieldset className="evedit-box" style={{ flex: 1 }}>
+            <legend>Direction à l'arrivée</legend>
+            <div className="row" style={{ gap: 12 }}>
+              {DIRS.map((d) => (
+                <label key={d.label} className="checkline">
+                  <input
+                    type="radio"
+                    name="tp-dir"
+                    checked={dir === d.key}
+                    onChange={() => setDir(d.key)}
+                  />
+                  {d.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label
+            style={{ flex: "0 0 180px" }}
+            title="Effet de fermeture/ouverture de l'écran pendant le voyage (S18) : fondu au noir, coupe instantanée, ou mosaïque (pixelisation, façon Zelda 3)"
+          >
+            Transition
+            <select
+              value={trans}
+              onChange={(e) => setTrans(e.target.value as ScreenTrans)}
+            >
+              {TRANS_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="row" style={{ alignItems: "center" }}>
           <span className="hint">
             {String(sceneIdx).padStart(4, "0")}:{to} ({String(tx).padStart(3, "0")}.
@@ -183,7 +200,11 @@ export default function TransferPlayerModal(props: Props) {
           ))}
           <button
             onClick={() =>
-              props.onOk({ to, tx, ty, dir: dir === "" ? undefined : dir })
+              props.onOk({
+                to, tx, ty,
+                dir: dir === "" ? undefined : dir,
+                trans: trans === "fade" ? undefined : trans,
+              })
             }
           >
             OK

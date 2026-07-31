@@ -7,6 +7,7 @@ import { useState } from "react";
 export interface MenuItem {
   label?: string;
   hint?: string; // raccourci affiché à droite (ex. « Ctrl+Z »)
+  tip?: string; // tooltip (title) décrivant ce que fait l'item
   action?: () => void;
   disabled?: boolean;
   sep?: boolean;
@@ -51,7 +52,7 @@ export default function MenuBar({ menus }: { menus: Menu[] }) {
                     onMouseEnter={() => setSub(j)}
                     onMouseLeave={() => setSub(null)}
                   >
-                    <button disabled={it.disabled}>
+                    <button disabled={it.disabled} title={it.tip}>
                       <span>{it.label}</span>
                       <span className="menu-hint">▸</span>
                     </button>
@@ -61,6 +62,7 @@ export default function MenuBar({ menus }: { menus: Menu[] }) {
                           <button
                             key={k}
                             disabled={sit.disabled}
+                            title={sit.tip}
                             onClick={() => {
                               setOpen(null);
                               setSub(null);
@@ -78,6 +80,7 @@ export default function MenuBar({ menus }: { menus: Menu[] }) {
                   <button
                     key={j}
                     disabled={it.disabled}
+                    title={it.tip}
                     onClick={() => {
                       setOpen(null);
                       it.action?.();

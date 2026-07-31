@@ -28,9 +28,12 @@ u8 stage_active(void);
 /* Un transfert de pose/retrait est en cours (la VM attend dessus). */
 u8 stage_busy(void);
 
-/* Commandes VM (différées/étalées — jamais de gros DMA hors VBlank) */
-void stage_request_open(u8 backdrop_pic, u8 fade_dur); /* 0xFF = noir */
-void stage_request_close(u8 fade_dur);
+/* Commandes VM (différées/étalées — jamais de gros DMA hors VBlank).
+   trans (S18) : 0 fondu, 1 instantané, 2 mosaïque. */
+void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans); /* 0xFF = noir */
+void stage_request_close(u8 fade_dur, u8 trans);
+/* Transition de la dernière fermeture — pour le warp interne (do_warp) */
+u8 stage_close_trans(void);
 void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty); /* position en TILES */
 void stage_clear(u8 slot);
 

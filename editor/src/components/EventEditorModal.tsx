@@ -4,18 +4,49 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, VarOp, VarSource, TintPreset } from "../types";
-import { DIRECTIONS, eventFrame } from "../types";
+import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset } from "../types";
+import { DIRECTIONS, TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
+import GraphicPickerModal from "./GraphicPickerModal";
 import type { Database } from "../db";
+
+// Sélecteur de transition d'écran (S18) — warps et écrans composés.
+// « fade » (défaut) n'est pas écrit dans le JSON (champ absent).
+function TransSelect(props: {
+  value?: ScreenTrans;
+  onChange: (t?: ScreenTrans) => void;
+}) {
+  return (
+    <label
+      title="Effet de fermeture/ouverture de l'écran (S18) : fondu au noir, coupe instantanée, ou mosaïque (pixelisation, façon Zelda 3)"
+    >
+      Transition
+      <select
+        value={props.value ?? "fade"}
+        onChange={(e) =>
+          props.onChange(
+            e.target.value === "fade" ? undefined : (e.target.value as ScreenTrans)
+          )
+        }
+      >
+        {TRANS_OPTIONS.map((t) => (
+          <option key={t.value} value={t.value}>{t.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 interface Props {
   event: GameEvent;
   sceneNames: string[];
   scenes: Record<string, Scene>;
   blockCount: number;
+  // T4 — apparence tile : chipset de la scène + ids de la couche haute
+  tilesetBmp?: ImageBitmap | null;
+  upperCells?: number[];
   blockNames: string[];
   // charsets déjà affichés par la scène (héros + AUTRES events) : sert à
   // avertir dès qu'une apparence ferait dépasser les 5 charsets/scène
@@ -170,9 +201,9 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "pic_hide":
       return `Effacer l'image${picDurLabel(c.dur, c.fade)}`;
     case "scr_hide":
-      return `Cacher l'écran (vitesse ${c.speed})`;
+      return `Cacher l'écran (${c.frames ?? Math.ceil(15 / (c.speed || 15))}f)`;
     case "scr_show":
-      return `Montrer l'écran (vitesse ${c.speed})`;
+      return `Montrer l'écran (${c.frames ?? Math.ceil(15 / (c.speed || 15))}f)`;
     case "tint":
       return (
         (c.mode === "off"
@@ -560,9 +591,9 @@ export function CommandListEditor(props: {
       case "pic_hide":
         return { c: "pic_hide" };
       case "scr_hide":
-        return { c: "scr_hide", speed: 1 };
+        return { c: "scr_hide", frames: 30 };
       case "scr_show":
-        return { c: "scr_show", speed: 1 };
+        return { c: "scr_show", frames: 30 };
       case "tint":
         return { c: "tint", mode: "sub", r: 8, g: 8, b: 8 };
       case "weather":
@@ -654,9 +685,9 @@ export function CommandListEditor(props: {
       </div>
 
       {form && (
-        <div className="modal-backdrop" onClick={() => setForm(null)}>
+        <div className="modal-backdrop">
           <div className="modal cmdform" onClick={(e) => e.stopPropagation()}>
-            <div className="palette-title">{cmdTitle(form.c)}</div>
+            <div className="palette-title">{cmdTitle(form.c)}<button className="modal-x" title="Fermer" onClick={() => setForm(null)}>✕</button></div>
             <CommandForm
               cmd={form}
               sceneNames={props.sceneNames}
@@ -815,6 +846,8 @@ export default function EventEditorModal(props: Props) {
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
   // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
   const [pageRouteOpen, setPageRouteOpen] = useState(false);
+  // fenêtre Apparence façon RM2003 (T3)
+  const [graphicOpen, setGraphicOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -824,7 +857,14 @@ export default function EventEditorModal(props: Props) {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#16181c";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    if (props.sprites && cur.sprite >= 0) {
+    if (cur.tile !== undefined && props.tilesetBmp) {
+      const perRow = Math.max(1, Math.floor(props.tilesetBmp.width / 16));
+      ctx.drawImage(
+        props.tilesetBmp,
+        (cur.tile % perRow) * 16, Math.floor(cur.tile / perRow) * 16, 16, 16,
+        8, 18, 48, 48
+      );
+    } else if (props.sprites && cur.sprite >= 0) {
       const f = eventFrame({ sprite: cur.sprite, dir: cur.dir } as GameEvent);
       ctx.drawImage(props.sprites, f * 16, 0, 16, 24, 8, 6, 48, 72);
     } else {
@@ -836,7 +876,7 @@ export default function EventEditorModal(props: Props) {
 
   return (
     <>
-      <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="modal-backdrop">
       <div className="modal evedit" onClick={(e) => e.stopPropagation()}>
         <div className="evedit-top">
           <label>
@@ -881,6 +921,7 @@ export default function EventEditorModal(props: Props) {
               🗑 page
             </button>
           </span>
+          <button className="modal-x" title="Fermer" onClick={props.onClose} style={{ alignSelf: "flex-start" }}>✕</button>
         </div>
         <div className="evedit-body">
           <div className="evedit-left">
@@ -937,39 +978,32 @@ export default function EventEditorModal(props: Props) {
             <fieldset className="evedit-box">
               <legend>Apparence</legend>
               <div className="row">
-                <canvas ref={previewRef} width={64} height={84} />
+                <canvas
+                  ref={previewRef}
+                  width={64}
+                  height={84}
+                  title="Choisir l'apparence (charset + direction)"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setGraphicOpen(true)}
+                />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                  <select
-                    value={cur.sprite}
-                    onChange={(e) => patchCur({ sprite: Number(e.target.value) })}
-                  >
-                    <option value={-1}>(invisible)</option>
-                    {Array.from({ length: props.blockCount }, (_, b) => (
-                      <option key={b} value={b}>
-                        {(props.blockNames[b] ?? `Bloc ${b}`) +
-                          (props.usedBlocks.includes(b) ? " ✓" : "")}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="hint">
+                    {cur.tile !== undefined
+                      ? `Tile ${cur.tile} (couche haute)`
+                      : cur.sprite < 0
+                        ? "(invisible)"
+                        : (props.blockNames[cur.sprite] ?? `Bloc ${cur.sprite}`) +
+                          ` — ${cur.dir}`}
+                  </span>
+                  <button onClick={() => setGraphicOpen(true)}>Choisir…</button>
                   {cur.sprite >= 0 &&
                     !props.usedBlocks.includes(cur.sprite) &&
                     props.usedBlocks.length >= 5 && (
                       <span className="hint" style={{ color: "#ff7070" }}>
                         {props.usedBlocks.length + 1}e charset de la scène —
-                        la SNES en affiche 5 max (héros compris). Réutiliser
-                        une apparence ✓, sinon datagen refusera.
+                        5 max (héros compris).
                       </span>
                     )}
-                  <select
-                    value={cur.dir}
-                    onChange={(e) => patchCur({ dir: e.target.value as Direction })}
-                  >
-                    {DIRECTIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </fieldset>
@@ -1144,6 +1178,24 @@ export default function EventEditorModal(props: Props) {
             props.onRenameVars(r.switches, r.variables);
             if (r.picked !== undefined) varPick.cb(r.picked);
             setVarPick(null);
+          }}
+        />
+      )}
+      {graphicOpen && (
+        <GraphicPickerModal
+          sprites={props.sprites}
+          blockCount={props.blockCount}
+          blockNames={props.blockNames}
+          usedBlocks={props.usedBlocks}
+          sprite={cur.sprite}
+          dir={cur.dir}
+          tileset={props.tilesetBmp}
+          upperCells={props.upperCells}
+          tile={cur.tile}
+          onClose={() => setGraphicOpen(false)}
+          onOk={(sprite, dir, tile) => {
+            patchCur({ sprite, dir, tile });
+            setGraphicOpen(false);
           }}
         />
       )}
@@ -1703,6 +1755,9 @@ function CommandForm(props: {
                 <span className="hint">{props.varNames[cmd[t.key]] || ""}</span>
               </label>
             ))}
+            {cmd.c === "warp_var" && (
+              <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+            )}
           </div>
           <span className="hint">
             {cmd.c === "hero_loc"
@@ -2164,25 +2219,32 @@ function CommandForm(props: {
       );
       break;
     case "scr_hide":
-    case "scr_show":
-      valid = cmd.speed >= 1 && cmd.speed <= 15;
+    case "scr_show": {
+      const fr = cmd.frames ?? Math.ceil(15 / (cmd.speed || 15));
+      valid = fr >= 1 && fr <= 255;
       body = (
         <>
-          <label>
-            Vitesse (luminosité par frame, 1 = ~15 frames, 15 = instantané)
-            <input
-              type="number" min={1} max={15} value={cmd.speed} autoFocus
-              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
-            />
-          </label>
+          <div className="row">
+            <label>
+              Durée (frames, 60 = 1 seconde)
+              <input
+                type="number" min={1} max={255} value={fr} autoFocus
+                onChange={(e) =>
+                  onChange({ ...cmd, frames: Number(e.target.value), speed: undefined })
+                }
+              />
+            </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+          </div>
           <span className="hint">
             {cmd.c === "scr_hide"
-              ? "Fondu vers le noir — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
-              : "Fondu entrant — bloque le script jusqu'à la pleine luminosité."}
+              ? "Cache l'écran — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
+              : "Montre l'écran — bloque le script jusqu'à la pleine luminosité."}
           </span>
         </>
       );
       break;
+    }
     case "tint":
       valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
       body = (
@@ -2457,6 +2519,7 @@ function CommandForm(props: {
                 onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
               />
             </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
           </div>
           <span className="hint">
             Ouvre l'écran composé dessiné dans Tools → Écrans composés :
@@ -2524,6 +2587,7 @@ function CommandForm(props: {
                 onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
               />
             </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
           </div>
           <span className="hint">
             Remplace la vue de la scène par un ÉCRAN COMPOSÉ : le fond
@@ -2670,13 +2734,16 @@ function CommandForm(props: {
     case "stage_close":
       body = (
         <>
-          <label>
-            Fondu (frames par sens — 0 = instantané)
-            <input
-              type="number" min={0} max={255} value={cmd.dur ?? 20}
-              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
-            />
-          </label>
+          <div className="row">
+            <label>
+              Fondu (frames par sens — 0 = instantané)
+              <input
+                type="number" min={0} max={255} value={cmd.dur ?? 20}
+                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
+              />
+            </label>
+            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
+          </div>
           <span className="hint">
             Referme l'écran composé et restaure la scène complète :
             décor, personnages, ambiances et musique de la scène.
@@ -3157,6 +3224,7 @@ function CommandForm(props: {
             y
             <input type="number" min={0} value={cmd.y} onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
           </label>
+          <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
         </div>
       );
       break;

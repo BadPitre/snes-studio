@@ -1817,34 +1817,86 @@ export default function App() {
     {
       label: "Projet",
       items: [
-        { label: "Nouveau projet…", action: newProject, disabled: !canWriteFiles() },
-        { label: "Ouvrir un projet…", action: openProject },
-        { label: "Fermer le projet", action: closeProject, disabled: !data },
+        {
+          label: "Nouveau projet…",
+          tip: "Créer un projet vierge (dossier + project.json + assets de départ)",
+          action: newProject,
+          disabled: !canWriteFiles(),
+        },
+        {
+          label: "Ouvrir un projet…",
+          tip: "Ouvrir un projet existant (choisir son project.json)",
+          action: openProject,
+        },
+        {
+          label: "Fermer le projet",
+          tip: "Fermer le projet en cours (propose d'enregistrer si besoin)",
+          action: closeProject,
+          disabled: !data,
+        },
         { sep: true },
         {
           label: "Explorer le dossier du projet",
+          tip: "Ouvrir le dossier du projet dans l'explorateur de fichiers",
           action: () => {
             if (data) void openProjectFolder(data.root);
           },
           disabled: !data || !canWriteFiles(),
         },
         { sep: true },
-        { label: "Quitter", action: () => void quitApp() },
+        {
+          label: "Quitter",
+          tip: "Fermer SNES Studio",
+          action: () => void quitApp(),
+        },
       ],
     },
     {
       label: "Edit",
       items: [
-        { label: "Annuler", hint: "Ctrl+Z", action: doUndo, disabled: !data },
-        { label: "Rétablir", hint: "Ctrl+Y", action: doRedo, disabled: !data },
+        {
+          label: "Annuler",
+          hint: "Ctrl+Z",
+          tip: "Annuler la dernière modification du projet",
+          action: doUndo,
+          disabled: !data,
+        },
+        {
+          label: "Rétablir",
+          hint: "Ctrl+Y",
+          tip: "Rejouer la modification annulée",
+          action: doRedo,
+          disabled: !data,
+        },
         { sep: true },
-        { label: "Couper l'événement sélectionné", action: cutEvent, disabled: !selectedEvent },
-        { label: "Copier l'événement sélectionné", action: copyEvent, disabled: !selectedEvent },
-        { label: "Coller l'événement", action: () => pasteEvent(), disabled: !data || !evClipboard },
-        { label: "Supprimer l'événement sélectionné", action: deleteSelEvent, disabled: !selectedEvent },
+        {
+          label: "Couper l'événement sélectionné",
+          tip: "Retirer l'événement de la carte et le mettre dans le presse-papiers",
+          action: cutEvent,
+          disabled: !selectedEvent,
+        },
+        {
+          label: "Copier l'événement sélectionné",
+          tip: "Copier l'événement dans le presse-papiers (Ctrl+C sur la carte)",
+          action: copyEvent,
+          disabled: !selectedEvent,
+        },
+        {
+          label: "Coller l'événement",
+          tip: "Poser l'événement du presse-papiers sur la case sélectionnée",
+          action: () => pasteEvent(),
+          disabled: !data || !evClipboard,
+        },
+        {
+          label: "Supprimer l'événement sélectionné",
+          tip: "Effacer l'événement de la carte (Suppr sur la carte)",
+          action: deleteSelEvent,
+          disabled: !selectedEvent,
+        },
         { sep: true },
         {
           label: "Réglages du projet…",
+          tip: "Réglages de cette machine : bash MSYS2, émulateur, menu de debug",
           action: () => setShowSettings(true),
           disabled: !canBuild(),
         },
@@ -1855,50 +1907,60 @@ export default function App() {
       items: [
         {
           label: "Switches et variables…",
+          tip: "Nommer les 512 switches (ON/OFF) et 256 variables (nombres) du jeu",
           action: () => setVarMgr(true),
           disabled: !data,
         },
         {
           label: "Common events…",
+          tip: "Scripts globaux au projet : appelés depuis n'importe quel event, ou lancés en auto par un switch",
           action: () => setCommonEvOpen(true),
           disabled: !data,
         },
         {
           label: "Écrans composés…",
+          tip: "Écrans hors carte (combat, titre, carte du monde…) : fond + images posées + scripts, joués par « Aller à l'écran »",
           action: () => setScreensOpen(true),
           disabled: !data,
         },
         {
           label: "Prefabs…",
+          tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
           action: () => setPrefabMgr(true),
           disabled: !data,
         },
         {
           label: "Tilesets…",
+          tip: "Passabilité, côtés fermés et tiles animées des chipsets (façon Database RM2003)",
           action: () => setTilesetsOpen(true),
           disabled: !data,
         },
         {
           label: "Database…",
+          tip: "Tables de données du jeu (monstres, objets…) : schémas et valeurs, lues en jeu par « Lire la database »",
           action: () => setDbOpen(true),
           disabled: !data,
         },
         {
           label: "Textes…",
+          tip: "Catalogue des textes du jeu par catégories — utilisés par les commandes Message",
           action: () => setTextsOpen(true),
           disabled: !data,
         },
         {
           label: "UI",
+          tip: "Interface en jeu : widgets HUD et styles de dialogue",
           disabled: !data,
           sub: [
             {
               label: "Widgets…",
+              tip: "Designer du HUD : jauges, icônes, labels, menus à curseur…",
               action: () => setUiMode("widgets"),
               disabled: !data,
             },
             {
               label: "Dialogues et choix…",
+              tip: "Styles des boîtes de message et de choix : windowskin, fonte, géométrie",
               action: () => setUiMode("dialogs"),
               disabled: !data,
             },
@@ -1911,28 +1973,33 @@ export default function App() {
       items: [
         {
           label: "▶ Lancer le jeu",
+          tip: "Compiler le projet (datagen + make) et lancer la ROM de test dans l'émulateur",
           action: play,
           disabled: !data || !canBuild() || playing || building,
         },
         {
           label: "Vérifier le projet…",
+          tip: "Diagnostic du projet : références cassées, budgets mémoire, avertissements",
           action: () => void openDiagnostics(),
           disabled: !data,
         },
         {
           label: "Générer les données",
+          tip: "Lancer datagen seul (données C depuis le projet), sans compiler ni jouer",
           action: generate,
           disabled: !data || !canBuild() || playing || building,
         },
         {
           label: "Build cartouche (.smc)",
           hint: "flashcart",
+          tip: "ROM finale sans menu de debug, taille et checksum corrects — pour flashcart ou distribution",
           action: () => void buildCart(),
           disabled: !data || !canBuild() || playing || building,
         },
         {
           label: "Recompiler tout (clean)",
           hint: "après mise à jour",
+          tip: "make clean puis rebuild complet du moteur — utile après une mise à jour de SNES Studio",
           action: () => void rebuildAll(),
           disabled: !data || !canBuild() || playing || building,
         },
@@ -1940,7 +2007,13 @@ export default function App() {
     },
     {
       label: "Help",
-      items: [{ label: "Version…", action: () => setShowAbout(true) }],
+      items: [
+        {
+          label: "Version…",
+          tip: "Version de SNES Studio et informations sur le build",
+          action: () => setShowAbout(true),
+        },
+      ],
     },
   ];
 
@@ -1986,14 +2059,6 @@ export default function App() {
             </button>
           </span>
         )}
-        {data && (
-          <button
-            onClick={() => setShowResources(true)}
-            title="Gestionnaire de ressources (charsets, chipsets) — importer, exporter, renommer, supprimer"
-          >
-            🗂 Ressources
-          </button>
-        )}
         <label>
           <input
             type="checkbox"
@@ -2018,6 +2083,14 @@ export default function App() {
             title="Sauvegarder, régénérer les données, compiler le ROM et le lancer dans l'émulateur (chemins : Edit → Réglages du projet)"
           >
             {playing ? "…" : "▶ Jouer"}
+          </button>
+        )}
+        {data && (
+          <button
+            onClick={() => setShowResources(true)}
+            title="Gestionnaire de ressources (charsets, chipsets) — importer, exporter, renommer, supprimer"
+          >
+            🗂 Ressources
           </button>
         )}
         <span className="status">{status}</span>
@@ -2666,6 +2739,18 @@ export default function App() {
             mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
           }
           sprites={sprites}
+          tilesetBmp={tilesets[scene.tileset ?? tilesetNames[0] ?? ""] ?? null}
+          upperCells={(() => {
+            // T4 : tiles de la section couche haute du chipset de la scène
+            const stem = scene.tileset ?? tilesetNames[0] ?? "";
+            const us = data.tilesetMeta[stem]?.upper_start;
+            const bmp = tilesets[stem];
+            if (us === undefined || !bmp) return [];
+            const count =
+              Math.max(1, Math.floor(bmp.width / 16)) *
+              Math.max(1, Math.floor(bmp.height / 16));
+            return Array.from({ length: Math.max(0, count - us) }, (_, i) => us + i);
+          })()}
           labels={scriptLabels(scene.script)}
           onSave={(ev) => {
             setScene((sc) => updateEvent(sc, evEdit.index, ev));
@@ -2691,9 +2776,9 @@ export default function App() {
         />
       )}
       {showAbout && (
-        <div className="modal-backdrop" onClick={() => setShowAbout(false)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-title">SNES Studio — éditeur</div>
+            <div className="panel-title">SNES Studio — éditeur<button className="modal-x" title="Fermer" onClick={() => setShowAbout(false)}>✕</button></div>
             <p>Version {pkg.version}</p>
             <p className="hint">
               Créateur de jeux Super Nintendo sans code, dans l'esprit de

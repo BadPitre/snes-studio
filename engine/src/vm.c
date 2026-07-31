@@ -123,12 +123,21 @@ static u16 common_lookup(u8 kind)
   p = 1;
   for (i = 0; i < n; i++)
   {
-    sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
-    ofs = (u16)scene_ctx.scripts[p + 3] |
-          ((u16)scene_ctx.scripts[p + 4] << 8);
-    /* switch 0xFFFF = pas de condition (case décochée) : toujours actif */
-    if (scene_ctx.scripts[p] == kind && (sw == 0xFFFF || vm_switch_get(sw)))
-      return ofs;
+    /* type d'abord : sw/ofs ne sont lus que pour les entrées du bon
+       kind — ce scan tourne chaque frame (parallel process) et chaque
+       lecture du bloc scripts passe par un pointeur far */
+    if (scene_ctx.scripts[p] == kind)
+    {
+      sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
+      /* switch 0xFFFF = pas de condition (case décochée) : toujours
+         actif */
+      if (sw == 0xFFFF || vm_switch_get(sw))
+      {
+        ofs = (u16)scene_ctx.scripts[p + 3] |
+              ((u16)scene_ctx.scripts[p + 4] << 8);
+        return ofs;
+      }
+    }
     p += 5;
   }
   return SCRIPT_NONE;
@@ -154,35 +163,43 @@ static u8 p_call_sp;
 static u16 p_call_stack[VM_CALL_DEPTH];
 
 /* KEYIN (Ph. 12) : code de la première touche du masque présente dans
-   « pressed » — codes RM2003 étendus SNES (formats.h). If-chain : pas de
-   table u16 (piège toolchain). */
-static u16 keyin_bit(u8 code)
-{
-  switch (code)
-  {
-  case 1: return KEY_DOWN;
-  case 2: return KEY_LEFT;
-  case 3: return KEY_RIGHT;
-  case 4: return KEY_UP;
-  case 5: return KEY_A;
-  case 6: return KEY_B;
-  case 7: return KEY_Y;
-  case 8: return KEY_X;
-  case 9: return KEY_L;
-  case 10: return KEY_R;
-  case 11: return KEY_SELECT;
-  case 12: return KEY_START;
-  }
-  return 0;
-}
-
+   « pressed » — codes RM2003 étendus SNES (formats.h).
+   PERF (P2) : un KEYIN non bloquant dans un common event « parallel »
+   s'exécute à CHAQUE frame. La version en boucle (12 tours, un appel de
+   fonction par tour pour convertir le code en bit SNES) coûtait à elle
+   seule ~15 lignes d'écran. Ici, chaîne de tests sur CONSTANTES : le
+   compilateur n'a plus ni boucle, ni appel, ni décalage variable, et le
+   cas « rien d'enfoncé » sort au premier test. L'ordre des codes est
+   celui de la spec — le premier code du masque effectivement enfoncé
+   gagne, comme avant. */
 static u8 keyin_scan(u16 mask, u16 pressed)
 {
-  u8 code;
-
-  for (code = 1; code <= 12; code++)
-    if ((mask & ((u16)1 << code)) && (pressed & keyin_bit(code)))
-      return code;
+  if (!pressed)
+    return 0;
+  if ((mask & 0x0002) && (pressed & KEY_DOWN))
+    return 1;
+  if ((mask & 0x0004) && (pressed & KEY_LEFT))
+    return 2;
+  if ((mask & 0x0008) && (pressed & KEY_RIGHT))
+    return 3;
+  if ((mask & 0x0010) && (pressed & KEY_UP))
+    return 4;
+  if ((mask & 0x0020) && (pressed & KEY_A))
+    return 5;
+  if ((mask & 0x0040) && (pressed & KEY_B))
+    return 6;
+  if ((mask & 0x0080) && (pressed & KEY_Y))
+    return 7;
+  if ((mask & 0x0100) && (pressed & KEY_X))
+    return 8;
+  if ((mask & 0x0200) && (pressed & KEY_L))
+    return 9;
+  if ((mask & 0x0400) && (pressed & KEY_R))
+    return 10;
+  if ((mask & 0x0800) && (pressed & KEY_SELECT))
+    return 11;
+  if ((mask & 0x1000) && (pressed & KEY_START))
+    return 12;
   return 0;
 }
 
@@ -192,7 +209,7 @@ static u8 p_keyin_dst;
 
 static void pvm_swap(void)
 {
-  u8 i, t8;
+  u8 i, n, t8;
   u16 t16;
 
   t8 = vm.active;      vm.active = p_active;         p_active = t8;
@@ -203,7 +220,14 @@ static void pvm_swap(void)
   t8 = vm.call_sp;     vm.call_sp = p_call_sp;       p_call_sp = t8;
   t16 = vm.keyin_mask; vm.keyin_mask = p_keyin_mask;  p_keyin_mask = t16;
   t8 = vm.keyin_dst;   vm.keyin_dst = p_keyin_dst;    p_keyin_dst = t8;
-  for (i = 0; i < VM_CALL_DEPTH; i++)
+  /* seules les entrées < sp sont vivantes (CALL écrit avant que RET ne
+     lise) : n'échanger que celles-là — le cas courant, deux piles
+     vides, ne copie rien (deux swaps par frame quand un parallel
+     process tourne, ce budget compte) */
+  n = vm.call_sp;
+  if (p_call_sp > n)
+    n = p_call_sp;
+  for (i = 0; i < n; i++)
   {
     t16 = vm.call_stack[i];
     vm.call_stack[i] = p_call_stack[i];
@@ -372,9 +396,10 @@ static void vm_step(void)
 
     case VM_OP_WARP: /* téléport scripté — le bloc scripts change de
                         scène : le script se termine ici */
-      var = fetch8(); /* scene */
-      val = fetch8(); /* x */
-      player_request_warp(var, val, fetch8());
+      var = fetch8();   /* scene */
+      val = fetch8();   /* x */
+      idx16 = fetch8(); /* y */
+      player_request_warp(var, val, (u8)idx16, fetch8());
       vm.active = 0;
       break;
 
@@ -493,7 +518,7 @@ static void vm_step(void)
       val = fetch8();   /* variable x */
       idx16 = fetch8(); /* variable y */
       player_request_warp((u8)vm.vars16[var], (u8)vm.vars16[val],
-                          (u8)vm.vars16[idx16 & 255]);
+                          (u8)vm.vars16[idx16 & 255], fetch8());
       vm.active = 0;
       break;
 
@@ -523,12 +548,14 @@ static void vm_step(void)
       break;
 
     case VM_OP_SCRHIDE: /* fondu vers le noir — bloquant (v0.15) */
-      screenfx_hide(fetch8());
+      var = fetch8(); /* vitesse */
+      screenfx_hide(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 
     case VM_OP_SCRSHOW: /* fondu entrant — bloquant */
-      screenfx_show(fetch8());
+      var = fetch8(); /* vitesse */
+      screenfx_show(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 
@@ -566,7 +593,8 @@ static void vm_step(void)
     case VM_OP_STAGEOPEN: /* écran composé (B3) — différé à la boucle,
                              1 frame de pause (recette SHOWPIC) */
       var = fetch8();
-      stage_request_open(var, fetch8());
+      val = fetch8(); /* dur */
+      stage_request_open(var, val, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;
@@ -585,7 +613,8 @@ static void vm_step(void)
       break;
 
     case VM_OP_STAGECLOSE: /* ferme l'écran (warp interne) — 1 frame */
-      stage_request_close(fetch8());
+      var = fetch8(); /* dur */
+      stage_request_close(var, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;

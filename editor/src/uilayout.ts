@@ -28,6 +28,14 @@ export const NODE_KINDS = [
 ] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
+/** Tailles EN TUILES des pictures du projet, renseignées par la fenêtre
+ *  UI (elle seule sait charger les images) — le calcul de taille d'un
+ *  widget « image » en mode picture s'y réfère. */
+let picSizes: Record<string, [number, number]> = {};
+export function setPicSizes(m: Record<string, [number, number]>) {
+  picSizes = m;
+}
+
 export interface UiNode {
   id: string;
   parent?: string;
@@ -38,6 +46,10 @@ export interface UiNode {
   gap?: number; // vbox/hbox
   text?: string; // label
   width?: number; // value (1-5) / image (icônes) / icon_value
+  // image : nom d'une PICTURE du projet au lieu d'icônes. La taille du
+  // widget vient alors de l'image (ramenée aux 4 couleurs de la couche
+  // UI à la compilation, comme les icônes — voir gfx::to_ui_image).
+  pic?: string;
   var?: number;
   label?: string; // variable_display
   frame?: boolean;
@@ -78,7 +90,7 @@ export interface Prim {
   y: number;
   w: number;
   h: number;
-  kind: number; // 0-6
+  kind: number; // 0-8 (8 = image en mode picture)
   frame: boolean;
   var: number;
   icon: number;
@@ -86,6 +98,8 @@ export interface Prim {
   pad: number;
   max: number;
   maxVar?: number;
+  /** kind 8 : nom de la picture affichée (aperçu du designer) */
+  pic?: string;
   bg: boolean;
   text: string;
   nodeId: string;
@@ -170,6 +184,11 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
     case "value":
       return [Math.min(Math.max(n.width ?? 3, 1), 5), 1];
     case "image":
+      if (n.pic) {
+        const s = picSizes[n.pic];
+        if (!s) errors?.push(`« ${n.id} » : image « ${n.pic} » introuvable`);
+        return s ?? [1, 1];
+      }
       return [Math.max(n.width ?? 1, 1), 1];
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
@@ -305,8 +324,13 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base, vertical: n.align === "left" });
         break;
       case "image":
-        needIcon(n, size[0]);
-        emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
+        if (n.pic) {
+          // mode picture : le widget fait la taille de l'image
+          emit({ x, y, w: size[0], h: size[1], kind: 8, frame: false, ...base, pic: n.pic });
+        } else {
+          needIcon(n, size[0]);
+          emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
+        }
         break;
       case "variable_display": {
         if (n.var === undefined) errors.push(`« ${n.id} » : variable requise`);
@@ -466,7 +490,8 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.margin) s += `margin = [${n.margin}]\n`;
     if (n.gap !== undefined && n.gap !== 0) s += `gap = ${n.gap}\n`;
     if (n.text !== undefined) s += `text = ${JSON.stringify(n.text)}\n`;
-    if (n.width !== undefined) s += `width = ${n.width}\n`;
+    if (n.width !== undefined && !n.pic) s += `width = ${n.width}\n`;
+    if (n.pic) s += `pic = ${JSON.stringify(n.pic)}\n`;
     if (n.var !== undefined) s += `var = ${n.var}\n`;
     if (n.label) s += `label = ${JSON.stringify(n.label)}\n`;
     if (

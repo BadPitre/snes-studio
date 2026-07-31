@@ -161,6 +161,9 @@ export interface Actor {
   x: number;
   y: number;
   sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string;
 }
@@ -177,7 +180,7 @@ export type Command =
   | { c: "set"; var: string; value: number }
   | { c: "add"; var: string; value: number }
   | { c: "if"; var: string; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
-  | { c: "warp"; to: string; x: number; y: number }
+  | { c: "warp"; to: string; x: number; y: number; trans?: ScreenTrans }
   | { c: "face"; event: number; dir: Direction }
   // v0.9 — switches (512) et variables 16-bit (256), façon RM2003.
   // set/add/if sur v/g 8-bit restent lisibles (héritage) mais la fenêtre
@@ -205,7 +208,7 @@ export type Command =
   // variables (scène/X/Y), la rappeler (téléport), placer/échanger des
   // events. event/a/b : -1 = cet event, sinon n° d'ENTRÉE de la scène.
   | { c: "hero_loc"; vs: number; vx: number; vy: number }
-  | { c: "warp_var"; vs: number; vx: number; vy: number }
+  | { c: "warp_var"; vs: number; vx: number; vy: number; trans?: ScreenTrans }
   | { c: "setpos"; event: number; from: "const" | "vars"; x: number; y: number }
   | { c: "swappos"; a: number; b: number }
   // v0.15 — effets d'écran (module screenfx) : fondu bloquant, teinte
@@ -245,8 +248,10 @@ export type Command =
   | { c: "pic_move"; x?: number; y?: number; x_var?: number; y_var?: number; dur?: number }
   | { c: "ui_show"; widget: string; on: boolean }
   | { c: "list_select"; widget: string; var: number; cancel: boolean; keep?: boolean; lr?: boolean }
-  | { c: "scr_hide"; speed: number }
-  | { c: "scr_show"; speed: number }
+  // S18d : frames = durée (1-255) ; speed = héritage (1-15 niveaux de
+  // luminosité par frame, converti par datagen si frames absent)
+  | { c: "scr_hide"; frames?: number; speed?: number; trans?: ScreenTrans }
+  | { c: "scr_show"; frames?: number; speed?: number; trans?: ScreenTrans }
   // dur (S12) : frames de transition GRADUELLE (jour/nuit) — absent ou
   // 0 = teinte immédiate (bytecode TINT inchangé)
   | { c: "tint"; mode: "off" | "add" | "sub"; r: number; g: number; b: number; dur?: number }
@@ -254,13 +259,13 @@ export type Command =
   // entre les scènes jusqu'au prochain changement
   | { c: "weather"; kind: "off" | "rain" | "snow"; power?: number }
   // Ondulation de l'écran (S14, HDMA) : power 0 = stop, persiste
-  | { c: "screen"; name: string; dur?: number }
+  | { c: "screen"; name: string; dur?: number; trans?: ScreenTrans }
   | { c: "screen_call"; script: string }
-  | { c: "stage_open"; pic: string; dur?: number }
+  | { c: "stage_open"; pic: string; dur?: number; trans?: ScreenTrans }
   | { c: "stage_pose"; slot: number; pic: string; x: number; y: number }
   | { c: "stage_clear"; slot: number }
   | { c: "slot_fx"; slot: number; fx: "restore" | "flash" | "fadeout" | "dark"; frames?: number }
-  | { c: "stage_close"; dur?: number }
+  | { c: "stage_close"; dur?: number; trans?: ScreenTrans }
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
@@ -378,6 +383,9 @@ export interface EventPage {
   condition?: PageCondition;
   trigger: EventTrigger;
   sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string;
   commands: Command[];
@@ -392,7 +400,10 @@ export interface GameEvent {
   x: number;
   y: number;
   trigger: EventTrigger;
-  sprite: number; // bloc de personnage ; -1 = invisible
+  sprite: number;
+  // T4 — apparence TILE (id de grille de la couche haute du tileset de
+  // la scène) : exclusif avec sprite (datagen compose un bloc virtuel)
+  tile?: number;
   dir: Direction;
   entry?: string; // label d'un script écrit à la main (avancé)
   commands: Command[];
@@ -435,7 +446,26 @@ export interface Warp {
   ty: number;
   dir?: Direction; // v0.16 — direction du héros à l'arrivée (absente =
   // conservée, « Retain » RM2003) — WarpDef.flags côté moteur
+  trans?: ScreenTrans; // S18 — transition (absente = fondu)
 }
+
+// Transition d'écran (S18) : fondu (défaut), instantané, mosaïque,
+// balayages (S18b — rideau noir ligne à ligne)
+export type ScreenTrans =
+  | "fade"
+  | "none"
+  | "mosaic"
+  | "wipe_down"
+  | "wipe_up"
+  | "wipe_center";
+export const TRANS_OPTIONS: { value: ScreenTrans; label: string }[] = [
+  { value: "fade", label: "Fondu (défaut)" },
+  { value: "none", label: "Instantané" },
+  { value: "mosaic", label: "Mosaïque" },
+  { value: "wipe_down", label: "Balayage vers le bas" },
+  { value: "wipe_up", label: "Balayage vers le haut" },
+  { value: "wipe_center", label: "Balayage vers le centre" },
+];
 
 export interface Scene {
   name: string;
@@ -480,6 +510,13 @@ export interface SceneEffect {
   // décor quand la caméra bouge (profondeur) ; "full" = collé au décor
   // (1:1 — ombres au sol) ; absent = fixe à l'écran
   parallax?: "half" | "quarter" | "full";
+  // S17 : position du plan — "front" (défaut) = surimpression (nuages,
+  // brume) ; "back" = PANORAMA derrière la carte, vu par les tuiles
+  // gommées de la couche basse (façon RPG Maker)
+  mode?: "front" | "back";
+  // S17 : panorama — répéter (défaut true, motif qui boucle et défile)
+  // ou image fixe unique (false)
+  repeat?: boolean;
 }
 
 // Sidecar assets/<tileset>.json — passabilité + autotiles (modèle RM2003).

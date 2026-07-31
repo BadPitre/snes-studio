@@ -125,6 +125,9 @@ body {
 .draw-modes button { padding: 4px 0; font-size: 15px; line-height: 1; }
 .layer-switch { display: flex; }
 .layer-switch button { border-radius: 0; }
+/* couche désactivée (ex. couche sup quand un panorama/effet occupe BG1) :
+   l'icône seule ne montrait pas l'état — griser + curseur interdit */
+.layer-switch button:disabled { opacity: 0.35; cursor: not-allowed; }
 .tools { display: flex; flex-direction: column; gap: 4px; }
 
 .map-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -222,6 +225,10 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 .row > button.browse { flex: 0 0 auto; padding: 3px 9px; }
+
+/* Pied de fenêtre : boutons OK/Annuler compacts, alignés à droite */
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-actions button { flex: 0 0 auto; min-width: 92px; padding: 4px 14px; }
 
 /* Gestionnaire de ressources (façon RM2003) */
 .modal.resmgr { width: 560px; }
@@ -336,10 +343,30 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .prefabs-side { width: 200px; display: flex; flex-direction: column; gap: 8px; }
 /* Fenêtre Common events (Database RM2003) */
 .modal.cevents { width: 900px; }
-.cevents-body { display: flex; gap: 10px; height: 480px; }
+.modal.screens { width: 1040px; }
+/* Écran composé : canvas à gauche, liste d'images en colonne étroite à droite */
+.compo-body { display: flex; gap: 10px; align-items: flex-start; }
+.compo-canvas {
+  width: 512px; height: 448px; flex: 0 0 auto;
+  image-rendering: pixelated; box-shadow: var(--bev-field); cursor: move;
+}
+.compo-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.compo-side > label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text); }
+.compo-imgs-head { display: flex; align-items: center; justify-content: space-between; }
+.compo-imgs-head button { flex: 0 0 auto; padding: 2px 10px; }
+.compo-imgs { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 380px; }
+.compo-img { display: flex; flex-direction: column; gap: 3px; padding: 4px; box-shadow: var(--bev-field); background: #fff; }
+.compo-img.active { box-shadow: var(--bev-field), inset 0 0 0 2px var(--sel); }
+:root[data-theme="dark"] .compo-img { background: #1c1d21; }
+.compo-img .danger { flex: 0 0 auto; padding: 2px 8px; }
+.cevents-body { display: flex; gap: 10px; height: min(720px, calc(100vh - 190px)); }
 .cevents-list { display: flex; flex-direction: column; gap: 6px; width: 210px; }
 .cevents-right { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.cevents-right .evedit-cmds { flex: 1; overflow-y: auto; }
+.cevents-right .evedit-cmds { flex: 1; max-height: none; overflow-y: auto; }
+/* le panneau de droite des écrans composés remplit toute la hauteur ;
+   la liste de commandes du script prend l'espace restant */
+.cevents-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cevents-form .evedit-cmds { flex: 1; max-height: none; overflow-y: auto; }
 /* Fenêtre d'options d'une commande (double-clic sur une ligne pleine) */
 .modal.cmdform { width: 520px; }
 .modal.cmdform .evedit-form { border: none; padding: 0; background: none; box-shadow: none; }
@@ -368,6 +395,17 @@ label.check input[type="checkbox"] { width: 13px; height: 13px; flex: 0 0 auto; 
 .varlist-items { flex: 1; overflow-y: auto; border: none; box-shadow: var(--bev-field); background: #fff; border-radius: 0; padding: 4px; font-family: "Courier New", monospace; font-size: 12px; }
 .varlist-name { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text); }
 .varlist-name input { flex: 1; }
+/* lignes editables en place (renommage inline, plus de champ en bas) */
+.varlist-row { display: flex; align-items: center; gap: 6px; padding: 1px 2px; cursor: pointer; }
+.varlist-row.active { background: var(--sel); }
+.varlist-row.active .varlist-num { color: var(--sel-text); }
+.varlist-num { color: var(--text-dim); flex: 0 0 auto; }
+.varlist-inline {
+  flex: 1; min-width: 0; padding: 1px 4px; font-family: "Courier New", monospace;
+  font-size: 12px; box-shadow: none; background: transparent; color: var(--text);
+}
+.varlist-row.active .varlist-inline { background: #fff; box-shadow: var(--bev-field); }
+:root[data-theme="dark"] .varlist-row.active .varlist-inline { background: #1c1d21; color: var(--text); }
 .evedit-form { border: 1px solid var(--shadow); box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--face); }
 .evedit-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text); }
 
@@ -509,4 +547,20 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 }
 :root[data-theme="dark"] ::-webkit-scrollbar-button {
   display: none;
+}
+/* Fenêtre Apparence façon RM2003 (T3) */
+.modal.graphicpick { width: 560px; }
+.graphicpick-body { display: flex; gap: 10px; height: 320px; }
+.graphicpick-list { width: 200px; overflow-y: auto; }
+.graphicpick-side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.graphicpick-side canvas { box-shadow: var(--bev-field); align-self: center; }
+
+/* Fermeture des fenêtres : croix dans l'en-tête — le clic HORS de la
+   fenêtre ne ferme plus (protège des fermetures accidentelles) */
+.palette-title:has(> .modal-x), .panel-title:has(> .modal-x) {
+  display: flex; align-items: center; gap: 8px;
+}
+.modal-x {
+  margin-left: auto; flex: 0 0 auto; width: 24px; min-width: 24px;
+  padding: 1px 0 2px; font-size: 12px; line-height: 1;
 }

@@ -248,6 +248,8 @@ affiche l'entrée « nom » du catalogue `texts.json` (Tools > Textes) —
 partagée entre plusieurs commandes, éditable au catalogue sans toucher
 aux events. `text_ref` prime sur `text` ; nom inconnu = erreur.
 
+**Panorama de scène (S17)** : l'onglet « Couche d'effet » d'une scène propose une Position du plan — « Surimpression » (nuages au-dessus, comportement S9) ou « Panorama » (image DERRIÈRE la carte, façon RPG Maker). Le panorama apparaît là où la couche basse est GOMMÉE (outil gomme). Case « Répéter » : image qui boucle et peut défiler (dérive + parallaxe) ou image fixe unique. L'image se choisit dans le Gestionnaire de ressources et doit être importée « avec transparence » (elle utilise la palette dédiée du plan d'effet). Comme la couche d'effet, une scène à panorama perd sa couche supérieure de décor.
+
 **Multi-bank (M1)** : les scènes et les textes ne sont plus limités à
 32 Ko chacun — datagen les répartit sur des banks supplémentaires
 (`scenes.bin`, `scenes1.bin`, … ; idem `texts.bin`), alloue les numéros

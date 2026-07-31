@@ -28,17 +28,114 @@
 #include "stage.h"
 #include "vignette.h"
 
-/* Transition de warp : fondu, rechargement complet de la scène cible
-   écran éteint (transferts sûrs), fondu entrant. Les vars VM sont remises
-   à zéro (spec §2), les gvars persistent. */
-static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
+/* Fermeture/ouverture de l'écran autour d'un warp (S18) : 0 fondu
+   (recette historique setFadeEffect, 16 frames), 1 instantané, 2 mosaïque
+   ($2106 sur BG1-3 couplé à la luminosité — pixelise en s'assombrissant). */
+/* un pas de la rampe : luminosité b (0-15), mosaïque complémentaire */
+static void warp_trans_regs(u8 b)
+{
+  u8 m = 15 - b;
+
+  m = (m << 4) | 0x07;
+  REG_MOSAIC = m;
+  REG_INIDISP = b;
+}
+
+static void warp_close(u8 trans)
+{
+  u8 f;
+  u8 b;
+  u16 l;
+
+  if (trans == 1)
+    return; /* instantané : setScreenOff suffit */
+  if (trans == 2)
+  {
+    b = 15;
+    for (f = 0; f < 16; f++)
+    {
+      WaitForVBlank();
+      warp_trans_regs(b);
+      b--;
+    }
+    return;
+  }
+  if (trans >= 3)
+  {
+    /* balayage (S18b) : rideau noir HDMA — 16 pas de 14 lignes */
+    l = 0;
+    for (f = 0; f < 16; f++)
+    {
+      l += 14;
+      WaitForVBlank();
+      screenfx_wipe_step(trans, l);
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0; /* reste noir jusqu'au setScreenOff */
+    return;
+  }
+  setFadeEffect(FADE_OUT);
+}
+
+static void warp_open(u8 trans)
+{
+  u8 f;
+  u8 b;
+  u16 l;
+
+  if (trans == 1)
+  {
+    setScreenOn();
+    return;
+  }
+  if (trans == 2)
+  {
+    b = 0;
+    for (f = 0; f < 16; f++)
+    {
+      WaitForVBlank();
+      warp_trans_regs(b); /* écran rallumé dès la première écriture */
+      b++;
+    }
+    WaitForVBlank();
+    REG_MOSAIC = 0; /* effet rendu (taille 1, aucun BG) */
+    return;
+  }
+  if (trans >= 3)
+  {
+    /* balayage : rideau complet armé AVANT de rallumer (pas de flash —
+       luminosité de base 0, le HDMA écrit $2100 ligne à ligne) */
+    REG_INIDISP = 0;
+    screenfx_wipe_step(trans, 224);
+    l = 224;
+    for (f = 0; f < 16; f++)
+    {
+      l -= 14;
+      WaitForVBlank();
+      screenfx_wipe_step(trans, l);
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0x0F; /* la dernière valeur HDMA peut être un 0 de bande */
+    return;
+  }
+  setScreenOn();
+  setFadeEffect(FADE_IN);
+}
+
+/* Transition de warp : fermeture (tr_out), rechargement complet de la
+   scène cible écran éteint (transferts sûrs), ouverture (tr_in). Les vars
+   VM sont remises à zéro (spec §2), les gvars persistent. */
+static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
+                    u8 tr_in)
 {
   u16 auto_ofs;
   u8 wdir;
   u8 pdir = player.dir; /* « conserver » (v0.16) : la direction survit au
                            rechargement (player_init la remettrait à bas) */
 
-  setFadeEffect(FADE_OUT);
+  warp_close(tr_out);
   setScreenOff();
 
   picture_reset(); /* warp pendant une image : scene_load recharge tout */
@@ -70,8 +167,7 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y)
   audio_play_music(scene_ctx.music_id);
 
   screenfx_warp_reset(); /* fondu resynchronisé, teinte réaffirmée */
-  setScreenOn();
-  setFadeEffect(FADE_IN);
+  warp_open(tr_in);
 }
 
 int main(void)
@@ -132,7 +228,7 @@ int main(void)
       sysmenu_update(); /* menu Système (START) : sauvegarder / charger */
       if (sysmenu_take_load())
       {
-        do_warp(save_info.scene, save_info.x, save_info.y);
+        do_warp(save_info.scene, save_info.x, save_info.y, 0, 0);
         player.dir = save_info.dir; /* direction sauvegardée */
       }
     }
@@ -154,7 +250,11 @@ int main(void)
       {
         player_update(); /* inputs + mouvement + collision + interaction */
         if (player_take_warp(&wd, &wx, &wy))
-          do_warp(wd, wx, wy);
+        {
+          u8 tr = player_take_warp_trans(); /* transition du warp (S18) */
+
+          do_warp(wd, wx, wy, tr, tr);
+        }
         /* Phase 12 : plus de mapping START en dur — le menu Système
            s'ouvre par la commande d'event SYSMENU (l'auteur choisit sa
            touche via KEYIN) */
@@ -168,10 +268,12 @@ int main(void)
     {
       /* fermer l'écran composé = WARP INTERNE vers la scène courante,
          au tile du héros : décor, sprites, palettes, ambiances et
-         musique reviennent d'un bloc (recette éprouvée) */
+         musique reviennent d'un bloc (recette éprouvée). La fermeture
+         visuelle a déjà eu lieu (stage_apply) — seule la RÉAPPARITION
+         de la map suit la transition demandée (S18). */
       stage_reset();
       do_warp(scene_ctx.scene_id, (u8)((player.x + 8) >> 4),
-              (u8)((player.y + 8) >> 4));
+              (u8)((player.y + 8) >> 4), 0, stage_close_trans());
     }
 
     if (!sysmenu_active())

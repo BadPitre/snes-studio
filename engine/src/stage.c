@@ -59,7 +59,10 @@ static u8 sg_on = 0;
 static u8 sg_req = 0; /* 0 rien, 1 ouvrir, 2 fermer */
 static u8 sg_req_pic = 0;
 static u8 sg_req_dur = 0;
+static u8 sg_req_trans = 0; /* transition (S18) : 0 fondu, 1 instantané,
+                               2 mosaïque */
 static u8 sg_close = 0;     /* la boucle doit exécuter le warp interne */
+static u8 sg_close_tr = 0;  /* transition de la fermeture en cours (S18) */
 static u16 sg_next_char = 1; /* allocateur (char 0 = transparent) */
 
 static u8 sl_pic[STAGE_SLOTS];  /* 0xFF = slot vide */
@@ -107,19 +110,28 @@ u8 stage_busy(void)
   return up_act != 0;
 }
 
-void stage_request_open(u8 backdrop_pic, u8 fade_dur)
+void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans)
 {
   sg_req = 1;
   sg_req_pic = backdrop_pic;
   sg_req_dur = fade_dur;
+  sg_req_trans = trans;
 }
 
-void stage_request_close(u8 fade_dur)
+void stage_request_close(u8 fade_dur, u8 trans)
 {
   if (!sg_on)
     return;
   sg_req = 2;
   sg_req_dur = fade_dur;
+  sg_req_trans = trans;
+}
+
+/* Transition de la DERNIÈRE fermeture (S18) — do_warp (warp interne de
+   fermeture) l'applique à la réapparition de la map. */
+u8 stage_close_trans(void)
+{
+  return sg_close_tr;
 }
 
 u8 stage_take_close(void)
@@ -145,31 +157,71 @@ void stage_reset(void)
   vig_hide(1);
 }
 
-/* fondus maison sur $2100 — recette picture (S7), durée en frames */
-static void sg_fade_out(u8 dur)
+/* fondus maison sur $2100 — recette picture (S7), durée en frames.
+   trans (S18) : 2 = mosaïque ($2106 BG1-3) couplée à la luminosité —
+   l'écran pixelise en s'assombrissant ; 1 = instantané (pas de rampe). */
+static void sg_trans_regs(u8 trans, u8 b)
 {
-  u16 step, lvl;
-  u8 f;
+  if (trans == 2)
+    REG_MOSAIC = (u8)(((15 - b) << 4) | 0x07);
+  REG_INIDISP = b;
+}
 
-  if (!dur)
+static void sg_fade_out(u8 dur, u8 trans)
+{
+  u16 step, lvl, f;
+
+  if (!dur || trans == 1)
     return;
+  if (trans >= 3)
+  {
+    /* balayage (S18b) : le rideau noir grandit sur dur frames */
+    for (f = 1; f <= dur; f++)
+    {
+      WaitForVBlank();
+      screenfx_wipe_step(trans, (u16)(224u * f / dur));
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0; /* reste noir jusqu'au setScreenOff */
+    return;
+  }
   step = 0x0F00 / dur;
   lvl = 0x0F00;
   for (f = 0; f < dur; f++)
   {
     lvl = lvl > step ? lvl - step : 0;
     WaitForVBlank();
-    REG_INIDISP = (u8)(lvl >> 8);
+    sg_trans_regs(trans, (u8)(lvl >> 8));
   }
 }
 
-static void sg_fade_in(u8 dur)
+static void sg_fade_in(u8 dur, u8 trans)
 {
-  u16 step, lvl;
-  u8 f;
+  u16 step, lvl, f;
 
-  if (!dur)
+  if (!dur || trans == 1)
+  {
+    if (trans == 2)
+      REG_MOSAIC = 0; /* rampe sautée : ne pas rester pixelisé */
     return;
+  }
+  if (trans >= 3)
+  {
+    /* balayage : rideau complet armé avant de rallumer (setScreenOn a
+       posé 15 — le HDMA écrit $2100 dès la ligne 0 de la frame) */
+    REG_INIDISP = 0;
+    screenfx_wipe_step(trans, 224);
+    for (f = 1; f <= dur; f++)
+    {
+      WaitForVBlank();
+      screenfx_wipe_step(trans, (u16)(224u - 224u * f / dur));
+    }
+    WaitForVBlank();
+    screenfx_wipe_off();
+    REG_INIDISP = 0x0F; /* la dernière valeur HDMA peut être un 0 de bande */
+    return;
+  }
   step = 0x0F00 / dur;
   lvl = 0;
   REG_INIDISP = 0;
@@ -179,9 +231,14 @@ static void sg_fade_in(u8 dur)
     if (lvl > 0x0F00)
       lvl = 0x0F00;
     WaitForVBlank();
-    REG_INIDISP = (u8)(lvl >> 8);
+    sg_trans_regs(trans, (u8)(lvl >> 8));
   }
   REG_INIDISP = 0x0F;
+  if (trans == 2)
+  {
+    WaitForVBlank();
+    REG_MOSAIC = 0; /* effet rendu (taille 1, aucun BG) */
+  }
 }
 
 static void sg_open(void)
@@ -189,8 +246,10 @@ static void sg_open(void)
   u16 i;
   u8 id = sg_req_pic;
 
-  sg_fade_out(sg_req_dur);
+  sg_fade_out(sg_req_dur, sg_req_trans);
   setScreenOff();
+  if (sg_req_trans == 2)
+    REG_MOSAIC = 0; /* la mosaïque de fermeture ne colle pas à l'écran */
   picture_reset(); /* une image affichée : l'écran composé prend tout */
   sg_on = 1;
   up_act = 0;
@@ -241,7 +300,7 @@ static void sg_open(void)
   screenfx_warp_reset();
   vig_reload(); /* le fond a pu écraser les chars 384+ des vignettes */
   setScreenOn();
-  sg_fade_in(sg_req_dur);
+  sg_fade_in(sg_req_dur, sg_req_trans);
 }
 
 void stage_apply(void)
@@ -253,9 +312,12 @@ void stage_apply(void)
     sg_open();
   else if (r == 2 && sg_on)
   {
-    sg_fade_out(sg_req_dur);
+    sg_fade_out(sg_req_dur, sg_req_trans);
     setScreenOff();
+    if (sg_req_trans == 2)
+      REG_MOSAIC = 0; /* la réapparition (do_warp) repart d'un état sain */
     sg_close = 1; /* la boucle enchaîne sur le warp interne (do_warp) */
+    sg_close_tr = sg_req_trans;
   }
 }
 

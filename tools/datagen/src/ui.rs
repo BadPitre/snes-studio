@@ -12,7 +12,10 @@
 //!     type = "label"    texte statique (text)
 //!     type = "value"    valeur d'une variable (var, width 1-5,
 //!                       alignée à droite)
-//!     type = "image"    suite d'icônes de la planche (icon, w)
+//!     type = "image"    suite d'icônes de la planche (icon, w), OU une
+//!                       picture du projet (pic = "nom") : la taille du
+//!                       widget vient alors de l'image, ramenée aux 4
+//!                       couleurs de la couche UI à la compilation
 //!     type = "gauge" / "icon_row" / "icon_value" / "variable_display"
 //!     type = "list"     menu à curseur (B6) : items = ["Attaque", ...],
 //!                       frame défaut true, taille AUTO (1 colonne
@@ -29,6 +32,7 @@
 //! tiles (le moteur ne connaît ni vbox ni hbox — zéro coût runtime) :
 //!   0 variable_display  1 gauge  2 icon_row  3 icon_value
 //!   4 panel (cadre seul)  5 label (texte statique)  6 image (icônes)
+//!   8 image (picture : rectangle de chars, char de base dans « icon »)
 //!   7 list (menu à curseur B6 — items dans text, séparés par \n)
 //! Les types 4-6 sont STATIQUES (jamais redessinés sur changement de
 //! variable, seulement au refresh).
@@ -151,6 +155,11 @@ pub struct Node {
     pub max_var: Option<u8>,
     #[serde(default)]
     pub icon: Option<u8>,
+    /// image (mode picture) : nom d'une picture du projet. La couche UI
+    /// n'ayant que 4 couleurs, l'image y est ramenée à la palette de la
+    /// fonte à la compilation (voir gfx::to_ui_image).
+    #[serde(default)]
+    pub pic: Option<String>,
     #[serde(default)]
     pub dir: Option<String>,
     #[serde(default)]
@@ -225,6 +234,7 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         frame: ov.frame,
         max: ov.max,
         max_var: ov.max_var,
+        pic: None, /* l'ancien format plat n'a pas d'image de widget */
         icon: ov.icon,
         dir: ov.dir.clone(),
         pad: ov.pad,
@@ -243,6 +253,60 @@ struct Flattener<'a> {
     widget: usize, // index de la racine en cours de placement
     font: Option<String>, // fonte de la racine en cours (S2)
     prims: Vec<Prim>,
+    /// Images UI converties (widget « Image » en mode picture), dans
+    /// l'ordre de première utilisation : (nom, chars 2bpp, largeur,
+    /// hauteur en tuiles). Le CHAR de base définitif n'est pas connu ici
+    /// — il dépend du plan VRAM complet (fontes, cadres, icônes) calculé
+    /// dans main.rs, qui corrige les primitives après coup.
+    pics: Vec<(String, Vec<u8>, u8, u8)>,
+    /// variante de chaque entrée de `pics` : true = « fond de panneau »
+    /// (pixels transparents remplacés par le fond du cadre)
+    pic_bg: Vec<bool>,
+    /// tailles en tuiles, connues dès la pré-passe (elles ne dépendent
+    /// pas de la variante)
+    pic_size: HashMap<String, (u8, u8)>,
+    pic_dir: &'a Path,
+    pic_paths: &'a HashMap<String, String>,
+    ui_pal: &'a [u16],
+}
+
+impl<'a> Flattener<'a> {
+    /// Charge et convertit l'image d'un nœud « image » en mode picture,
+    /// une seule fois par picture. Renvoie (index dans pics, w, h tuiles).
+    fn need_pic(&mut self, n: &Node, name: &str, bg: bool) -> Result<(u8, i64, i64)> {
+        if let Some(k) = self
+            .pics
+            .iter()
+            .zip(self.pic_bg.iter())
+            .position(|((p, _, _, _), b)| p == name && *b == bg)
+        {
+            let (_, _, w, h) = &self.pics[k];
+            return Ok((k as u8, *w as i64, *h as i64));
+        }
+        let path = self.pic_paths.get(name).with_context(|| {
+            format!(
+                "nœud « {} » : image « {} » introuvable dans les pictures du projet",
+                n.id, name
+            )
+        })?;
+        let img = crate::gfx::load_indexed_png(&self.pic_dir.join(path))
+            .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
+        // Dans une window, les pixels TRANSPARENTS de l'image doivent
+        // montrer le cadre, pas le jeu : le compositing SNES est par
+        // tuiles, on résout donc à la compilation en remplaçant la
+        // transparence par le fond du panneau — même recette que les
+        // variantes d'icônes (gfx::to_icons_bg).
+        let (chars, w, h) = img
+            .to_ui_image_bg(self.ui_pal, bg)
+            .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
+        if self.pics.len() >= 255 {
+            bail!("ui : trop d'images de widgets");
+        }
+        self.pic_size.insert(name.to_string(), (w, h));
+        self.pics.push((name.to_string(), chars, w, h));
+        self.pic_bg.push(bg);
+        Ok(((self.pics.len() - 1) as u8, w as i64, h as i64))
+    }
 }
 
 impl<'a> Flattener<'a> {
@@ -293,7 +357,14 @@ impl<'a> Flattener<'a> {
                 [(t.chars().count() as i64).max(1), 1]
             }
             "value" => [n.width.unwrap_or(3).clamp(1, 5), 1],
-            "image" => [n.width.unwrap_or(1).max(1), 1],
+            "image" => match &n.pic {
+                // mode picture : la taille vient de l'image elle-même
+                Some(p) => match self.pic_size.get(p) {
+                    Some((w, h)) => [*w as i64, *h as i64],
+                    None => [1, 1], /* pré-passe pas encore passée */
+                },
+                None => [n.width.unwrap_or(1).max(1), 1],
+            },
             "icon_value" => [n.width.unwrap_or(4).max(2), 1],
             "list" => {
                 // taille AUTO : 1 colonne curseur + item le plus long,
@@ -400,12 +471,23 @@ impl<'a> Flattener<'a> {
                 })?;
             }
             "image" => {
-                let icon = self.need_icon(n, size[0], "image")?;
-                self.emit(Prim {
-                    x, y, w: size[0], h: 1,
-                    kind: 6, frame: false, var: 0, icon, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
-                })?;
+                if let Some(name) = n.pic.clone() {
+                    // mode picture : rectangle de chars consécutifs, le
+                    // « icon » porte provisoirement l'index de l'image
+                    let (idx, w, h) = self.need_pic(n, &name, in_window)?;
+                    self.emit(Prim {
+                        x, y, w, h,
+                        kind: 8, frame: false, var: 0, icon: idx, vertical: false,
+                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                    })?;
+                } else {
+                    let icon = self.need_icon(n, size[0], "image")?;
+                    self.emit(Prim {
+                        x, y, w: size[0], h: 1,
+                        kind: 6, frame: false, var: 0, icon, vertical: false,
+                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                    })?;
+                }
             }
             "variable_display" => {
                 let var = n.var.with_context(|| {
@@ -524,7 +606,12 @@ impl<'a> Flattener<'a> {
 }
 
 /// Charge, valide et APLATIT le layout. Renvoie (fenêtres, primitives).
-pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Vec<(String, bool)>)> {
+pub fn load(
+    proj_dir: &Path,
+    icon_count: usize,
+    pic_paths: &HashMap<String, String>,
+    ui_pal: &[u16],
+) -> Result<(Layout, Vec<Prim>, Vec<(String, bool)>, Vec<(String, Vec<u8>, u8, u8)>)> {
     let p = proj_dir.join("ui").join("layout.toml");
     let mut lay: Layout = if p.is_file() {
         let src = std::fs::read_to_string(&p)
@@ -630,7 +717,20 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
 
     let mut fl = Flattener {
         children, nodes: &nodes, icon_count, widget: 0, font: None, prims: Vec::new(),
+        pics: Vec::new(), pic_bg: Vec::new(), pic_size: HashMap::new(),
+        pic_dir: proj_dir, pic_paths, ui_pal,
     };
+    // Les images des widgets sont converties AVANT le calcul des tailles :
+    // c'est l'image qui donne la taille du nœud, et size_of ne peut pas
+    // charger de fichier (il est appelé en cascade sur les conteneurs).
+    for i in 0..fl.nodes.len() {
+        if fl.nodes[i].kind == "image" {
+            if let Some(name) = fl.nodes[i].pic.clone() {
+                let n = fl.nodes[i].clone();
+                fl.need_pic(&n, &name, false)?;
+            }
+        }
+    }
     let mut widgets: Vec<(String, bool)> = Vec::new();
     let mut root_rects: Vec<(String, (i64, i64, i64, i64))> = Vec::new();
     for &r in &roots {
@@ -663,10 +763,11 @@ pub fn load(proj_dir: &Path, icon_count: usize) -> Result<(Layout, Vec<Prim>, Ve
         bail!("ui : {} widgets (max 16)", widgets.len());
     }
     let prims = fl.prims;
+    let pics = fl.pics;
 
     lay.message = Some(msg);
     lay.choice = Some(chc);
-    Ok((lay, prims, widgets))
+    Ok((lay, prims, widgets, pics))
 }
 
 /// Defines pour ui_cfg.h (fenêtres message/choix + compteur de prims)

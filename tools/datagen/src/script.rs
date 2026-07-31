@@ -211,7 +211,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "END" => 1,
         "MSG" | "SETVAR" | "ADDVAR" | "SETGVAR" | "JMP" => 3,
         "JEQ" | "JNE" | "JGEQ" => 5,
-        "WARP" => 4,
+        "WARP" => 5,
         "FACE" => 3,
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
@@ -231,10 +231,10 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "CAMPAN" => 4,
         "CAMRET" => 2,
         "WAITCAM" => 1,
-        "WARPV" => 4,
+        "WARPV" => 5,
         "SETPOS" => 5,
         "SWAPPOS" => 3,
-        "SCRHIDE" | "SCRSHOW" => 2,
+        "SCRHIDE" | "SCRSHOW" => 3,
         "TINT" | "FLASH" => 5,
         // TINTG <off|add|sub> <r> <g> <b> <dur> — teinte graduelle (S12)
         "TINTG" => 6,
@@ -250,14 +250,14 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "PLAYSFX" => 2,
         // PLAYBGM <id|255> — changer la musique, 255 = silence (B1)
         "PLAYBGM" => 2,
-        // STAGEOPEN <pic|255> <dur> — ecran compose (B3)
-        "STAGEOPEN" => 3,
+        // STAGEOPEN <pic|255> <dur> <trans> — ecran compose (B3, S18)
+        "STAGEOPEN" => 4,
         // STAGEPOSE <slot 0-4> <pic> <tx> <ty> — pose une image (B3)
         "STAGEPOSE" => 5,
         // STAGECLEAR <slot 0-4> — retire l'image du slot (B3)
         "STAGECLEAR" => 2,
-        // STAGECLOSE <dur> — ferme l'ecran compose (B3)
-        "STAGECLOSE" => 2,
+        // STAGECLOSE <dur> <trans> — ferme l'ecran compose (B3, S18)
+        "STAGECLOSE" => 3,
         // SLOTFX <slot 0-4> <fx 0-3> <dur> — effet de palette (B4)
         "SLOTFX" => 4,
         // VIGSHOW <slot 0-1> <vig> <x> <y> <anchor> — vignette (B5)
@@ -416,7 +416,9 @@ pub fn assemble(
                 code.extend_from_slice(&label_of(args[2])?.to_le_bytes());
             }
             "WARP" => {
-                if argc != 3 { bail!("WARP <scene> <x> <y>"); }
+                if argc != 3 && argc != 4 {
+                    bail!("WARP <scene> <x> <y> [trans 0-2]");
+                }
                 let dest = *scene_ids
                     .get(args[0])
                     .with_context(|| format!("scene inconnue : '{}'", args[0]))?;
@@ -424,6 +426,8 @@ pub fn assemble(
                 code.push(dest);
                 code.push(parse_u8(args[1])?);
                 code.push(parse_u8(args[2])?);
+                // transition (S18) : 0 fondu, 1 instantane, 2 mosaique
+                code.push(if argc == 4 { parse_u8(args[3])? } else { 0 });
             }
             "FACE" => {
                 if argc != 2 { bail!("FACE <acteur> <down|up|left|right>"); }
@@ -639,13 +643,16 @@ pub fn assemble(
                     i += 3;
                 }
             }
-            // WARPV <vs> <vx> <vy> : téléport aux variables (v0.15)
+            // WARPV <vs> <vx> <vy> [trans] : téléport aux variables (v0.15)
             "WARPV" => {
-                if argc != 3 { bail!("WARPV <var scene> <var x> <var y>"); }
+                if argc != 3 && argc != 4 {
+                    bail!("WARPV <var scene> <var x> <var y> [trans 0-2]");
+                }
                 code.push(OP_WARPV);
                 code.push(parse_u8(args[0])?);
                 code.push(parse_u8(args[1])?);
                 code.push(parse_u8(args[2])?);
+                code.push(if argc == 4 { parse_u8(args[3])? } else { 0 });
             }
             // SETPOS <acteur|self> <c|v> <x> <y> : place un event —
             // c = constantes, v = numéros de variables 16-bit
@@ -668,16 +675,19 @@ pub fn assemble(
                 code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
                 code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
             }
-            // Effets d'écran (v0.15)
+            // Effets d'écran (v0.15) — durée en frames (S18d) + fx
+            // optionnel (S18c) : 0 fondu, 1 instantané, 2 mosaïque,
+            // 3-5 balayage bas/haut/centre
             "SCRHIDE" | "SCRSHOW" => {
-                if argc != 1 { bail!("{} <vitesse 1-15>", op); }
-                let speed: u8 = args[0]
+                if argc != 1 && argc != 2 { bail!("{} <frames 1-255> [fx 0-5]", op); }
+                let dur: u8 = args[0]
                     .parse()
                     .ok()
-                    .filter(|&v| (1..=15).contains(&v))
-                    .with_context(|| format!("vitesse invalide : '{}' (1-15)", args[0]))?;
+                    .filter(|&v| v >= 1)
+                    .with_context(|| format!("durée invalide : '{}' (1-255 frames)", args[0]))?;
                 code.push(if op == "SCRHIDE" { OP_SCRHIDE } else { OP_SCRSHOW });
-                code.push(speed);
+                code.push(dur);
+                code.push(if argc == 2 { parse_u8(args[1])? } else { 0 });
             }
             // TINT <off|add|sub> <r> <g> <b> (0-31) ; TINTG + <dur 1-255>
             "TINT" | "TINTG" => {
@@ -761,9 +771,12 @@ pub fn assemble(
             // STAGEOPEN/STAGEPOSE/STAGECLEAR/STAGECLOSE — ecran
             // compose (B3) : arguments u8 bruts (valides par events.rs)
             "STAGEOPEN" => {
-                if argc != 2 { bail!("STAGEOPEN <pic|255> <dur>"); }
+                if argc != 2 && argc != 3 {
+                    bail!("STAGEOPEN <pic|255> <dur> [trans 0-2]");
+                }
                 code.push(OP_STAGEOPEN);
                 for t in args { code.push(parse_u8(t)?); }
+                if argc == 2 { code.push(0); } // trans : fondu (S18)
             }
             "STAGEPOSE" => {
                 if argc != 4 { bail!("STAGEPOSE <slot> <pic> <tx> <ty>"); }
@@ -776,9 +789,12 @@ pub fn assemble(
                 code.push(parse_u8(args[0])?);
             }
             "STAGECLOSE" => {
-                if argc != 1 { bail!("STAGECLOSE <dur>"); }
+                if argc != 1 && argc != 2 {
+                    bail!("STAGECLOSE <dur> [trans 0-2]");
+                }
                 code.push(OP_STAGECLOSE);
                 code.push(parse_u8(args[0])?);
+                code.push(if argc == 2 { parse_u8(args[1])? } else { 0 });
             }
             // SLOTFX <slot> <fx 0-3> <dur> — effet de palette d'un
             // slot de l'ecran compose (B4)

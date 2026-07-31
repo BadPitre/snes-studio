@@ -38,11 +38,16 @@ void player_set_pos(u8 tx, u8 ty);
 u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y);
 
 /* Demande un warp par script (opcode WARP, spec §2 v0.6) — consommé par
-   la boucle principale comme un warp de tile. */
-void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y);
+   la boucle principale comme un warp de tile. trans (S18) : 0 fondu,
+   1 instantané, 2 mosaïque. */
+void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 trans);
 
 /* Direction d'arrivée du dernier warp consommé (v0.16) : 0 = conserver la
    direction du héros, 1-4 = DIR_* + 1 (WarpDef.flags bits 0-2). */
 u8 player_take_warp_dir(void);
+
+/* Transition du dernier warp consommé (S18) : 0 fondu, 1 instantané,
+   2 mosaïque — consommée, comme la direction. */
+u8 player_take_warp_trans(void);
 
 #endif /* PLAYER_H */

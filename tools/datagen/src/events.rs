@@ -248,6 +248,24 @@ impl<'a> EventCompiler<'a> {
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
     }
 
+    /// Transition d'écran (S18) : "fade" (défaut) 0, "none" 1, "mosaic" 2,
+    /// balayages (S18b) : "wipe_down" 3, "wipe_up" 4, "wipe_center" 5
+    fn trans_field(cmd: &Value) -> Result<u8> {
+        Ok(match cmd["trans"].as_str() {
+            None | Some("") | Some("fade") => 0,
+            Some("none") => 1,
+            Some("mosaic") => 2,
+            Some("wipe_down") => 3,
+            Some("wipe_up") => 4,
+            Some("wipe_center") => 5,
+            Some(o) => bail!(
+                "transition inconnue « {} » (fade, none, mosaic, wipe_down, \
+                 wipe_up, wipe_center)",
+                o
+            ),
+        })
+    }
+
     /// Pas d'itinéraire JSON → tokens assembleur (partagé entre la
     /// commande route et les routes custom de page, v0.14). Les blocs des
     /// pas gfx sont accumulés pour le budget charsets de la scène.
@@ -507,11 +525,24 @@ impl<'a> EventCompiler<'a> {
                 }
                 // v0.15 — effets d'écran
                 "scr_hide" | "scr_show" => {
-                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=15).contains(&v)).unwrap_or(1);
+                    // durée en FRAMES (S18d) — héritage : l'ancien champ
+                    // speed (1-15 niveaux de luminosité par frame) est
+                    // converti en durée équivalente (~15/speed)
+                    let dur = match cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)) {
+                        Some(v) => v,
+                        None => {
+                            let speed = cmd["speed"]
+                                .as_u64()
+                                .filter(|&v| (1..=15).contains(&v))
+                                .unwrap_or(1);
+                            (15 + speed - 1) / speed
+                        }
+                    };
                     out.push(format!(
-                        "  {} {}",
+                        "  {} {} {}",
                         if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
-                        speed
+                        dur,
+                        Self::trans_field(cmd)?
                     ));
                 }
                 // Phase 12 — visibilité des widgets UI (SHOWUI)
@@ -712,7 +743,11 @@ impl<'a> EventCompiler<'a> {
                             .position(|p| *p == sc.backdrop)
                             .unwrap() as u64 // validé par main.rs
                     };
-                    out.push(format!("  STAGEOPEN {} {}", bid, dur));
+                    out.push(format!(
+                        "  STAGEOPEN {} {} {}",
+                        bid, dur,
+                        Self::trans_field(cmd)?
+                    ));
                     for sl in &sc.slots {
                         let pid = self
                             .pictures
@@ -797,7 +832,11 @@ impl<'a> EventCompiler<'a> {
                                 )
                             })? as u64
                     };
-                    out.push(format!("  STAGEOPEN {} {}", id, dur));
+                    out.push(format!(
+                        "  STAGEOPEN {} {} {}",
+                        id, dur,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 "stage_pose" => {
                     let slot = cmd["slot"]
@@ -897,7 +936,11 @@ impl<'a> EventCompiler<'a> {
                 }
                 "stage_close" => {
                     let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
-                    out.push(format!("  STAGECLOSE {}", dur));
+                    out.push(format!(
+                        "  STAGECLOSE {} {}",
+                        dur,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 // B1 — jouer un son (effet BRR, non bloquant)
                 "sfx" => {
@@ -1159,7 +1202,11 @@ impl<'a> EventCompiler<'a> {
                     let vs = Self::idx_field(cmd, "vs", 256)?;
                     let vx = Self::idx_field(cmd, "vx", 256)?;
                     let vy = Self::idx_field(cmd, "vy", 256)?;
-                    out.push(format!("  WARPV {} {} {}", vs, vx, vy));
+                    out.push(format!(
+                        "  WARPV {} {} {} {}",
+                        vs, vx, vy,
+                        Self::trans_field(cmd)?
+                    ));
                 }
                 "setpos" => {
                     let target = match cmd["event"].as_i64() {
@@ -1193,10 +1240,11 @@ impl<'a> EventCompiler<'a> {
                 "warp" => {
                     let to = cmd["to"].as_str().context("warp sans scene cible")?;
                     out.push(format!(
-                        "  WARP {} {} {}",
+                        "  WARP {} {} {} {}",
                         to,
                         Self::u8_field(cmd, "x")?,
-                        Self::u8_field(cmd, "y")?
+                        Self::u8_field(cmd, "y")?,
+                        Self::trans_field(cmd)?
                     ));
                 }
                 "face" => {
@@ -1232,6 +1280,9 @@ impl<'a> EventCompiler<'a> {
         musics: &[String],
         vignettes: &[String],
         screens: &[ScreenDef],
+        scene_tileset: &str,
+        tile_blocks: &mut Vec<(String, u16)>,
+        real_blocks: usize,
     ) -> Result<(Vec<String>, Vec<Actor>, Vec<u8>, String)> {
         let mut asm = Vec::new();
         let mut actors = Vec::new();
@@ -1252,21 +1303,22 @@ impl<'a> EventCompiler<'a> {
             // Vue « pages » uniforme : (condition, trigger, sprite, dir,
             // entry, commands) par page
             #[allow(clippy::type_complexity)]
-            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8)> =
+            let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8, Option<u16>)> =
                 if ev.pages.is_empty() {
                     vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
                           &ev.entry, ev.commands.as_slice(), &ev.r#move,
-                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0))]
+                          &ev.move_route, &ev.priority, ev.speed.unwrap_or(0),
+                          ev.tile)]
                 } else {
                     ev.pages
                         .iter()
                         .map(|p| (&p.condition, p.trigger.as_str(), p.sprite,
                                   p.dir.as_str(), &p.entry, p.commands.as_slice(),
                                   &p.r#move, &p.move_route, &p.priority,
-                                  p.speed.unwrap_or(0)))
+                                  p.speed.unwrap_or(0), p.tile))
                         .collect()
                 };
-            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed)) in
+            for (k, (cond, trigger, sprite, dir, entry_lbl, commands, mv, mroute, prio, speed, tile)) in
                 pages.iter().enumerate()
             {
                 let kind = match *trigger {
@@ -1279,7 +1331,7 @@ impl<'a> EventCompiler<'a> {
                         scene_name, ev.name, k + 1, other
                     ),
                 };
-                if kind == "npc" && *sprite < 0 {
+                if kind == "npc" && *sprite < 0 && tile.is_none() {
                     bail!(
                         "scene '{}', event « {} » page {} : un event « touche action » doit \
                          avoir une apparence (choisir un personnage, ou passer en \
@@ -1403,8 +1455,32 @@ impl<'a> EventCompiler<'a> {
                     x: ev.x,
                     y: ev.y,
                     // 255 = invisible (spec §1.3 v0.8) — une apparence est
-                    // permise sur TOUT declencheur (coffre visible au contact)
-                    sprite: if *sprite < 0 { 255 } else { *sprite as u8 },
+                    // permise sur TOUT declencheur (coffre visible au contact).
+                    // T4 : apparence TILE -> bloc de sprite VIRTUEL (compose
+                    // par datagen depuis la couche haute du tileset)
+                    sprite: match tile {
+                        Some(t) => {
+                            let key = (scene_tileset.to_string(), *t);
+                            let k = match tile_blocks.iter().position(|e| *e == key) {
+                                Some(k) => k,
+                                None => {
+                                    tile_blocks.push(key);
+                                    tile_blocks.len() - 1
+                                }
+                            };
+                            let b = real_blocks + k;
+                            if b > 254 {
+                                bail!(
+                                    "event « {} » : trop d'apparences tile                                      distinctes dans le projet",
+                                    ev.name
+                                );
+                            }
+                            b as u8
+                        }
+                        None => {
+                            if *sprite < 0 { 255 } else { *sprite as u8 }
+                        }
+                    },
                     dir: dir.to_string(),
                     entry,
                     cont: k > 0,

@@ -71,9 +71,10 @@
 #define VM_OP_JGEQ    0x08 /* var, val, offset */
 #define VM_OP_CHOICE  0x09 /* var, count (2-4), count x text_id (u16) —
                               bloquant : curseur haut/bas + A, index -> var */
-#define VM_OP_WARP    0x0A /* scene (u8), x (u8), y (u8) — téléporte le
-                              héros et TERMINE le script (le bloc scripts
-                              change de scène) */
+#define VM_OP_WARP    0x0A /* scene (u8), x (u8), y (u8), trans (u8) —
+                              téléporte le héros et TERMINE le script (le
+                              bloc scripts change de scène). trans (S18) :
+                              0 fondu, 1 instantané, 2 mosaïque. */
 #define VM_OP_FACE    0x0B /* acteur (u8), dir (u8) — tourne l'acteur */
 
 /* v0.9 (A2-P4) : switches + variables 16-bit, façon RM2003 */
@@ -146,11 +147,12 @@
 #define VM_OP_WAITCAM 0x18 /* bloquant : attend la fin du pan */
 
 /* v0.15 : positions scriptées (mémoriser/rappeler façon RM2003) */
-#define VM_OP_WARPV   0x19 /* vs (u8), vx (u8), vy (u8) — téléporte le
-                              héros à la scène vars16[vs], tile
-                              (vars16[vx], vars16[vy]) et TERMINE le
+#define VM_OP_WARPV   0x19 /* vs (u8), vx (u8), vy (u8), trans (u8) —
+                              téléporte le héros à la scène vars16[vs],
+                              tile (vars16[vx], vars16[vy]) et TERMINE le
                               script (comme WARP). Rappel d'une position
-                              mémorisée par VAROP scene/hx/hy. */
+                              mémorisée par VAROP scene/hx/hy. trans
+                              (S18) : 0 fondu, 1 instantané, 2 mosaïque. */
 #define VM_OP_SETPOS  0x1A /* acteur (u8, 0xFF = event du script),
                               src (u8 : 0 constantes, 1 variables),
                               x (u8), y (u8) — place l'event sur la tile
@@ -159,9 +161,12 @@
                               échange les positions de deux events */
 
 /* v0.15 : effets d'écran (module screenfx) */
-#define VM_OP_SCRHIDE 0x1C /* vitesse (u8 1-15, pas de luminosité/frame) —
-                              fondu vers le noir, BLOQUANT */
-#define VM_OP_SCRSHOW 0x1D /* vitesse (u8) — fondu entrant, BLOQUANT */
+#define VM_OP_SCRHIDE 0x1C /* durée (u8 1-255 frames, rampe 8.8 — S18c),
+                              fx (u8 : 0 fondu, 1 instantané, 2
+                              mosaïque, 3-5 balayage bas/haut/centre) —
+                              cache l'écran, BLOQUANT */
+#define VM_OP_SCRSHOW 0x1D /* durée (u8), fx (u8) — montre l'écran,
+                              BLOQUANT */
 #define VM_OP_TINT    0x1E /* mode (u8 : 0 normale, 1 eclaircir, 2
                               assombrir), r, g, b (u8 0-31) — teinte du
                               décor (color math couleur fixe, BG3 et OBJ
@@ -261,13 +266,15 @@
                               la musique courante. La musique de la
                               SCÈNE reprend au prochain warp (modèle
                               RM2003 : la map réaffirme sa musique). */
-#define VM_OP_STAGEOPEN 0x32 /* pic u8 (0xFF = noir), dur u8 — ouvre
-                                l'ÉCRAN COMPOSÉ (B3) : fond plein écran
-                                (picture OPAQUE) sur BG2, sprites de la
-                                scène cachés, dialogues/HUD actifs.
-                                Transition sous fondu (dur frames par
-                                sens, 0 = instantané), recette do_warp.
-                                La VM marque 1 frame de pause. */
+#define VM_OP_STAGEOPEN 0x32 /* pic u8 (0xFF = noir), dur u8, trans u8 —
+                                ouvre l'ÉCRAN COMPOSÉ (B3) : fond plein
+                                écran (picture OPAQUE) sur BG2, sprites
+                                de la scène cachés, dialogues/HUD actifs.
+                                Transition (dur frames par sens, 0 =
+                                instantané) selon trans (S18) : 0 fondu,
+                                1 instantané, 2 mosaïque ($2106 couplé au
+                                fondu). Recette do_warp. La VM marque
+                                1 frame de pause. */
 #define VM_OP_STAGEPOSE 0x33 /* slot u8 (0-4), pic u8, tx u8, ty u8 —
                                 POSE une image (picture) sur l'écran
                                 composé, position en TILES (x8 px),
@@ -281,12 +288,15 @@
 #define VM_OP_STAGECLEAR 0x34 /* slot u8 — retire l'image du slot
                                  (efface sa région de carte, les chars
                                  restent alloués). BLOQUANT (court). */
-#define VM_OP_STAGECLOSE 0x35 /* dur u8 — ferme l'écran composé : WARP
-                                 INTERNE vers la scène courante (tout
-                                 est restauré : décor, sprites,
-                                 ambiances, musique de la scène — les
-                                 PNJ déplacés reviennent à leurs pages,
-                                 comme après un warp). */
+#define VM_OP_STAGECLOSE 0x35 /* dur u8, trans u8 — ferme l'écran
+                                 composé : WARP INTERNE vers la scène
+                                 courante (tout est restauré : décor,
+                                 sprites, ambiances, musique de la scène
+                                 — les PNJ déplacés reviennent à leurs
+                                 pages, comme après un warp). trans
+                                 (S18) : 0 fondu, 1 instantané,
+                                 2 mosaïque — appliqué à la fermeture ET
+                                 à la réapparition de la map. */
 #define VM_OP_SLOTFX 0x36 /* slot u8 (0-4), fx u8, dur u8 — effet de
                              PALETTE sur une image posée (B4) : 0 =
                              restaurer, 1 = flash blanc (dur frames),
@@ -420,7 +430,7 @@ typedef struct
   u8 dest_x;     /* arrivée du joueur, en tiles */
   u8 dest_y;
   u8 flags;
-  u8 reserved0;
+  u8 trans; /* transition (S18) : 0 fondu, 1 instantané, 2 mosaïque */
   u8 reserved1;
 } WarpDef;
 

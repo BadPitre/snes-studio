@@ -34,9 +34,9 @@ export default function DiagnosticsModal({ data, diags, report, onClose }: Props
   const warns = diags.filter((d) => d.level === "warn");
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal resmgr" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Vérification du projet « {data.project.name} »</div>
+        <div className="panel-title">Vérification du projet « {data.project.name} »<button className="modal-x" title="Fermer" onClick={onClose}>✕</button></div>
         <div className="diag-body">
           <div className="palette-title">Scènes</div>
           <table className="diag-table">

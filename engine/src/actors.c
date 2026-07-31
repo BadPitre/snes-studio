@@ -68,6 +68,31 @@ static u8 actor_thru[ACTOR_SLOTS];
 static u8 actor_gfx[ACTOR_SLOTS];
 static u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
 
+/* ---- copie WRAM des champs ROM du chemin chaud (P3) ----
+ * actors_update et actors_draw relisaient, par acteur ET par frame, le
+ * type, l'apparence et le type de mouvement dans la table d'acteurs —
+ * une structure en ROM, donc des accès far, les plus lents du 65816.
+ * Ces champs sont CONSTANTS pour un slot (un slot = une page d'event) :
+ * ils sont recopiés une fois au chargement de la scène.
+ * actor_fbase évite en prime la multiplication par 12 (le 65816 n'en a
+ * pas : tcc-816 appelle une routine) refaite à chaque frame pour placer
+ * la frame du metasprite. */
+static u8 actor_sprite[ACTOR_SLOTS]; /* sprite_id, 0xFF = invisible */
+static u8 actor_kind[ACTOR_SLOTS];   /* actor_type */
+static u8 actor_movet[ACTOR_SLOTS];  /* type de mouvement (flags) */
+static u8 actor_fbase[ACTOR_SLOTS];  /* sprite_id * 12 : base de frame */
+static u8 actor_shown[ACTOR_SLOTS];  /* OBJ actuellement visible ? */
+/* Mots 1 et 3 de la paire d'entrées OAM (numéro de tile + attribut) : ils
+   ne dépendent QUE de la frame affichée, de la palette et de la priorité.
+   Les recalculer à chaque frame coûtait plus cher que tout le reste de la
+   boucle réuni (mesuré : sans l'écriture OAM, dix PNJ tiennent les 60 fps).
+   La clé de validité est la frame elle-même — pas besoin d'invalider à la
+   main quand un PNJ tourne ou marche. */
+static u8 actor_lastf[ACTOR_SLOTS];
+static u8 actor_x9[ACTOR_SLOTS];   /* 9e bit de X posé dans la table 2 */
+static u16 actor_w1[ACTOR_SLOTS];
+static u16 actor_w3[ACTOR_SLOTS];
+
 static u16 mv_rand(void)
 {
   mv_seed ^= mv_seed << 7;
@@ -115,8 +140,8 @@ static void actors_rebuild_blockers(void)
     {
       if (!actor_active[i] || actor_prio[i] != ACTOR_PRIO_SAME)
         continue;
-      if (scene_ctx.actors[i].actor_type != ACTOR_TYPE_NPC_STATIC)
-        continue;
+      if (actor_kind[i] != ACTOR_TYPE_NPC_STATIC)
+        continue; /* copie WRAM (P3) : plus de lecture far ici */
       x = ACTOR_TX(i);
       y = ACTOR_TY(i);
     }
@@ -214,6 +239,9 @@ void actors_resolve_pages(void)
       {
         oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
         oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+        actor_shown[i] = 0; /* l'OBJ est caché : actors_draw le sait */
+        actor_lastf[i] = 0xFF; /* palette/priorité à recalculer */
+        actor_x9[i] = 0xFF;
         route_ofs[i] = 0xFFFF; /* la page part, sa route aussi */
       }
       if (i == win && !actor_active[i])
@@ -261,6 +289,13 @@ void actors_init(void)
     actor_gfx[i] = 0xFF;
     actor_mvdir[i] = DIR_DOWN;
     actor_prio[i] = ACTOR_PRIO_SAME;
+    actor_sprite[i] = 0xFF;
+    actor_kind[i] = 0xFF;
+    actor_movet[i] = ACTOR_MOVE_STATIC;
+    actor_fbase[i] = 0;
+    actor_shown[i] = 0;
+    actor_lastf[i] = 0xFF;
+    actor_x9[i] = 0xFF; /* invalide : force la première écriture */
   }
   mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
   mv_phase = 0;
@@ -276,6 +311,11 @@ void actors_init(void)
       actor_prio[i] = a->prio_speed & 3;
       if ((a->prio_speed >> 4) >= 1 && (a->prio_speed >> 4) <= 4)
         actor_speed[i] = a->prio_speed >> 4;
+      /* copie WRAM du chemin chaud (P3) : ces champs ne bougent plus */
+      actor_sprite[i] = a->sprite_id;
+      actor_kind[i] = a->actor_type;
+      actor_movet[i] = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
+      actor_fbase[i] = (u8)(a->sprite_id * 12);
     }
     if (!ACTOR_VISIBLE(a))
       continue;
@@ -292,64 +332,184 @@ void actors_init(void)
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
   }
+  /* Le resolve_pages ci-dessus a construit la liste des bloqueurs AVANT
+     que cette boucle ne pose les positions et les priorités : elle est
+     donc à refaire ici. Tant qu'actors_update la reconstruisait à chaque
+     frame, l'erreur se corrigeait toute seule à la frame suivante. */
+  actors_rebuild_blockers();
+}
+
+/* ---- écriture directe du couple d'OBJ d'un acteur (P3) ----
+ * oamSet prend huit arguments : avec tcc-816, POSER ces arguments coûte
+ * plus cher que le travail lui-même (~125 instructions par appel, deux
+ * appels par acteur et par frame — mesuré au compteur de scanline).
+ * Ici on écrit nous-mêmes les deux entrées de l'OAM ombre (que le NMI
+ * transfère) en un seul appel.
+ * Table 2 de l'OAM : 2 bits par objet, bit 0 = 9e bit de X (indispensable
+ * pour un sprite qui déborde à gauche : X négatif), bit 1 = taille, qu'on
+ * ne touche PAS (posée une fois par oamSetEx). Les deux OBJ d'un
+ * metasprite sont consécutifs et partagent X, donc leurs deux bits
+ * tombent dans le même octet — une seule lecture-modification-écriture.
+ * Octet 3 : vhoopppN (priorité, palette, 9e bit du numéro de tile). */
+static void actor_oam_pair(u16 id, u16 sx, u16 sy, u8 f, u8 op, u8 pal)
+{
+  u16 tile = OBJ_TOP_TILE(f);
+  u16 attr = ((u16)pal << 1) | ((u16)op << 4);
+  u8 *hi = &oamMemory[512 + (id >> 4)];
+  /* Deux entrées OAM = quatre mots. Écrire en 16 bits évite huit
+     écritures 8 bits ET les bascules sep/rep que tcc-816 insère autour
+     de chaque opération sur un u8 (P3). L'OAM est en little-endian :
+     mot 0 = X | Y<<8, mot 1 = tile bas | attribut<<8. */
+  u16 *o = (u16 *)&oamMemory[id];
+  u16 x8 = sx & 0xFF;
+  u16 y8 = sy & 0xFF;
+
+  o[0] = x8 | (y8 << 8);
+  o[1] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+  tile += 32; /* OBJ_BOTTOM_TILE : la rangée du dessous */
+  o[2] = x8 | (((y8 + 16) & 0xFF) << 8);
+  o[3] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+
+  /* 9e bit de X : les deux OBJ partagent la même valeur */
+  if (((id >> 2) & 3) == 0)
+  {
+    if (sx & 0x100)
+      *hi |= 0x05;
+    else
+      *hi &= (u8)~0x05;
+  }
+  else
+  {
+    if (sx & 0x100)
+      *hi |= 0x50;
+    else
+      *hi &= (u8)~0x50;
+  }
 }
 
 void actors_draw(void)
 {
-  u8 i;
+  u8 i, ns;
   u16 ax, ay;
-  const ActorDef *a = scene_ctx.actors;
+  /* invariants sortis de la boucle (P3) : scene_ctx et camera sont des
+     structures — tcc-816 recalcule une adresse longue à CHAQUE lecture. */
+  u8 n = scene_ctx.actor_count;
+  u16 cx = camera.x;
+  u16 cy = camera.y;
+  u16 cx_max = cx + 256;
+  u16 cy_max = cy + 224 + SPRITE_Y_OVERLAP;
 
-  for (i = 0; i < scene_ctx.actor_count; i++, a++)
+  ns = (n > ACTOR_SLOTS) ? ACTOR_SLOTS : n;
+
+  /* Boucle CHAUDE (P3) : les slots, entièrement en WRAM. Séparer les deux
+     cas retire de chaque tour le test « i < ACTOR_SLOTS » (répété six
+     fois) et l'avance du pointeur far sur la table ROM, qui ne sert plus
+     ici. */
+  for (i = 0; i < ns; i++)
   {
-    /* actif d'abord (WRAM) : pas de lecture ROM pour les pages
-       inactives — même recette que actors_update/actor_at_tile */
-    if (i < ACTOR_SLOTS && !actor_active[i])
+    u8 pal, d, f;
+
+    if (!actor_active[i])
       continue; /* page inactive : OBJ déjà cachés par resolve_pages */
-    if (!ACTOR_VISIBLE(a))
-      continue;
-    if (i < ACTOR_SLOTS)
-    {
-      ax = actor_px[i];
-      ay = actor_py[i];
-    }
-    else
-    {
-      ax = (u16)a->x << 4;
-      ay = (u16)a->y << 4;
-    }
+    pal = actor_sprite[i];
+    if (pal == 0xFF)
+      continue; /* invisible */
+    ax = actor_px[i];
+    ay = actor_py[i];
 
     /* Visible ? (metasprite 16x24 ancré 8 px au-dessus de la tile vs
        fenêtre caméra 256x224) */
-    if (ax + 16 > camera.x && ax < camera.x + 256 &&
-        ay + 16 > camera.y && ay < camera.y + 224 + SPRITE_Y_OVERLAP)
+    if (ax + 16 > cx && ax < cx_max && ay + 16 > cy && ay < cy_max)
     {
-      u8 d = (i < ACTOR_SLOTS) ? actor_dirs[i] : a->direction;
-      u8 f;
+      u16 id = ACTOR_OAM_TOP(i);
+      u16 *o = (u16 *)&oamMemory[id];
+      u16 sx = ax - cx;
+      u16 sy = (ay - cy - SPRITE_Y_OVERLAP) & 0xFF;
+      u16 x8 = sx & 0xFF;
 
+      d = actor_dirs[i];
       /* graphisme changé par la route (Change Graphic) ? */
-      if (i < ACTOR_SLOTS && actor_gfx[i] != 0xFF)
-        f = (u8)(actor_gfx[i] * 12 + d * 3);
-      else
-        f = ACTOR_FRAME(a, d);
-
+      f = (actor_gfx[i] != 0xFF) ? (u8)(actor_gfx[i] * 12) : actor_fbase[i];
+      f += (u8)(d + d + d); /* dir * 3, sans multiplication */
       /* anim de marche (même motif que le joueur : pas A, repos, pas B,
          repos) pendant un pas */
-      if (i < ACTOR_SLOTS && actor_step[i])
+      if (actor_step[i])
         f += (actor_anim[i] & 1) ? (u8)(1 + (actor_anim[i] >> 1)) : 0;
 
-      u8 op = (i < ACTOR_SLOTS && actor_prio[i] == ACTOR_PRIO_ABOVE)
-                  ? 3
-                  : ACTOR_OBJ_PRIO; /* au-dessus : devant la couche sup */
+      /* Écriture OAM INLINE (P3) : passer par une fonction coûtait, à
+         cause du marshalling des arguments de tcc-816, plus que toute la
+         boucle — dix PNJ passaient de 60 à 30 fps rien qu'avec l'appel. */
+      if (f != actor_lastf[i])
+      {
+        u16 tile = OBJ_TOP_TILE(f);
+        u16 attr = ((u16)pal << 1) |
+                   ((u16)((actor_prio[i] == ACTOR_PRIO_ABOVE)
+                              ? 3
+                              : ACTOR_OBJ_PRIO)
+                    << 4);
 
-      /* oamSet gère le 9e bit de X (positions négatives au bord gauche) */
-      oamSet(ACTOR_OAM_TOP(i), ax - camera.x,
-             ay - camera.y - SPRITE_Y_OVERLAP, op, 0, 0,
-             OBJ_TOP_TILE(f), a->sprite_id);
-      oamSet(ACTOR_OAM_BOT(i), ax - camera.x,
-             ay - camera.y + 16 - SPRITE_Y_OVERLAP, op, 0, 0,
-             OBJ_BOTTOM_TILE(f), a->sprite_id);
+        actor_w1[i] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+        tile += 32; /* OBJ_BOTTOM_TILE : la rangée du dessous */
+        actor_w3[i] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
+        actor_lastf[i] = f;
+      }
+      o[0] = x8 | (sy << 8);
+      o[1] = actor_w1[i];
+      o[2] = x8 | (((sy + 16) & 0xFF) << 8);
+      o[3] = actor_w3[i];
+      /* 9e bit de X (sprite qui déborde à gauche) : les deux OBJ d'un
+         metasprite sont consécutifs et partagent X, donc leurs deux bits
+         tombent dans le même octet de la table 2. Un PNJ ne franchit ce
+         bord que rarement : on ne touche la table qu'au changement. */
+      x8 = (sx & 0x100) ? 1 : 0;
+      if (x8 != actor_x9[i])
+      {
+        u8 *hi = &oamMemory[512 + (id >> 4)];
+
+        actor_x9[i] = (u8)x8;
+        if (((id >> 2) & 3) == 0)
+        {
+          if (x8)
+            *hi |= 0x05;
+          else
+            *hi &= (u8)~0x05;
+        }
+        else
+        {
+          if (x8)
+            *hi |= 0x50;
+          else
+            *hi &= (u8)~0x50;
+        }
+      }
+      actor_shown[i] = 1;
     }
+    else if (actor_shown[i])
+    {
+      /* l'OAM n'est touché qu'au moment où l'acteur SORT du champ :
+         réécrire « caché » à chaque frame pour des PNJ que personne ne
+         voit était l'essentiel du prix d'une scène peuplée (P3). */
+      oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+      oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+      actor_shown[i] = 0;
+      actor_x9[i] = 0xFF; /* oamSetVisible a repositionné l'OBJ : cache mort */
+    }
+  }
+
+  /* Queue FROIDE : les PNJ au-delà des slots sont figés à leur position
+     d'édition — tout vient de la ROM, il n'y a pas d'état runtime. */
+  for (i = ACTOR_SLOTS; i < n; i++)
+  {
+    const ActorDef *a = &scene_ctx.actors[i];
+
+    if (!ACTOR_VISIBLE(a))
+      continue;
+    ax = (u16)a->x << 4;
+    ay = (u16)a->y << 4;
+    if (ax + 16 > cx && ax < cx_max && ay + 16 > cy && ay < cy_max)
+      actor_oam_pair(ACTOR_OAM_TOP(i), ax - cx, ay - cy - SPRITE_Y_OVERLAP,
+                     ACTOR_FRAME(a, a->direction), ACTOR_OBJ_PRIO,
+                     a->sprite_id);
     else
     {
       oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
@@ -358,8 +518,6 @@ void actors_draw(void)
   }
 }
 
-/* Un pas d'1 tile vers (tx,ty) dans la direction d est-il permis pour
-   le slot i ? (d : côtés fermés du passage directionnel, T1) */
 static u8 mv_blocked(u8 i, u8 tx, u8 ty, u8 d)
 {
   u8 j;
@@ -638,24 +796,28 @@ fini:
 void actors_update(void)
 {
   u8 i, d, tx, ty, mt;
-  const ActorDef *a = scene_ctx.actors;
   u8 frozen = vm_active();
+  u8 moved = 0; /* un acteur a-t-il changé de position cette frame ? */
+  u8 n = scene_ctx.actor_count; /* far struct : lu UNE fois (P3) */
 
+  if (n > ACTOR_SLOTS)
+    n = ACTOR_SLOTS;
   mv_phase ^= 1;
 
-  for (i = 0; i < scene_ctx.actor_count && i < ACTOR_SLOTS; i++, a++)
+  for (i = 0; i < n; i++)
   {
-    /* actif d'abord (WRAM) : pas de lecture ROM pour les pages inactives */
+    /* tout en WRAM (P3) : plus une seule lecture ROM par acteur et par
+       frame — le type et le mouvement sont recopiés au chargement */
     if (!actor_active[i])
       continue;
-    if (a->actor_type != ACTOR_TYPE_NPC_STATIC)
+    if (actor_kind[i] != ACTOR_TYPE_NPC_STATIC)
       continue;
 
     /* itinéraire prioritaire sur l'errance */
     if (route_ofs[i] != 0xFFFF)
       route_tick(i);
 
-    mt = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
+    mt = actor_movet[i];
     if (route_ofs[i] == 0xFFFF && (mt == ACTOR_MOVE_STATIC || frozen))
     {
       /* ni route ni errance : finir le pas en cours s'il y en a un */
@@ -709,6 +871,7 @@ void actors_update(void)
       {
         actor_px[i] += mv_dx[d];
         actor_py[i] += mv_dy[d];
+        moved = 1;
         actor_step[i]--;
         px--;
         if ((actor_step[i] & 7) == 0)
@@ -717,7 +880,14 @@ void actors_update(void)
     }
   }
 
-  actors_rebuild_blockers(); /* positions à jour pour la frame suivante */
+  /* PERF (P2) : la liste des bloqueurs ne dépend que des positions et des
+     pages actives. Les téléportations (SETPOS/SWAPPOS) et les changements
+     de page la reconstruisent déjà elles-mêmes ; il ne reste ici que le
+     déplacement frame par frame. Une scène de PNJ immobiles la
+     reconstruisait 60 fois par seconde pour rien — 10 % du temps de la
+     frame, mesuré au compteur de scanline. */
+  if (moved)
+    actors_rebuild_blockers();
 }
 
 u8 actor_at_tile(u8 tx, u8 ty)
@@ -749,7 +919,7 @@ u8 actor_at_tile(u8 tx, u8 ty)
         continue;
       if (ACTOR_TX(k) != tx || ACTOR_TY(k) != ty)
         continue;
-      if (scene_ctx.actors[k].actor_type != ACTOR_TYPE_NPC_STATIC)
+      if (actor_kind[k] != ACTOR_TYPE_NPC_STATIC)
         continue;
       return k;
     }

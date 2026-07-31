@@ -77,7 +77,26 @@ fn main() -> Result<()> {
         Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
         None => 0,
     };
-    let (ui_layout, ui_prims, ui_widgets) = ui::load(&proj_dir, ui_icon_count)?;
+    // Images des widgets « Image » en mode picture : elles sont ramenées
+    // à la palette de la fonte (la couche UI n'a que 4 couleurs), donc le
+    // layout a besoin de cette palette dès son chargement.
+    let ui_font_pal = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))
+        .with_context(|| format!("fonte {}", project.assets.font))?
+        .palette_n(4);
+    let ui_pic_paths: HashMap<String, String> = project
+        .pictures
+        .iter()
+        .map(|p| {
+            let p = p.path().to_string();
+            let stem = std::path::Path::new(&p)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (stem, p)
+        })
+        .collect();
+    let (ui_layout, mut ui_prims, ui_widgets, ui_pics) =
+        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal)?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
@@ -130,12 +149,36 @@ fn main() -> Result<()> {
             }
         }
     };
-    let ui_total_chars =
-        ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
+    // Images de widgets (mode picture) : leurs chars sont posés APRES les
+    // fontes supplementaires. Les primitives ne portaient jusqu'ici que
+    // l'index de l'image ; on le remplace par le char de base definitif.
+    let ui_pic_base = ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
+    let mut ui_pic_offsets: Vec<usize> = Vec::new();
+    let mut ui_pic_chars = 0usize;
+    for (_, chars, _, _) in ui_pics.iter() {
+        ui_pic_offsets.push(ui_pic_chars);
+        ui_pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
+    }
+    for p in ui_prims.iter_mut() {
+        if p.kind == 8 {
+            p.icon = (ui_pic_base + ui_pic_offsets[p.icon as usize]) as u8;
+        }
+    }
+    let ui_prims = ui_prims;
+    let ui_total_chars = ui_pic_base + ui_pic_chars;
     if ui_total_chars > 256 {
         bail!(
-            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96,              skin(s) {} x 9, {} icone(s) x 2. Retirer un style, une fonte ou des icones.",
-            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count
+            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
+             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
+             Retirer un style, une fonte, des icones, ou reduire une image.",
+            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count,
+            ui_pics.len(), ui_pic_chars
+        );
+    }
+    if ui_pic_chars > 0 {
+        println!(
+            "  ui : {} image(s) de widget -> {} chars BG3 ({} / 256 utilises)",
+            ui_pics.len(), ui_pic_chars, ui_total_chars
         );
     }
     // tables des styles : style 0 (defaut) puis les dialog_style
@@ -290,6 +333,26 @@ fn main() -> Result<()> {
         .map(|m| Path::new(m).file_stem().unwrap().to_str().unwrap().to_string())
         .collect();
 
+    // T4 — apparences TILE : la feuille de sprites est chargée AVANT la
+    // compilation des events (les blocs virtuels s'indexent après les
+    // blocs réels), le registre global collecte les (tileset, tile)
+    // rencontrés — la feuille étendue est composée après la boucle.
+    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
+        .with_context(|| format!("sprites {}", project.assets.sprites))?;
+    let real_sprite_blocks = sprites.sprite_blocks()?;
+    let mut tile_blocks: Vec<(String, u16)> = Vec::new();
+    let default_ts_stem = {
+        let first = project
+            .tilesets
+            .first()
+            .unwrap_or(&project.assets.tileset);
+        Path::new(first)
+            .file_stem()
+            .and_then(|x| x.to_str())
+            .with_context(|| format!("nom de tileset invalide : '{}'", first))?
+            .to_string()
+    };
+
     for name in &project.scenes {
         let mut scene: project::Scene =
             read_json(&proj_dir.join("scenes").join(format!("{}.json", name)))
@@ -310,6 +373,10 @@ fn main() -> Result<()> {
         // table CETAB des common events auto (offset 0, lue par le moteur),
         // même vide.
         {
+            let scene_ts = match &scene.tileset {
+                Some(t) => t.clone(),
+                None => default_ts_stem.clone(),
+            };
             let mut ec = events::EventCompiler::new(&mut texts);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
@@ -324,6 +391,9 @@ fn main() -> Result<()> {
                 &music_names,
                 &vig_names,
                 &screens,
+                &scene_ts,
+                &mut tile_blocks,
+                real_sprite_blocks,
             )?;
             scene.script.insert(0, cetab);
             scene.script.extend(asm);
@@ -614,9 +684,91 @@ fn main() -> Result<()> {
     // Sets compilés PAR SCÈNE (v0.5, comme les tilesets) : chaque scène
     // n'embarque que le bloc joueur (0) + les blocs de ses acteurs (5 max),
     // datagen remappe les sprite_id binaires vers les slots locaux.
-    let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
-        .with_context(|| format!("sprites {}", project.assets.sprites))?;
-    let sprite_blocks = sprites.sprite_blocks()?;
+    // T4 — feuille ÉTENDUE : les blocs virtuels des apparences tile sont
+    // composés à la suite des blocs réels (12 frames identiques 16x24,
+    // la tile posée lignes 8-23 : alignée sur la cellule en jeu). Les
+    // couleurs de la tile rejoignent la palette de la feuille (index 0
+    // transparent) — to_obj_sheet ré-indexe ensuite par bloc comme pour
+    // n'importe quel charset.
+    let sprites = if tile_blocks.is_empty() {
+        sprites
+    } else {
+        let mut ext = sprites;
+        let new_w = ext.width + tile_blocks.len() * 12 * 16;
+        let mut px = vec![0u8; new_w * 24];
+        for y in 0..24 {
+            px[y * new_w..y * new_w + ext.width]
+                .copy_from_slice(&ext.pixels[y * ext.width..(y + 1) * ext.width]);
+        }
+        for (k, (ts_stem, tile)) in tile_blocks.iter().enumerate() {
+            let path = tileset_paths
+                .iter()
+                .find(|t| {
+                    Path::new(t).file_stem().and_then(|x| x.to_str())
+                        == Some(ts_stem.as_str())
+                })
+                .with_context(|| {
+                    format!("apparence tile : tileset '{}' introuvable", ts_stem)
+                })?;
+            let img = gfx::load_indexed_png(&proj_dir.join(path))?;
+            let per_row = (img.width / 16).max(1);
+            let tx = (*tile as usize % per_row) * 16;
+            let ty = (*tile as usize / per_row) * 16;
+            if ty + 16 > img.height {
+                bail!(
+                    "apparence tile : tile {} hors du chipset '{}'",
+                    tile, ts_stem
+                );
+            }
+            let mut remap = [0usize; 256];
+            let fx0 = ext.width + k * 12 * 16;
+            for yy in 0..16 {
+                for xx in 0..16 {
+                    let src = img.pixels[(ty + yy) * img.width + tx + xx] as usize;
+                    if src == 0 {
+                        continue; // transparent
+                    }
+                    if remap[src] == 0 {
+                        let c = img.palette[src];
+                        remap[src] = match ext
+                            .palette
+                            .iter()
+                            .skip(1)
+                            .position(|&pc| pc == c)
+                        {
+                            Some(i) => i + 1,
+                            None => {
+                                if ext.palette.len() >= 256 {
+                                    // palette pleine : plus proche existant
+                                    let mut best = (1usize, u32::MAX);
+                                    for (i, &pc) in
+                                        ext.palette.iter().enumerate().skip(1)
+                                    {
+                                        let d = tileset::dist555(pc, c);
+                                        if d < best.1 {
+                                            best = (i, d);
+                                        }
+                                    }
+                                    best.0
+                                } else {
+                                    ext.palette.push(c);
+                                    ext.palette.len() - 1
+                                }
+                            }
+                        };
+                    }
+                    let v = remap[src] as u8;
+                    for f in 0..12 {
+                        px[(8 + yy) * new_w + fx0 + f * 16 + xx] = v;
+                    }
+                }
+            }
+        }
+        ext.width = new_w;
+        ext.pixels = px;
+        ext
+    };
+    let sprite_blocks = real_sprite_blocks + tile_blocks.len();
     let mut ss_ids: HashMap<Vec<usize>, u8> = HashMap::new();
     let mut sprite_sets: Vec<(Vec<u8>, Vec<u16>)> = Vec::new();
     let mut sprite_set_ids: Vec<u8> = Vec::new();
@@ -624,7 +776,7 @@ fn main() -> Result<()> {
     for (sci, sc) in scenes.iter().enumerate() {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for &b in &scene_gfx_blocks[sci] {
-            if (b as usize) >= sprite_blocks {
+            if (b as usize) >= real_sprite_blocks {
                 bail!(
                     "scene '{}' : pas gfx:{} — bloc hors feuille de sprites ({} bloc(s))",
                     sc.name, b, sprite_blocks
@@ -651,6 +803,10 @@ fn main() -> Result<()> {
             // deborde mais la variete d'apparences (VRAM OBJ = 16 Ko, soit
             // 5 charsets par scene, heros compris).
             let charset_name = |b: usize| -> String {
+                if b >= real_sprite_blocks {
+                    let (ts, t) = &tile_blocks[b - real_sprite_blocks];
+                    return format!("tile {} ({})", t, ts);
+                }
                 match project.charsets.get(b) {
                     Some(n) if !n.is_empty() => format!("bloc {} « {} »", b, n),
                     _ if b == 0 => "bloc 0 (heros)".to_string(),
@@ -842,11 +998,21 @@ fn main() -> Result<()> {
         let mut e_par = vec![0u8; n];
         let mut e_dx = vec![0u16; n];
         let mut e_dy = vec![0u16; n];
+        let mut e_mode = vec![0u8; n]; // 0 = front (surimpression), 1 = back (panorama)
+        let mut e_repeat = vec![1u8; n]; // 1 = répété (défile), 0 = fixe
         for (i, sc) in scenes.iter().enumerate() {
             let eff = match &sc.effect {
                 Some(e) => e,
                 None => continue,
             };
+            // Position du plan (S17) : "front" surimpression, "back" panorama
+            let is_back = match eff.mode.as_deref() {
+                None | Some("front") => false,
+                Some("back") => true,
+                Some(o) => bail!("scene '{}' : mode d'effet inconnu « {} » (front, back)", sc.name, o),
+            };
+            e_mode[i] = is_back as u8;
+            e_repeat[i] = eff.repeat.unwrap_or(true) as u8;
             let idx = pic_names.iter().position(|p| p == &eff.pic).with_context(|| {
                 format!(
                     "scene '{}' : image d'effet « {} » introuvable dans \
@@ -856,12 +1022,30 @@ fn main() -> Result<()> {
                     if pic_names.is_empty() { "aucune".to_string() } else { pic_names.join(", ") }
                 )
             })?;
+            // Le plan d'effet vit sur la palette BG 7 (le moteur l'y force).
+            // Front (nuages) : l'image DOIT être importée « avec
+            // transparence » — la transparence EST l'effet (on voit le
+            // décor entre les nuages). Back (panorama) : opaque accepté,
+            // mais la couleur d'index 0 reste transparente sur SNES (fond
+            // noir) — on avertit, l'auteur peut réimporter en choisissant
+            // une couleur transparente pour maîtriser cet index.
             if !pic_trans[idx] {
-                bail!(
-                    "scene '{}' : l'image d'effet « {} » doit être importée AVEC \
-                     transparence (le décor se voit par les pixels percés)",
-                    sc.name, eff.pic
-                );
+                if is_back {
+                    println!(
+                        "  attention : scene '{}' — panorama « {} » importe SANS \
+                         transparence : sa couleur d'index 0 sera transparente \
+                         (fond noir). Pour la maitriser, reimporter en choisissant \
+                         une couleur transparente.",
+                        sc.name, eff.pic
+                    );
+                } else {
+                    bail!(
+                        "scene '{}' : le motif d'effet « {} » (surimpression) doit \
+                         etre importe AVEC transparence — c'est ce qui laisse voir \
+                         le decor entre les nuages",
+                        sc.name, eff.pic
+                    );
+                }
             }
             let chars = pic_data[idx].0.len() / 32;
             if chars > 256 {
@@ -926,6 +1110,8 @@ fn main() -> Result<()> {
         s.push_str(&dump_u8("eff_par", &e_par));
         s.push_str(&dump_u16("eff_dx", &e_dx));
         s.push_str(&dump_u16("eff_dy", &e_dy));
+        s.push_str(&dump_u8("eff_mode", &e_mode)); /* 0 front, 1 back panorama (S17) */
+        s.push_str(&dump_u8("eff_repeat", &e_repeat)); /* 1 répété, 0 fixe */
         write_out(&out_dir, "data_effects.c", s)?;
         if e_pic.iter().any(|&p| p != 0xFF) {
             println!("  couche d'effet : active sur {} scene(s)",
@@ -1046,7 +1232,7 @@ fn main() -> Result<()> {
             println!("  tiles animees : {} sequence(s)", nseq);
         }
     }
-    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..])?)?;
+    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..], &ui_pics)?)?;
     // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
     // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)
     {
@@ -1444,6 +1630,7 @@ fn gen_font(
     project: &project::Project,
     ui_skins: &[String],
     ui_extra_fonts: &[String],
+    ui_pics: &[(String, Vec<u8>, u8, u8)],
 ) -> Result<String> {
     let font = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))?;
 
@@ -1480,6 +1667,12 @@ fn gen_font(
         gfx_bytes.extend(f.to_font_glyphs().with_context(|| {
             format!("fonte de style {}", extra)
         })?);
+    }
+    // Images des widgets « Image » (mode picture) : posées en DERNIER,
+    // dans l'ordre où le layout les rencontre — même ordre que le plan de
+    // chars calculé en tête de main (ui_pic_base).
+    for (_, chars, _, _) in ui_pics.iter() {
+        gfx_bytes.extend_from_slice(chars);
     }
     s.push_str(&emit::u8_array("font_gfx", &gfx_bytes, 16, false));
     s.push_str("\nconst u16 font_gfx_size = sizeof(font_gfx);\n\n");

@@ -16,10 +16,13 @@ void screenfx_init(void);
    scènes (modèle RM2003). */
 void screenfx_warp_reset(void);
 
-/* Fondu scripté : cacher (vers noir) / montrer (vers 15), speed = pas de
-   luminosité par frame (1-15). Bloquants côté VM via screenfx_busy. */
-void screenfx_hide(u8 speed);
-void screenfx_show(u8 speed);
+/* Fondu scripté : cacher (vers noir) / montrer (vers plein), dur =
+   DURÉE en frames (1-255, rampe 8.8). Bloquants côté VM via
+   screenfx_busy. fx (S18c) : 0 fondu, 1 instantané (dur ignoré),
+   2 mosaïque, 3-5 balayage bas/haut/centre (rideau HDMA, mêmes codes
+   que les warps). */
+void screenfx_hide(u8 dur, u8 fx);
+void screenfx_show(u8 dur, u8 fx);
 u8 screenfx_busy(void);
 
 /* Teinte : poser r/g/b (0-31) PUIS appliquer le mode — deux appels
@@ -86,6 +89,20 @@ u16 screenfx_shake_x(void);
    teinte persistante. */
 void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub);
 void screenfx_cm_hold(u8 on);
+
+/* Balayage (S18) : HDMA canal 2 → luminosité $2100 par bandes de
+   scanlines — des bandes NOIRES qui grandissent. trans : 3 = vers le
+   bas (le noir descend du haut), 4 = vers le haut (le noir monte du
+   bas), 5 = vers le centre (deux bandes se rejoignent au milieu).
+   black = total de lignes noires (0-224). À utiliser UNIQUEMENT dans
+   les boucles bloquantes de transition (warp, écran composé), un appel
+   par frame juste après WaitForVBlank : hdmafx (propriétaire de $420C
+   en régime normal) ne tourne pas pendant ces boucles et réaffirme son
+   masque au VBlank suivant la fin. */
+void screenfx_wipe_step(u8 trans, u16 black);
+void screenfx_wipe_off(void);
+/* rideau actif (S18c) — hdmafx ajoute le canal 2 à son masque $420C */
+u8 screenfx_wipe_active(void);
 
 /* Un pas d'effet par frame (boucle principale, toujours). */
 void screenfx_update(void);

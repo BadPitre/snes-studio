@@ -283,9 +283,9 @@ export default function DatabaseModal(props: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={close}>
+    <div className="modal-backdrop">
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
-        <div className="palette-title">Database</div>
+        <div className="palette-title">Database<button className="modal-x" title="Fermer" onClick={close}>✕</button></div>
         <div className="db-body">
           <div className="db-tablecol">
             <div className="evedit-cmds db-tables">
@@ -435,9 +435,9 @@ export default function DatabaseModal(props: Props) {
         </div>
       </div>
       {newTable && (
-        <div className="modal-backdrop" onClick={() => setNewTable(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="palette-title">Nouvelle table</div>
+            <div className="palette-title">Nouvelle table<button className="modal-x" title="Fermer" onClick={() => setNewTable(null)}>✕</button></div>
             <label>
               Nom technique (snake_case — fichiers et constantes C)
               <input
@@ -500,9 +500,9 @@ export default function DatabaseModal(props: Props) {
         />
       )}
       {confirmDel && cur && (
-        <div className="modal-backdrop" onClick={() => setConfirmDel(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="palette-title">Entrée référencée</div>
+            <div className="palette-title">Entrée référencée<button className="modal-x" title="Fermer" onClick={() => setConfirmDel(null)}>✕</button></div>
             <p className="hint">
               « {label(cur)} » est utilisé par : {confirmDel.join(", ")}. Les
               refs deviendront cassées (soulignées en rouge).

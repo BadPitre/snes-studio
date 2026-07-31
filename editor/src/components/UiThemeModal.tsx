@@ -13,6 +13,7 @@ import type { DialogStyle, NodeKind, UiLayout2, UiNode } from "../uilayout";
 import {
   childrenOf,
   flatten,
+  setPicSizes,
   isContainer,
   layoutToToml,
   nodeFramed,
@@ -91,6 +92,9 @@ export default function UiThemeModal(props: Props) {
   const [font, setFont] = useState<ImageBitmap | null>(null);
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
+  // pictures du projet (widget « Image » en mode picture) : bitmap par
+  // NOM (le stem, comme dans les commandes d'event)
+  const [pics, setPics] = useState<Record<string, ImageBitmap>>({});
   const [selId, setSelId] = useState<string | null>(null);
   // mode dialogues (S1) : boîte sélectionnée — 0 = défaut, i+1 = styles[i] ;
   // skin/fonte PROPRES au style pour la preview
@@ -126,6 +130,32 @@ export default function UiThemeModal(props: Props) {
       void loadAssetPng(props.root, ui.icons).then(setIcons).catch(() => setIcons(null));
     else setIcons(null);
   }, [ui.icons, props.root]);
+  // Les images des widgets sont dimensionnées par l'image elle-même : le
+  // designer a besoin de leurs tailles pour placer et vérifier le layout.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const out: Record<string, ImageBitmap> = {};
+      for (const e of props.project.pictures ?? []) {
+        const p = typeof e === "string" ? e : e.path;
+        try {
+          out[assetStem(p)] = await loadAssetPng(props.root, p);
+        } catch {
+          /* image illisible : ignorée, le nœud signalera l'absence */
+        }
+      }
+      if (alive) setPics(out);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.project.pictures, props.root]);
+  useEffect(() => {
+    const sizes: Record<string, [number, number]> = {};
+    for (const [name, bmp] of Object.entries(pics))
+      sizes[name] = [Math.ceil(bmp.width / 8), Math.ceil(bmp.height / 8)];
+    setPicSizes(sizes);
+  }, [pics]);
   // assets PROPRES au style sélectionné (S1) — absents = ceux du thème
   const curStyle = styleIdx > 0 ? lay?.styles[styleIdx - 1] : undefined;
   useEffect(() => {
@@ -167,7 +197,7 @@ export default function UiThemeModal(props: Props) {
   }, [widgetFontKey, props.root]);
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
-  const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount]);
+  const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount, pics]);
 
   const iconUrls = useMemo(() => {
     if (!icons) return [] as string[];
@@ -268,6 +298,15 @@ export default function UiThemeModal(props: Props) {
         case 6:
           for (let k = 0; k < p.w; k++) icon(p.icon + k, (x0 + k) * 8, y0 * 8);
           break;
+        case 8: {
+          // image du projet : on montre l'image telle qu'elle est. En jeu
+          // elle sera ramenée aux 4 couleurs de la fonte (rappel affiché
+          // dans l'inspecteur) — l'aperçu situe et dimensionne, il ne
+          // simule pas la réduction de couleurs.
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
+          break;
+        }
         case 0: {
           text(p.text, x0, y0, cw - 1, pf);
           const val = "42";
@@ -589,7 +628,7 @@ export default function UiThemeModal(props: Props) {
   );
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal uitheme" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">
           {props.mode === "dialogs"
@@ -597,7 +636,7 @@ export default function UiThemeModal(props: Props) {
             : view === "list"
               ? "UI — Widgets"
               : `UI — Designer « ${scope ?? "écran"} »`}
-        </div>
+        <button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         {props.mode === "dialogs" && (
           <div className="uitheme-listview">
             <div className="uitheme-listcol">
@@ -1125,7 +1164,7 @@ export default function UiThemeModal(props: Props) {
                       </span>
                     </label>
                   )}
-                  {(sel.type === "value" || sel.type === "image" || sel.type === "icon_value") &&
+                  {(sel.type === "value" || (sel.type === "image" && !sel.pic) || sel.type === "icon_value") &&
                     num(
                       sel.type === "value" ? "Chiffres (1-5)" : sel.type === "image" ? "Icônes (largeur)" : "Largeur",
                       sel.width ?? (sel.type === "value" ? 3 : sel.type === "image" ? 1 : 4),
@@ -1199,7 +1238,57 @@ export default function UiThemeModal(props: Props) {
                       Cadre
                     </label>
                   )}
-                  {(sel.type === "gauge" || sel.type === "icon_row" || sel.type === "icon_value" || sel.type === "image") && (
+                  {sel.type === "image" && (
+                    <>
+                      <label>
+                        Source
+                        <select
+                          value={sel.pic ? "pic" : "icon"}
+                          onChange={(e) =>
+                            patchNode(sel.id, {
+                              pic:
+                                e.target.value === "pic"
+                                  ? Object.keys(pics)[0] ?? ""
+                                  : undefined,
+                            })
+                          }
+                        >
+                          <option value="icon">Icônes de la planche</option>
+                          <option value="pic">Image du projet</option>
+                        </select>
+                      </label>
+                      {sel.pic !== undefined && (
+                        <>
+                          <label>
+                            Image
+                            <select
+                              value={sel.pic}
+                              onChange={(e) => patchNode(sel.id, { pic: e.target.value })}
+                            >
+                              {Object.keys(pics).length === 0 && (
+                                <option value="">aucune image dans le projet</option>
+                              )}
+                              {Object.keys(pics).map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <span className="hint">
+                            {pics[sel.pic]
+                              ? `${pics[sel.pic].width}x${pics[sel.pic].height} px = ${Math.ceil(
+                                  pics[sel.pic].width / 8
+                                )}x${Math.ceil(pics[sel.pic].height / 8)} tuiles.`
+                              : ""}{" "}
+                            La couche UI n'a que 4 couleurs : l'image y est ramenée à
+                            celles de la fonte, comme les icônes. Prépare-la dans ces
+                            teintes (sinon elle ressortira en aplats).
+                          </span>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {(sel.type === "gauge" || sel.type === "icon_row" || sel.type === "icon_value" ||
+                    (sel.type === "image" && sel.pic === undefined)) && (
                     <>
                       <span className="hint">
                         Icône : {sel.icon ?? 0}

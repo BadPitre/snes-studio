@@ -29,9 +29,9 @@ export default function SettingsModal({ config, onSave, onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Réglages (cette machine)</div>
+        <div className="panel-title">Réglages (cette machine)<button className="modal-x" title="Fermer" onClick={onClose}>✕</button></div>
         <label>
           Bash MSYS2 (pour « make »)
           <div className="row">
@@ -48,6 +48,12 @@ export default function SettingsModal({ config, onSave, onClose }: Props) {
             </button>
           </div>
         </label>
+        <p className="hint">
+          Le bouton « Jouer » compile le projet via ce shell (datagen puis
+          make) et lance la ROM dans l'émulateur. La variable
+          d'environnement <code>PVSNESLIB_HOME</code> doit être définie dans
+          votre profil MSYS2.
+        </p>
         <label>
           Émulateur (chemin du .exe)
           <div className="row">
@@ -64,23 +70,17 @@ export default function SettingsModal({ config, onSave, onClose }: Props) {
             </button>
           </div>
         </label>
-        <p className="hint">
-          « Jouer » enchaîne datagen → make (MSYS2) → émulateur sur le ROM
-          compilé. PVSNESLIB_HOME doit être défini dans ton profil MSYS2.
-        </p>
-        <label className="row" style={{ alignItems: "center", gap: 6 }}>
+        <label
+          className="check"
+          title="En jeu, Start + Select + R affiche/cache le panneau (FPS, lag, occupation des banks). Jamais inclus dans le build cartouche."
+        >
           <input
             type="checkbox"
             checked={debug}
             onChange={(e) => setDebug(e.target.checked)}
           />
-          Menu de debug dans la ROM de test
+          Menu de debug dans la ROM de test (Start + Select + R)
         </label>
-        <p className="hint">
-          En jeu, <b>Start + Select + R</b> affiche/cache le panneau : FPS,
-          frames de retard (lag) et occupation des banks scènes/textes.
-          Jamais inclus dans le build cartouche.
-        </p>
         <div className="row">
           <button onClick={() => onSave({ bash, emulator, debug })}>Enregistrer</button>
           <button onClick={onClose}>Annuler</button>

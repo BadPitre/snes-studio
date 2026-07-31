@@ -237,6 +237,15 @@ pub struct Effect {
     /// motif est fixe à l'écran (très lointain), seule la dérive bouge
     #[serde(default)]
     pub parallax: Option<String>,
+    /// Position du plan (S17) : "front" (défaut) = surimpression au-dessus
+    /// du jeu (nuages, brume) ; "back" = PANORAMA derrière la carte, vu
+    /// par les tuiles gommées de la couche basse (façon RPG Maker).
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Panorama : répéter l'image (défaut true = motif qui boucle et peut
+    /// défiler) ou non (false = image fixe unique, sans défilement).
+    #[serde(default)]
+    pub repeat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -251,6 +260,26 @@ pub struct Warp {
     /// "right"), absente = conserver (WarpDef.flags, spec §1.5)
     #[serde(default)]
     pub dir: Option<String>,
+    /// S18 — transition : "fade" (défaut), "none" (instantané),
+    /// "mosaic" (mosaïque $2106) — WarpDef.trans
+    #[serde(default)]
+    pub trans: Option<String>,
+}
+
+/// Code moteur d'une transition d'écran (S18/S18b)
+pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
+    Ok(match trans.as_deref() {
+        None | Some("") | Some("fade") => 0,
+        Some("none") => 1,
+        Some("mosaic") => 2,
+        Some("wipe_down") => 3,
+        Some("wipe_up") => 4,
+        Some("wipe_center") => 5,
+        Some(o) => anyhow::bail!(
+            "transition inconnue : '{}' (fade, none, mosaic, wipe_down, wipe_up, wipe_center)",
+            o
+        ),
+    })
 }
 
 #[derive(Deserialize)]
@@ -324,6 +353,11 @@ pub struct Event {
     /// Bloc de personnage ; -1 = invisible (touch/auto)
     #[serde(default = "minus_one")]
     pub sprite: i16,
+    /// T4 — apparence TILE : id de grille de la couche haute du tileset
+    /// de la scène (exclusif avec sprite ; datagen compose un bloc de
+    /// sprite virtuel depuis la tile)
+    #[serde(default)]
+    pub tile: Option<u16>,
     #[serde(default = "dir_down")]
     pub dir: String,
     /// Label d'un script écrit à la main (avancé) — ignoré si commands
@@ -362,6 +396,9 @@ pub struct EventPage {
     pub trigger: String,
     #[serde(default = "minus_one")]
     pub sprite: i16,
+    /// T4 — apparence tile (voir Event::tile)
+    #[serde(default)]
+    pub tile: Option<u16>,
     #[serde(default = "dir_down")]
     pub dir: String,
     #[serde(default)]

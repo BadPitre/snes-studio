@@ -266,13 +266,26 @@ Offset  Taille  Champ
 4       1       dest_y       (u8)
 5       1       flags        (u8) — v0.16 : bits 0-2 = direction d'arrivée
                              du héros (0 = conserver, 1-4 = DIR_* + 1)
-6       2       reserved
+6       1       trans        (u8) — S18 : transition d'écran — 0 fondu
+                             (défaut), 1 instantané, 2 mosaïque ($2106
+                             BG1-3 couplée à la luminosité)
+7       1       reserved
 ```
 
 Comportement moteur : quand la tile centrale du joueur ENTRE sur une tile
 de collision 0x02, le warp correspondant est cherché dans la table ; la
-transition v0 est fondu sortant → chargement de la scène cible (vars VM
-remises à zéro, gvars conservées) → fondu entrant. Pas de re-déclenchement
+transition est fermeture → chargement de la scène cible (vars VM
+remises à zéro, gvars conservées) → ouverture, selon le champ trans
+(S18) : fondu (défaut, recette historique setFadeEffect), instantané
+(coupe sèche), ou mosaïque — $2106 sur BG1-3, la taille des blocs monte
+pendant que la luminosité descend (16 pas, 1 frame chacun), et l'inverse
+à l'arrivée. S18b — balayages (rideau noir HDMA canal 2 sur $2100,
+bandes de scanlines) : 3 = wipe_down (le noir descend du haut), 4 =
+wipe_up (le noir monte du bas), 5 = wipe_center (deux bandes se
+rejoignent au milieu) — et l'inverse à l'ouverture. JSON : `"trans":
+"fade" | "none" | "mosaic" | "wipe_down" | "wipe_up" | "wipe_center"`
+(absent = fondu) sur l'entrée warp, et le même champ sur les commandes
+d'event warp / warp_var / screen / stage_open / stage_close. Pas de re-déclenchement
 tant que le joueur n'a pas quitté puis retrouvé une tile de warp.
 v0.16 : à l'arrivée, la direction du héros est celle des flags — ou
 CONSERVÉE (modèle « Retain » de RM2003) si les flags valent 0 ; les warps
@@ -357,7 +370,7 @@ pour donner, `JEQ g<n> 1 <label>` pour tester.
 | 0x07 | SETGVAR | var (u8), val (u8) | gvars[var] = val (alias historique de SETVAR g) |
 | 0x08 | JGEQ | var (u8), val (u8), offset (u16) | si var >= val → saut (utile compteurs) |
 | 0x09 | CHOICE | var (u8), count (u8), count × text_id (u16) | **Bloquant.** Affiche 2-4 options (une par ligne, curseur `>` haut/bas), A valide → var = index choisi (0..count-1) |
-| 0x0A | WARP | scene (u8), x (u8), y (u8) | Téléporte le héros (fondu, rechargement complet) et **termine le script** — le bloc scripts change de scène |
+| 0x0A | WARP | scene (u8), x (u8), y (u8), trans (u8) | Téléporte le héros (rechargement complet) et **termine le script** — le bloc scripts change de scène. trans (S18) : 0 fondu, 1 instantané, 2 mosaïque |
 | 0x0B | FACE | acteur (u8), dir (u8) | Tourne l'acteur (index dans la table d'acteurs) vers dir (0=bas 1=haut 2=gauche 3=droite) |
 
 *Évolution v0 → v0.6 (demande explicite) : CHOICE (Show Choices RM2003),
@@ -474,7 +487,7 @@ Les 512 switches (64 octets de bits) et 256 variables 16-bit sont
 
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
-| 0x19 | WARPV | vs u8, vx u8, vy u8 | téléporte le héros à la scène `vars16[vs]`, tile (`vars16[vx]`, `vars16[vy]`) et TERMINE le script (comme WARP — le bloc scripts change de scène) |
+| 0x19 | WARPV | vs u8, vx u8, vy u8, trans u8 | téléporte le héros à la scène `vars16[vs]`, tile (`vars16[vx]`, `vars16[vy]`) et TERMINE le script (comme WARP — le bloc scripts change de scène). trans (S18) : 0 fondu, 1 instantané, 2 mosaïque |
 | 0x1A | SETPOS | acteur u8, src u8, x u8, y u8 | place l'event sur la tile (x,y) — acteur 0xFF = l'event du script ; src : 0 constantes, 1 = x/y sont des numéros de variables 16-bit. Coupe le pas de marche en cours. |
 | 0x1B | SWAPPOS | a u8, b u8 | échange les positions de deux events (0xFF = l'event du script) |
 
@@ -486,8 +499,8 @@ sur les mêmes variables.
 
 | Opcode | Nom | Opérandes | Effet |
 |---|---|---|---|
-| 0x1C | SCRHIDE | vitesse u8 (1-15) | fondu vers le noir (INIDISP, `vitesse` niveaux de luminosité par frame), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume) |
-| 0x1D | SCRSHOW | vitesse u8 | fondu entrant, BLOQUANT |
+| 0x1C | SCRHIDE | durée u8 (1-255 frames, rampe 8.8 — S18d), fx u8 | cache l'écran (INIDISP), BLOQUANT — l'écran reste caché jusqu'à SCRSHOW (un warp le rallume). fx (S18c) : 0 fondu, 1 instantané (vitesse ignorée), 2 mosaïque couplée au fondu, 3-5 balayage bas/haut/centre (rideau HDMA canal 2, masque composé par hdmafx — actif aussi sur picture/écran composé) |
+| 0x1D | SCRSHOW | durée u8 (frames), fx u8 | montre l'écran, BLOQUANT — mêmes fx que SCRHIDE (le balayage se rejoue à l'envers) |
 | 0x1E | TINT | mode u8, r u8, g u8, b u8 | teinte du décor : 0 normale, 1 éclaircir (addition), 2 assombrir (soustraction), composantes 0-31 — color math couleur fixe ($2130-$2132) sur BG1+BG2+fond ; BG3 (textbox) exclu, et les OBJ ne participent pas (palettes 0-3, limite hardware). Immédiate, persiste entre les scènes (réaffirmée après warp). |
 | 0x1F | FLASH | r u8, g u8, b u8, frames u8 | addition décroissant linéairement sur `frames`, puis la teinte courante revient — NON bloquant |
 | 0x20 | SHAKE | power u8 (0-8), vitesse u8 (1-8), frames u8 | secousse : offset de scroll horizontal ±power px alternant toutes `vitesse` frames pendant `frames` frames ; power 0 = stop — NON bloquant |
@@ -551,10 +564,10 @@ l'acteur qui a lancé le script appelant (0xFF dans un parallel).
 | 0x2F | SPOTLIGHT | radius u8, dark u8 | **S16** — SPOTLIGHT : cercle de lumière radius 16-96 px (0 = off) qui SUIT le héros (grotte, nuit, torche). Le décor est assombri (soustraction dark,dark,dark, 1-31) HORS de la fenêtre couleur W1 (WOBJSEL 0x20, CGWSEL 0x20 = color math coupé À L'INTÉRIEUR, CGADSUB 0xA3) ; le cercle est tracé par le **canal HDMA 3** (mode 1, WH0/WH1 $2126-27) depuis une table `[count][gauche][droite]` en bandes de 2 lignes. Demi-largeurs précalculées À LA COMMANDE (racine par différences — ni multiplication ni racine) ; table reconstruite SEULEMENT quand le héros/la caméra bouge, étalée sur DEUX frames (moitié haute puis basse, centre gelé — retard ≤ 3 px invisible) avec chemin rapide u8 sans clamp quand le cercle ne touche pas les bords : la marche tient 60 FPS (panneau S6 ; en une passe indexée c'était 30). Immobile : coût nul. REMPLACE teinte et dégradé ; TINT/TINTG/SKYGRAD le retire (même circuit). NON bloquant, état GLOBAL persistant ; inerte pendant un flash (tout l'écran flashe), coupé sous mélange et picture. Sprites et texte BG3 visibles partout (hardware, comme la teinte). |
 | 0x30 | PLAYSFX | id u8 | **B1** — joue un SON : échantillon BRR 8 kHz de `data_sfx.c` (toujours émis — module `sfx` de datagen : WAV du projet → mono → ré-échantillonnage 8 kHz → encodeur BRR maison, filtres 0-3 et shift par recherche exhaustive). La région d'effets du SPC (SFX_REGION pages de 256 o dans audio_cfg.h) est dimensionnée sur le PLUS GROS son et allouée AU BOOT (spcAllocateSoundRegion coupe le module en cours — jamais après la première musique) ; chaque spcPlaySound y recharge son échantillon (modèle PVSnesLib). spcPlaySound indexe À REBOURS (0 = dernier chargé) — audio_play_sfx remet à l'endroit. Budgets : ≤ 8 Ko BRR par son (~1,8 s), ≤ 16 sons, ≤ 24 Ko au total. NON bloquant, se superpose à la musique. Id hors bornes : ignoré. |
 | 0x31 | PLAYBGM | id u8 | **B1** — change la MUSIQUE : module du soundbank (music_id du projet), 0xFF = silence. NON bloquant, sans effet si déjà la musique courante. PAS instantané : le module est streamé vers le SPC par la file de messages (jusqu'à quelques secondes pour un gros .it). La musique de la SCÈNE reprend au prochain warp (do_warp réaffirme scene_ctx.music_id — modèle RM2003). |
-| 0x32 | STAGEOPEN | pic u8 (0xFF = noir), dur u8 | **B3** — ouvre l'ÉCRAN COMPOSÉ : la vue de la scène est remplacée par un fond plein écran (une PICTURE, opaque de préférence — un fond à transparence est affiché quand même, sa palette posée aussi en 7) sur lequel se posent jusqu'à 5 images. Plan VRAM : BG2 = fond (chars dans la région OBJ $4000, carte 32x32 en $7000), BG1 = images posées (chars région tileset $2000, char 0 réservé transparent, carte 32x32 dans le creux $7800), BG3 (dialogues/HUD) intact. Palettes : fond -> BG 0, slot i -> BG 2+i, fonte (CGRAM 16-19) préservée. Sprites de la scène cachés (player/actors/weather_draw gelés), ondulation/dégradé/spotlight suspendus, teinte/flash/secousse ACTIFS. Transition sous fondu (dur frames/sens, recette do_warp) depuis la boucle principale ; 1 frame de pause VM. Une picture affichée est fermée (picture_reset). |
+| 0x32 | STAGEOPEN | pic u8 (0xFF = noir), dur u8, trans u8 (S18 : 0 fondu, 1 instantané, 2 mosaïque) | **B3** — ouvre l'ÉCRAN COMPOSÉ : la vue de la scène est remplacée par un fond plein écran (une PICTURE, opaque de préférence — un fond à transparence est affiché quand même, sa palette posée aussi en 7) sur lequel se posent jusqu'à 5 images. Plan VRAM : BG2 = fond (chars dans la région OBJ $4000, carte 32x32 en $7000), BG1 = images posées (chars région tileset $2000, char 0 réservé transparent, carte 32x32 dans le creux $7800), BG3 (dialogues/HUD) intact. Palettes : fond -> BG 0, slot i -> BG 2+i, fonte (CGRAM 16-19) préservée. Sprites de la scène cachés (player/actors/weather_draw gelés), ondulation/dégradé/spotlight suspendus, teinte/flash/secousse ACTIFS. Transition sous fondu (dur frames/sens, recette do_warp) depuis la boucle principale ; 1 frame de pause VM. Une picture affichée est fermée (picture_reset). |
 | 0x33 | STAGEPOSE | slot u8 (0-4), pic u8, tx u8, ty u8 | **B3** — POSE une picture sur l'écran composé, position en TILES. BLOQUANT (VM_WAIT_STAGE) : transfert ÉTALÉ écran allumé — chars par morceaux de 1 Ko/VBlank, palette (couleurs 1-15 -> palette BG 2+slot), effacement de l'ancienne région, carte 2 rangées/frame (bâties HORS VBlank, entrées réécrites (char & 0x3FF) + base | pal<<10). Allocateur de chars APPEND (budget 511, char 0 transparent) : même image re-posée = déplacement (carte seule, chars conservés) ; pose au-delà du budget = ignorée (fermer/rouvrir libère). Position clampée à l'écran. Chevauchement de deux slots non supporté (couche unique — les cellules du dernier posé gagnent). |
 | 0x34 | STAGECLEAR | slot u8 | **B3** — retire l'image du slot : sa région de carte est effacée (2 rangées/VBlank, BLOQUANT court). Les chars restent alloués — re-poser la même image ne recoûte que la carte. |
-| 0x35 | STAGECLOSE | dur u8 | **B3** — ferme l'écran composé : fondu sortant puis WARP INTERNE vers la scène courante au tile du héros (do_warp) — décor, sprites, palettes, ambiances et MUSIQUE de la scène restaurés d'un bloc. Effet de bord assumé et documenté : les PNJ déplacés reviennent à leur position de page, comme après une téléportation. Les VIGNETTES encore affichées sont masquées à la fermeture (mise en scène de l'écran). La direction du héros est CONSERVÉE (le warp interne n'a pas de direction d'arrivée). Un vrai warp pendant l'écran composé passe par stage_reset (scene_load recharge tout). |
+| 0x35 | STAGECLOSE | dur u8, trans u8 (S18 : 0 fondu, 1 instantané, 2 mosaïque — appliqué à la fermeture ET à la réapparition de la map) | **B3** — ferme l'écran composé : fondu sortant puis WARP INTERNE vers la scène courante au tile du héros (do_warp) — décor, sprites, palettes, ambiances et MUSIQUE de la scène restaurés d'un bloc. Effet de bord assumé et documenté : les PNJ déplacés reviennent à leur position de page, comme après une téléportation. Les VIGNETTES encore affichées sont masquées à la fermeture (mise en scène de l'écran). La direction du héros est CONSERVÉE (le warp interne n'a pas de direction d'arrivée). Un vrai warp pendant l'écran composé passe par stage_reset (scene_load recharge tout). |
 | 0x36 | SLOTFX | slot u8 (0-4), fx u8, dur u8 | **B4** — effet de PALETTE sur une image posée : 0 = restaurer (ROM), 1 = flash blanc dur frames (le VBlank pousse la palette blanche tant que l'effet court, puis l'ombre revient), 2 = fondu vers noir (mort — 5 paliers de demi-teintes BGR555 `(v>>1) & 0x3DEF`, un shift + un masque par couleur, JAMAIS de multiplication), 3 = assombrir d'un cran (persistant, cumulable — poison/pierre). Une OMBRE WRAM de 15 couleurs par slot, poussée par DMA CGRAM de 30 octets (UNE palette par VBlank). NON bloquant ; seul CE slot est touché. Hors écran composé ou slot vide : ignoré. |
 | 0x37 | VIGSHOW | slot u8 (0-1), vig u8, x u8, y u8, anchor u8 | **B5** — affiche une VIGNETTE : sprite 32x32 (OBJ_LARGE, une seule entrée OAM) depuis `data_vig{i}.c` (bande de frames 32x32 émise par datagen, 16 chars OBJ par frame en 4 rangées de 4). Ressources réservées : OAM 96-97, chars OBJ 384-447 (les sprite sets plafonnent en dessous, la météo est en 484+), palettes OBJ 5 (slot 0) et 6 (slot 1). Seule la frame COURANTE vit en VRAM : un changement = 4 DMA de 128 octets (un slot par VBlank). anchor 0 = position écran, 1 = accrochée au héros (x/y = offsets SIGNÉS). Persiste entre les scènes (SAUF fermeture d'écran composé : STAGECLOSE masque les deux slots) ; rechargée après picture_hide, player_init (warp) et l'ouverture d'un écran composé (vig_reload — région OBJ/CGRAM écrasées) ; fond d'écran composé > 384 chars uniques = collision documentée (rare). Fonctionne sur la map ET l'écran composé. |
 | 0x38 | VIGPLAY | slot u8, mode u8, speed u8 | **B5** — anime la vignette : mode 0 = stop (fige la frame), 1 = UNE FOIS PUIS CACHE (coup d'épée, explosion — l'animation se range seule), 2 = boucle ; speed = frames d'affichage par image. NON bloquant. |
@@ -672,6 +685,8 @@ Choix du moteur, pas des données — documenté ici pour référence :
 | Adresse VRAM (words) | Contenu |
 |----------------------|---------|
 | $0000 | Tilemap BG1, SC_64x64 — **couche supérieure** (8 Ko). **Scènes à COUCHE D'EFFET (S9)** : région REPURPOSÉE — chars du motif à $0000-$1000 (≤ 256, validé datagen), carte 32x32 au creux $1C00 ; BG1 porte le motif (scroll = dérive, pas la caméra), map.c n'y écrit plus. Registre `data_effects.c` (toujours émis) : `eff_pic[]` (0xFF = aucune), `eff_blend[]`, `eff_par[]` (S11 : scroll += camera >> n, 0 = fixe), `eff_dx[]`/`eff_dy[]` (pas 8.8/frame). Entrées avec bit de priorité (motif devant les sprites) ; mélange : sub screen BG2+OBJ, teinte/flash suspendus. |
+
+**S17 — PANORAMA (couche d'effet mode « back ») :** même plan et même machinerie que S9, mais le motif passe DERRIÈRE la carte au lieu d'au-dessus. `eff_mode[]` (0 front, 1 back) et `eff_repeat[]` (1 répété/défile, 0 fixe) s'ajoutent à `data_effects.c`. En back : les entrées de carte du motif n'ont PAS le bit de priorité (BG1 basse priorité, BG1.0), aucun color math (opaque), et `map.c` force le bit de priorité sur TOUTE la couche basse (BG2.1) — l'ordre Mode 1 place alors BG2.1 devant BG1.0, donc le sol couvre le panorama sauf sur les tuiles GOMMÉES (S10, transparentes) qui le laissent voir. Sprites (OBJ prio 2) devant tout. Le panorama vit sur la palette BG 7 (image importée « avec transparence », index 0 transparent). `repeat=0` : dérive et parallaxe forcées à zéro (image fixe). Contrainte : comme S9, la scène perd sa couche supérieure de décor (BG1 est le panorama).
 | $1000 | Characters BG3 2bpp (fonte textbox : char 0 transparent + 96 glyphes ASCII 32-127) |
 | $1800 | Tilemap BG3, SC_32x32 (textbox) |
 | $2000 | Characters BG1+BG2 (tileset 4bpp partagé) |

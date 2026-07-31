@@ -17,6 +17,11 @@
  *   7 list             — menu à curseur (B6) : items dans ui_ov_label
  *                        séparés par '\n', 1 colonne réservée au
  *                        curseur '>' — piloté par l'opcode LISTSEL
+ *   8 image (picture)  — une PICTURE du projet posée dans la couche UI :
+ *                        datagen la convertit en chars 2bpp ramenés aux
+ *                        4 couleurs de la fonte (aucune palette libre :
+ *                        le tileset occupe les couleurs 0-127), et
+ *                        ui_ov_icon porte le char de base — STATIQUE
  * ui_ov_frame : cadre 9-slice/boîte, ou widget nu sur le jeu.
  * Icônes : chars UI_ICON_BASE+n (planche ui.icons, après le windowskin) ;
  * gauge/icon_row : icon, icon+1, icon+2 = pleine, demie, vide.
@@ -113,7 +118,7 @@ static void ov_draw(u8 i)
   u8 f = ui_ov_frame[i];
   u8 fb = ui_ov_font[i]; /* base fonte du texte de la prim (S2) */
   u8 cx, cy, sy, d, cells, k, fill;
-  u16 base, v, units;
+  u16 base, v, units, ch;
   const char *l;
 
   if (f)
@@ -198,6 +203,16 @@ static void ov_draw(u8 i)
   case 6: /* image : icônes consécutives de la planche */
     for (k = 0; k < w; k++)
       ui_map[base + x + k] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + k);
+    break;
+
+  case 8: /* image : PICTURE du projet, convertie en chars de la couche UI
+             par datagen (4 couleurs, palette de la fonte). Les chars sont
+             consécutifs, rangée par rangée — ui_ov_icon porte ici le char
+             de BASE absolu, pas un index dans la planche d'icônes. */
+    ch = ui_ov_icon[i];
+    for (cy = 0; cy < h; cy++)
+      for (k = 0; k < w; k++)
+        ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
     break;
 
   case 7: /* list (B6) : un item par rangée, colonne 0 = curseur '>' */

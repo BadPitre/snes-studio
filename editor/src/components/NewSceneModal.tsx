@@ -27,9 +27,9 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
     width * height <= 8192;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Nouvelle scène</div>
+        <div className="panel-title">Nouvelle scène<button className="modal-x" title="Fermer" onClick={onClose}>✕</button></div>
         <p className="hint">Créée sous : {parent ?? "racine du projet"}</p>
         <label>
           Nom (a-z, 0-9, _)

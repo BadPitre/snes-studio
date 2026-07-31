@@ -171,7 +171,20 @@ export default function MapCanvas(props: Props) {
     // événements — apparence = sprite ; sans apparence = marqueur (orange
     // "C" contact, cyan "A" auto, gris "E" action invisible)
     scene.events.forEach((ev, i) => {
-      const visible = ev.sprite >= 0; // l'apparence s'affiche quel que soit le déclencheur
+      // l'apparence s'affiche quel que soit le déclencheur ; T4 : une
+      // apparence TILE (couche haute) se dessine sur la cellule même
+      if (ev.tile !== undefined && tileset) {
+        const sx = (ev.tile % perRow) * 16;
+        const sy = Math.floor(ev.tile / perRow) * 16;
+        ctx.drawImage(tileset, sx, sy, 16, 16, ev.x * TS, ev.y * TS, TS, TS);
+        if (evLayer) {
+          ctx.strokeStyle = i === props.selectedEvent ? "#ffe020" : "rgba(255,255,255,0.85)";
+          ctx.lineWidth = i === props.selectedEvent ? 3 : 1.5;
+          ctx.strokeRect(ev.x * TS + 1.5, ev.y * TS + 1.5, TS - 3, TS - 3);
+        }
+        return;
+      }
+      const visible = ev.sprite >= 0;
       if (!visible) {
         const color =
           ev.trigger === "auto"

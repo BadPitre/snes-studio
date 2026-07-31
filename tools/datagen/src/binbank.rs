@@ -256,7 +256,8 @@ pub fn build_scene_bank(
                 None => 0,
                 Some(d) => crate::project::dir_code(d)? + 1,
             });
-            blob.push(0);
+            // trans (S18) : 0 fondu, 1 instantané, 2 mosaïque
+            blob.push(crate::project::trans_code(&wp.trans)?);
             blob.push(0);
         }
 

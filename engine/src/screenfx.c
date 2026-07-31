@@ -10,11 +10,19 @@
 #include <snes.h>
 #include "screenfx.h"
 
-/* Fondu scripté ($2100) — niveau 0 (noir) à 15 (plein) */
-static u8 fade_level;
-static u8 fade_target;
-static u8 fade_speed;
+/* Fondu scripté ($2100) — niveau 8.8 : 0x0000 (noir) à 0x0F00 (plein).
+   Durée en FRAMES (1-255, S18c) — un pas 8.8 par frame, comme les
+   fondus des écrans composés : les rampes lentes (1 s+) sont possibles. */
+static u16 fade_lvl8;
+static u16 fade_tgt8;
+static u16 fade_step;
 static u8 fade_dirty;
+/* Transition du fondu scripté (S18c) : 0 fondu, 1 instantané, 2 mosaïque,
+   3-5 balayage (bas/haut/centre) — même codes que les warps */
+static u8 fade_fx;
+static u8 mos_fix; /* une écriture MOSAIC=0 au prochain VBlank (reliquat
+                      d'un hide mosaïque quand la commande suivante ne
+                      l'utilise pas) */
 
 /* Teinte : color math add/sub de la couleur fixe sur BG1+BG2+fond (les
    OBJ des palettes 0-3 ne participent jamais — hardware). BG3 (textbox)
@@ -57,10 +65,12 @@ static u8 tg_rn, tg_gn, tg_bn;  /* sens du pas (1 = décroît) */
 
 void screenfx_init(void)
 {
-  fade_level = 15; /* init EXPLICITE de tous les statics (tcc) */
-  fade_target = 15;
-  fade_speed = 1;
+  fade_lvl8 = 0x0F00; /* init EXPLICITE de tous les statics (tcc) */
+  fade_tgt8 = 0x0F00;
+  fade_step = 0x0F00;
   fade_dirty = 0;
+  fade_fx = 0;
+  mos_fix = 0;
   tint_mode = 0;
   tint_r = 0;
   tint_g = 0;
@@ -134,30 +144,37 @@ u8 screenfx_cm_held(void)
 
 void screenfx_warp_reset(void)
 {
-  fade_level = 15; /* le fondu du warp laisse l'écran allumé */
-  fade_target = 15;
+  fade_lvl8 = 0x0F00; /* le fondu du warp laisse l'écran allumé */
+  fade_tgt8 = 0x0F00;
   fade_dirty = 0;
+  fade_fx = 0; /* un scr_hide interrompu par un warp ne laisse rien */
+  mos_fix = 0;
+  screenfx_wipe_off();
   flash_timer = 0;
   shake_power = 0;
   shake_frames = 0;
   cm_dirty = 1; /* réaffirme la teinte (persistante) sur la nouvelle scène */
 }
 
-void screenfx_hide(u8 speed)
+void screenfx_hide(u8 dur, u8 fx)
 {
-  fade_target = 0;
-  fade_speed = speed ? speed : 1;
+  fade_tgt8 = 0;
+  fade_step = fx == 1 ? 0x0F00 : 0x0F00 / (dur ? dur : (u8)1);
+  fade_fx = fx;
+  mos_fix = 1;
 }
 
-void screenfx_show(u8 speed)
+void screenfx_show(u8 dur, u8 fx)
 {
-  fade_target = 15;
-  fade_speed = speed ? speed : 1;
+  fade_tgt8 = 0x0F00;
+  fade_step = fx == 1 ? 0x0F00 : 0x0F00 / (dur ? dur : (u8)1);
+  fade_fx = fx;
+  mos_fix = 1;
 }
 
 u8 screenfx_busy(void)
 {
-  return fade_level != fade_target;
+  return fade_lvl8 != fade_tgt8;
 }
 
 void screenfx_tint_rgb(u8 r, u8 g, u8 b)
@@ -333,20 +350,94 @@ u16 screenfx_shake_x(void)
   return shake_phase ? v : (u16)(0 - v); /* wrap u16 = soustraction */
 }
 
+/* ---- Balayage (S18) : rideau HDMA sur la luminosité ------------------
+   Canal 2 (libre : 3 = spotlight, 4 = dégradé, 5/6 = vague, 7 = OAM du
+   NMI), mode 0 (1 octet vers $2100), table WRAM reconstruite à chaque
+   pas. Une bande = [count][valeur] — la valeur écrite en début de bande
+   tient jusqu'à la suivante ; les bandes > 127 lignes sont découpées. */
+#define WP_LINES 224
+
+static u8 wp_tbl[16]; /* 6 entrées max (3 bandes découpées) + terminateur */
+static u8 wp_on = 0;  /* init explicite (tcc) — rideau actif : hdmafx
+                         ajoute le canal 2 à son masque $420C */
+
+u8 screenfx_wipe_active(void)
+{
+  return wp_on;
+}
+
+static u8 *wp_band(u8 *p, u16 lines, u8 val)
+{
+  u8 n;
+
+  while (lines)
+  {
+    n = lines > 127 ? 127 : (u8)lines;
+    *p++ = n;
+    *p++ = val;
+    lines -= (u16)n;
+  }
+  return p;
+}
+
+void screenfx_wipe_step(u8 trans, u16 black)
+{
+  u8 *p = wp_tbl;
+  u16 a, half;
+
+  if (black > WP_LINES)
+    black = WP_LINES;
+  if (trans == 3) /* vers le bas : le noir descend du haut */
+  {
+    p = wp_band(p, black, 0x00);
+    p = wp_band(p, WP_LINES - black, 0x0F);
+  }
+  else if (trans == 4) /* vers le haut : le noir monte du bas */
+  {
+    p = wp_band(p, WP_LINES - black, 0x0F);
+    p = wp_band(p, black, 0x00);
+  }
+  else /* vers le centre : deux bandes se rejoignent au milieu */
+  {
+    half = black >> 1;
+    p = wp_band(p, half, 0x00);
+    p = wp_band(p, WP_LINES - (half << 1), 0x0F);
+    p = wp_band(p, half, 0x00);
+  }
+  *p = 0; /* terminateur HDMA */
+
+  *(vuint8 *)0x4320 = 0x00; /* DMAP2 : mode 0, un octet par entrée */
+  *(vuint8 *)0x4321 = 0x00; /* BBAD2 : $2100 (INIDISP) */
+  a = (u16)(u8 *)wp_tbl;
+  *(vuint8 *)0x4322 = (u8)a;
+  *(vuint8 *)0x4323 = (u8)(a >> 8);
+  *(vuint8 *)0x4324 = 0x7E;
+  wp_on = 1;
+  REG_HDMAEN = 0x04; /* boucles bloquantes : seul canal actif ; boucle
+                        principale : hdmafx (dernier au VBlank) réécrit
+                        son masque complet, canal 2 inclus via wp_on */
+}
+
+void screenfx_wipe_off(void)
+{
+  wp_on = 0;
+  REG_HDMAEN = 0; /* hdmafx réaffirme son masque au prochain VBlank */
+}
+
 void screenfx_update(void)
 {
-  if (fade_level < fade_target)
+  if (fade_lvl8 < fade_tgt8)
   {
-    fade_level = (u8)(fade_target - fade_level) > fade_speed
-                     ? fade_level + fade_speed
-                     : fade_target;
+    fade_lvl8 = (u16)(fade_tgt8 - fade_lvl8) > fade_step
+                    ? fade_lvl8 + fade_step
+                    : fade_tgt8;
     fade_dirty = 1;
   }
-  else if (fade_level > fade_target)
+  else if (fade_lvl8 > fade_tgt8)
   {
-    fade_level = (u8)(fade_level - fade_target) > fade_speed
-                     ? fade_level - fade_speed
-                     : fade_target;
+    fade_lvl8 = (u16)(fade_lvl8 - fade_tgt8) > fade_step
+                    ? fade_lvl8 - fade_step
+                    : fade_tgt8;
     fade_dirty = 1;
   }
   if (tg_left)
@@ -404,11 +495,55 @@ void screenfx_update(void)
 void screenfx_vblank(void)
 {
   u8 r, g, b;
+  u8 mz;
+  u16 l;
 
+  if (mos_fix)
+  {
+    mos_fix = 0;
+    if (fade_fx != 2)
+      REG_MOSAIC = 0; /* reliquat d'un hide mosaïque précédent */
+  }
   if (fade_dirty)
   {
     fade_dirty = 0;
-    REG_INIDISP = fade_level; /* bit 7 = 0 : écran allumé */
+    if (fade_fx >= 3)
+    {
+      /* balayage (S18c) : luminosité pleine, le rideau HDMA (canal 2,
+         masque composé par hdmafx) couvre (0x0F00 - niveau) >> 4 lignes
+         (0..240, clampé aux 224 lignes) */
+      if (fade_lvl8 == fade_tgt8)
+      {
+        screenfx_wipe_off();
+        REG_INIDISP = (u8)(fade_tgt8 >> 8); /* 0 = caché, 15 = montré */
+      }
+      else
+      {
+        l = (u16)(0x0F00 - fade_lvl8) >> 4;
+        if (l > 224)
+          l = 224;
+        screenfx_wipe_step(fade_fx, l);
+        REG_INIDISP = 0x0F;
+      }
+    }
+    else
+    {
+      mz = (u8)(fade_lvl8 >> 8);
+      if (fade_fx == 2)
+      {
+        /* mosaïque couplée au fondu — rendue en fin de rampe montante */
+        if (fade_lvl8 == 0x0F00)
+          REG_MOSAIC = 0;
+        else
+        {
+          mz = 15 - mz;
+          mz = (mz << 4) | 0x07;
+          REG_MOSAIC = mz;
+          mz = (u8)(fade_lvl8 >> 8);
+        }
+      }
+      REG_INIDISP = mz; /* bit 7 = 0 : écran allumé */
+    }
   }
   if (cm_hold)
   {

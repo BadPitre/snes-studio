@@ -46,9 +46,11 @@ export default function VarListModal(props: Props) {
     props.onOk({ switches: sw, variables: va, picked: props.pick ? selIn : undefined, kind });
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
+    <div className="modal-backdrop">
       <div className="modal varlist" onClick={(e) => e.stopPropagation()}>
         <div className="cmdpick-tabs">
+          <button className="modal-x" title="Fermer" onClick={props.onClose}
+            style={{ order: 99, marginLeft: "auto" }}>✕</button>
           {(["switch", "var"] as VarKind[]).map((k) => (
             <button
               key={k}
@@ -86,7 +88,7 @@ export default function VarListModal(props: Props) {
               return (
                 <div
                   key={n}
-                  className={"evedit-line" + (n === selIn ? " active" : "")}
+                  className={"varlist-row" + (n === selIn ? " active" : "")}
                   onClick={() => setSel(n)}
                   onDoubleClick={() => {
                     if (props.pick) {
@@ -95,24 +97,24 @@ export default function VarListModal(props: Props) {
                     }
                   }}
                 >
-                  {pad(n)}: {names[n] ?? ""}
+                  <span className="varlist-num">{pad(n)}</span>
+                  <input
+                    className="varlist-inline"
+                    value={names[n] ?? ""}
+                    placeholder="(sans nom)"
+                    onFocus={() => setSel(n)}
+                    onChange={(e) => {
+                      const next = [...names];
+                      while (next.length <= n) next.push("");
+                      next[n] = e.target.value;
+                      setNames(next);
+                    }}
+                  />
                 </div>
               );
             })}
           </div>
         </div>
-        <label className="varlist-name">
-          Nom {pad(selIn)} :
-          <input
-            value={names[selIn] ?? ""}
-            onChange={(e) => {
-              const next = [...names];
-              while (next.length <= selIn) next.push("");
-              next[selIn] = e.target.value;
-              setNames(next);
-            }}
-          />
-        </label>
         <div className="row">
           <button onClick={ok}>OK</button>
           <button onClick={props.onClose}>Annuler</button>
