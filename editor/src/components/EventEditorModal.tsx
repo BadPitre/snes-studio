@@ -9,6 +9,7 @@ import { DIRECTIONS, TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
+import GraphicPickerModal from "./GraphicPickerModal";
 import type { Database } from "../db";
 
 // Sélecteur de transition d'écran (S18) — warps et écrans composés.
@@ -842,6 +843,8 @@ export default function EventEditorModal(props: Props) {
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
   // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
   const [pageRouteOpen, setPageRouteOpen] = useState(false);
+  // fenêtre Apparence façon RM2003 (T3)
+  const [graphicOpen, setGraphicOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -964,39 +967,30 @@ export default function EventEditorModal(props: Props) {
             <fieldset className="evedit-box">
               <legend>Apparence</legend>
               <div className="row">
-                <canvas ref={previewRef} width={64} height={84} />
+                <canvas
+                  ref={previewRef}
+                  width={64}
+                  height={84}
+                  title="Choisir l'apparence (charset + direction)"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setGraphicOpen(true)}
+                />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                  <select
-                    value={cur.sprite}
-                    onChange={(e) => patchCur({ sprite: Number(e.target.value) })}
-                  >
-                    <option value={-1}>(invisible)</option>
-                    {Array.from({ length: props.blockCount }, (_, b) => (
-                      <option key={b} value={b}>
-                        {(props.blockNames[b] ?? `Bloc ${b}`) +
-                          (props.usedBlocks.includes(b) ? " ✓" : "")}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="hint">
+                    {cur.sprite < 0
+                      ? "(invisible)"
+                      : (props.blockNames[cur.sprite] ?? `Bloc ${cur.sprite}`) +
+                        ` — ${cur.dir}`}
+                  </span>
+                  <button onClick={() => setGraphicOpen(true)}>Choisir…</button>
                   {cur.sprite >= 0 &&
                     !props.usedBlocks.includes(cur.sprite) &&
                     props.usedBlocks.length >= 5 && (
                       <span className="hint" style={{ color: "#ff7070" }}>
                         {props.usedBlocks.length + 1}e charset de la scène —
-                        la SNES en affiche 5 max (héros compris). Réutiliser
-                        une apparence ✓, sinon datagen refusera.
+                        5 max (héros compris).
                       </span>
                     )}
-                  <select
-                    value={cur.dir}
-                    onChange={(e) => patchCur({ dir: e.target.value as Direction })}
-                  >
-                    {DIRECTIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </fieldset>
@@ -1171,6 +1165,21 @@ export default function EventEditorModal(props: Props) {
             props.onRenameVars(r.switches, r.variables);
             if (r.picked !== undefined) varPick.cb(r.picked);
             setVarPick(null);
+          }}
+        />
+      )}
+      {graphicOpen && (
+        <GraphicPickerModal
+          sprites={props.sprites}
+          blockCount={props.blockCount}
+          blockNames={props.blockNames}
+          usedBlocks={props.usedBlocks}
+          sprite={cur.sprite}
+          dir={cur.dir}
+          onClose={() => setGraphicOpen(false)}
+          onOk={(sprite, dir) => {
+            patchCur({ sprite, dir });
+            setGraphicOpen(false);
           }}
         />
       )}

@@ -548,3 +548,9 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 :root[data-theme="dark"] ::-webkit-scrollbar-button {
   display: none;
 }
+/* Fenêtre Apparence façon RM2003 (T3) */
+.modal.graphicpick { width: 560px; }
+.graphicpick-body { display: flex; gap: 10px; height: 320px; }
+.graphicpick-list { width: 200px; overflow-y: auto; }
+.graphicpick-side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.graphicpick-side canvas { box-shadow: var(--bev-field); align-self: center; }
