@@ -85,14 +85,14 @@ pub struct EventCompiler<'a> {
     /// v0.16 — common events référencés par la scène en cours (calls +
     /// déclencheurs auto) : leurs corps sont émis dans le bloc scripts
     used_commons: Vec<bool>,
-    /// F1 — signature de la FONCTION dont on compile le corps :
-    /// (nombre de paramètres, rend une valeur). None hors d'une
-    /// fonction, et c'est ce qui permet de refuser un « param » posé
-    /// dans un event de carte, où il ne voudrait rien dire.
-    cur_fn: Option<(usize, bool)>,
-    /// F1 — signatures des FONCTIONS du projet, pour vérifier les appels
-    /// (nombre d'arguments, existence d'une valeur de retour)
-    fn_sigs: Vec<(usize, bool)>,
+    /// F1/F2b — signature de la FONCTION dont on compile le corps :
+    /// (paramètres, locales, rend une valeur). None hors d'une fonction,
+    /// et c'est ce qui permet de refuser un « param » ou un « local »
+    /// posé dans un event de carte, où il ne voudrait rien dire.
+    cur_fn: Option<(usize, usize, bool)>,
+    /// F1/F2b — signatures des FONCTIONS du projet : nombre d'arguments
+    /// attendus, taille du cadre à réserver, existence d'un résultat
+    fn_sigs: Vec<(usize, usize, bool)>,
     /// F1 — fonctions référencées par la scène en cours : leurs corps
     /// sont émis dans le bloc scripts, transitivement
     used_fns: Vec<bool>,
@@ -145,31 +145,42 @@ impl<'a> EventCompiler<'a> {
             "timer" => "timer",
             "scene" => "scene",
             "param" => "param",
+            // F2b : une locale est un slot du cadre, APRÈS les
+            // paramètres. Le moteur ne fait pas la différence — c'est
+            // ici, où l'on connaît la signature, qu'un nom de locale
+            // devient un index.
+            "local" => "param",
             "ret" => "ret",
             o => bail!("{} : source inconnue « {} »", who, o),
         };
-        let val = cmd["value"]
+        let mut val = cmd["value"]
             .as_i64()
             .filter(|v| (-32768..=65535).contains(v))
             .unwrap_or(0);
-        if st == "param" {
-            match self.cur_fn {
+        if from == "param" || from == "local" {
+            let (np, nl, _) = match self.cur_fn {
                 None => bail!(
-                    "{} : « paramètre » n'a de sens que dans le corps d'une \
-                     fonction",
-                    who
-                ),
-                Some((n, _)) if val < 0 || val as usize >= n => bail!(
-                    "{} : le paramètre n° {} est demandé, mais la fonction n'en \
-                     déclare que {}. Rouvrir la commande et rechoisir le \
-                     paramètre dans la liste (un paramètre retiré, ou une \
-                     source changée sans rechoisir, laisse ce genre de \
-                     référence en l'air).",
+                    "{} : « {} » n'a de sens que dans le corps d'une fonction",
                     who,
-                    val + 1,
-                    n
+                    if from == "local" { "variable locale" } else { "paramètre" }
                 ),
-                Some(_) => {}
+                Some(sig) => sig,
+            };
+            let max = if from == "local" { nl } else { np };
+            if val < 0 || val as usize >= max {
+                bail!(
+                    "{} : {} n° {} demandé, mais la fonction n'en déclare que \
+                     {}. Rouvrir la commande et rechoisir dans la liste (un \
+                     retrait, ou une source changée sans rechoisir, laisse ce \
+                     genre de référence en l'air).",
+                    who,
+                    if from == "local" { "variable locale" } else { "paramètre" },
+                    val + 1,
+                    max
+                );
+            }
+            if from == "local" {
+                val += np as i64; /* les locales suivent les paramètres */
             }
         }
         Ok((st, val))
@@ -565,14 +576,42 @@ impl<'a> EventCompiler<'a> {
                 "var" => {
                     // v0.13 : arithmétique complète, aléatoire, sources
                     // (constante, variable, X/Y héros, timer)
-                    let n = Self::idx_field(cmd, "n", 256)?;
+                    // F2b : « dst » choisit l'espace de destination —
+                    // variable globale du projet, ou variable LOCALE de
+                    // la fonction en cours.
                     let op = cmd["op"].as_str().unwrap_or("=");
                     if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
                         bail!("var : operation inconnue « {} »", op);
                     }
                     let (st, val) = self.value_source(cmd, "var")?;
-                    // les vieux set/add 16-bit passent aussi par VAROP
-                    out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
+                    if cmd["dst"].as_str() == Some("local") {
+                        let (np, nl, _) = self.cur_fn.with_context(|| {
+                            "var : une variable LOCALE n'a de sens que dans le \
+                             corps d'une fonction"
+                                .to_string()
+                        })?;
+                        let k = Self::idx_field(cmd, "n", 256)?;
+                        if k as usize >= nl {
+                            bail!(
+                                "var : variable locale n° {} demandée, mais la \
+                                 fonction n'en déclare que {}",
+                                k + 1,
+                                nl
+                            );
+                        }
+                        // les locales suivent les paramètres dans le cadre
+                        out.push(format!(
+                            "  SETLOC {} {} {} {}",
+                            np as u64 + k as u64,
+                            op,
+                            st,
+                            val
+                        ));
+                    } else {
+                        let n = Self::idx_field(cmd, "n", 256)?;
+                        // les vieux set/add 16-bit passent aussi par VAROP
+                        out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
+                    }
                 }
                 "timer" => {
                     let op = match cmd["op"].as_str().unwrap_or("start") {
@@ -1307,7 +1346,7 @@ impl<'a> EventCompiler<'a> {
                                 cmd
                             )
                         })? as usize;
-                    let (nparams, returns) = self.fn_sigs[n];
+                    let (nparams, nlocals, returns) = self.fn_sigs[n];
                     let args = cmd["args"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
                     if args.len() != nparams {
                         bail!(
@@ -1318,7 +1357,15 @@ impl<'a> EventCompiler<'a> {
                             args.len()
                         );
                     }
-                    let mut line = format!("  CALLF __fn{}_{}", n, self.cur_scene);
+                    // nslots = arguments + locales de l'APPELÉE : c'est
+                    // le cadre qu'elle va occuper, et les slots au-delà
+                    // des arguments sont mis à zéro par le moteur.
+                    let mut line = format!(
+                        "  CALLF __fn{}_{} {}",
+                        n,
+                        self.cur_scene,
+                        nparams + nlocals
+                    );
                     for a in args {
                         let (st, val) = self.value_source(a, "call_fn")?;
                         line.push_str(&format!(" {} {}", st, val));
@@ -1349,7 +1396,7 @@ impl<'a> EventCompiler<'a> {
                             "« Retourner » n'a de sens que dans une fonction : \
                              ailleurs, il n'y a personne a qui rendre la valeur"
                         ),
-                        Some((_, false)) => bail!(
+                        Some((_, _, false)) => bail!(
                             "« Retourner » : cette fonction est declaree sans \
                              valeur de retour — cocher la case, ou retirer la \
                              commande"
@@ -1497,7 +1544,7 @@ impl<'a> EventCompiler<'a> {
         // verification du nombre d'arguments ne peut pas attendre
         self.fn_sigs = functions
             .iter()
-            .map(|f| (f.params.len(), f.returns))
+            .map(|f| (f.params.len(), f.locals.len(), f.returns))
             .collect();
         // F1-c : un projet du format precedent porte encore ses
         // parametres sur un common event. Le refuser franchement plutot
@@ -1788,7 +1835,11 @@ impl<'a> EventCompiler<'a> {
                 em_fn[k] = true;
                 asm.push(format!("__fn{}_{}:", k, scene_name));
                 // F1 : c'est ici, et seulement ici, que « param » a un sens
-                self.cur_fn = Some((functions[k].params.len(), functions[k].returns));
+                self.cur_fn = Some((
+                functions[k].params.len(),
+                functions[k].locals.len(),
+                functions[k].returns,
+            ));
                 let r = self.compile_list(&functions[k].commands, 0, &mut asm);
                 self.cur_fn = None;
                 r.with_context(|| {

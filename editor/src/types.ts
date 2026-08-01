@@ -257,7 +257,17 @@ export type Command =
   | { c: "wait_route" }
   | { c: "wait"; frames: number }
   // v0.13 — opérations avancées, timer, caméra scriptée
-  | { c: "var"; n: number; op: VarOp; from?: VarSource; value: number }
+  // F2b — « dst » choisit l'espace de destination : variable globale du
+  // projet (défaut), ou variable LOCALE de la fonction en cours, auquel
+  // cas « n » est l'index de la locale et non celui d'une globale.
+  | {
+      c: "var";
+      dst?: "global" | "local";
+      n: number;
+      op: VarOp;
+      from?: VarSource;
+      value: number;
+    }
   | { c: "timer"; op: "start" | "stop" | "show" | "hide"; secs?: number }
   | { c: "campan"; x: number; y: number; speed: number }
   | { c: "cam_return"; speed: number }
@@ -384,6 +394,11 @@ export interface CommonEvent {
 export interface FunctionDef {
   name: string;
   params: string[]; // noms (éditeur seulement — le moteur voit des index)
+  // F2b — variables LOCALES : elles vivent dans le cadre d'appel, juste
+  // après les paramètres. Chaque appel a les siennes, remises à zéro, y
+  // compris en récursion — c'est ce qui permet un brouillon sans
+  // emprunter une variable globale.
+  locals?: string[];
   returns: boolean; // rend une valeur (commande « Retourner »)
   commands: Command[];
 }
@@ -401,7 +416,7 @@ export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 // fonction uniquement), "ret" = valeur rendue par le dernier appel.
 export type VarSource =
   | "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene"
-  | "param" | "ret";
+  | "param" | "local" | "ret";
 
 // Une valeur d'entrée, partout pareille : source + nombre. Le nombre est
 // une constante, un n° de variable ou un n° de paramètre selon la source.

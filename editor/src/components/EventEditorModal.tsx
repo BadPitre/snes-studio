@@ -65,6 +65,7 @@ interface Props {
   // ailleurs : c'est ce qui décide si « Paramètre » est une source
   // proposée, et sur quels noms.
   fnParams?: string[];
+  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
   // F1-c — corps d'une fonction : liste de commandes restreinte à la
   // logique et au calcul (une fonction calcule, elle ne met pas en scène)
   inFunction?: boolean;
@@ -140,14 +141,12 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "switch":
       return `Switch [${c.n}] ${c.on ? "ON" : "OFF"}`;
     case "var": {
-      const src = c.from === "var" ? `variable [${c.value}]`
-        : c.from === "hero_x" ? "X du héros"
-        : c.from === "hero_y" ? "Y du héros"
-        : c.from === "timer" ? "le timer"
-        : c.from === "scene" ? "n° de scène" : String(c.value);
+      const src = srcLabel(c);
+      const dst =
+        c.dst === "local" ? `Locale ${c.n + 1}` : `Variable [${c.n}]`;
       return c.op === "rand"
-        ? `Variable [${c.n}] = hasard 0..${src}`
-        : `Variable [${c.n}] ${c.op}= ${src}`;
+        ? `${dst} = hasard 0..${src}`
+        : `${dst} ${c.op}= ${src}`;
     }
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
@@ -459,6 +458,7 @@ export function CommandListEditor(props: {
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
   fnParams?: string[];
+  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
   inFunction?: boolean;
   db: Database | null;
   uiWidgets: string[];
@@ -771,6 +771,7 @@ export function CommandListEditor(props: {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -1201,6 +1202,7 @@ export default function EventEditorModal(props: Props) {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -1298,12 +1300,14 @@ export default function EventEditorModal(props: Props) {
 function ValueSourceFields(props: {
   v: ValueSrc;
   fnParams?: string[];
+  fnLocals?: string[];
   varNames?: string[];
   onPickVar?: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (v: ValueSrc) => void;
 }) {
   const { v } = props;
   const params = props.fnParams ?? [];
+  const locals = props.fnLocals ?? [];
   const from = v.from ?? "const";
   const numeric = from === "const" || from === "var";
   return (
@@ -1324,17 +1328,18 @@ function ValueSourceFields(props: {
           <option value="timer">Timer (secondes)</option>
           <option value="scene">N° de la scène courante</option>
           {params.length > 0 && <option value="param">Un paramètre</option>}
+          {locals.length > 0 && <option value="local">Une variable locale</option>}
           <option value="ret">Résultat du dernier appel</option>
         </select>
       </label>
-      {from === "param" ? (
+      {from === "param" || from === "local" ? (
         <label>
-          Paramètre
+          {from === "local" ? "Variable locale" : "Paramètre"}
           <select
             value={v.value}
             onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
           >
-            {params.map((pname, k) => (
+            {(from === "local" ? locals : params).map((pname, k) => (
               <option key={k} value={k}>
                 {k + 1}. {pname || "sans nom"}
               </option>
@@ -1386,6 +1391,7 @@ function CommandForm(props: {
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
   fnParams?: string[];
+  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
   inFunction?: boolean;
   uiWidgets: string[];
   uiStyles: string[];
@@ -1644,6 +1650,42 @@ function CommandForm(props: {
         // lignes décale son champ vers le bas et la rangée part en
         // escalier — c'est ce qui arrivait à « N° de variable source »
         <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+          {/* F2b — la destination peut être une variable LOCALE de la
+              fonction en cours. Proposée seulement s'il y en a : ailleurs
+              elle désignerait un cadre qui n'existe pas. */}
+          {(props.fnLocals?.length ?? 0) > 0 && (
+            <label style={{ flex: "0 0 auto" }}>
+              Destination
+              <select
+                value={cmd.dst ?? "global"}
+                onChange={(e) =>
+                  onChange({
+                    ...cmd,
+                    dst: e.target.value === "local" ? "local" : undefined,
+                    n: 0,
+                  })
+                }
+              >
+                <option value="global">Variable du projet</option>
+                <option value="local">Variable locale</option>
+              </select>
+            </label>
+          )}
+          {cmd.dst === "local" ? (
+            <label>
+              Variable locale
+              <select
+                value={cmd.n}
+                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
+              >
+                {(props.fnLocals ?? []).map((lname, k) => (
+                  <option key={k} value={k}>
+                    {k + 1}. {lname || "sans nom"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
           <label>
             Variable
             <span className="row" style={{ gap: 4 }}>
@@ -1656,6 +1698,7 @@ function CommandForm(props: {
             </span>
             <span className="hint">{props.varNames[cmd.n] || ""}</span>
           </label>
+          )}
           <label>
             Opération
             <select
@@ -1681,6 +1724,7 @@ function CommandForm(props: {
           <ValueSourceFields
             v={{ from: cmd.from, value: cmd.value }}
             fnParams={props.fnParams}
+            fnLocals={props.fnLocals}
             varNames={props.varNames}
             onPickVar={props.onPickVar}
             onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
@@ -1734,6 +1778,7 @@ function CommandForm(props: {
             <ValueSourceFields
               v={left}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               varNames={props.varNames}
               onPickVar={props.onPickVar}
               onChange={(v) => onChange({ ...cmd, left: v })}
@@ -1757,6 +1802,7 @@ function CommandForm(props: {
             <ValueSourceFields
               v={right}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               varNames={props.varNames}
               onPickVar={props.onPickVar}
               onChange={(v) => onChange({ ...cmd, right: v })}
@@ -3320,6 +3366,7 @@ function CommandForm(props: {
                   <ValueSourceFields
                     v={cmd.args[k] ?? { value: 0 }}
                     fnParams={props.fnParams}
+                    fnLocals={props.fnLocals}
                     varNames={props.varNames}
                     onPickVar={props.onPickVar}
                     onChange={(v) => {
@@ -3398,6 +3445,7 @@ function CommandForm(props: {
             <ValueSourceFields
               v={cmd}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               varNames={props.varNames}
               onPickVar={props.onPickVar}
               onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}

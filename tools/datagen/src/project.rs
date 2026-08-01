@@ -197,6 +197,13 @@ pub struct FunctionDef {
     pub name: String,
     #[serde(default)]
     pub params: Vec<String>,
+    /// F2b — noms des VARIABLES LOCALES. Elles vivent dans le cadre
+    /// d'appel, juste après les paramètres : chaque appel a les siennes,
+    /// remises à zéro, y compris en récursion. C'est ce qui permet à une
+    /// fonction d'avoir un brouillon sans emprunter une variable
+    /// globale — et sans que deux appels imbriqués se marchent dessus.
+    #[serde(default)]
+    pub locals: Vec<String>,
     /// rend une valeur (commande « ret_fn »), lue par la source « ret »
     #[serde(default)]
     pub returns: bool,

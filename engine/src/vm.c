@@ -368,6 +368,27 @@ static u16 varop_src(u8 src_type, u16 src)
    cadre. Une fonction qui finit sur un RET ordinaire (aucune valeur à
    rendre) rend donc quand même ses slots. Pile vide = le corps a été
    lancé directement, il agit comme END. */
+/* L'operation d'un VAROP, isolee : la meme sert pour une variable
+   globale et pour une variable LOCALE de fonction (F2b), et personne
+   n'a envie de maintenir deux copies de la division par zero. */
+static u16 varop_apply(u16 cur, u8 op, u16 rhs)
+{
+  if (op == VAROP_SET)
+    return rhs;
+  if (op == VAROP_ADD)
+    return (u16)(cur + rhs);
+  if (op == VAROP_SUB)
+    return (u16)(cur - rhs);
+  if (op == VAROP_MUL)
+    return (u16)(cur * rhs);
+  if (op == VAROP_DIV)
+    return rhs ? (u16)(cur / rhs) : 0;
+  if (op == VAROP_MOD)
+    return rhs ? (u16)(cur % rhs) : 0;
+  /* aleatoire 0..rhs inclus */
+  return rhs == 0xFFFF ? vm_rand() : (u16)(vm_rand() % (rhs + 1));
+}
+
 static void vm_do_ret(void)
 {
   if (vm.call_sp)
@@ -526,31 +547,15 @@ static void vm_step(void)
       val = fetch8();          /* opération */
       idx16 = fetch8();        /* type de source */
       val16 = varop_src((u8)idx16, fetch16());
-      switch (val)
-      {
-      case VAROP_SET:
-        vm.vars16[var] = val16;
-        break;
-      case VAROP_ADD:
-        vm.vars16[var] += val16;
-        break;
-      case VAROP_SUB:
-        vm.vars16[var] -= val16;
-        break;
-      case VAROP_MUL:
-        vm.vars16[var] *= val16;
-        break;
-      case VAROP_DIV:
-        vm.vars16[var] = val16 ? vm.vars16[var] / val16 : 0;
-        break;
-      case VAROP_MOD:
-        vm.vars16[var] = val16 ? vm.vars16[var] % val16 : 0;
-        break;
-      default: /* aléatoire 0..val16 inclus */
-        vm.vars16[var] = val16 == 0xFFFF ? vm_rand()
-                                         : vm_rand() % (val16 + 1);
-        break;
-      }
+      vm.vars16[var] = varop_apply(vm.vars16[var], val, val16);
+      break;
+
+    case VM_OP_SETLOC: /* variable LOCALE de la fonction en cours (F2b) */
+      var = (u8)(vm.frame_base + fetch8()) & (VM_FRAME_SLOTS - 1);
+      val = fetch8();   /* opération */
+      idx16 = fetch8(); /* type de source */
+      val16 = varop_src((u8)idx16, fetch16());
+      vm.frame[var] = varop_apply(vm.frame[var], val, val16);
       break;
 
     case VM_OP_TIMER: /* timer de jeu (v0.13) */
@@ -801,14 +806,15 @@ static void vm_step(void)
     case VM_OP_CALLF: /* appel de FONCTION avec arguments (F1) */
       ofs = fetch16();
       var = fetch8(); /* nombre d'arguments */
+      val = fetch8(); /* taille du cadre : arguments + locales (F2b) */
       if (vm.call_sp >= VM_CALL_DEPTH ||
-          (u16)vm.frame_sp + var > VM_FRAME_SLOTS)
+          (u16)vm.frame_sp + val > VM_FRAME_SLOTS)
       {
         /* Consommer quand même les opérandes : sortir d'ici avec un pc
            au milieu d'une instruction ferait exécuter des arguments
            comme des opcodes, et le plantage n'aurait plus rien à voir
            avec sa cause. */
-        for (val = 0; val < var; val++)
+        for (idx16 = 0; idx16 < var; idx16++)
         {
           fetch8();
           fetch16();
@@ -819,15 +825,21 @@ static void vm_step(void)
       /* Les arguments sont évalués dans le cadre de l'APPELANT — c'est
          ce qui permet de passer un paramètre reçu à une autre fonction —
          puis ils DEVIENNENT le cadre de l'appelée. */
-      for (val = 0; val < var; val++)
+      for (idx16 = 0; idx16 < var; idx16++)
       {
-        idx16 = fetch8();
-        vm.frame[vm.frame_sp + val] = varop_src((u8)idx16, fetch16());
+        val16 = fetch8(); /* type de la source */
+        vm.frame[vm.frame_sp + idx16] = varop_src((u8)val16, fetch16());
       }
+      /* Les slots au-dela des arguments sont les LOCALES : a zero. Sans
+         ca elles reprendraient ce qu'un appel precedent avait laisse au
+         meme endroit — un bug qui ne se manifeste que lorsqu'une
+         deuxieme fonction passe par la, donc jamais pendant le test. */
+      for (; idx16 < val; idx16++)
+        vm.frame[vm.frame_sp + idx16] = 0;
       vm.call_fb[vm.call_sp] = vm.frame_base;
       vm.call_stack[vm.call_sp++] = vm.pc;
       vm.frame_base = vm.frame_sp;
-      vm.frame_sp += var;
+      vm.frame_sp += val;
       vm.pc = ofs;
       break;
 

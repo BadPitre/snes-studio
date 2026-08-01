@@ -201,6 +201,7 @@
    corvée que la fonctionnalité doit supprimer. */
 #define VM_FRAME_SLOTS 32 /* cadres empilés, tous appels confondus */
 #define VM_PARAMS_MAX 8   /* paramètres d'UNE fonction (datagen vérifie) */
+#define VM_LOCALS_MAX 8   /* variables locales d'UNE fonction (idem) */
 
 /* v0.17 : lecture de la Database (docs/PLANNING_SYSTEME_DATABASE.md) */
 #define VM_OP_DBREAD  0x23 /* table (u8, index du registre db_tables[]),
@@ -351,7 +352,7 @@
                                lancée sans attente). */
 
 /* F1 : appel de FONCTION — un common event avec des paramètres. */
-#define VM_OP_CALLF 0x3D /* offset (u16), argc (u8), puis argc x
+#define VM_OP_CALLF 0x3D /* offset (u16), argc (u8), nslots (u8), puis argc x
                             [type de source (u8)][valeur (u16)] — mêmes
                             sources que VAROP, donc un argument peut être
                             une constante, une variable, la position du
@@ -359,8 +360,21 @@
                             appelante (récursion et composition).
                             Les arguments sont évalués dans le cadre de
                             l'APPELANT puis deviennent le cadre de
-                            l'appelée. Pile pleine ou cadres saturés :
-                            halt debug, c'est un bug de données. */
+                            l'appelée. nslots = paramètres + VARIABLES
+                            LOCALES de l'appelée (F2b) : les slots
+                            au-delà des arguments sont mis à ZÉRO, une
+                            locale part toujours de 0. Pile pleine ou
+                            cadres saturés : halt debug, bug de données. */
+#define VM_OP_SETLOC 0x3F /* slot (u8), op (u8, VAROP_*), type de source
+                             (u8), valeur (u16) — F2b : même arithmétique
+                             que VAROP, mais la destination est une
+                             VARIABLE LOCALE, c'est-à-dire un slot du
+                             cadre courant. Les locales suivent les
+                             paramètres dans le cadre : datagen resout un
+                             nom de locale en slot, et la LECTURE passe
+                             par VARSRC_PARAM avec ce même index — un
+                             paramètre et une locale ne different que par
+                             le droit d'ecriture. */
 #define VM_OP_RETF 0x3E  /* type de source (u8), valeur (u16) — pose la
                             valeur rendue (lisible ensuite par la source
                             VARSRC_RET) puis retourne comme RET. Une

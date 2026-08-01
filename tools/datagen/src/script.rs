@@ -95,6 +95,7 @@ const OP_ANIMPLAY: u8 = 0x3B;
 const OP_ANIMSTOP: u8 = 0x3C;
 const OP_CALLF: u8 = 0x3D;
 const OP_RETF: u8 = 0x3E;
+const OP_SETLOC: u8 = 0x3F;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -279,14 +280,17 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
-        // CALLF <label> <st0> <v0> ... : appel de fonction (F1) —
-        // opcode + label u16 + argc u8, puis 3 octets par argument
+        // CALLF <label> <nslots> <st0> <v0> ... : appel de fonction —
+        // opcode + label u16 + argc u8 + nslots u8, puis 3 octets par
+        // argument
         "CALLF" => {
-            if argc == 0 || argc % 2 != 1 {
-                bail!("CALLF <label> puis des couples <source> <valeur>");
+            if argc < 2 || argc % 2 != 0 {
+                bail!("CALLF <label> <nslots> puis des couples <source> <valeur>");
             }
-            4 + 3 * ((argc as u16 - 1) / 2)
+            5 + 3 * ((argc as u16 - 2) / 2)
         }
+        // SETLOC <slot> <op> <source> <valeur> : ecrit une locale (F2b)
+        "SETLOC" => 6,
         // RETF <source> <valeur> : retour avec valeur (F1)
         "RETF" => 4,
         "DBREAD" => 7,
@@ -362,6 +366,20 @@ fn parse_u8(tok: &str) -> Result<u8> {
 /// de sens que dans le corps d'une fonction, le second qu'après un appel,
 /// et c'est events.rs qui le vérifie (l'assembleur ne connaît pas les
 /// fonctions, seulement des étiquettes).
+/// Operation arithmetique, partagee par VAROP et SETLOC.
+fn parse_varop(tok: &str) -> Result<u8> {
+    Ok(match tok {
+        "=" => 0,
+        "+" => 1,
+        "-" => 2,
+        "*" => 3,
+        "/" => 4,
+        "%" => 5,
+        "rand" => 6,
+        o => bail!("operation inconnue '{}' (=, +, -, *, /, %, rand)", o),
+    })
+}
+
 fn parse_varsrc(tok: &str) -> Result<u8> {
     Ok(match tok {
         "const" => 0,
@@ -558,11 +576,7 @@ pub fn assemble(
                 if argc != 4 { bail!("VAROP <dst> <op> <src_type> <src>"); }
                 let dst: u8 = args[0].parse()
                     .with_context(|| format!("variable invalide : '{}'", args[0]))?;
-                let opb = match args[1] {
-                    "=" => 0u8, "+" => 1, "-" => 2, "*" => 3, "/" => 4,
-                    "%" => 5, "rand" => 6,
-                    o => bail!("VAROP : operation inconnue '{}'", o),
-                };
+                let opb = parse_varop(args[1])?;
                 let st = parse_varsrc(args[2])?;
                 let src: i32 = args[3].parse()
                     .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
@@ -606,20 +620,31 @@ pub fn assemble(
             // CALLF <label> <src> <val> ... / RETF <src> <val> : appel
             // de FONCTION avec arguments et valeur de retour (F1)
             "CALLF" => {
-                if argc == 0 || argc % 2 != 1 {
-                    bail!("CALLF <label> puis des couples <source> <valeur>");
+                if argc < 2 || argc % 2 != 0 {
+                    bail!("CALLF <label> <nslots> puis des couples <source> <valeur>");
                 }
-                let n = (argc - 1) / 2;
+                let n = (argc - 2) / 2;
                 if n > 8 {
                     bail!("CALLF : {} arguments, le maximum est 8", n);
                 }
                 code.push(OP_CALLF);
                 code.extend_from_slice(&label_of(args[0])?.to_le_bytes());
                 code.push(n as u8);
+                code.push(parse_u8(args[1])?); /* arguments + locales */
                 for k in 0..n {
-                    code.push(parse_varsrc(args[1 + 2 * k])?);
-                    code.extend_from_slice(&parse_srcval(args[2 + 2 * k])?.to_le_bytes());
+                    code.push(parse_varsrc(args[2 + 2 * k])?);
+                    code.extend_from_slice(&parse_srcval(args[3 + 2 * k])?.to_le_bytes());
                 }
+            }
+            // SETLOC <slot> <op> <source> <valeur> : meme arithmetique que
+            // VAROP, destination = un slot du cadre courant (F2b)
+            "SETLOC" => {
+                if argc != 4 { bail!("SETLOC <slot> <op> <source> <valeur>"); }
+                code.push(OP_SETLOC);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_varop(args[1])?);
+                code.push(parse_varsrc(args[2])?);
+                code.extend_from_slice(&parse_srcval(args[3])?.to_le_bytes());
             }
             "RETF" => {
                 if argc != 2 { bail!("RETF <source> <valeur>"); }

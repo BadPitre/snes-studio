@@ -40,6 +40,7 @@ interface Props {
 }
 
 const PARAMS_MAX = 8; // VM_PARAMS_MAX côté moteur
+const LOCALS_MAX = 8; // VM_LOCALS_MAX
 
 // Toutes les valeurs « source » d'une commande, la seule chose qui peut
 // porter une référence à un paramètre : membre droit d'une affectation,
@@ -73,18 +74,31 @@ function walkCmds(cmds: Command[] | undefined, fn: (c: Command) => void): void {
 // Et si le corps se sert ENCORE de celui qu'on enlève, il n'y a pas de
 // bonne valeur de repli — on refuse plutôt que de deviner. C'est ce cas
 // qui remontait jusqu'à datagen sous la forme d'un message obscur.
-function paramUsed(cmds: Command[], k: number): boolean {
+function slotUsed(cmds: Command[], kind: "param" | "local", k: number): boolean {
   let used = false;
   walkCmds(cmds, (c) => {
-    for (const v of sources(c)) if (v.from === "param" && v.value === k) used = true;
+    for (const v of sources(c))
+      if (v.from === kind && v.value === k) used = true;
+    // une locale est aussi une DESTINATION possible (« Modifier une
+    // variable » avec dst = local) : l'oublier laisserait une commande
+    // qui ecrit dans un slot disparu
+    const any = c as unknown as { c: string; dst?: string; n?: number };
+    if (kind === "local" && any.c === "var" && any.dst === "local" && any.n === k)
+      used = true;
   });
   return used;
 }
 
-function shiftParams(cmds: Command[], removed: number): void {
+function shiftSlots(cmds: Command[], kind: "param" | "local", removed: number): void {
   walkCmds(cmds, (c) => {
     for (const v of sources(c))
-      if (v.from === "param" && v.value > removed) v.value -= 1;
+      if (v.from === kind && v.value > removed) v.value -= 1;
+    const any = c as unknown as { c: string; dst?: string; n?: number };
+    if (
+      kind === "local" && any.c === "var" && any.dst === "local" &&
+      any.n !== undefined && any.n > removed
+    )
+      any.n -= 1;
   });
 }
 
@@ -127,6 +141,7 @@ export default function FunctionsModal(props: Props) {
                 >
                   {String(i + 1).padStart(4, "0")}: {f.name}({f.params.join(", ")})
                   {f.returns ? " → résultat" : ""}
+                  {(f.locals?.length ?? 0) > 0 ? ` [${f.locals!.length} loc.]` : ""}
                 </div>
               ))}
             </div>
@@ -136,7 +151,7 @@ export default function FunctionsModal(props: Props) {
                 onClick={() => {
                   setDraft([
                     ...draft,
-                    { name: "", params: [], returns: false, commands: [] },
+                    { name: "", params: [], locals: [], returns: false, commands: [] },
                   ]);
                   setSel(draft.length);
                 }}
@@ -190,7 +205,7 @@ export default function FunctionsModal(props: Props) {
                       title="Retirer ce paramètre"
                       style={{ flex: "0 0 auto", width: 24 }}
                       onClick={() => {
-                        if (paramUsed(cur.commands, k)) {
+                        if (slotUsed(cur.commands, "param", k)) {
                           alert(
                             `Le paramètre n° ${k + 1} (« ${pname || "sans nom"} ») ` +
                               `est encore utilisé dans le corps de la fonction.\n\n` +
@@ -201,7 +216,7 @@ export default function FunctionsModal(props: Props) {
                           return;
                         }
                         const commands = structuredClone(cur.commands);
-                        shiftParams(commands, k);
+                        shiftSlots(commands, "param", k);
                         patch({
                           params: cur.params.filter((_, i) => i !== k),
                           commands,
@@ -218,6 +233,70 @@ export default function FunctionsModal(props: Props) {
                     style={{ flex: "0 0 auto", width: 28, marginLeft: 20 }}
                     disabled={cur.params.length >= PARAMS_MAX}
                     onClick={() => patch({ params: [...cur.params, ""] })}
+                  >
+                    ＋
+                  </button>
+                </span>
+              </span>
+            </label>
+            )}
+            {cur && (
+            <label>
+              Variables locales (max {LOCALS_MAX})
+              {/* Elles vivent dans le CADRE d'appel, pas dans les
+                  variables du projet : chaque appel a les siennes,
+                  remises à zéro. C'est ce qui permet à une fonction
+                  récursive d'avoir un brouillon sans que l'appel
+                  imbriqué l'écrase. */}
+              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {(cur.locals ?? []).map((lname, k) => (
+                  <span
+                    key={k}
+                    style={{ display: "flex", gap: 4, alignItems: "center" }}
+                  >
+                    <span style={{ width: 16, opacity: 0.7, flex: "0 0 auto" }}>
+                      {k + 1}.
+                    </span>
+                    <input
+                      style={{ flex: "1 1 auto", minWidth: 0 }}
+                      placeholder={"tmp" + (k + 1)}
+                      value={lname}
+                      onChange={(e) => {
+                        const locals = (cur.locals ?? []).slice();
+                        locals[k] = e.target.value;
+                        patch({ locals });
+                      }}
+                    />
+                    <button
+                      title="Retirer cette variable locale"
+                      style={{ flex: "0 0 auto", width: 24 }}
+                      onClick={() => {
+                        if (slotUsed(cur.commands, "local", k)) {
+                          alert(
+                            `La variable locale n° ${k + 1} (« ${lname || "sans nom"} ») ` +
+                              `est encore utilisée dans le corps de la fonction.\n\n` +
+                              `Retirer d'abord les commandes qui s'en servent.`
+                          );
+                          return;
+                        }
+                        const commands = structuredClone(cur.commands);
+                        shiftSlots(commands, "local", k);
+                        patch({
+                          locals: (cur.locals ?? []).filter((_, i) => i !== k),
+                          commands,
+                        });
+                      }}
+                    >
+                      −
+                    </button>
+                  </span>
+                ))}
+                <span>
+                  <button
+                    title="Ajouter une variable locale"
+                    style={{ flex: "0 0 auto", width: 28, marginLeft: 20 }}
+                    disabled={(cur.locals?.length ?? 0) >= LOCALS_MAX}
+                    onClick={() => patch({ locals: [...(cur.locals ?? []), ""] })}
                   >
                     ＋
                   </button>
@@ -274,9 +353,11 @@ export default function FunctionsModal(props: Props) {
                 </div>
                 <span className="hint">
                   Dans le corps, les paramètres se lisent avec la source
-                  « Un paramètre ». Ils sont en LECTURE seule : pour un
-                  brouillon, passer par une variable. Une fonction peut en
-                  appeler une autre, et s'appeler elle-même.
+                  « Un paramètre » — ils restent en LECTURE seule. Pour un
+                  brouillon, utiliser une VARIABLE LOCALE : chaque appel a
+                  les siennes, remises à zéro, donc une fonction récursive
+                  ne s'écrase pas elle-même. Une fonction peut en appeler
+                  une autre, et s'appeler elle-même.
                 </span>
                 <div className="palette-title">Contenu</div>
                 <CommandListEditor
@@ -284,6 +365,7 @@ export default function FunctionsModal(props: Props) {
                   cmds={cur.commands}
                   fnSigs={sigs}
                   fnParams={cur.params}
+                  fnLocals={cur.locals ?? []}
                   inFunction
                   commit={() => setDraft([...draft])}
                   sceneNames={props.sceneNames}
@@ -321,6 +403,7 @@ export default function FunctionsModal(props: Props) {
                   ...f,
                   name: f.name.trim() || `F ${i + 1}`,
                   params: f.params.map((p, k) => p.trim() || `p${k + 1}`),
+                  locals: (f.locals ?? []).map((l, k) => l.trim() || `tmp${k + 1}`),
                 }))
               )
             }
