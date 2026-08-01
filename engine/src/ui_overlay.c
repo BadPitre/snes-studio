@@ -1,34 +1,34 @@
 /*
- * ui_overlay.c — fenêtres et WIDGETS permanents du HUD (Phase 11 §2 +
- * Phase 12 W1, docs/PLANNING_SYSTEME_MENUS.md) : placement libre sur
- * l'écran, en continu pendant le gameplay.
+ * ui_overlay.c — permanent HUD windows and WIDGETS: freely placed on
+ * screen, up continuously during gameplay.
  *
- * Content types (ui_ov_type — PRIMITIVES aplaties par uigen depuis
- * l'arbre du designer D1, les conteneurs vbox/hbox n'existent qu'à la
- * compilation) :
- *   0 variable_display — libellé + valeur (fenêtre par défaut)
- *   1 gauge            — barre pleine/demie/vide, horizontale ou
- *                        verticale (remplie de BAS en haut, ALttP)
- *   2 icon_row         — icônes répétées façon cœurs Zelda
- *   3 icon_value       — icône + compteur (zéros de tête optionnels)
- *   4 panel            — cadre seul (fenêtre du designer) — STATIQUE
- *   5 label            — texte fixe (ui_ov_label) — STATIQUE
- *   6 image            — suite d'icônes de la planche — STATIQUE
- *   7 list             — menu à curseur (B6) : items dans ui_ov_label
- *                        séparés par '\n', 1 colonne réservée au
- *                        curseur '>' — piloté par l'opcode LISTSEL
- *   8 image (picture)  — une PICTURE du projet posée dans la couche UI :
- *                        datagen la convertit en chars 2bpp ramenés aux
- *                        4 couleurs de la fonte (aucune palette libre :
- *                        le tileset occupe les couleurs 0-127), et
- *                        ui_ov_icon porte le char de base — STATIQUE
- * ui_ov_frame : cadre 9-slice/boîte, ou widget nu sur le jeu.
- * Icônes : chars UI_ICON_BASE+n (planche ui.icons, après le windowskin) ;
- * gauge/icon_row : icon, icon+1, icon+2 = pleine, demie, vide.
+ * Content types (ui_ov_type — PRIMITIVES flattened by uigen from the D1
+ * designer tree; the vbox/hbox containers only exist at compile time):
+ *   0 variable_display — label + value (the default window)
+ *   1 gauge            — full/half/empty bar, horizontal or vertical
+ *                        (filled from the BOTTOM up, ALttP style)
+ *   2 icon_row         — repeated icons, Zelda hearts style
+ *   3 icon_value       — icon + counter (optional leading zeros)
+ *   4 panel            — frame only (the designer's window) — STATIC
+ *   5 label            — fixed text (ui_ov_label) — STATIC
+ *   6 image            — a run of icons from the sheet — STATIC
+ *   7 list             — cursor menu (B6): items in ui_ov_label
+ *                        separated by '\n', 1 column reserved for the
+ *                        '>' cursor — driven by the LISTSEL opcode
+ *   8 image (picture)  — a project PICTURE laid into the UI layer:
+ *                        datagen converts it to 2bpp chars brought back
+ *                        to the font's 4 colours (no free palette: the
+ *                        tileset takes colours 0-127), and ui_ov_icon
+ *                        carries the base char — STATIC
+ * ui_ov_frame: 9-slice/box frame, or a bare widget over the game.
+ * Icons: chars UI_ICON_BASE+n (the ui.icons sheet, after the windowskin);
+ * gauge/icon_row: icon, icon+1, icon+2 = full, half, empty.
  *
- * Les tables viennent du layout uigen (ui_overlays.c généré) ; le
- * redessin ne part que quand var (ou max_var) change. Compose dans le
- * tampon partagé ui_map (M1) — transfert centralisé ui_screen_vblank.
+ * The tables come from the uigen layout (generated ui_overlays.c); a
+ * redraw only fires when var (or max_var) changes.
+ *
+ * Composes into the shared ui_map buffer (M1) — the transfer is
+ * centralised in ui_screen_vblank.
  */
 #include <snes.h>
 #include "vm.h"
@@ -48,46 +48,46 @@ extern const u8 ui_ov_frame[];
 extern const u8 ui_ov_icon[];
 extern const u8 ui_ov_dir[];
 extern const u8 ui_ov_pad[];
-extern const u8 ui_ov_bg[]; /* 1 = dans une window (fond du cadre) */
-extern const u8 ui_ov_widget[]; /* index de la RACINE (widget) de la prim */
-extern const u8 ui_ov_font[]; /* base du glyphe ' ' de la fonte du widget
-    (S2) — 1 = fonte du projet, sinon base de la fonte extra en VRAM */
-extern const u8 ui_widget_vis[]; /* visibilité INITIALE par widget */
-extern const u8 ui_ov_maxvar[]; /* 0xFF = max constant (maxlo/maxhi) */
+extern const u8 ui_ov_bg[]; /* 1 = inside a window (frame background) */
+extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
+extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
+    (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
+extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
+extern const u8 ui_ov_maxvar[]; /* 0xFF = constant max (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
 extern const u8 ui_ov_maxhi[];
 extern const char *const ui_ov_label[];
 
-#define OV_ENTRY(c) ((u16)(c) | 0x3000) /* palette fonte + priorité */
+#define OV_ENTRY(c) ((u16)(c) | 0x3000) /* font palette + priority */
 #define OV_CHAR(a) ((u16)(a) - 31)
-/* glyphe dans la FONTE DU WIDGET (S2) — fb = ui_ov_font[i], local à
-   ov_draw ; équivaut à OV_CHAR quand fb == 1 (fonte du projet) */
+/* glyph in the WIDGET's FONT (S2) — fb = ui_ov_font[i], local to
+   ov_draw; same as OV_CHAR when fb == 1 (the project font) */
 #define OV_FCHAR(a) ((u16)fb + (a) - 32)
 #define OV_SKIN_BASE 97
-/* fond des cellules vides d'un widget posé DANS une window (D1) :
-   centre du 9-slice — un 0 percerait le panneau jusqu'au jeu */
+/* background of the empty cells of a widget laid INSIDE a window (D1):
+   the 9-slice centre — a 0 would punch through the panel to the game */
 #if UI_HAS_SKIN
 #define OV_BG_ENTRY OV_ENTRY(OV_SKIN_BASE + 4)
 #else
 #define OV_BG_ENTRY OV_ENTRY(OV_CHAR(' '))
 #endif
-/* icônes : dans une window, on prend la VARIANTE « fond de panneau »
-   (pixels transparents -> fond, générée par datagen après la planche)
-   pour que l'icône montre le cadre derrière elle, pas le jeu */
+/* icons: inside a window we take the "panel background" VARIANT
+   (transparent pixels -> background, generated by datagen after the
+   sheet) so the icon shows the frame behind it, not the game */
 #define OV_ICON_BASE(i) \
   (UI_ICON_BASE + (ui_ov_bg[i] ? UI_ICON_COUNT : 0))
 
-static u16 ov_last[UI_OV_COUNT];  /* dernière valeur dessinée */
-static u16 ov_lastm[UI_OV_COUNT]; /* dernier maximum (max_var) */
-static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibilité
-    runtime par widget (Phase 12) : caché par défaut, piloté par SHOWUI */
+static u16 ov_last[UI_OV_COUNT];  /* last value drawn */
+static u16 ov_lastm[UI_OV_COUNT]; /* last maximum (max_var) */
+static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibility
+    runtime visibility per widget: hidden by default, driven by SHOWUI */
 static char ov_num[5];
-/* liste à curseur ACTIVE (B6) — une seule à la fois, pilotée par la VM
-   (LISTSEL). Init explicite : tcc-816 ne remet pas le BSS à zéro. */
-static u8 ls_prim = 0xFF; /* primitive type 7 en cours (0xFF = aucune) */
-static u8 ls_sel = 0;     /* rangée sous le curseur */
+/* the ACTIVE cursor list (B6) — only one at a time, driven by the VM
+   (LISTSEL). Explicit init: tcc-816 does not clear the BSS. */
+static u8 ls_prim = 0xFF; /* type 7 primitive in progress (0xFF = none) */
+static u8 ls_sel = 0;     /* row under the cursor */
 
-/* maximum courant d'un widget : constante compilée ou variable */
+/* a widget's current maximum: compiled constant or variable */
 static u16 ov_max(u8 i)
 {
   if (ui_ov_maxvar[i] != 0xFF)
@@ -95,7 +95,7 @@ static u16 ov_max(u8 i)
   return (u16)ui_ov_maxlo[i] | ((u16)ui_ov_maxhi[i] << 8);
 }
 
-/* Efface le rect d'une primitive (widget caché) — transparent */
+/* Erases a primitive's rect (hidden widget) — transparent */
 static void ov_erase(u8 i)
 {
   u8 cx, cy;
@@ -116,14 +116,14 @@ static void ov_draw(u8 i)
   u8 w = ui_ov_w[i];
   u8 h = ui_ov_h[i];
   u8 f = ui_ov_frame[i];
-  u8 fb = ui_ov_font[i]; /* base fonte du texte de la prim (S2) */
+  u8 fb = ui_ov_font[i]; /* font base for the prim's text (S2) */
   u8 cx, cy, sy, d, cells, k, fill;
   u16 base, v, units, ch;
   const char *l;
 
   if (f)
   {
-    /* cadre de la fenêtre (9-slice ou boîte pleine, comme la textbox) */
+    /* the window frame (9-slice or solid box, like the textbox) */
     for (cy = 0; cy < h; cy++)
     {
       base = (u16)(ui_ov_y[i] + cy) * 32 + x;
@@ -141,8 +141,8 @@ static void ov_draw(u8 i)
   }
   else
   {
-    /* widget nu : la zone repasse au fond (transparent, ou fond de
-       cadre si le widget vit dans une window du designer) */
+    /* bare widget: the area goes back to the background (transparent, or
+       the frame background if the widget lives in a designer window) */
     u16 bgent = ui_ov_bg[i] ? OV_BG_ENTRY : 0;
 
     for (cy = 0; cy < h; cy++)
@@ -153,17 +153,17 @@ static void ov_draw(u8 i)
     }
   }
 
-  /* zone de contenu : tout le rect, inset de 1 si cadre */
+  /* content area: the whole rect, inset by 1 when there is a frame */
   x = (u8)(x + f);
   w = (u8)(w - (f << 1));
   h = (u8)(h - (f << 1));
-  base = (u16)(ui_ov_y[i] + f) * 32; /* rangée du HAUT du contenu */
+  base = (u16)(ui_ov_y[i] + f) * 32; /* TOP row of the content */
   v = ov_last[i];
 
   switch (ui_ov_type[i])
   {
-  case 1: /* gauge — pleine/demie/vide, 2 unités par tile */
-  case 2: /* icon_row (cœurs) : même remplissage, toujours horizontal */
+  case 1: /* gauge — full/half/empty, 2 units per tile */
+  case 2: /* icon_row (hearts): same filling, always horizontal */
     cells = ui_ov_dir[i] ? h : w;
     units = (u16)cells << 1;
     {
@@ -178,11 +178,11 @@ static void ov_draw(u8 i)
     }
     for (k = 0; k < cells; k++)
     {
-      /* 2=pleine 1=demie 0=vide -> chars icon+0 / +1 / +2 */
+      /* 2=full 1=half 0=empty -> chars icon+0 / +1 / +2 */
       d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
       if (d > 2)
         d = 2;
-      if (ui_ov_dir[i]) /* verticale : remplie de BAS en haut (ALttP) */
+      if (ui_ov_dir[i]) /* vertical: filled from the BOTTOM up (ALttP) */
         ui_map[base + (u16)(h - 1 - k) * 32 + x] =
             OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + 2 - d);
       else
@@ -190,32 +190,32 @@ static void ov_draw(u8 i)
     }
     break;
 
-  case 4: /* panel : cadre seul (déjà dessiné ci-dessus) */
+  case 4: /* panel: frame only (drawn above) */
     break;
 
-  case 5: /* label : texte statique */
+  case 5: /* label: static text */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w))
       ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
     break;
 
-  case 6: /* image : icônes consécutives de la planche */
+  case 6: /* image: consecutive icons from the sheet */
     for (k = 0; k < w; k++)
       ui_map[base + x + k] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i] + k);
     break;
 
-  case 8: /* image : PICTURE du projet, convertie en chars de la couche UI
-             par datagen (4 couleurs, palette de la fonte). Les chars sont
-             consécutifs, rangée par rangée — ui_ov_icon porte ici le char
-             de BASE absolu, pas un index dans la planche d'icônes. */
+  case 8: /* image: a project PICTURE, converted to UI-layer chars
+             by datagen (4 colours, the font's palette). The chars are
+             consecutive, row by row — here ui_ov_icon carries the
+             absolute BASE char, not an index into the icon sheet. */
     ch = ui_ov_icon[i];
     for (cy = 0; cy < h; cy++)
       for (k = 0; k < w; k++)
         ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
     break;
 
-  case 7: /* list (B6) : un item par rangée, colonne 0 = curseur '>' */
+  case 7: /* list (B6): one item per row, column 0 = the '>' cursor */
     l = ui_ov_label[i];
     for (cy = 0; cy < h; cy++)
     {
@@ -224,16 +224,16 @@ static void ov_draw(u8 i)
       cx = (u8)(x + 1);
       while (*l && *l != '\n' && cx < (u8)(x + w))
         ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*l++));
-      while (*l && *l != '\n') /* item plus large que le widget : coupé */
+      while (*l && *l != '\n') /* item wider than the widget: cut */
         l++;
       if (*l == '\n')
         l++;
       else
-        break; /* plus d'items : les rangées restantes gardent le fond */
+        break; /* no more items: the remaining rows keep the background */
     }
     break;
 
-  case 3: /* icon_value : icône + compteur aligné à droite, zéros pad */
+  case 3: /* icon_value: icon + right-aligned counter, zero padded */
     ui_map[base + x] = OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i]);
     d = 0;
     do
@@ -243,14 +243,14 @@ static void ov_draw(u8 i)
     } while (v && d < 5);
     while (d < ui_ov_pad[i] && d < 5)
       ov_num[d++] = '0';
-    if (d > (u8)(w - 1)) /* jamais hors du widget (l'icône est gardée) */
+    if (d > (u8)(w - 1)) /* never outside the widget (the icon is kept) */
       d = (u8)(w - 1);
     cx = (u8)(x + w - d);
     while (d)
       ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
     break;
 
-  default: /* variable_display / value : libellé puis valeur */
+  default: /* variable_display / value: label then value */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w - 1))
@@ -263,15 +263,15 @@ static void ov_draw(u8 i)
     } while (v && d < 5);
     if (ui_ov_dir[i])
     {
-      /* align = "left" (D1) : la valeur COLLE au libellé — pas de trou
-         devant les petits nombres */
+      /* align = "left" (D1): the value STICKS to the label — no gap in
+         front of small numbers */
       while (d && cx < (u8)(x + w))
         ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
     }
     else
     {
-      if (d > w) /* fenêtre étroite : la valeur peut couvrir le libellé,
-                    jamais déborder du widget */
+      if (d > w) /* narrow window: the value may cover the label, but
+                    never overflow the widget */
         d = w;
       cx = (u8)(x + w - d);
       while (d)
@@ -288,7 +288,7 @@ void overlay_init(void)
 
   for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
     ov_vis[i] = UI_WIDGET_COUNT ? ui_widget_vis[i] : 0;
-  /* ui_map est déjà nettoyé par ui_screen_init (appelé avant) */
+  /* ui_map has already been cleared by ui_screen_init (called first) */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     ov_last[i] = vm.vars16[ui_ov_var[i]];
@@ -306,7 +306,7 @@ void overlay_update(void)
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     if (ui_ov_type[i] >= 4)
-      continue; /* panel/label/image : statiques (refresh seulement) */
+      continue; /* panel/label/image: static (refresh only) */
     v = vm.vars16[ui_ov_var[i]];
     m = ov_max(i);
     if (v != ov_last[i] || m != ov_lastm[i])
@@ -323,9 +323,9 @@ void overlay_refresh(void)
 {
   u8 i;
 
-  /* redessin inconditionnel : après l'effacement de la bande du
-     dialogue (tb_clear_band), les widgets qui partagent ses rangées
-     doivent réapparaître — sauf ceux cachés par SHOWUI */
+  /* unconditional redraw: after the dialogue band is cleared
+     (tb_clear_band), the widgets sharing its rows must reappear —
+     except those hidden by SHOWUI */
   for (i = 0; i < UI_OV_COUNT; i++)
     if (ov_vis[ui_ov_widget[i]])
       ov_draw(i);
@@ -343,16 +343,16 @@ void overlay_show(u8 widget, u8 on)
     if (ui_ov_widget[i] != widget)
       continue;
     if (on)
-      ov_draw(i); /* valeurs à jour : ov_last suivi même caché */
+      ov_draw(i); /* values are up to date: ov_last tracked even when hidden */
     else
       ov_erase(i);
   }
 }
 
-/* ---- liste à curseur (B6) — pilotée par la VM (opcode LISTSEL) ---- */
+/* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
 
-/* nombre d'items du label (séparés par '\n'), plafonné aux rangées de
-   contenu du widget — le curseur ne descend jamais sur une rangée vide */
+/* number of items in the label (separated by '\n'), capped to the
+   widget's content rows — the cursor never lands on an empty row */
 static u8 ov_list_count(u8 i)
 {
   const char *l = ui_ov_label[i];
@@ -377,11 +377,11 @@ u8 overlay_list_open(u8 widget)
     {
       ls_prim = i;
       ls_sel = 0;
-      overlay_show(widget, 1); /* redessine — le curseur part en haut */
+      overlay_show(widget, 1); /* redraws — the cursor starts at the top */
       return ov_list_count(i);
     }
   }
-  return 0; /* le widget n'a pas de liste : LISTSEL est ignoré */
+  return 0; /* the widget has no list: LISTSEL is ignored */
 }
 
 void overlay_list_cursor(u8 sel)
@@ -389,7 +389,7 @@ void overlay_list_cursor(u8 sel)
   if (ls_prim == 0xFF)
     return;
   ls_sel = sel;
-  ov_draw(ls_prim); /* petit rect : redessin complet, plus simple */
+  ov_draw(ls_prim); /* small rect: a full redraw is simpler */
 }
 
 void overlay_list_close(u8 keep)
@@ -402,12 +402,12 @@ void overlay_list_close(u8 keep)
   p = ls_prim;
   ls_prim = 0xFF;
   if (keep)
-    ov_draw(p); /* multi-panneaux : la liste reste, sans curseur */
+    ov_draw(p); /* multi-panel: the list stays, without the cursor */
   else
     overlay_show(w, 0);
 }
 
-#else /* pas d'overlay dans le layout : module inerte */
+#else /* no overlay in the layout: inert module */
 
 void overlay_init(void)
 {

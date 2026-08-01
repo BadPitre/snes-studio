@@ -1,12 +1,12 @@
 /*
- * textbox.c — fenêtre de dialogue sur BG3.
+ * textbox.c — the dialogue window, on BG3.
  *
- * BG3 reste toujours actif : sa map est remplie de char 0 (transparent)
- * quand la boîte est fermée — pas de bascule d'activation de layer.
- * Les glyphes ont un fond opaque (couleur 1), donc la boîte est le simple
- * rectangle des chars écrits. Depuis M1 (Phase 12), le module compose
- * dans le tampon d'écran partagé ui_map (ui_screen.c) — le transfert
- * VRAM est centralisé au VBlank par ui_screen_vblank.
+ * BG3 stays enabled at all times: its map is filled with char 0
+ * (transparent) when the box is closed — no layer toggling. The glyphs
+ * have an opaque background (colour 1), so the box is simply the
+ * rectangle of the chars written. Since M1 the module composes into the
+ * shared ui_map screen buffer (ui_screen.c) — the VRAM transfer is
+ * centralised at VBlank by ui_screen_vblank.
  */
 #include <snes.h>
 #include "formats.h"
@@ -14,15 +14,15 @@
 #include "textbox.h"
 #include "rom_layout.h"
 #include "vram.h"
-#include "vm.h" /* \v[n] : vars16 inserees au decodage (v0.17) */
-#include "ui_screen.h" /* tampon BG3 partagé (Phase 12 M1) */
-#include "ui_overlay.h" /* refresh des widgets après effacement (W1) */
+#include "vm.h" /* \v[n]: vars16 inserted at decode time */
+#include "ui_screen.h" /* shared BG3 buffer (M1) */
+#include "ui_overlay.h" /* widget refresh after clearing (W1) */
 #include "timer.h"
-#include "data/ui_cfg.h" /* theme UI v1 : windowskin + text_speed (Ph. 11) */
+#include "data/ui_cfg.h" /* UI theme v1: windowskin + text_speed */
 
-/* Styles de dialogue (S1, tables ui_styles.c générées) : fenêtre,
-   windowskin (base char, 0 = boîte pleine) et fonte (base char du
-   glyphe ' ') PAR STYLE — style 0 = défaut, changé par DLGSTYLE. */
+/* Dialogue styles (S1, generated ui_styles.c tables): window, windowskin
+   (base char, 0 = solid box) and font (base char of the ' ' glyph) PER
+   STYLE — style 0 = default, changed by DLGSTYLE. */
 extern const u8 ui_st_mx[];
 extern const u8 ui_st_my[];
 extern const u8 ui_st_mw[];
@@ -34,24 +34,24 @@ extern const u8 ui_st_ch[];
 extern const u8 ui_st_font[];
 extern const u8 ui_st_skin[];
 
-/* style courant, copié des tables par textbox_set_style */
-static u8 tb_mx, tb_my, tb_mw, tb_mh; /* fenêtre message */
-static u8 tb_cx2, tb_cy2, tb_cw2, tb_ch2; /* fenêtre choix */
-static u8 tb_font; /* base char de la fonte (glyphe ' ') */
-static u8 tb_skin; /* base char du 9-slice (0 = boîte pleine) */
+/* current style, copied out of the tables by textbox_set_style */
+static u8 tb_mx, tb_my, tb_mw, tb_mh; /* message window */
+static u8 tb_cx2, tb_cy2, tb_cw2, tb_ch2; /* choice window */
+static u8 tb_font; /* base char of the font (' ' glyph) */
+static u8 tb_skin; /* base char of the 9-slice (0 = solid box) */
 
-/* Fonte + palette (data_font.c) */
+/* Font + palette (data_font.c) */
 extern const u8 font_gfx[];
 extern const u16 font_gfx_size;
 extern const u16 textbox_pal[];
 
-/* Textes : en-tête en bank $86 (spec §2, multi-bank M1) — [u16 count]
-   [entrées 3 o : ofs lo, ofs hi, bank CPU][table de paires DTE 256 o] ;
-   les chaînes vivent dans la bank de leur entrée ($86 ou une bank
-   supplémentaire allouée par datagen). Les codes 0x80-0xFF désignent une
-   paire de caractères de la table : on décode dans un buffer WRAM avant
-   le rendu (le wrap par mot lit en avant). */
-/* Tampon du formatage décimal de \v[n] (statique : prudence tcc) */
+/* Texts: header in bank $86 (multi-bank M1) — [u16 count][3-byte entries:
+   ofs lo, ofs hi, CPU bank][256-byte DTE pair table]; the strings live in
+   the bank named by their entry ($86 or an extra bank allocated by
+   datagen). Codes 0x80-0xFF name a pair of characters from the table: we
+   decode into a WRAM buffer before rendering (the word wrap reads
+   ahead). */
+/* Buffer for the decimal formatting of \v[n] (static: tcc caution) */
 static char tb_num[5];
 
 static void text_decode(u16 text_id, char *dst, u8 max)
@@ -67,7 +67,7 @@ static void text_decode(u16 text_id, char *dst, u8 max)
   dst[0] = 0;
   if (text_id >= count)
     return;
-  /* entrées 3 octets (multi-bank M1) : les paires suivent la table */
+  /* 3-byte entries (multi-bank M1): the pairs follow the table */
   pairs = tbl + 2 + count + (count << 1);
   e = tbl + 2 + text_id + ((u16)text_id << 1);
   ofs = (u16)e[0] | ((u16)e[1] << 8);
@@ -77,8 +77,8 @@ static void text_decode(u16 text_id, char *dst, u8 max)
     c = *s++;
     if (c == 0x01)
     {
-      /* \v[n] (v0.17, spec §2) : [0x01][n+1] — insère vars16[n] en
-         décimal (1 à 5 chiffres) AVANT le wrap, qui reste naturel */
+      /* \v[n] (v0.17): [0x01][n+1] — inserts vars16[n] in decimal (1 to
+         5 digits) BEFORE the wrap, which stays natural */
       v = vm.vars16[(u8)(*s++ - 1)];
       d = 0;
       do
@@ -91,13 +91,13 @@ static void text_decode(u16 text_id, char *dst, u8 max)
     }
     else if (c == 0x02)
     {
-      /* \s[n] (T2) : recopié avec son paramètre — interprété par la
-         machine à écrire, invisible pour le wrap */
+      /* \s[n] (T2): copied through with its parameter — interpreted by
+         the typewriter, invisible to the wrap */
       dst[n++] = c;
       dst[n++] = *s++;
     }
     else if (c < 0x20)
-      dst[n++] = c; /* codes 1 octet (T2) : pause, attente, instantané */
+      dst[n++] = c; /* 1-byte codes (T2): pause, wait, instant */
     else if (c & 0x80)
     {
       k = (u16)(c & 0x7F) << 1;
@@ -110,38 +110,38 @@ static void text_decode(u16 text_id, char *dst, u8 max)
   dst[n] = 0;
 }
 
-/* Buffers de décodage (WRAM) : un message plein écran, 4 options */
+/* Decoding buffers (WRAM): one full-screen message, 4 options */
 static char tb_text[176];
 static char tb_opts[4][28];
 
-/* Géométrie : fenêtres MESSAGE et CHOIX du STYLE COURANT (S1 — tables
-   ui_styles.c, style 0 = défaut du layout). Adressage ABSOLU dans
-   ui_map (M1) ; UI_SHADOW_* borne la bande à effacer (union de toutes
-   les fenêtres de tous les styles, calculée par uigen). */
-#define TB_TEXT_COLS ((u8)(tb_mw - 4)) /* cadre : 2 tiles de marge par côté */
-#define TB_TEXT_ROWS ((u8)(tb_mh - 2)) /* cadre : 1 rangée haut et bas */
+/* Geometry: the MESSAGE and CHOICE windows of the CURRENT STYLE (S1 —
+   ui_styles.c tables, style 0 = the layout's default). ABSOLUTE
+   addressing in ui_map (M1); UI_SHADOW_* bounds the band to clear (the
+   union of every window of every style, computed by uigen). */
+#define TB_TEXT_COLS ((u8)(tb_mw - 4)) /* frame: 2 tiles of margin per side */
+#define TB_TEXT_ROWS ((u8)(tb_mh - 2)) /* frame: 1 row top and bottom */
 #define TB_CHC_COLS ((u8)(tb_cw2 - 4))
 #define TB_CHC_ROWS ((u8)(tb_ch2 - 2))
-/* cellule ui_map (ligne de texte l, colonne c) de chaque fenêtre */
+/* ui_map cell (text line l, column c) of each window */
 #define TB_MSG_CELL(l, c) \
   ((u16)(tb_my + 1 + (l)) * 32 + tb_mx + 2 + (c))
 #define TB_CHC_CELL(l, c) \
   ((u16)(tb_cy2 + 1 + (l)) * 32 + tb_cx2 + 2 + (c))
 
-/* Entrée BG3 : char 2bpp + palette 4 (CGRAM 16) + priorité (au-dessus de
-   tout avec le bit BG3-prio du mode 1) */
+/* BG3 entry: 2bpp char + palette 4 (CGRAM 16) + priority (above
+   everything thanks to the BG3-prio bit of mode 1) */
 #define TB_ENTRY(c) ((u16)(c) | 0x3000)
-/* glyphe du STYLE courant : tb_font pointe le char de ' ' (fonte 0 :
-   base 1 -> 1 + ascii - 32 = ascii - 31, comme avant S1) */
+/* glyph of the current STYLE: tb_font points at the ' ' char (font 0:
+   base 1 -> 1 + ascii - 32 = ascii - 31, as before S1) */
 #define TB_CHAR(ascii) ((u16)tb_font + (ascii) - 32)
-/* Tuile de fond de la fenêtre courante (effacement du curseur de choix) */
+/* Background tile of the current window (erasing the choice cursor) */
 #define TB_BG_CHAR (tb_skin ? (u16)(tb_skin + 4) : TB_CHAR(' '))
 
-/* Efface la BANDE du dialogue (union des rangées message/choix) dans le
-   tampon partagé, puis redessine ce qui peut partager ces rangées :
-   les widgets du HUD (placement libre depuis W1 — jamais SOUS les
-   fenêtres du dialogue, uigen le garantit, mais possiblement à côté)
-   et le timer. */
+/* Clears the dialogue BAND (the union of the message and choice rows)
+   in the shared buffer, then redraws what may share those rows: the
+   HUD widgets (freely placed since W1 — never UNDER the dialogue
+   windows, uigen guarantees that, but possibly beside them) and the
+   timer. */
 static void tb_clear_band(void)
 {
   u16 i;
@@ -153,18 +153,18 @@ static void tb_clear_band(void)
   timer_refresh();
 }
 
-/* Dessine la FENÊTRE (col,row,w,h en tiles absolus) dans ui_map :
-   cadre 9-slice du windowskin s'il existe, sinon boîte pleine — le
-   reste de la bande du dialogue redevient transparent. */
+/* Draws the WINDOW (col,row,w,h in absolute tiles) into ui_map: the
+   windowskin's 9-slice frame if there is one, otherwise a solid box —
+   the rest of the dialogue band goes back to transparent. */
 static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
 {
   u8 x, y, sy;
   u16 base, mid, fill;
 
   tb_clear_band();
-  if (tb_skin) /* 9-slice du style courant — test HORS des boucles :
-                  l'ouverture d'un message tient dans sa frame (le moteur
-                  a déjà frôlé la frame de lag ici, prudence) */
+  if (tb_skin) /* 9-slice of the current style — the test is OUTSIDE
+                  the loops: opening a message must fit in its frame (the
+                  engine has already grazed a lag frame here) */
   {
     for (y = 0; y < h; y++)
     {
@@ -189,23 +189,23 @@ static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
   }
 }
 
-/* Machine à écrire (UI_TEXT_SPEED frames par caractère, 0 = instantané).
-   État de la révélation en cours — init EXPLICITE (statics tcc).
-   Codes spéciaux (T2) : vitesse \s[n], pauses \. \|, attente \!,
-   fermeture auto \^, bloc instantané \> \< — octets de contrôle
-   < 0x20 laissés dans le buffer décodé par text_decode. */
+/* Typewriter (UI_TEXT_SPEED frames per character, 0 = instant). State of
+   the reveal in progress — EXPLICIT init (tcc statics).
+   Special codes (T2): speed \s[n], pauses \. \|, wait \!, auto-close
+   \^, instant block \> \< — control bytes < 0x20 left in the buffer
+   decoded by text_decode. */
 static u8 tw_active;
 static u8 tw_timer;
 static const char *tw_s;
 static u8 tw_row, tw_col;
-static u8 tw_speed;    /* frames/caractère courant (\s[n], défaut thème) */
-static u8 tw_pause;    /* frames de pause restantes (\. \|) */
-static u8 tw_waitkey;  /* point d'attente \! : A pour reprendre */
-static u8 tw_instant;  /* bloc \> ... \< : révélation sans délai */
-static u8 tb_autoclose; /* \^ : la VM ferme sans attendre d'appui */
+static u8 tw_speed;    /* current frames/character (\s[n], theme default) */
+static u8 tw_pause;    /* pause frames left (\. \|) */
+static u8 tw_waitkey;  /* \! wait point: A to resume */
+static u8 tw_instant;  /* \> ... \< block: reveal with no delay */
+static u8 tb_autoclose; /* \^: the VM closes without waiting for a press */
 
-/* Longueur AFFICHÉE du mot qui suit s[0] (wrap par mot) : les octets de
-   contrôle ne comptent pas, 0x01/0x02 portent un paramètre. */
+/* DISPLAYED length of the word following s[0] (word wrap): control bytes
+   do not count, 0x01/0x02 carry a parameter. */
 static u16 tw_word_len(const char *s)
 {
   u16 wl = 0, j = 1;
@@ -223,10 +223,10 @@ static u16 tw_word_len(const char *s)
   return wl;
 }
 
-/* Révèle UN caractère — même logique de wrap par mot que le rendu
-   instantané de textbox_open_raw. Consomme d'abord les codes de contrôle
-   (dans la même frame : un code ne coûte jamais un tick, sauf ceux qui
-   suspendent la révélation — pause, attente). */
+/* Reveals ONE character — same word-wrap logic as the instant rendering
+   in textbox_open_raw. Control codes are consumed first (in the same
+   frame: a code never costs a tick, except those that suspend the
+   reveal — pause, wait). */
 static void tw_step(void)
 {
   char c;
@@ -235,7 +235,7 @@ static void tw_step(void)
   for (;;)
   {
     c = *tw_s;
-    if (c == 0x02) /* \s[n] : n frames/caractère, 0 = instantané */
+    if (c == 0x02) /* \s[n]: n frames/character, 0 = instant */
     {
       u8 n = (u8)(tw_s[1] - 1);
 
@@ -249,35 +249,35 @@ static void tw_step(void)
         tw_instant = 1;
       continue;
     }
-    if (c == 0x03 || c == 0x04) /* \. pause courte, \| pause longue */
+    if (c == 0x03 || c == 0x04) /* \. short pause, \| long pause */
     {
       tw_s++;
       tw_pause = (c == 0x03) ? 15 : 60;
       return;
     }
-    if (c == 0x05) /* \! : attendre A (repris par textbox_resume) */
+    if (c == 0x05) /* \!: wait for A (resumed by textbox_resume) */
     {
       tw_s++;
       tw_waitkey = 1;
       return;
     }
-    if (c == 0x06) /* \^ : flag lu par la VM à la fin du message */
+    if (c == 0x06) /* \^: flag read by the VM at the end of the message */
     {
       tw_s++;
       tb_autoclose = 1;
       continue;
     }
-    if (c == 0x07) /* \> : début de bloc instantané */
+    if (c == 0x07) /* \>: start of an instant block */
     {
       tw_s++;
       tw_instant = 1;
       continue;
     }
-    if (c == 0x08) /* \< : fin de bloc instantané */
+    if (c == 0x08) /* \<: end of an instant block */
     {
       tw_s++;
       tw_instant = 0;
-      return; /* coupe la rafale en cours dans textbox_tick */
+      return; /* cuts the burst in progress in textbox_tick */
     }
     break;
   }
@@ -316,7 +316,7 @@ static void tw_step(void)
 void textbox_tick(void)
 {
   if (!tw_active || tw_waitkey)
-    return; /* \! : la reprise vient de la VM (textbox_resume) */
+    return; /* \!: the resume comes from the VM (textbox_resume) */
   if (tw_pause)
   {
     tw_pause--;
@@ -324,8 +324,8 @@ void textbox_tick(void)
   }
   if (tw_instant)
   {
-    /* bloc \> ... \< (ou \s[0]) : tout ce qui suit part d'un coup,
-       jusqu'à la fin du bloc, une pause ou un point d'attente */
+    /* \> ... \< block (or \s[0]): everything after it goes out at once,
+       until the end of the block, a pause or a wait point */
     while (tw_active && tw_instant && !tw_pause && !tw_waitkey)
       tw_step();
     return;
@@ -344,8 +344,8 @@ u8 textbox_busy(void)
 
 void textbox_finish(void)
 {
-  /* tout révéler d'un coup — sauf au-delà d'un point d'attente \! :
-     l'auteur l'a mis là exprès, l'appui suivant le franchira */
+  /* reveal everything at once — except past a \! wait point: the author
+     put it there on purpose, the next press will cross it */
   while (tw_active && !tw_waitkey)
   {
     tw_pause = 0;
@@ -369,10 +369,10 @@ u8 textbox_autoclose(void)
   return tb_autoclose;
 }
 
-/* Palette de la fonte : CGRAM 16-19 (palette BG 2bpp n°4). Ces slots sont
-   RÉSERVÉS (spec §4) : datagen n'y place aucune couleur de tileset, et le
-   chargement de scène (CGRAM BG complète) les écrase — à rappeler après
-   CHAQUE scene_load, pas seulement au boot. */
+/* Font palette: CGRAM 16-19 (2bpp BG palette 4). Those slots are RESERVED
+   (spec §4): datagen puts no tileset colour there, and loading a scene
+   (the full BG CGRAM) overwrites them — so this must be called back after
+   EVERY scene_load, not just at boot. */
 void textbox_load_pal(void)
 {
   dmaCopyCGram((u8 *)textbox_pal, 16, 4 * 2);
@@ -396,15 +396,15 @@ void textbox_set_style(u8 n)
 
 void textbox_init(void)
 {
-  /* Fonte 2bpp + palette — écran éteint, transferts sûrs. Le nettoyage
-     de la map BG3 est fait par ui_screen_init (tampon partagé, M1). */
+  /* 2bpp font + palette — screen off, safe transfers. Clearing the BG3
+     map is ui_screen_init's job (shared buffer, M1). */
   bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
   textbox_load_pal();
   bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
 
-  textbox_set_style(0); /* style par défaut — init EXPLICITE (tcc) */
+  textbox_set_style(0); /* default style — EXPLICIT init (tcc) */
 
-  /* état machine à écrire — init EXPLICITE (statics tcc) */
+  /* typewriter state — EXPLICIT init (tcc statics) */
   tw_active = 0;
   tw_timer = 0;
   tw_s = 0;
@@ -421,46 +421,46 @@ void textbox_open(u16 text_id)
 {
   text_decode(text_id, tb_text, sizeof(tb_text));
 #if UI_TEXT_SPEED
-  /* machine à écrire : boîte vide, le texte se révèle via textbox_tick */
+  /* typewriter: empty box, the text reveals through textbox_tick */
   tb_box_at(tb_mx, tb_my, tb_mw, tb_mh);
   tw_active = 1;
   tw_timer = 0;
   tw_s = tb_text;
   tw_row = 0;
   tw_col = 0;
-  tw_speed = UI_TEXT_SPEED; /* \s[n] du message précédent oublié */
+  tw_speed = UI_TEXT_SPEED; /* the previous message's \s[n] is forgotten */
   tw_pause = 0;
   tw_waitkey = 0;
   tw_instant = 0;
-  tb_autoclose = 0; /* (re)posé par tw_step s'il croise \^ */
+  tb_autoclose = 0; /* (re)set by tw_step if it meets \^ */
 #else
   textbox_open_raw(tb_text);
 #endif
 }
 
-/* Boîte de dialogue depuis une chaîne C (textes du jeu résolus, ou
-   vocabulaire moteur du menu Système — spec §5) */
+/* Dialogue box from a C string (resolved game texts, or the engine
+   vocabulary of the System menu) */
 void textbox_open_raw(const char *s)
 {
   u16 wl;
   u8 row, col;
   char c;
 
-  tw_active = 0; /* un rendu instantané annule toute révélation en cours */
+  tw_active = 0; /* an instant render cancels any reveal in progress */
   tb_autoclose = 0;
   tb_box_at(tb_mx, tb_my, tb_mw, tb_mh);
 
   if (s)
   {
-    row = 0; /* ligne de texte, relative à la fenêtre */
+    row = 0; /* text line, relative to the window */
     col = 0;
     while (*s && row < TB_TEXT_ROWS)
     {
       c = *s;
       if ((u8)c < 0x20)
       {
-        /* rendu instantané : les codes de rythme n'ont pas de sens —
-           seul \^ garde son effet (fermeture sans appui) */
+        /* instant rendering: the pacing codes mean nothing here — only
+           \^ keeps its effect (close without a press) */
         if (c == 0x06)
           tb_autoclose = 1;
         s += ((u8)c <= 0x02) ? 2 : 1;
@@ -468,7 +468,7 @@ void textbox_open_raw(const char *s)
       }
       if (c == ' ')
       {
-        /* wrap par mot : longueur affichée du mot qui suit l'espace */
+        /* word wrap: displayed length of the word after the space */
         wl = tw_word_len(s);
         if ((u16)col + 1 + wl > TB_TEXT_COLS)
         {
@@ -492,8 +492,8 @@ void textbox_open_raw(const char *s)
   }
 }
 
-/* CHOICE (spec §2 v0.6) : 2-4 options, une par ligne, curseur '>' devant
-   l'option sélectionnée. Textes sur une seule ligne (pas de wrap). */
+/* CHOICE: 2-4 options, one per line, a '>' cursor in front of the
+   selected one. Texts are single-line (no wrap). */
 void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
 {
   const char *opts[4];
@@ -507,7 +507,7 @@ void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel)
   textbox_choices_raw(opts, count, sel);
 }
 
-/* Choix depuis des chaînes C (menu Système : vocabulaire moteur) */
+/* Choice from C strings (System menu: engine vocabulary) */
 void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
 {
   const char *s;
@@ -523,7 +523,7 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
     {
       if ((u8)*s < 0x20)
       {
-        /* codes de rythme sans objet sur une ligne d'option */
+        /* pacing codes are pointless on an option line */
         s += ((u8)*s <= 0x02) ? 2 : 1;
         continue;
       }
@@ -535,7 +535,7 @@ void textbox_choices_raw(const char *const *options, u8 count, u8 sel)
   ui_map[TB_CHC_CELL(sel, 0)] = TB_ENTRY(TB_CHAR('>'));
 }
 
-/* Déplace le curseur du CHOICE (redessine la colonne des '>') */
+/* Moves the CHOICE cursor (redraws the column of '>') */
 void textbox_choice_cursor(u8 sel)
 {
   u8 i;
