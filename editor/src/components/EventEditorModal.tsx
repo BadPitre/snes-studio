@@ -4,7 +4,7 @@
 // (choix, conditions). Les commandes sont compilées par datagen vers la VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset } from "../types";
+import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset, FnSig, ValueSrc } from "../types";
 import { DIRECTIONS, TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
@@ -60,6 +60,14 @@ interface Props {
   entryNames: string[];
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   commonNames: string[]; // noms des common events (v0.16)
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
+  // F1 — paramètres de la FONCTION dont on édite le corps. Absent
+  // ailleurs : c'est ce qui décide si « Paramètre » est une source
+  // proposée, et sur quels noms.
+  fnParams?: string[];
+  // F1-c — corps d'une fonction : liste de commandes restreinte à la
+  // logique et au calcul (une fonction calcule, elle ne met pas en scène)
+  inFunction?: boolean;
   db: Database | null; // database du projet (commande db_read, v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
@@ -97,7 +105,21 @@ function picDurLabel(dur?: number, fade?: boolean): string {
   return d === 16 ? "" : ` (fondu ${d}f)`;
 }
 
-function labelOf(c: Command, ceNames?: string[]): string {
+// F1 — libellé court d'une valeur d'entrée, pour les résumés de ligne.
+function srcLabel(v: { from?: VarSource; value: number }): string {
+  switch (v.from) {
+    case "var": return `variable [${v.value}]`;
+    case "hero_x": return "X du héros";
+    case "hero_y": return "Y du héros";
+    case "timer": return "timer";
+    case "scene": return "n° de scène";
+    case "param": return `paramètre ${v.value + 1}`;
+    case "ret": return "résultat précédent";
+    default: return String(v.value);
+  }
+}
+
+function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
   switch (c.c) {
     case "msg":
       return `Message${c.style ? ` [${c.style}]` : ""} : ${
@@ -130,7 +152,8 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
     case "if_var":
-      return `Condition : si variable [${c.n}] ${c.op} ${c.value}`;
+      return `Condition : si ${srcLabel(c.left ?? { from: "var", value: c.n })} ${
+        c.op} ${srcLabel(c.right ?? { value: c.value })}`;
     case "route":
       return `Déplacer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${c.steps.length} pas${c.repeat ? " (répété)" : ""}`;
     case "wait_route":
@@ -286,6 +309,13 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "call":
       return `Appeler le common event [${String(c.n + 1).padStart(4, "0")}${
         ceNames?.[c.n] ? ": " + ceNames[c.n] : ""}]`;
+    case "call_fn": {
+      const args = c.args.map((a) => srcLabel(a)).join(", ");
+      const dst = c.dst !== undefined ? `Variable [${c.dst}] = ` : "";
+      return `${dst}${fnNames?.[c.n] || "fonction " + (c.n + 1)}(${args})`;
+    }
+    case "ret_fn":
+      return `Retourner ${srcLabel(c)}`;
     case "db_read":
       return `Variable [${c.dst}] = ${c.table}[${
         c.from === "var" ? `variable [${c.entry}]` : c.entry}].${c.field}`;
@@ -353,23 +383,23 @@ function cmdTitle(c: Command["c"]): string {
   return titles[c] ?? "Options de la commande";
 }
 
-function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNames?: string[]) {
+function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNames?: string[], fnNames?: string[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
-    out.push({ path, depth, label: labelOf(c, ceNames), comment: c.c === "rem" });
+    out.push({ path, depth, label: labelOf(c, ceNames, fnNames), comment: c.c === "rem" });
     if (c.c === "loop") {
-      flatten(c.do, `${path}.d.`, depth + 1, out, ceNames);
+      flatten(c.do, `${path}.d.`, depth + 1, out, ceNames, fnNames);
       out.push({ path: `${path}.d.-1`, depth: depth + 1, label: ": Fin de boucle", branch: true });
     } else if (c.c === "choice") {
       c.options.forEach((o, k) => {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
-        flatten(o.do, `${path}.o${k}.`, depth + 2, out, ceNames);
+        flatten(o.do, `${path}.o${k}.`, depth + 2, out, ceNames, fnNames);
       });
     } else if (c.c === "if" || c.c === "if_sw" || c.c === "if_var") {
       out.push({ path: `${path}.t.-1`, depth: depth + 1, label: ": Si vrai", branch: true });
-      flatten(c.then, `${path}.t.`, depth + 2, out, ceNames);
+      flatten(c.then, `${path}.t.`, depth + 2, out, ceNames, fnNames);
       out.push({ path: `${path}.e.-1`, depth: depth + 1, label: ": Sinon", branch: true });
-      flatten(c.else, `${path}.e.`, depth + 2, out, ceNames);
+      flatten(c.else, `${path}.e.`, depth + 2, out, ceNames, fnNames);
     }
   });
   out.push({ path: base + cmds.length, depth, label: "" }); // queue de liste
@@ -424,6 +454,12 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
+  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
+  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
+  // source proposée, et sur quels noms.
+  fnParams?: string[];
+  inFunction?: boolean;
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
@@ -449,7 +485,7 @@ export function CommandListEditor(props: {
   const [clipCmd, setClipCmd] = useState<Command | null>(null);
 
   const lines: Line[] = [];
-  flatten(cmds, "", 0, lines, props.commonNames);
+  flatten(cmds, "", 0, lines, props.commonNames, (props.fnSigs ?? []).map((f) => f.name));
 
   // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
   function cmdAt(path: string): Command | null {
@@ -564,7 +600,11 @@ export function CommandListEditor(props: {
       case "if_sw":
         return { c: "if_sw", n: 0, on: true, then: [], else: [] };
       case "if_var":
-        return { c: "if_var", n: 0, op: "==", value: 1, then: [], else: [] };
+        return {
+          c: "if_var", n: 0, op: "==", value: 1,
+          left: { from: "var", value: 0 }, right: { value: 1 },
+          then: [], else: [],
+        };
       case "route":
         return { c: "route", event: -1, repeat: false, skip: false, steps: [] };
       case "wait_route":
@@ -655,6 +695,17 @@ export function CommandListEditor(props: {
         return { c: "shake", power: 4, speed: 2, frames: 30 };
       case "call":
         return { c: "call", n: 0 };
+      case "call_fn":
+        // Un argument par parametre des le depart : datagen refuse un
+        // appel mal dimensionne, autant ne pas laisser l'auteur
+        // fabriquer ce cas.
+        return {
+          c: "call_fn",
+          n: 0,
+          args: (props.fnSigs?.[0]?.params ?? []).map(() => ({ value: 0 })),
+        };
+      case "ret_fn":
+        return { c: "ret_fn", value: 0 };
       case "db_read": {
         const sc = props.db?.schemas[0];
         return {
@@ -718,6 +769,9 @@ export function CommandListEditor(props: {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
+              fnSigs={props.fnSigs}
+              fnParams={props.fnParams}
+              inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
@@ -742,6 +796,7 @@ export function CommandListEditor(props: {
 
       {picking && (
         <EventCommandPicker
+          inFunction={props.inFunction}
           onClose={() => setPicking(false)}
           onPick={(t) => {
             setForm(defaultCmd(t));
@@ -910,7 +965,11 @@ export default function EventEditorModal(props: Props) {
               <button
                 key={k}
                 className={k === page ? "active-page" : ""}
-                style={k === page ? { background: "#31547a" } : undefined}
+                style={{
+                  flex: "0 0 auto",
+                  minWidth: 26,
+                  ...(k === page ? { background: "#31547a" } : null),
+                }}
                 onClick={() => setPage(k)}
               >
                 {k + 1}
@@ -923,8 +982,9 @@ export default function EventEditorModal(props: Props) {
                 setDraft({ ...draft, extraPages: extra });
                 setPage(extra.length);
               }}
+              style={{ flex: "0 0 auto", width: 30 }}
             >
-              ＋ page
+              ＋
             </button>
             <button
               disabled={pageCount <= 1}
@@ -939,8 +999,9 @@ export default function EventEditorModal(props: Props) {
                   setPage(Math.max(0, page - 1));
                 }
               }}
+              style={{ flex: "0 0 auto", width: 30 }}
             >
-              🗑 page
+              🗑
             </button>
           </span>
           <button className="modal-x" title="Fermer" onClick={props.onClose} style={{ alignSelf: "flex-start" }}>✕</button>
@@ -1138,6 +1199,9 @@ export default function EventEditorModal(props: Props) {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
+              fnSigs={props.fnSigs}
+              fnParams={props.fnParams}
+              inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
@@ -1227,6 +1291,86 @@ export default function EventEditorModal(props: Props) {
 }
 
 // Formulaire des paramètres d'une commande (zone sous la liste, façon
+// F1 — « source + valeur », le même bloc partout : argument d'appel,
+// valeur rendue. « Paramètre » n'apparaît que dans le corps d'une
+// fonction, sinon il désignerait un cadre qui n'existe pas (datagen le
+// refuse aussi, mais mieux vaut ne pas le proposer du tout).
+function ValueSourceFields(props: {
+  v: ValueSrc;
+  fnParams?: string[];
+  varNames?: string[];
+  onPickVar?: (kind: VarKind, current: number, cb: (n: number) => void) => void;
+  onChange: (v: ValueSrc) => void;
+}) {
+  const { v } = props;
+  const params = props.fnParams ?? [];
+  const from = v.from ?? "const";
+  const numeric = from === "const" || from === "var";
+  return (
+    <>
+      <label>
+        Source
+        <select
+          value={from}
+          onChange={(e) => {
+            const f = e.target.value as VarSource;
+            props.onChange({ from: f === "const" ? undefined : f, value: 0 });
+          }}
+        >
+          <option value="const">Constante</option>
+          <option value="var">Une variable</option>
+          <option value="hero_x">X du héros (tiles)</option>
+          <option value="hero_y">Y du héros (tiles)</option>
+          <option value="timer">Timer (secondes)</option>
+          <option value="scene">N° de la scène courante</option>
+          {params.length > 0 && <option value="param">Un paramètre</option>}
+          <option value="ret">Résultat du dernier appel</option>
+        </select>
+      </label>
+      {from === "param" ? (
+        <label>
+          Paramètre
+          <select
+            value={v.value}
+            onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
+          >
+            {params.map((pname, k) => (
+              <option key={k} value={k}>
+                {k + 1}. {pname || "sans nom"}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : from === "var" ? (
+        <label>
+          Variable
+          <span className="row" style={{ gap: 4 }}>
+            <input
+              type="number" min={0} max={255} value={v.value}
+              onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
+            />
+            {props.onPickVar && (
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() =>
+                  props.onPickVar!("var", v.value, (n) => props.onChange({ ...v, value: n }))
+                }>…</button>
+            )}
+          </span>
+          <span className="hint">{props.varNames?.[v.value] || ""}</span>
+        </label>
+      ) : numeric ? (
+        <label>
+          Valeur
+          <input
+            type="number" min={-32768} max={65535} value={v.value}
+            onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
+          />
+        </label>
+      ) : null}
+    </>
+  );
+}
+
 // double-clic RM2003)
 function CommandForm(props: {
   cmd: Command;
@@ -1237,6 +1381,12 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
+  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
+  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
+  // source proposée, et sur quels noms.
+  fnParams?: string[];
+  inFunction?: boolean;
   uiWidgets: string[];
   uiStyles: string[];
   texts: TextEntry[];
@@ -1490,9 +1640,12 @@ function CommandForm(props: {
     case "var":
       valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
       body = (
-        <div className="row" style={{ flexWrap: "wrap" }}>
+        // alignItems flex-start : sans ça, un libellé qui passe sur deux
+        // lignes décale son champ vers le bas et la rangée part en
+        // escalier — c'est ce qui arrivait à « N° de variable source »
+        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
           <label>
-            Variable (0-255)
+            Variable
             <span className="row" style={{ gap: 4 }}>
               <input
                 type="number" min={0} max={255} value={cmd.n} autoFocus
@@ -1518,33 +1671,20 @@ function CommandForm(props: {
               <option value="rand">hasard 0..N</option>
             </select>
           </label>
-          <label>
-            Source
-            <select
-              value={cmd.from ?? "const"}
-              onChange={(e) => {
-                const from = e.target.value as VarSource;
-                onChange({ ...cmd, from: from === "const" ? undefined : from });
-              }}
-            >
-              <option value="const">Constante</option>
-              <option value="var">Une variable</option>
-              <option value="hero_x">X du héros (tiles)</option>
-              <option value="hero_y">Y du héros (tiles)</option>
-              <option value="timer">Timer (secondes)</option>
-              <option value="scene">N° de la scène courante</option>
-            </select>
-          </label>
-          {(cmd.from ?? "const") === "const" || cmd.from === "var" ? (
-            <label>
-              {cmd.from === "var" ? "N° de variable source" : "Valeur"}
-              <input
-                type="number" min={cmd.from === "var" ? 0 : -32768}
-                max={cmd.from === "var" ? 255 : 65535} value={cmd.value}
-                onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-              />
-            </label>
-          ) : null}
+          {/* Le bloc « source + valeur » PARTAGE, et pas une copie locale.
+              La copie qui vivait ici changeait `from` sans remettre
+              `value` a zero : passer de « variable n° 1 » a « un
+              paramètre » laissait la valeur 1, donc la commande
+              demandait le 2e paramètre d'une fonction qui n'en a qu'un.
+              Le build echouait, et le formulaire ne montrait rien
+              d'anormal. Une seule implementation, un seul comportement. */}
+          <ValueSourceFields
+            v={{ from: cmd.from, value: cmd.value }}
+            fnParams={props.fnParams}
+            varNames={props.varNames}
+            onPickVar={props.onPickVar}
+            onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
+          />
         </div>
       );
       break;
@@ -1577,43 +1717,55 @@ function CommandForm(props: {
         </div>
       );
       break;
-    case "if_var":
-      valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= 0 && cmd.value <= 65535;
+    case "if_var": {
+      // Les deux membres passent par le même bloc « source + valeur » que
+      // partout ailleurs : comparer un paramètre à une constante, ou deux
+      // variables entre elles, ne demande plus de recopier quoi que ce
+      // soit dans une variable globale au préalable.
+      const left = cmd.left ?? { from: "var" as const, value: cmd.n };
+      const right = cmd.right ?? { value: cmd.value };
+      valid =
+        (left.from !== "var" || (left.value >= 0 && left.value < 256)) &&
+        (right.from !== "var" || (right.value >= 0 && right.value < 256));
       body = (
-        <div className="row">
-          <label>
-            Variable (0-255)
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={255} value={cmd.n} autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              />
-              <button className="browse" title="Choisir dans la liste"
-                onClick={() => props.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
-            </span>
-            <span className="hint">{props.varNames[cmd.n] || ""}</span>
-          </label>
-          <label>
-            Opérateur
-            <select
-              value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })}
-            >
-              <option value="==">=</option>
-              <option value="!=">≠</option>
-              <option value=">=">≥</option>
-            </select>
-          </label>
-          <label>
-            Valeur
-            <input
-              type="number" min={0} max={65535} value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+        <>
+          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>Si</span>
+            <ValueSourceFields
+              v={left}
+              fnParams={props.fnParams}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
+              onChange={(v) => onChange({ ...cmd, left: v })}
             />
-          </label>
-        </div>
+            <label style={{ flex: "0 0 auto" }}>
+              Opérateur
+              <select
+                value={cmd.op}
+                onChange={(e) =>
+                  onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })
+                }
+              >
+                <option value="==">=</option>
+                <option value="!=">≠</option>
+                <option value=">=">≥</option>
+              </select>
+            </label>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>à</span>
+            <ValueSourceFields
+              v={right}
+              fnParams={props.fnParams}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
+              onChange={(v) => onChange({ ...cmd, right: v })}
+            />
+          </div>
+        </>
       );
       break;
+    }
     case "route":
       valid = cmd.steps.length > 0;
       body = (
@@ -3099,6 +3251,161 @@ function CommandForm(props: {
           <span className="hint">
             Éclair qui décroît sur la durée — non bloquant (enchaîner avec
             « Attendre »). Blanc plein : 31,31,31.
+          </span>
+        </>
+      );
+      break;
+    case "call_fn": {
+      const fns = props.fnSigs ?? [];
+      const sig = fns[cmd.n];
+      valid =
+        !!sig &&
+        cmd.args.length === sig.params.length &&
+        (cmd.dst === undefined || (sig.returns && cmd.dst >= 0 && cmd.dst < 256));
+      body = (
+        <>
+          {fns.length === 0 ? (
+            <span className="hint" style={{ color: "#ff7070" }}>
+              Aucune fonction dans le projet — les créer via
+              Tools → Fonctions…
+            </span>
+          ) : (
+            <>
+              <label>
+                Fonction
+                <select
+                  value={cmd.n}
+                  autoFocus
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    const want = fns[n]?.params.length ?? 0;
+                    // le nombre d'arguments SUIT la fonction choisie :
+                    // datagen refuse un appel mal dimensionné, autant ne
+                    // pas laisser l'auteur fabriquer ce cas
+                    const args: ValueSrc[] = [];
+                    for (let k = 0; k < want; k++)
+                      args.push(cmd.args[k] ?? { value: 0 });
+                    onChange({
+                      ...cmd,
+                      n,
+                      args,
+                      dst: fns[n]?.returns ? cmd.dst : undefined,
+                    });
+                  }}
+                >
+                  {fns.map((sg, i) => (
+                    <option key={i} value={i}>
+                      {String(i + 1).padStart(4, "0")}: {sg.name}(
+                      {sg.params.join(", ")}){sg.returns ? " → résultat" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {sig?.params.map((pname, k) => (
+                <div
+                  className="row"
+                  key={k}
+                  style={{ flexWrap: "wrap", alignItems: "flex-start" }}
+                >
+                  <span
+                    style={{
+                      alignSelf: "center",
+                      flex: "0 0 auto",
+                      minWidth: 70,
+                      textAlign: "right",
+                    }}
+                  >
+                    {pname || `paramètre ${k + 1}`}
+                  </span>
+                  <ValueSourceFields
+                    v={cmd.args[k] ?? { value: 0 }}
+                    fnParams={props.fnParams}
+                    varNames={props.varNames}
+                    onPickVar={props.onPickVar}
+                    onChange={(v) => {
+                      const args = cmd.args.slice();
+                      args[k] = v;
+                      onChange({ ...cmd, args });
+                    }}
+                  />
+                </div>
+              ))}
+              {sig?.returns && (
+                <div
+                  className="row"
+                  style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}
+                >
+                  {/* flexDirection en clair : `.modal label` force une
+                      colonne, et la case se retrouvait au-dessus de son
+                      libellé */}
+                  <label
+                    style={{
+                      flexDirection: "row",
+                      gap: 6,
+                      alignItems: "center",
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
+                      checked={cmd.dst !== undefined}
+                      onChange={(e) =>
+                        onChange({ ...cmd, dst: e.target.checked ? 0 : undefined })
+                      }
+                    />
+                    Stocker le résultat
+                  </label>
+                  <label style={{ flex: "1 1 160px" }}>
+                    Variable
+                    <span className="row" style={{ gap: 4 }}>
+                      <input
+                        type="number" min={0} max={255}
+                        disabled={cmd.dst === undefined}
+                        value={cmd.dst ?? 0}
+                        onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
+                      />
+                      <button className="browse" title="Choisir dans la liste"
+                        disabled={cmd.dst === undefined}
+                        onClick={() =>
+                          props.onPickVar("var", cmd.dst ?? 0, (n) =>
+                            onChange({ ...cmd, dst: n })
+                          )
+                        }>…</button>
+                    </span>
+                    <span className="hint">{props.varNames[cmd.dst ?? 0] || ""}</span>
+                  </label>
+                </div>
+              )}
+              <span className="hint">
+                Sans « Stocker le résultat », la valeur rendue reste lisible
+                par la source « Résultat du dernier appel » — c'est ainsi
+                qu'on passe le retour d'une fonction en argument d'une
+                autre.
+              </span>
+            </>
+          )}
+        </>
+      );
+      break;
+    }
+    case "ret_fn":
+      valid = cmd.value >= -32768 && cmd.value <= 65535;
+      body = (
+        <>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <span style={{ alignSelf: "center", minWidth: 90 }}>Valeur rendue</span>
+            <ValueSourceFields
+              v={cmd}
+              fnParams={props.fnParams}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
+              onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
+            />
+          </div>
+          <span className="hint">
+            Sort de la fonction immédiatement. À n'utiliser que dans le
+            corps d'une fonction déclarée « rend une valeur ».
           </span>
         </>
       );

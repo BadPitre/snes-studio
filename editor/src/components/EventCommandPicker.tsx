@@ -127,25 +127,64 @@ const TABS: Tab[] = [
   {
     title: "Autres",
     items: [
-      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" }],
+      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" },
+      { c: "call_fn", label: "Appeler une fonction (avec paramètres)" },
+      { c: "ret_fn", label: "Retourner un résultat (dans une fonction)" }],
     soon: ["Jouer un son"],
+  },
+];
+
+// Dans le corps d'une FONCTION, la liste se réduit : une fonction est un
+// CALCUL, pas une mise en scène. Y proposer « Afficher un message » ou
+// « Secouer l'écran » invite à écrire des fonctions qui font des choses
+// au lieu d'en rendre — et c'est précisément ce qu'on ne veut pas
+// encourager. Ce qui reste : la logique, les variables, la database, et
+// les appels entre fonctions.
+//
+// « Appeler un common event » n'y est pas non plus : un common event
+// peut contenir n'importe quoi, donc l'autoriser rouvrirait par la
+// fenêtre ce qu'on ferme par la porte. Pour composer, une fonction
+// appelle une AUTRE FONCTION.
+const FN_TABS: Tab[] = [
+  {
+    title: "Logique et calcul",
+    items: [
+      { c: "var", label: "Modifier une variable" },
+      { c: "switch", label: "Modifier un switch" },
+      { c: "if_var", label: "Condition : variable" },
+      { c: "if_sw", label: "Condition : switch" },
+      { c: "loop", label: "Boucle" },
+      { c: "break", label: "Sortir de la boucle" },
+      { c: "db_read", label: "Lire la database" },
+      { c: "rem", label: "Commentaire" },
+    ],
+  },
+  {
+    title: "Fonctions",
+    items: [
+      { c: "ret_fn", label: "Retourner un résultat" },
+      { c: "call_fn", label: "Appeler une fonction (avec paramètres)" },
+    ],
   },
 ];
 
 interface Props {
   onPick: (c: Command["c"]) => void;
   onClose: () => void;
+  /** corps d'une fonction : liste restreinte (voir FN_TABS) */
+  inFunction?: boolean;
 }
 
 export default function EventCommandPicker(props: Props) {
   const [tab, setTab] = useState(0);
-  const cur = TABS[tab];
+  const tabs = props.inFunction ? FN_TABS : TABS;
+  const cur = tabs[tab] ?? tabs[0];
   return (
     <div className="modal-backdrop">
       <div className="modal cmdpick" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Commande d'événement<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="cmdpick-tabs">
-          {TABS.map((t, i) => (
+          {tabs.map((t, i) => (
             <button
               key={t.title}
               className={i === tab ? "active" : ""}

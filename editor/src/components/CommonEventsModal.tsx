@@ -14,6 +14,7 @@ import VarListModal from "./VarListModal";
 
 interface Props {
   commons: CommonEvent[];
+  fnSigs: import("../types").FnSig[]; // fonctions appelables (F1)
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
@@ -171,6 +172,7 @@ export default function CommonEventsModal(props: Props) {
                 <CommandListEditor
                   key={sel}
                   cmds={cur.commands}
+                  fnSigs={props.fnSigs}
                   commit={() => setDraft([...draft])}
                   shortcutsOff={swPick}
                   sceneNames={props.sceneNames}

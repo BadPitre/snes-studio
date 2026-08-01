@@ -28,6 +28,9 @@
 #include "stage.h"
 #include "vignette.h"
 #include "anim.h"
+#include "vbudget.h"
+
+
 
 /* Fermeture/ouverture de l'écran autour d'un warp (S18) : 0 fondu
    (recette historique setFadeEffect, 16 frames), 1 instantané, 2 mosaïque
@@ -212,6 +215,7 @@ int main(void)
 
   setScreenOn();
 
+
   while (1)
   {
     if (vm_active())
@@ -322,24 +326,28 @@ int main(void)
        0 — pas de streaming ni de scroll caméra tant qu'elle est là. */
     if (picture_active())
     {
-      ui_screen_vblank();
       screenfx_vblank();
       picture_vblank(); /* scroll BG1 = position de l'image (S5) */
       hdmafx_suspend(); /* pas d'ondulation sur une image plein écran */
+      vbl_open();
+      ui_screen_vblank();
     }
     else if (stage_active())
     {
-      ui_screen_vblank();
       screenfx_vblank(); /* teinte/flash actifs sur l'écran composé */
       stage_vblank();    /* scrolls fixes + transferts de pose étalés */
-      vig_vblank();      /* frames de vignettes (B5) */
       hdmafx_suspend();  /* vague/dégradé/spotlight : ambiances de map */
+      vbl_open();        /* stage_vblank n'est pas compté non plus */
+      ui_screen_vblank();
+      vig_vblank();      /* frames de vignettes (B5) */
     }
     else
     {
-      map_vblank();
-      tileanim_vblank(); /* un pas de tile animée (4 chars) — T1 */
-      ui_screen_vblank(); /* couche UI entière (dialogue + HUD + timer, M1) */
+      /* P5 — l'ordre n'est plus arbitraire. Les REGISTRES d'abord :
+         ils ne coûtent presque rien et ils ne se négocient pas (un
+         scroll non écrit, c'est l'écran qui saute d'une tuile). Les
+         TRANSFERTS ensuite, chacun demandant sa place au budget ; ce
+         qui ne passe pas reste sale et repasse à la frame suivante. */
       screenfx_vblank(); /* $2100 (fondu) + $2130-$2132 (teinte/flash) */
       if (effect_active())
         effect_vblank(); /* BG1 = dérive du motif (S9), pas la caméra */
@@ -347,7 +355,26 @@ int main(void)
         bgSetScroll(0, camera.x + screenfx_shake_x(), camera.y);
       bgSetScroll(1, camera.x + screenfx_shake_x(), camera.y);
       hdmafx_vblank(); /* ondulation (S14) — écrase HOFS ligne à ligne */
-      vig_vblank();    /* frames de vignettes (B5) */
+
+      vbl_open();   /* les registres ne sont pas comptés : le budget part
+                       du compteur, une fois qu'ils sont écrits */
+      map_vblank(); /* bord de l'écran qui se découvre : prioritaire */
+      ui_screen_vblank(); /* couche UI (dialogue + HUD + timer, M1) — se
+                             découpe en rangées si la fenêtre est courte */
+      /* Facultatifs, en priorité TOURNANTE. Dans une chaîne figée, le
+         dernier est le sacrifié systématique — et l'échec des vignettes
+         est le plus invisible de tous : une frame d'animation qui ne
+         bouge pas ne ressemble à rien de particulier. */
+      if (vbl_turn())
+      {
+        tileanim_vblank(); /* un pas de tile animée (4 chars) — T1 */
+        vig_vblank();      /* frames de vignettes (B5) */
+      }
+      else
+      {
+        vig_vblank();
+        tileanim_vblank();
+      }
     }
   }
   return 0;

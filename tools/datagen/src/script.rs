@@ -93,6 +93,8 @@ const OP_VIGHIDE: u8 = 0x39;
 const OP_LISTSEL: u8 = 0x3A;
 const OP_ANIMPLAY: u8 = 0x3B;
 const OP_ANIMSTOP: u8 = 0x3C;
+const OP_CALLF: u8 = 0x3D;
+const OP_RETF: u8 = 0x3E;
 
 /// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
 /// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
@@ -217,7 +219,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "FACE" => 3,
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
-        "JCMP16" => 7,
+        "JCMP16" => 10,
         // RTBLOB <r> <s> <freq> <pas...> : blob de route custom (v0.14)
         // — [flags][freq][len] + pas, DONNÉES (jamais exécuté)
         "RTBLOB" => {
@@ -277,6 +279,16 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
+        // CALLF <label> <st0> <v0> ... : appel de fonction (F1) —
+        // opcode + label u16 + argc u8, puis 3 octets par argument
+        "CALLF" => {
+            if argc == 0 || argc % 2 != 1 {
+                bail!("CALLF <label> puis des couples <source> <valeur>");
+            }
+            4 + 3 * ((argc as u16 - 1) / 2)
+        }
+        // RETF <source> <valeur> : retour avec valeur (F1)
+        "RETF" => 4,
         "DBREAD" => 7,
         // SHOWUI <widget> <0|1> : visibilité d'un widget UI (Phase 12)
         "SHOWUI" => 3,
@@ -341,6 +353,42 @@ fn parse_any_var(tok: &str) -> Result<u8> {
 fn parse_u8(tok: &str) -> Result<u8> {
     tok.parse()
         .with_context(|| format!("valeur u8 invalide : '{}'", tok))
+}
+
+/// Type de source d'une valeur 16-bit. Partagé par VAROP, CALLF et RETF :
+/// un argument de fonction se décrit exactement comme le membre droit
+/// d'une affectation, il n'y avait aucune raison d'inventer une seconde
+/// grammaire. « param » et « ret » sont ajoutés par F1 — le premier n'a
+/// de sens que dans le corps d'une fonction, le second qu'après un appel,
+/// et c'est events.rs qui le vérifie (l'assembleur ne connaît pas les
+/// fonctions, seulement des étiquettes).
+fn parse_varsrc(tok: &str) -> Result<u8> {
+    Ok(match tok {
+        "const" => 0,
+        "var" => 1,
+        "hx" => 2,
+        "hy" => 3,
+        "timer" => 4,
+        "scene" => 5,
+        "param" => 6,
+        "ret" => 7,
+        o => bail!(
+            "source inconnue '{}' (const, var, hx, hy, timer, scene, param, ret)",
+            o
+        ),
+    })
+}
+
+/// Valeur associée à une source : une constante signée ou non, un index
+/// de variable, un numéro de paramètre.
+fn parse_srcval(tok: &str) -> Result<u16> {
+    let v: i32 = tok
+        .parse()
+        .with_context(|| format!("valeur invalide : '{}'", tok))?;
+    if !(-32768..=65535).contains(&v) {
+        bail!("valeur hors limite : {}", v);
+    }
+    Ok(v as u16)
 }
 
 pub fn assemble(
@@ -488,24 +536,22 @@ pub fn assemble(
                 code.extend_from_slice(&(val as u16).to_le_bytes());
             }
             "JCMP16" => {
-                if argc != 4 { bail!("JCMP16 <n> ==|!=|>= <val> <label>"); }
-                let n: u8 = args[0]
-                    .parse()
-                    .with_context(|| format!("variable 16-bit invalide : '{}'", args[0]))?;
-                let opb = match args[1] {
+                if argc != 6 {
+                    bail!("JCMP16 <srcA> <a> ==|!=|>= <srcB> <b> <label>");
+                }
+                let opb = match args[2] {
                     "==" => 0u8,
                     "!=" => 1u8,
                     ">=" => 2u8,
                     o => bail!("JCMP16 : opérateur inconnu '{}' (==, !=, >=)", o),
                 };
-                let val: u16 = args[2]
-                    .parse()
-                    .with_context(|| format!("valeur 16-bit invalide : '{}'", args[2]))?;
                 code.push(OP_JCMP16);
-                code.push(n);
+                code.push(parse_varsrc(args[0])?);
+                code.extend_from_slice(&parse_srcval(args[1])?.to_le_bytes());
                 code.push(opb);
-                code.extend_from_slice(&val.to_le_bytes());
-                code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
+                code.push(parse_varsrc(args[3])?);
+                code.extend_from_slice(&parse_srcval(args[4])?.to_le_bytes());
+                code.extend_from_slice(&label_of(args[5])?.to_le_bytes());
             }
             // VAROP <dst> <=|+|-|*|/|%|rand> <const|var|hx|hy|timer> <src>
             "VAROP" => {
@@ -517,11 +563,7 @@ pub fn assemble(
                     "%" => 5, "rand" => 6,
                     o => bail!("VAROP : operation inconnue '{}'", o),
                 };
-                let st = match args[2] {
-                    "const" => 0u8, "var" => 1, "hx" => 2, "hy" => 3, "timer" => 4,
-                    "scene" => 5,
-                    o => bail!("VAROP : source inconnue '{}'", o),
-                };
+                let st = parse_varsrc(args[2])?;
                 let src: i32 = args[3].parse()
                     .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
                 if !(-32768..=65535).contains(&src) {
@@ -560,6 +602,30 @@ pub fn assemble(
             "WAITCAM" => {
                 if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
                 code.push(OP_WAITCAM);
+            }
+            // CALLF <label> <src> <val> ... / RETF <src> <val> : appel
+            // de FONCTION avec arguments et valeur de retour (F1)
+            "CALLF" => {
+                if argc == 0 || argc % 2 != 1 {
+                    bail!("CALLF <label> puis des couples <source> <valeur>");
+                }
+                let n = (argc - 1) / 2;
+                if n > 8 {
+                    bail!("CALLF : {} arguments, le maximum est 8", n);
+                }
+                code.push(OP_CALLF);
+                code.extend_from_slice(&label_of(args[0])?.to_le_bytes());
+                code.push(n as u8);
+                for k in 0..n {
+                    code.push(parse_varsrc(args[1 + 2 * k])?);
+                    code.extend_from_slice(&parse_srcval(args[2 + 2 * k])?.to_le_bytes());
+                }
+            }
+            "RETF" => {
+                if argc != 2 { bail!("RETF <source> <valeur>"); }
+                code.push(OP_RETF);
+                code.push(parse_varsrc(args[0])?);
+                code.extend_from_slice(&parse_srcval(args[1])?.to_le_bytes());
             }
             // CALL <label> / RET : common events (v0.16)
             "CALL" => {

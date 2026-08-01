@@ -16,11 +16,17 @@ engine/src/*.asm
 engine/src/*.ps
 engine/src/data/*.asm
 engine/src/data/*.ps
-# ... sauf les vraies sources assembleur, écrites ou générées comme telles
-!engine/src/data/databanks.asm
+# ... sauf les .asm ECRITS A LA MAIN, qui n'ont pas de .c du meme nom
+!engine/src/actorsfast.asm
+!engine/src/vbudgetfast.asm
 linkfile
 soundbank.asm
 soundbank.bnk
 soundbank.h
 *.bnk
 editor/public/project
+
+# regression pixel : le core libretro n' est pas versionne (2,4 Mo)
+tools/regress/snes9x_libretro.*
+tools/regress/harness
+tools/regress/out/

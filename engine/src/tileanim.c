@@ -16,6 +16,7 @@
 #include "formats.h"
 #include "scene.h"
 #include "tileanim.h"
+#include "vbudget.h"
 #include "vram.h"
 
 extern const u8 ta_first[];
@@ -86,6 +87,11 @@ void tileanim_vblank(void)
   u8 k;
 
   if (ta_pend == 0xFF)
+    return;
+  /* Un pas de tile animee est ce qu'on sacrifie en premier : il ne se
+     voit pas, et ta_pend reste arme donc le pas passera a la frame
+     suivante. */
+  if (!vbl_take(VBL_COST_TILEANIM))
     return;
   chars = gfx_chars[scene_ctx.tileset_id];
   s4 = (u16)(ta_base + ta_pend) << 2;

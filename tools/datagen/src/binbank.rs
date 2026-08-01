@@ -13,8 +13,6 @@ use crate::tileset;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
-pub const BANK_SCENES: u8 = 0x82;
-pub const BANK_TEXTS: u8 = 0x86;
 pub const BANK_BASE: u16 = 0x8000;
 pub const BANK_CAPACITY: usize = 0x8000;
 

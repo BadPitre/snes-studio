@@ -32,19 +32,19 @@
 #define ACTOR_SLOTS 24
 
 /* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
-static u8 actor_dirs[ACTOR_SLOTS];
+u8 actor_dirs[ACTOR_SLOTS];
 
 /* Pages actives (v0.10) : 1 = cette entrée est la page active de son
    event. Recalculé au chargement et après chaque script (les switches
    ont pu changer) — voir actors_resolve_pages(). */
-static u8 actor_active[ACTOR_SLOTS];
+u8 actor_active[ACTOR_SLOTS];
 
 /* PNJ mobiles (v0.11) — état runtime par slot. La position ROM (tile)
    n'est que le point de départ : la position vraie vit ici, en pixels. */
-static u16 actor_px[ACTOR_SLOTS];
-static u16 actor_py[ACTOR_SLOTS];
-static u8 actor_step[ACTOR_SLOTS];  /* pixels restants du pas en cours */
-static u8 actor_anim[ACTOR_SLOTS];  /* frame de marche 0-3 (comme joueur) */
+u16 actor_px[ACTOR_SLOTS];
+u16 actor_py[ACTOR_SLOTS];
+u8 actor_step[ACTOR_SLOTS];  /* pixels restants du pas en cours */
+u8 actor_anim[ACTOR_SLOTS];  /* frame de marche 0-3 (comme joueur) */
 static u8 actor_timer[ACTOR_SLOTS]; /* frames avant la prochaine décision */
 static u16 mv_seed;                 /* xorshift 16-bit (aléatoire) */
 static u8 mv_phase;                 /* vitesse PNJ : 1 px 1 frame sur 2 */
@@ -65,8 +65,8 @@ static u8 actor_freq[ACTOR_SLOTS];
 static u8 actor_dirfix[ACTOR_SLOTS];
 static u8 actor_mvdir[ACTOR_SLOTS]; /* direction du pas en cours (dirfix) */
 static u8 actor_thru[ACTOR_SLOTS];
-static u8 actor_gfx[ACTOR_SLOTS];
-static u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
+u8 actor_gfx[ACTOR_SLOTS];
+u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
 
 /* ---- copie WRAM des champs ROM du chemin chaud (P3) ----
  * actors_update et actors_draw relisaient, par acteur ET par frame, le
@@ -77,21 +77,21 @@ static u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
  * actor_fbase évite en prime la multiplication par 12 (le 65816 n'en a
  * pas : tcc-816 appelle une routine) refaite à chaque frame pour placer
  * la frame du metasprite. */
-static u8 actor_sprite[ACTOR_SLOTS]; /* sprite_id, 0xFF = invisible */
+u8 actor_sprite[ACTOR_SLOTS]; /* sprite_id, 0xFF = invisible */
 static u8 actor_kind[ACTOR_SLOTS];   /* actor_type */
 static u8 actor_movet[ACTOR_SLOTS];  /* type de mouvement (flags) */
-static u8 actor_fbase[ACTOR_SLOTS];  /* sprite_id * 12 : base de frame */
-static u8 actor_shown[ACTOR_SLOTS];  /* OBJ actuellement visible ? */
+u8 actor_fbase[ACTOR_SLOTS];  /* sprite_id * 12 : base de frame */
+u8 actor_shown[ACTOR_SLOTS];  /* OBJ actuellement visible ? */
 /* Mots 1 et 3 de la paire d'entrées OAM (numéro de tile + attribut) : ils
    ne dépendent QUE de la frame affichée, de la palette et de la priorité.
    Les recalculer à chaque frame coûtait plus cher que tout le reste de la
    boucle réuni (mesuré : sans l'écriture OAM, dix PNJ tiennent les 60 fps).
    La clé de validité est la frame elle-même — pas besoin d'invalider à la
    main quand un PNJ tourne ou marche. */
-static u8 actor_lastf[ACTOR_SLOTS];
-static u8 actor_x9[ACTOR_SLOTS];   /* 9e bit de X posé dans la table 2 */
-static u16 actor_w1[ACTOR_SLOTS];
-static u16 actor_w3[ACTOR_SLOTS];
+u8 actor_lastf[ACTOR_SLOTS];
+u8 actor_x9[ACTOR_SLOTS];   /* 9e bit de X posé dans la table 2 */
+u16 actor_w1[ACTOR_SLOTS];
+u16 actor_w3[ACTOR_SLOTS];
 
 static u16 mv_rand(void)
 {
@@ -266,6 +266,16 @@ void actors_init(void)
   u8 i;
   const ActorDef *a = scene_ctx.actors;
 
+  /* Graine de l'errance des PNJ. Le .bss n'est PAS remis a zero par
+     cette toolchain : sans cette ligne, mv_seed demarrait sur ce qui
+     trainait en WRAM. Deterministe pour un binaire donne — donc invisible
+     — mais il CHANGE des que le plan memoire bouge, si bien qu'un
+     changement de code sans rapport modifiait la promenade des PNJ. Deux
+     versions d'une scene peuplee devenaient incomparables : ca m'a coute
+     un faux diagnostic pendant P4. Une constante non nulle suffit
+     (xorshift reste bloque sur zero). */
+  mv_seed = 0x2A69;
+
   for (i = 0; i < ACTOR_SLOTS; i++)
   {
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
@@ -339,6 +349,21 @@ void actors_init(void)
   actors_rebuild_blockers();
 }
 
+/* ---- interface avec la boucle assembleur (actorsfast.asm, P4) ----
+   La boucle chaude vit en 65816 : a 24 PNJ visibles elle coutait 244
+   lignes ecran sur 262, soit la frame entiere (mesure au compteur V).
+   Le masquage reste ICI : il ne survient qu'a la TRANSITION hors champ,
+   donc jamais en regime etabli, et il passe par oamSetVisible. */
+u8 actors_hot_n;                     /* slots a traiter */
+u8 actors_hide_n;                    /* acteurs sortis du champ */
+u8 actors_hide_list[ACTOR_SLOTS];
+extern void actors_draw_hot(void);
+
+/* Les tableaux ci-dessus ont perdu leur `static` : la boucle chaude est
+   ecrite en 65816 (actorsfast.asm, P4) et tcc-816 prefixe les symboles
+   statics avec le nom du fichier — l'assembleur ne pourrait pas les
+   nommer. Ils restent d'usage strictement interne au module. */
+
 /* ---- écriture directe du couple d'OBJ d'un acteur (P3) ----
  * oamSet prend huit arguments : avec tcc-816, POSER ces arguments coûte
  * plus cher que le travail lui-même (~125 instructions par appel, deux
@@ -401,99 +426,30 @@ void actors_draw(void)
 
   ns = (n > ACTOR_SLOTS) ? ACTOR_SLOTS : n;
 
-  /* Boucle CHAUDE (P3) : les slots, entièrement en WRAM. Séparer les deux
-     cas retire de chaque tour le test « i < ACTOR_SLOTS » (répété six
-     fois) et l'avance du pointeur far sur la table ROM, qui ne sert plus
-     ici. */
-  for (i = 0; i < ns; i++)
+  /* Boucle CHAUDE : en assembleur (P4) — voir actorsfast.asm pour le
+     detail de la mesure qui l'a justifiee. */
+  actors_hot_n = ns;
+  /* RAZ ICI, pas dans l'assembleur : sa sortie anticipee (aucun slot a
+     traiter) sautait par-dessus sa propre remise a zero, et au tout
+     premier appel actors_hide_n valait le motif de .bss non initialise
+     (0x55 = 85). La boucle ci-dessous parcourait alors 85 entrees d'une
+     liste qui en compte 24, et ecrivait actor_shown/actor_x9 A DES
+     INDEX HORS TABLEAU — de la memoire moteur corrompue en silence. */
+  actors_hide_n = 0;
+  actors_draw_hot();
+  if (actors_hide_n > ACTOR_SLOTS)
+    actors_hide_n = ACTOR_SLOTS; /* garde-fou : jamais hors du tableau */
+  for (i = 0; i < actors_hide_n; i++)
   {
-    u8 pal, d, f;
+    u8 k = actors_hide_list[i];
 
-    if (!actor_active[i])
-      continue; /* page inactive : OBJ déjà cachés par resolve_pages */
-    pal = actor_sprite[i];
-    if (pal == 0xFF)
-      continue; /* invisible */
-    ax = actor_px[i];
-    ay = actor_py[i];
-
-    /* Visible ? (metasprite 16x24 ancré 8 px au-dessus de la tile vs
-       fenêtre caméra 256x224) */
-    if (ax + 16 > cx && ax < cx_max && ay + 16 > cy && ay < cy_max)
-    {
-      u16 id = ACTOR_OAM_TOP(i);
-      u16 *o = (u16 *)&oamMemory[id];
-      u16 sx = ax - cx;
-      u16 sy = (ay - cy - SPRITE_Y_OVERLAP) & 0xFF;
-      u16 x8 = sx & 0xFF;
-
-      d = actor_dirs[i];
-      /* graphisme changé par la route (Change Graphic) ? */
-      f = (actor_gfx[i] != 0xFF) ? (u8)(actor_gfx[i] * 12) : actor_fbase[i];
-      f += (u8)(d + d + d); /* dir * 3, sans multiplication */
-      /* anim de marche (même motif que le joueur : pas A, repos, pas B,
-         repos) pendant un pas */
-      if (actor_step[i])
-        f += (actor_anim[i] & 1) ? (u8)(1 + (actor_anim[i] >> 1)) : 0;
-
-      /* Écriture OAM INLINE (P3) : passer par une fonction coûtait, à
-         cause du marshalling des arguments de tcc-816, plus que toute la
-         boucle — dix PNJ passaient de 60 à 30 fps rien qu'avec l'appel. */
-      if (f != actor_lastf[i])
-      {
-        u16 tile = OBJ_TOP_TILE(f);
-        u16 attr = ((u16)pal << 1) |
-                   ((u16)((actor_prio[i] == ACTOR_PRIO_ABOVE)
-                              ? 3
-                              : ACTOR_OBJ_PRIO)
-                    << 4);
-
-        actor_w1[i] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
-        tile += 32; /* OBJ_BOTTOM_TILE : la rangée du dessous */
-        actor_w3[i] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
-        actor_lastf[i] = f;
-      }
-      o[0] = x8 | (sy << 8);
-      o[1] = actor_w1[i];
-      o[2] = x8 | (((sy + 16) & 0xFF) << 8);
-      o[3] = actor_w3[i];
-      /* 9e bit de X (sprite qui déborde à gauche) : les deux OBJ d'un
-         metasprite sont consécutifs et partagent X, donc leurs deux bits
-         tombent dans le même octet de la table 2. Un PNJ ne franchit ce
-         bord que rarement : on ne touche la table qu'au changement. */
-      x8 = (sx & 0x100) ? 1 : 0;
-      if (x8 != actor_x9[i])
-      {
-        u8 *hi = &oamMemory[512 + (id >> 4)];
-
-        actor_x9[i] = (u8)x8;
-        if (((id >> 2) & 3) == 0)
-        {
-          if (x8)
-            *hi |= 0x05;
-          else
-            *hi &= (u8)~0x05;
-        }
-        else
-        {
-          if (x8)
-            *hi |= 0x50;
-          else
-            *hi &= (u8)~0x50;
-        }
-      }
-      actor_shown[i] = 1;
-    }
-    else if (actor_shown[i])
-    {
-      /* l'OAM n'est touché qu'au moment où l'acteur SORT du champ :
-         réécrire « caché » à chaque frame pour des PNJ que personne ne
-         voit était l'essentiel du prix d'une scène peuplée (P3). */
-      oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
-      oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
-      actor_shown[i] = 0;
-      actor_x9[i] = 0xFF; /* oamSetVisible a repositionné l'OBJ : cache mort */
-    }
+    /* l'OAM n'est touche qu'au moment ou l'acteur SORT du champ :
+       reecrire « cache » a chaque frame pour des PNJ que personne ne
+       voit etait l'essentiel du prix d'une scene peuplee (P3). */
+    oamSetVisible(ACTOR_OAM_TOP(k), OBJ_HIDE);
+    oamSetVisible(ACTOR_OAM_BOT(k), OBJ_HIDE);
+    actor_shown[k] = 0;
+    actor_x9[k] = 0xFF; /* oamSetVisible a repositionne l'OBJ : cache mort */
   }
 
   /* Queue FROIDE : les PNJ au-delà des slots sont figés à leur position

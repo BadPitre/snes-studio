@@ -31,6 +31,8 @@ pub struct Project {
     /// sont émis dans le bloc scripts de la scène).
     #[serde(default)]
     pub common_events: Vec<CommonEvent>,
+    #[serde(default)]
+    pub functions: Vec<FunctionDef>,
     /// Système UI (Phase 11, docs/SPEC_SYSTEME_UI.md) : thème v1
     #[serde(default)]
     pub ui: Option<UiConfig>,
@@ -173,6 +175,31 @@ pub struct CommonEvent {
     /// Switch de condition (requis si trigger == "auto")
     #[serde(default)]
     pub switch: Option<u16>,
+    #[serde(default)]
+    pub commands: Vec<serde_json::Value>,
+    /// F1-c — VESTIGE. Les fonctions ont d'abord été des common events à
+    /// paramètres ; elles ont maintenant leur propre liste. Ce champ ne
+    /// sert plus qu'à refuser explicitement un projet resté au format
+    /// d'avant, plutôt que de perdre son contenu en silence.
+    #[serde(default)]
+    pub params: Vec<String>,
+}
+
+/// F1 — une FONCTION : un script global qui prend des paramètres et peut
+/// rendre une valeur. Séparée des common events parce que ce n'est pas
+/// la même chose : un common event est un bloc de commandes qu'on
+/// déclenche, une fonction est un calcul qu'on appelle. Les noms de
+/// paramètres ne servent qu'à l'éditeur ; le moteur ne connaît que des
+/// index dans le cadre d'appel.
+#[derive(Deserialize)]
+pub struct FunctionDef {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub params: Vec<String>,
+    /// rend une valeur (commande « ret_fn »), lue par la source « ret »
+    #[serde(default)]
+    pub returns: bool,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
 }

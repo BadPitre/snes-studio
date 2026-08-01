@@ -70,6 +70,8 @@ import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
 import VarListModal from "./components/VarListModal";
 import CommonEventsModal from "./components/CommonEventsModal";
+import FunctionsModal from "./components/FunctionsModal";
+import { migrateFunctions } from "./migrate";
 import ScreensModal from "./components/ScreensModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
@@ -158,6 +160,7 @@ export default function App() {
   const [diags, setDiags] = useState<Diag[] | null>(null);
   const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
   const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
+  const [fnOpen, setFnOpen] = useState(false); // Fonctions (F1)
   const [screensOpen, setScreensOpen] = useState(false); // Écrans composés (B6bis)
   // prefabs (v0.16) : enregistrement (event source), création (position
   // cible) et gestionnaire (Tools)
@@ -232,7 +235,7 @@ export default function App() {
 
   // (re)chargement complet du projet depuis le disque
   async function reloadProject(root: string, keepScene?: string) {
-    const d = await loadProject(root);
+    const d = migrateFunctions(await loadProject(root));
     const bitmaps: Record<string, ImageBitmap> = {};
     const autos: Record<string, ImageBitmap[]> = {};
     for (const p of projectTilesets(d.project)) {
@@ -1914,10 +1917,28 @@ export default function App() {
           disabled: !data,
         },
         {
-          label: "Common events…",
-          tip: "Scripts globaux au projet : appelés depuis n'importe quel event, ou lancés en auto par un switch",
-          action: () => setCommonEvOpen(true),
+          // Les deux sont des SCRIPTS GLOBAUX au projet, opposés par ce
+          // qu'on en fait : un common event se déclenche, une fonction
+          // se calcule. Les réunir sous une entrée les présente comme
+          // les deux faces d'une même idée plutôt que comme deux
+          // outils sans rapport perdus dans une liste de dix.
+          label: "Scripts globaux",
+          tip: "Scripts partagés par tout le projet : common events (déclenchés) et fonctions (appelées avec des paramètres)",
           disabled: !data,
+          sub: [
+            {
+              label: "Common events…",
+              tip: "Blocs de commandes appelés depuis n'importe quel event, ou lancés en auto par un switch",
+              action: () => setCommonEvOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Fonctions…",
+              tip: "Calculs réutilisables : la fonction prend des paramètres, peut retourner un résultat, et s'appelle depuis n'importe quel event",
+              action: () => setFnOpen(true),
+              disabled: !data,
+            },
+          ],
         },
         {
           label: "Écrans composés…",
@@ -2680,9 +2701,55 @@ export default function App() {
           onClose={() => setScreensOpen(false)}
         />
       )}
+      {fnOpen && data && (
+        <FunctionsModal
+          functions={data.project.functions ?? []}
+          commons={data.project.common_events ?? []}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          switchNames={data.project.switches ?? []}
+          varNames={data.project.variables ?? []}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          db={db}
+          uiWidgets={uiWidgets}
+          uiStyles={uiStyles}
+          texts={data.texts}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          tintPresets={data.project.tint_presets ?? []}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          musicNames={(data.project.musics ?? []).map(musicStem)}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          animNames={(data.project.animations ?? []).map((a) => a.name)}
+          screenNames={data.project.screens ?? []}
+          onTintPresets={(list) =>
+            mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+          }
+          onRenameVars={(sw, va) =>
+            mutate((d) => ({ ...d, project: { ...d.project, switches: sw, variables: va } }))
+          }
+          onOk={(functions) => {
+            mutate((d) => ({
+              ...d,
+              project: {
+                ...d.project,
+                functions: functions.length ? functions : undefined,
+              },
+            }));
+            setFnOpen(false);
+          }}
+          onClose={() => setFnOpen(false)}
+        />
+      )}
       {commonEvOpen && data && (
         <CommonEventsModal
           commons={data.project.common_events ?? []}
+          fnSigs={(data.project.functions ?? []).map((f, i) => ({
+            name: f.name || `F ${i + 1}`,
+            params: f.params,
+            returns: f.returns,
+          }))}
           sceneNames={data.project.scenes}
           scenes={data.scenes}
           switchNames={data.project.switches ?? []}
@@ -2755,6 +2822,11 @@ export default function App() {
           commonNames={(data.project.common_events ?? []).map(
             (ce, i) => ce.name || `CE ${i + 1}`
           )}
+          fnSigs={(data.project.functions ?? []).map((f, i) => ({
+            name: f.name || `F ${i + 1}`,
+            params: f.params,
+            returns: f.returns,
+          }))}
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}
