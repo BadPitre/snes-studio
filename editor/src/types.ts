@@ -341,6 +341,11 @@ export type Command =
   | { c: "shake"; power: number; speed: number; frames: number }
   // v0.16 — appel d'un common event (CALL/RET, pile de 8 niveaux)
   | { c: "call"; n: number }
+  // F1 — appel d'une FONCTION : un argument par paramètre déclaré ;
+  // dst range la valeur rendue dans une variable (sucre pour l'appel
+  // suivi d'une affectation depuis la source « ret »).
+  | { c: "call_fn"; n: number; args: ValueSrc[]; dst?: number }
+  | { c: "ret_fn"; from?: VarSource; value: number }
   // v0.17 — lire un champ de la Database dans une variable 16-bit.
   // entry : id symbolique (from const) ou n° de variable (from var)
   | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number };
@@ -354,11 +359,36 @@ export interface CommonEvent {
   name: string;
   trigger: "none" | "auto" | "parallel";
   switch?: number; // condition optionnelle (absente = toujours actif)
+  // F1 — un common event qui déclare des PARAMÈTRES est une FONCTION :
+  // il s'appelle avec « Appeler une fonction » (arguments fournis à
+  // l'appel), et son corps lit ses entrées avec la source « Paramètre ».
+  // Les noms ne servent qu'ici ; le moteur ne connaît que des index.
+  params?: string[];
+  returns?: boolean; // rend une valeur (commande « Retourner »)
   commands: Command[];
 }
 
+// Signature d'un common event, telle que les formulaires en ont besoin
+// pour proposer les bons champs (nombre d'arguments, valeur de retour).
+export interface FnSig {
+  name: string;
+  params: string[];
+  returns: boolean;
+}
+
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
-export type VarSource = "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene";
+// F1 : "param" = paramètre n de la fonction en cours (corps d'une
+// fonction uniquement), "ret" = valeur rendue par le dernier appel.
+export type VarSource =
+  | "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene"
+  | "param" | "ret";
+
+// Une valeur d'entrée, partout pareille : source + nombre. Le nombre est
+// une constante, un n° de variable ou un n° de paramètre selon la source.
+export interface ValueSrc {
+  from?: VarSource; // absent = constante
+  value: number;
+}
 
 // Un pas d'itinéraire (v0.13, dialogue Move Route complet).
 // wait : n × 8 frames (1-15) ; swon/swoff : n = switch ; gfx : block projet.

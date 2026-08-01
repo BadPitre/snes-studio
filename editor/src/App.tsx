@@ -2755,6 +2755,11 @@ export default function App() {
           commonNames={(data.project.common_events ?? []).map(
             (ce, i) => ce.name || `CE ${i + 1}`
           )}
+          commonSigs={(data.project.common_events ?? []).map((ce, i) => ({
+            name: ce.name || `CE ${i + 1}`,
+            params: ce.params ?? [],
+            returns: !!ce.returns,
+          }))}
           db={db}
           uiWidgets={uiWidgets}
           uiStyles={uiStyles}

@@ -127,7 +127,9 @@ const TABS: Tab[] = [
   {
     title: "Autres",
     items: [
-      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" }],
+      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" },
+      { c: "call_fn", label: "Appeler une fonction (avec paramètres)" },
+      { c: "ret_fn", label: "Retourner une valeur (dans une fonction)" }],
     soon: ["Jouer un son"],
   },
 ];
