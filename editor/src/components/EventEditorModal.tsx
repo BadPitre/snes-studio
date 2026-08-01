@@ -965,7 +965,11 @@ export default function EventEditorModal(props: Props) {
               <button
                 key={k}
                 className={k === page ? "active-page" : ""}
-                style={k === page ? { background: "#31547a" } : undefined}
+                style={{
+                  flex: "0 0 auto",
+                  minWidth: 26,
+                  ...(k === page ? { background: "#31547a" } : null),
+                }}
                 onClick={() => setPage(k)}
               >
                 {k + 1}
@@ -978,8 +982,9 @@ export default function EventEditorModal(props: Props) {
                 setDraft({ ...draft, extraPages: extra });
                 setPage(extra.length);
               }}
+              style={{ flex: "0 0 auto", width: 30 }}
             >
-              ＋ page
+              ＋
             </button>
             <button
               disabled={pageCount <= 1}
@@ -994,8 +999,9 @@ export default function EventEditorModal(props: Props) {
                   setPage(Math.max(0, page - 1));
                 }
               }}
+              style={{ flex: "0 0 auto", width: 30 }}
             >
-              🗑 page
+              🗑
             </button>
           </span>
           <button className="modal-x" title="Fermer" onClick={props.onClose} style={{ alignSelf: "flex-start" }}>✕</button>
