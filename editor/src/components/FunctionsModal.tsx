@@ -10,7 +10,7 @@
 // condition) qui n'ont aucun sens pour une fonction.
 
 import { useState } from "react";
-import type { CommonEvent, FnSig, FunctionDef, Scene } from "../types";
+import type { Command, CommonEvent, FnSig, FunctionDef, Scene } from "../types";
 import type { Database } from "../db";
 import { CommandListEditor } from "./EventEditorModal";
 
@@ -40,6 +40,54 @@ interface Props {
 }
 
 const PARAMS_MAX = 8; // VM_PARAMS_MAX côté moteur
+
+// Toutes les valeurs « source » d'une commande, la seule chose qui peut
+// porter une référence à un paramètre : membre droit d'une affectation,
+// arguments d'un appel, valeur retournée.
+function sources(c: Command): { from?: string; value: number }[] {
+  const any = c as unknown as {
+    from?: string;
+    value?: number;
+    args?: { from?: string; value: number }[];
+  };
+  const out: { from?: string; value: number }[] = [];
+  if (any.value !== undefined) out.push(any as { from?: string; value: number });
+  for (const a of any.args ?? []) out.push(a);
+  return out;
+}
+
+function walkCmds(cmds: Command[] | undefined, fn: (c: Command) => void): void {
+  for (const c of cmds ?? []) {
+    fn(c);
+    const any = c as unknown as Record<string, Command[] | undefined>;
+    walkCmds(any.do, fn);
+    walkCmds(any.then, fn);
+    walkCmds(any.else, fn);
+    const opts = (c as unknown as { options?: { do?: Command[] }[] }).options;
+    for (const o of opts ?? []) walkCmds(o.do, fn);
+  }
+}
+
+// Retirer un paramètre décale tous les suivants : sans remapper, « le
+// 3e » devient « le 2e » et la fonction calcule autre chose en silence.
+// Et si le corps se sert ENCORE de celui qu'on enlève, il n'y a pas de
+// bonne valeur de repli — on refuse plutôt que de deviner. C'est ce cas
+// qui remontait jusqu'à datagen sous la forme d'un message obscur.
+function paramUsed(cmds: Command[], k: number): boolean {
+  let used = false;
+  walkCmds(cmds, (c) => {
+    for (const v of sources(c)) if (v.from === "param" && v.value === k) used = true;
+  });
+  return used;
+}
+
+function shiftParams(cmds: Command[], removed: number): void {
+  walkCmds(cmds, (c) => {
+    for (const v of sources(c))
+      if (v.from === "param" && v.value > removed) v.value -= 1;
+  });
+}
+
 
 export default function FunctionsModal(props: Props) {
   const [draft, setDraft] = useState<FunctionDef[]>(() =>
@@ -183,9 +231,24 @@ export default function FunctionsModal(props: Props) {
                         <button
                           title="Retirer ce paramètre"
                           style={{ flex: "0 0 auto", width: 24 }}
-                          onClick={() =>
-                            patch({ params: cur.params.filter((_, i) => i !== k) })
-                          }
+                          onClick={() => {
+                            if (paramUsed(cur.commands, k)) {
+                              alert(
+                                `Le paramètre n° ${k + 1} (« ${pname || "sans nom"} ») ` +
+                                  `est encore utilisé dans le corps de la fonction.\n\n` +
+                                  `Retirer d'abord les commandes qui s'en servent : ` +
+                                  `sinon elles désigneraient un paramètre qui n'existe ` +
+                                  `plus, et le build échouerait.`
+                              );
+                              return;
+                            }
+                            const commands = structuredClone(cur.commands);
+                            shiftParams(commands, k);
+                            patch({
+                              params: cur.params.filter((_, i) => i !== k),
+                              commands,
+                            });
+                          }}
                         >
                           −
                         </button>

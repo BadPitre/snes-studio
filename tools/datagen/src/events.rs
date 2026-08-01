@@ -159,9 +159,11 @@ impl<'a> EventCompiler<'a> {
                     who
                 ),
                 Some((n, _)) if val < 0 || val as usize >= n => bail!(
-                    "{} : paramètre {} demandé, la fonction n'en déclare que {}",
+                    "{} : le paramètre n° {} est demandé, mais la fonction n'en \
+                     déclare que {} — un paramètre a probablement été retiré \
+                     alors que le corps s'en servait encore",
                     who,
-                    val,
+                    val + 1,
                     n
                 ),
                 Some(_) => {}
