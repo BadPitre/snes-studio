@@ -1,26 +1,25 @@
-; vbudgetfast.asm — lecture du compteur de balayage vertical (P5).
+; vbudgetfast.asm — reading the vertical scan counter.
 ;
-; POURQUOI DE L'ASSEMBLEUR POUR QUATRE ACCÈS REGISTRE
-; La version C de cette lecture — quatre lectures 8 bits, un décalage,
-; un OU — coûte ~2 LIGNES ÉCRAN, mesurées au compteur lui-même. Sur une
-; fenêtre VBlank de 30 lignes, c'est 7 % dépensés à savoir où l'on en
-; est. La première mouture de l'arbitrage en posait deux par frame et
-; sortait PIRE que le moteur sans arbitre : 34 lignes de pic contre 29,
-; et cinq frames sur 128 qui débordaient là où il n'y en avait aucune.
-; Le coupable est le codegen de tcc-816, un sep/rep autour de chaque
-; opération 8 bits et un appel de fonction complet pour ça.
+; WHY ASSEMBLY FOR FOUR REGISTER ACCESSES
+; The C version of this read — four 8-bit reads, a shift and an or —
+; costs ~2 SCREEN LINES, measured with the counter itself. On a 30-line
+; VBlank window that is 7 % spent finding out where we are. The first
+; version of the arbiter placed two of them per frame and came out WORSE
+; than no arbiter at all: 34 lines of peak against 29, and five frames
+; in 128 overrunning where there had been none. The culprit is tcc-816's
+; codegen — a sep/rep around every 8-bit operation, and a full function
+; call for this.
 ;
-; Sans lecture du compteur, l'arbitrage ne peut travailler que sur une
-; fenêtre CONSTANTE et des coûts annoncés — et il devient aveugle à tout
-; ce qui n'est pas déclaré. Mesuré : face à six transferts non comptés
-; injectés dans le bloc, la version à budget constant déborde exactement
-; autant que le moteur sans arbitre (11 frames sur 128). Une lecture du
-; compteur est donc le seul garde-fou réel ; il fallait la rendre
-; gratuite, pas la supprimer.
+; Without a counter read the arbiter can only work from a CONSTANT
+; window and declared costs, which makes it blind to anything
+; undeclared. Measured: against six unaccounted transfers injected into
+; the block, the constant-budget version overran exactly as often as no
+; arbiter (11 frames in 128). A counter read is the only real guard
+; rail; it had to be made free, not removed.
 ;
-; Résultat déposé dans vbl_v (défini côté C) plutôt que rendu en A : ça
-; évite de dépendre de la convention de retour de tcc-816, et c'est le
-; même contrat que actorsfast.asm.
+; The result lands in vbl_v (defined on the C side) rather than being
+; returned in A: that avoids depending on tcc-816's return convention,
+; and it is the same contract as actorsfast.asm.
 
 .include "hdr.asm"
 .accu 16
@@ -33,11 +32,11 @@ vbl_probe:
     php
     sep #$20
 .accu 8
-    lda.l $002137 ; latche H et V
-    lda.l $00213F ; remet le basculeur haut/bas à zéro
-    lda.l $00213D ; OPVCT poids faible
+    lda.l $002137 ; latch H and V
+    lda.l $00213F ; reset the high/low toggle
+    lda.l $00213D ; OPVCT low byte
     sta.l vbl_v
-    lda.l $00213D ; OPVCT poids fort — seul le bit 0 sert (261 max)
+    lda.l $00213D ; OPVCT high byte — only bit 0 matters (261 max)
     and #$01
     sta.l vbl_v + 1
     plp

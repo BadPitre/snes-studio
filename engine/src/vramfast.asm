@@ -1,35 +1,32 @@
-; vramfast.asm — vidage de la file de transferts VRAM (P6).
+; vramfast.asm — draining the VRAM transfer queue, and building it.
 ;
-; POURQUOI DE L'ASSEMBLEUR POUR HUIT ECRITURES DE REGISTRES
-; La routine dmaCopyVram7 de PVSnesLib fait une trentaine
-; d'instructions. Ce n'est pas elle qui coute : c'est l'APPEL. tcc-816
-; empile ses cinq arguments un par un depuis sa pile logicielle, et le
-; tout revient a ~1,5 LIGNE ECRAN par transfert, mesuree au compteur de
-; balayage. Une colonne de carte en demande huit : 22 lignes sur les 30
-; que dure la fenetre, pour 512 octets qui n'en valent que 3.
+; WHY ASSEMBLY FOR A HANDFUL OF REGISTER WRITES
+; PVSnesLib's dmaCopyVram7 is about thirty instructions. It is not the
+; routine that costs, it is the CALL: tcc-816 pushes its five arguments
+; one at a time from its software stack, and the whole thing comes to
+; ~1.5 SCREEN LINES per transfer. A map column needs eight of them —
+; 22 lines out of the 30 the window lasts, for 512 bytes worth 3.
 ;
-; Ici, les registres invariants du lot (mode DMA, porte $2118,
-; increment $2115) sont ecrits UNE FOIS, et par transfert il ne reste
-; que quatre ecritures : source, taille, adresse VRAM, coup d'envoi.
+; Here the batch-invariant registers (DMA mode, the $2118 gate, the
+; $2115 increment) are written ONCE, leaving four writes per transfer:
+; source, size, VRAM address, go.
 ;
-; MESURE, meme profileur, carte 48x40 qui streame sur les deux axes,
-; 497 frames retenues apres chauffe (les chiffres detailles sont dans
-; vramjob.h) : le pic du bloc VBlank tombe de 32 lignes a 22, et les
-; 8 frames sur 497 qui debordaient n'existent plus.
+; Measured, same profiler, a 48x40 map streaming on both axes, 497
+; frames after warm-up: the VBlank block peak falls from 32 lines to 22,
+; and the 8 frames in 497 that overran no longer exist. Full figures in
+; docs/PERF_MEASUREMENTS.md.
 ;
-; CONTRAT
-;   entree : vj_first, vj_n, vj_vmain, vj_ctrl et les quatre tableaux
-;            vj_src / vj_bank / vj_dst / vj_len (definis en C).
-;   sortie : rien. Aucun registre C n'est modifie.
+; CONTRACT
+;   in:  vj_first, vj_n, vj_vmain, vj_ctrl and the four arrays
+;        vj_src / vj_bank / vj_dst / vj_len, all defined in C.
+;   out: nothing. No C register is modified.
 ;
-; CONVENTIONS 65816, les memes qu'actorsfast.asm :
-;  - `long,Y` n'existe pas : tous les tableaux sont indexes par X. C'est
-;    pour ca que vj_bank est un tableau de MOTS et pas d'octets — un
-;    tableau d'octets aurait demande un second index.
-;  - CPX n'a pas de mode long : le compteur de boucle vit dans Y, qui
-;    n'indexe rien ici, et la sortie se fait sur `dey / bne`.
-;  - sep #$20 ne touche que le bit M : l'index reste 16 bits d'un bout
-;    a l'autre, donc phx/plx et phy/ply sont coherents.
+; The 65816 conventions this file obeys are in docs/ENGINE_CONSTRAINTS.md
+; §2. The three that shape the code below: `long,Y` does not exist, so
+; every array is indexed by X (which is why vj_bank is an array of WORDS
+; and not bytes); CPX has no long mode, so the loop counter lives in Y
+; and exits on `dey / bne`; and sep #$20 only touches the M bit, so the
+; index stays 16-bit throughout and phx/plx stay consistent.
 
 .include "hdr.asm"
 .accu 16
@@ -40,20 +37,16 @@
 
 ; void vj_set(u16 i, const u8 *src, u16 dst, u16 len)
 ;
-; POURQUOI CELLE-CI AUSSI EST EN ASSEMBLEUR
-; Un DMA a besoin de la BANQUE de sa source, et le C ne peut pas la
-; donner : tcc-816 passe bien un pointeur sur QUATRE octets — banque
-; comprise — quand on le confie a une fonction, mais `(u32)p` ne garde
-; que les 16 bits bas ET ETEND LE SIGNE. Mesure a l'appui : la table
-; sortait banque $00 pour un tampon WRAM en $7E:400E et banque $FF pour
-; un charset ROM en $8x:AF7B — adresses respectivement positive et
-; negative en 16 bits signes. Les tiles animees s'affichaient en noir.
-; Ici on lit les quatre octets la ou l'appelant les a poses, exactement
-; comme dmaCopyVram de PVSnesLib.
+; This one is in assembly for a different reason: a DMA needs its
+; source BANK, and C cannot give it. tcc-816 does pass a FOUR-byte
+; pointer — bank included — when you hand one to a function, but
+; `(u32)p` keeps only the low 16 bits AND SIGN EXTENDS. See
+; docs/ENGINE_CONSTRAINTS.md §1.3. Here we read the four bytes where
+; the caller left them, exactly as PVSnesLib's dmaCopyVram does.
 ;
-; Pile apres php + phx (index deja force a 16 bits) :
-;   1-2  X sauve      3  P sauve      4-6  adresse de retour
-;   7-8  i            9-12 src (mot bas, puis mot haut = banque)
+; Stack after php + phx (the index is already 16-bit):
+;   1-2  saved X      3  saved P      4-6  return address
+;   7-8  i            9-12 src (low word, then high word = bank)
 ;   13-14 dst         15-16 len
 
 vj_set:
@@ -63,15 +56,15 @@ vj_set:
 .index 16
     phx
     lda 7,s
-    asl a               ; index d'OCTET dans des tableaux de mots
+    asl a               ; BYTE index into arrays of words
     tax
-    lda 9,s             ; source, 16 bits bas
+    lda 9,s             ; source, low 16 bits
     sta.l vj_src,x
-    lda 11,s            ; mot haut du pointeur : la banque est en bas
+    lda 11,s            ; high word of the pointer: the bank is its low byte
     sta.l vj_bank,x
-    lda 13,s            ; adresse VRAM, en mots
+    lda 13,s            ; VRAM address, in words
     sta.l vj_dst,x
-    lda 15,s            ; taille en octets
+    lda 15,s            ; size in bytes
     sta.l vj_len,x
     plx
     plp
@@ -85,45 +78,45 @@ vram_burst:
 .accu 16
 .index 16
     lda.l vj_n
-    and #$00FF          ; jamais plus de VJ_MAX transferts
-    beq _vb_fin
-    tay                 ; Y = compteur de boucle
+    and #$00FF          ; never more than VJ_MAX transfers
+    beq _vb_end
+    tay                 ; Y = loop counter
     lda.l vj_first
-    asl a               ; index d'OCTET dans des tableaux de mots
+    asl a               ; BYTE index into arrays of words
     tax
 
     sep #$20
 .accu 8
     lda.l vj_vmain
-    sta.l $002115       ; increment de l'adresse VRAM
+    sta.l $002115       ; VRAM address increment
     lda.l vj_ctrl
-    sta.l $004300       ; mode de transfert
+    sta.l $004300       ; transfer mode
     lda.l vj_ctrl + 1
-    sta.l $004301       ; porte du bus B ($2118)
+    sta.l $004301       ; B-bus gate ($2118)
 
-_vb_boucle:
+_vb_loop:
     rep #$20
 .accu 16
     lda.l vj_dst,x
-    sta.l $002116       ; adresse VRAM (en mots)
+    sta.l $002116       ; VRAM address (in words)
     lda.l vj_src,x
-    sta.l $004302       ; source, 16 bits bas
+    sta.l $004302       ; source, low 16 bits
     lda.l vj_len,x
-    sta.l $004305       ; taille en octets
+    sta.l $004305       ; size in bytes
     sep #$20
 .accu 8
-    lda.l vj_bank,x     ; octet bas du mot = banque
+    lda.l vj_bank,x     ; low byte of the word = bank
     sta.l $004304
     lda #$01
-    sta.l $00420B       ; coup d'envoi (canal 0)
+    sta.l $00420B       ; go (channel 0)
     rep #$20
 .accu 16
     inx
     inx
     dey
-    bne _vb_boucle
+    bne _vb_loop
 
-_vb_fin:
+_vb_end:
     rep #$30
 .accu 16
 .index 16
