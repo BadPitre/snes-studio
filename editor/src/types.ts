@@ -237,7 +237,20 @@ export type Command =
   // de commandes ne propose plus que les versions modernes.
   | { c: "switch"; n: number; on: boolean }
   | { c: "if_sw"; n: number; on: boolean; then: Command[]; else: Command[] }
-  | { c: "if_var"; n: number; op: "==" | "!=" | ">="; value: number; then: Command[]; else: Command[] }
+  // F2 — les deux membres sont des sources : constante, variable, X/Y du
+  // héros, timer, paramètre de fonction, résultat du dernier appel. `n`
+  // et `value` restent lus quand `left`/`right` sont absents (projets
+  // enregistrés avant F2 — datagen les accepte aussi).
+  | {
+      c: "if_var";
+      n: number;
+      op: "==" | "!=" | ">=";
+      value: number;
+      left?: ValueSrc;
+      right?: ValueSrc;
+      then: Command[];
+      else: Command[];
+    }
   // v0.12 — Move Route (cinématiques) : itinéraire en tâche de fond,
   // attente de fin, pause bloquante
   | { c: "route"; event: number; repeat: boolean; skip: boolean; freq?: number; steps: RouteStep[] }

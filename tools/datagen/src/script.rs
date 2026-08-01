@@ -219,7 +219,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "FACE" => 3,
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
-        "JCMP16" => 7,
+        "JCMP16" => 10,
         // RTBLOB <r> <s> <freq> <pas...> : blob de route custom (v0.14)
         // — [flags][freq][len] + pas, DONNÉES (jamais exécuté)
         "RTBLOB" => {
@@ -536,24 +536,22 @@ pub fn assemble(
                 code.extend_from_slice(&(val as u16).to_le_bytes());
             }
             "JCMP16" => {
-                if argc != 4 { bail!("JCMP16 <n> ==|!=|>= <val> <label>"); }
-                let n: u8 = args[0]
-                    .parse()
-                    .with_context(|| format!("variable 16-bit invalide : '{}'", args[0]))?;
-                let opb = match args[1] {
+                if argc != 6 {
+                    bail!("JCMP16 <srcA> <a> ==|!=|>= <srcB> <b> <label>");
+                }
+                let opb = match args[2] {
                     "==" => 0u8,
                     "!=" => 1u8,
                     ">=" => 2u8,
                     o => bail!("JCMP16 : opérateur inconnu '{}' (==, !=, >=)", o),
                 };
-                let val: u16 = args[2]
-                    .parse()
-                    .with_context(|| format!("valeur 16-bit invalide : '{}'", args[2]))?;
                 code.push(OP_JCMP16);
-                code.push(n);
+                code.push(parse_varsrc(args[0])?);
+                code.extend_from_slice(&parse_srcval(args[1])?.to_le_bytes());
                 code.push(opb);
-                code.extend_from_slice(&val.to_le_bytes());
-                code.extend_from_slice(&label_of(args[3])?.to_le_bytes());
+                code.push(parse_varsrc(args[3])?);
+                code.extend_from_slice(&parse_srcval(args[4])?.to_le_bytes());
+                code.extend_from_slice(&label_of(args[5])?.to_le_bytes());
             }
             // VAROP <dst> <=|+|-|*|/|%|rand> <const|var|hx|hy|timer> <src>
             "VAROP" => {

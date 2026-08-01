@@ -152,7 +152,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
     case "if_var":
-      return `Condition : si variable [${c.n}] ${c.op} ${c.value}`;
+      return `Condition : si ${srcLabel(c.left ?? { from: "var", value: c.n })} ${
+        c.op} ${srcLabel(c.right ?? { value: c.value })}`;
     case "route":
       return `Déplacer ${c.event < 0 ? "cet event" : `l'event ${c.event}`} : ${c.steps.length} pas${c.repeat ? " (répété)" : ""}`;
     case "wait_route":
@@ -599,7 +600,11 @@ export function CommandListEditor(props: {
       case "if_sw":
         return { c: "if_sw", n: 0, on: true, then: [], else: [] };
       case "if_var":
-        return { c: "if_var", n: 0, op: "==", value: 1, then: [], else: [] };
+        return {
+          c: "if_var", n: 0, op: "==", value: 1,
+          left: { from: "var", value: 0 }, right: { value: 1 },
+          then: [], else: [],
+        };
       case "route":
         return { c: "route", event: -1, repeat: false, skip: false, steps: [] };
       case "wait_route":
@@ -1287,7 +1292,8 @@ export default function EventEditorModal(props: Props) {
 function ValueSourceFields(props: {
   v: ValueSrc;
   fnParams?: string[];
-  inFunction?: boolean;
+  varNames?: string[];
+  onPickVar?: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (v: ValueSrc) => void;
 }) {
   const { v } = props;
@@ -1329,14 +1335,28 @@ function ValueSourceFields(props: {
             ))}
           </select>
         </label>
+      ) : from === "var" ? (
+        <label>
+          Variable
+          <span className="row" style={{ gap: 4 }}>
+            <input
+              type="number" min={0} max={255} value={v.value}
+              onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
+            />
+            {props.onPickVar && (
+              <button className="browse" title="Choisir dans la liste"
+                onClick={() =>
+                  props.onPickVar!("var", v.value, (n) => props.onChange({ ...v, value: n }))
+                }>…</button>
+            )}
+          </span>
+          <span className="hint">{props.varNames?.[v.value] || ""}</span>
+        </label>
       ) : numeric ? (
         <label>
-          {from === "var" ? "N° de variable" : "Valeur"}
+          Valeur
           <input
-            type="number"
-            min={from === "var" ? 0 : -32768}
-            max={from === "var" ? 255 : 65535}
-            value={v.value}
+            type="number" min={-32768} max={65535} value={v.value}
             onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
           />
         </label>
@@ -1741,43 +1761,55 @@ function CommandForm(props: {
         </div>
       );
       break;
-    case "if_var":
-      valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= 0 && cmd.value <= 65535;
+    case "if_var": {
+      // Les deux membres passent par le même bloc « source + valeur » que
+      // partout ailleurs : comparer un paramètre à une constante, ou deux
+      // variables entre elles, ne demande plus de recopier quoi que ce
+      // soit dans une variable globale au préalable.
+      const left = cmd.left ?? { from: "var" as const, value: cmd.n };
+      const right = cmd.right ?? { value: cmd.value };
+      valid =
+        (left.from !== "var" || (left.value >= 0 && left.value < 256)) &&
+        (right.from !== "var" || (right.value >= 0 && right.value < 256));
       body = (
-        <div className="row">
-          <label>
-            Variable (0-255)
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={255} value={cmd.n} autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              />
-              <button className="browse" title="Choisir dans la liste"
-                onClick={() => props.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
-            </span>
-            <span className="hint">{props.varNames[cmd.n] || ""}</span>
-          </label>
-          <label>
-            Opérateur
-            <select
-              value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })}
-            >
-              <option value="==">=</option>
-              <option value="!=">≠</option>
-              <option value=">=">≥</option>
-            </select>
-          </label>
-          <label>
-            Valeur
-            <input
-              type="number" min={0} max={65535} value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+        <>
+          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>Si</span>
+            <ValueSourceFields
+              v={left}
+              fnParams={props.fnParams}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
+              onChange={(v) => onChange({ ...cmd, left: v })}
             />
-          </label>
-        </div>
+            <label style={{ flex: "0 0 auto" }}>
+              Opérateur
+              <select
+                value={cmd.op}
+                onChange={(e) =>
+                  onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })
+                }
+              >
+                <option value="==">=</option>
+                <option value="!=">≠</option>
+                <option value=">=">≥</option>
+              </select>
+            </label>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>à</span>
+            <ValueSourceFields
+              v={right}
+              fnParams={props.fnParams}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
+              onChange={(v) => onChange({ ...cmd, right: v })}
+            />
+          </div>
+        </>
       );
       break;
+    }
     case "route":
       valid = cmd.steps.length > 0;
       body = (
@@ -3321,7 +3353,8 @@ function CommandForm(props: {
                   <ValueSourceFields
                     v={cmd.args[k] ?? { value: 0 }}
                     fnParams={props.fnParams}
-              inFunction={props.inFunction}
+                    varNames={props.varNames}
+                    onPickVar={props.onPickVar}
                     onChange={(v) => {
                       const args = cmd.args.slice();
                       args[k] = v;
@@ -3371,7 +3404,8 @@ function CommandForm(props: {
             <ValueSourceFields
               v={cmd}
               fnParams={props.fnParams}
-              inFunction={props.inFunction}
+              varNames={props.varNames}
+              onPickVar={props.onPickVar}
               onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
             />
           </div>

@@ -932,11 +932,16 @@ static void vm_step(void)
       break;
 
     case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
-      var = fetch8();
-      val = fetch8(); /* 0 ==, 1 !=, 2 >= */
-      val16 = fetch16();
+      /* Les deux membres sont des sources generales (F2) : constante,
+         variable, position du heros, parametre de fonction… Les fetch
+         sont sur des lignes separees — l'ordre d'evaluation des
+         arguments d'un appel n'est pas garanti en C, et ici il compte. */
+      var = fetch8();  /* type de la source A */
+      idx16 = varop_src(var, fetch16());
+      val = fetch8();  /* 0 ==, 1 !=, 2 >= */
+      var = fetch8();  /* type de la source B */
+      val16 = varop_src(var, fetch16());
       ofs = fetch16();
-      idx16 = vm.vars16[var];
       if ((val == 0 && idx16 == val16) || (val == 1 && idx16 != val16) ||
           (val == 2 && idx16 >= val16))
         vm.pc = ofs;

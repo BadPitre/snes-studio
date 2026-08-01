@@ -85,8 +85,14 @@
 #define VM_OP_ADD16   0x0F /* var (u8), val (u16, addition avec wrap —
                               une valeur negative s'encode en
                               complement a deux) */
-#define VM_OP_JCMP16  0x10 /* var (u8), op (u8 : 0 ==, 1 !=, 2 >=),
-                              val (u16), offset (u16) */
+#define VM_OP_JCMP16  0x10 /* srcA (u8, VARSRC_*), a (u16), op (u8 : 0 ==,
+                              1 !=, 2 >=), srcB (u8), b (u16), offset (u16)
+                              — F2 : les DEUX membres sont des sources
+                              generales, comme celles de VAROP. Avant, la
+                              comparaison etait figee « variable contre
+                              constante », ce qui rendait impossible de
+                              tester un PARAMETRE de fonction sans le
+                              recopier d'abord dans une variable globale. */
 
 /* v0.12 (Move Route) : itinéraires de PNJ + attentes bloquantes */
 #define VM_OP_ROUTE     0x11 /* acteur (u8, 0xFF = event du script), flags

@@ -19,8 +19,9 @@
 //!   {"c":"switch","n":0-511,"on":true|false}
 //!   {"c":"var","n":0-255,"op":"="|"+","value":-32768..65535}
 //!   {"c":"if_sw","n":..,"on":true|false,"then":[...],"else":[...]}
-//!   {"c":"if_var","n":..,"op":"=="|"!="|">=","value":..,
-//!    "then":[...],"else":[...]}
+//!   {"c":"if_var","left":{"from":..,"value":..},"op":"=="|"!="|">=",
+//!    "right":{"from":..,"value":..},"then":[...],"else":[...]}
+//!    — forme historique « n »/« value » toujours acceptee
 //!   v0.15 (boucles + commentaires) :
 //!   {"c":"loop","do":[...]}   {"c":"break"}   {"c":"rem","text":"..."}
 //!   v0.15 (positions scriptées) :
@@ -1154,18 +1155,38 @@ impl<'a> EventCompiler<'a> {
                         let on = cmd["on"].as_bool().unwrap_or(true);
                         out.push(format!("  JSW {} {} {}", n, if on { 1 } else { 0 }, then_l));
                     } else {
-                        let n = Self::idx_field(cmd, "n", 256)?;
-                        let val = cmd["value"]
-                            .as_u64()
-                            .filter(|&v| v <= 65535)
-                            .with_context(|| format!("if_var : valeur invalide : {}", cmd))?;
                         let ops = match cmd["op"].as_str().unwrap_or("==") {
                             "==" => "==",
                             "!=" => "!=",
                             ">=" => ">=",
                             o => bail!("if_var : operateur inconnu « {} » (==, !=, >=)", o),
                         };
-                        out.push(format!("  JCMP16 {} {} {} {}", n, ops, val, then_l));
+                        // F2 : les deux membres sont des sources generales.
+                        // Forme HISTORIQUE encore acceptee — « n » a gauche,
+                        // « value » constante a droite — pour ne pas casser
+                        // les projets qui ne connaissent pas « left »/
+                        // « right » ; l'editeur, lui, ecrit toujours la
+                        // forme complete.
+                        let (la, lv) = match cmd.get("left") {
+                            Some(l) if l.is_object() => self.value_source(l, "if_var")?,
+                            _ => ("var", Self::idx_field(cmd, "n", 256)? as i64),
+                        };
+                        let (ra, rv) = match cmd.get("right") {
+                            Some(r) if r.is_object() => self.value_source(r, "if_var")?,
+                            _ => (
+                                "const",
+                                cmd["value"]
+                                    .as_i64()
+                                    .filter(|&v| (-32768..=65535).contains(&v))
+                                    .with_context(|| {
+                                        format!("if_var : valeur invalide : {}", cmd)
+                                    })?,
+                            ),
+                        };
+                        out.push(format!(
+                            "  JCMP16 {} {} {} {} {} {}",
+                            la, lv, ops, ra, rv, then_l
+                        ));
                     }
                     self.compile_list(
                         cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
