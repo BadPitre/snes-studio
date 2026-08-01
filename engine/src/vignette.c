@@ -1,22 +1,22 @@
 /*
- * vignette.c — vignettes animées (B5). Voir vignette.h.
+ * vignette.c — animated vignettes (B5). See vignette.h.
  *
- * Plan chars OBJ : le slot v occupe le bloc 32x32 aux chars
- * 384 + v*4 (rangées 24-27 de la grille de names — un OBJ 32x32
- * adresse les chars c, c+1..c+3 / c+16.. / c+32.. / c+48..). Les
- * frames sont émises par datagen en 4 rangées de 4 chars : un
- * changement de frame = 4 DMA de 128 octets (au VBlank, un slot par
- * frame au plus — budget du panneau S6).
+ * OBJ char plan: slot v occupies the 32x32 block at chars
+ * 384 + v*4 (rows 24-27 of the name grid — a 32x32 OBJ addresses
+ * the chars c, c+1..c+3 / c+16.. / c+32.. / c+48..). datagen emits
+ * the frames as 4 rows of 4 chars: a frame change is 4 DMAs of 128
+ * bytes (at VBlank, at most one slot per frame — the S6 panel
+ * budget).
  *
- * OAM : entrées 96-99 (le joueur occupe 0-1, les acteurs 2-49, la
- * météo 100-123). Écriture DIRECTE du shadow (oamMemory) chaque
- * frame + oamSetEx (taille LARGE 32x32 + visibilité) — réaffirmé
- * chaque frame : l'ouverture d'un écran composé cache tout l'OAM.
+ * OAM: entries 96-99 (the player takes 0-1, the actors 2-49, the
+ * weather 100-123). The shadow (oamMemory) is written DIRECTLY every
+ * frame, plus oamSetEx (LARGE 32x32 size + visibility) — reasserted
+ * every frame: opening a composed screen hides the whole OAM.
  *
- * Palettes : allouées PAR PLANCHE (voir vignette.h). pal_vig[p] retient
- * la vignette chargée dans la palette OBJ 5+p et pal_rc[p] compte les
- * slots qui s'en servent — deux calques d'une même animation ne coûtent
- * donc qu'UNE palette.
+ * Palettes: allocated PER SHEET (see vignette.h). pal_vig[p] remembers
+ * which vignette is loaded in OBJ palette 5+p, and pal_rc[p] counts
+ * the slots using it — two layers of the same animation therefore
+ * cost only ONE palette.
  */
 #include <snes.h>
 #include "vignette.h"
@@ -26,35 +26,35 @@
 #include "camera.h"
 #include "vram.h"
 
-/* registre généré (data_vignettes.c — toujours émis) */
+/* generated register (data_vignettes.c — always emitted) */
 extern const u8 vig_count;
 extern const u8 vig_frames[];
 extern const u8 *const vig_chars[];
 extern const u16 *const vig_pals[];
 
 #define VIG_OAM(s) ((u16)(96 + (s)) << 2)
-#define VIG_CHAR(s) (384 + (s) * 4) /* bloc 32x32 du slot */
+#define VIG_CHAR(s) (384 + (s) * 4) /* the slot's 32x32 block */
 
-static u8 v_id[VIG_SLOTS]; /* 0xFF = slot vide */
+static u8 v_id[VIG_SLOTS]; /* 0xFF = empty slot */
 static u8 v_frame[VIG_SLOTS];
-static u8 v_mode[VIG_SLOTS]; /* 0 stop, 1 une fois puis cache, 2 boucle */
+static u8 v_mode[VIG_SLOTS]; /* 0 stop, 1 once then hide, 2 loop */
 static u8 v_speed[VIG_SLOTS];
 static u8 v_timer[VIG_SLOTS];
 static u8 v_x[VIG_SLOTS];
 static u8 v_y[VIG_SLOTS];
-static u8 v_anc[VIG_SLOTS];   /* VIG_ANC_* (offsets signés si suivi) */
-static u8 v_act[VIG_SLOTS];   /* acteur suivi (VIG_ANC_ACTOR) */
-static u8 v_own[VIG_SLOTS];   /* 1 = piloté par le lecteur d'animations */
-static u8 v_pi[VIG_SLOTS];    /* palette utilisée (0/1), 0xFF = aucune */
-static u8 v_off[VIG_SLOTS];   /* 1 = sprite masqué, slot toujours réservé */
-static u8 pal_vig[VIG_PALS];  /* vignette chargée dans la palette 5+p */
-static u8 pal_rc[VIG_PALS];   /* slots qui l'utilisent */
-static u8 v_dirty = 0;        /* bitmask : frame à transférer */
-static u8 v_pal = 0;          /* bitmask (par PALETTE) : CGRAM à charger */
-static u8 v_init = 0;         /* statics posés (init explicite tcc) */
+static u8 v_anc[VIG_SLOTS];   /* VIG_ANC_* (signed offsets when following) */
+static u8 v_act[VIG_SLOTS];   /* actor followed (VIG_ANC_ACTOR) */
+static u8 v_own[VIG_SLOTS];   /* 1 = driven by the animation player */
+static u8 v_pi[VIG_SLOTS];    /* palette in use (0/1), 0xFF = none */
+static u8 v_off[VIG_SLOTS];   /* 1 = sprite hidden, slot still reserved */
+static u8 pal_vig[VIG_PALS];  /* vignette loaded in palette 5+p */
+static u8 pal_rc[VIG_PALS];   /* slots using it */
+static u8 v_dirty = 0;        /* bitmask: frame to transfer */
+static u8 v_pal = 0;          /* bitmask (per PALETTE): CGRAM to load */
+static u8 v_init = 0;         /* statics seeded (explicit tcc init) */
 
-/* Réserve une palette pour cette planche : celle qui la détient déjà, ou
-   une inutilisée. 0xFF si les deux sont prises par d'autres planches. */
+/* Reserves a palette for this sheet: the one already holding it, or an
+   unused one. 0xFF if both are taken by other sheets. */
 static u8 pal_acquire(u8 vig_id)
 {
   u8 p;
@@ -70,7 +70,7 @@ static u8 pal_acquire(u8 vig_id)
     {
       pal_vig[p] = vig_id;
       pal_rc[p] = 1;
-      v_pal |= (u8)(1 << p); /* CGRAM à (re)charger au VBlank */
+      v_pal |= (u8)(1 << p); /* CGRAM to (re)load at VBlank */
       return p;
     }
   return 0xFF;
@@ -128,8 +128,8 @@ void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
   vig_init_once();
   if (slot >= VIG_SLOTS || vig_id >= vig_count)
     return;
-  /* la palette d'abord : si les deux sont prises par d'autres planches,
-     mieux vaut ne RIEN afficher que d'afficher aux mauvaises couleurs */
+  /* the palette first: if both are taken by other sheets, showing
+     NOTHING beats showing the wrong colours */
   pal_release(slot);
   p = pal_acquire(vig_id);
   if (p == 0xFF)
@@ -141,9 +141,9 @@ void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
   v_id[slot] = vig_id;
   v_frame[slot] = 0;
   v_mode[slot] = 0;
-  v_own[slot] = 0; /* préemption : un vig_show scripté reprend le slot
-                      au lecteur d'animations, qui le verra à sa frame
-                      suivante et arrêtera l'animation sans rien cacher */
+  v_own[slot] = 0; /* preemption: a scripted vig_show takes the
+                      slot back from the animation player, which sees it
+                      next frame and stops the animation quietly */
   v_x[slot] = x;
   v_y[slot] = y;
   v_off[slot] = 0;
@@ -169,7 +169,7 @@ void vig_set_frame(u8 slot, u8 frame)
   if (slot >= VIG_SLOTS || v_id[slot] == 0xFF)
     return;
   if (frame >= vig_frames[v_id[slot]] || frame == v_frame[slot])
-    return; /* même cellule : pas de DMA (une frame de vignette = 512 o) */
+    return; /* same cell: no DMA (a vignette frame = 512 b) */
   v_frame[slot] = frame;
   v_dirty |= (u8)(1 << slot);
 }
@@ -262,8 +262,8 @@ void vig_update(void)
     if (v_id[s] == 0xFF)
       continue;
     if (v_off[s])
-      continue; /* calque d'animation vide cette frame : slot gardé */
-    /* animation : un pas toutes les speed frames */
+      continue; /* animation layer empty this frame: slot kept */
+    /* animation: one step every speed frames */
     if (v_mode[s] && --v_timer[s] == 0)
     {
       v_timer[s] = v_speed[s];
@@ -272,16 +272,16 @@ void vig_update(void)
       {
         if (v_mode[s] == 1)
         {
-          vig_hide(s); /* « une fois » : l'animation se range seule */
+          vig_hide(s); /* "once": the animation puts itself away */
           continue;
         }
         v_frame[s] = 0;
       }
       v_dirty |= (u8)(1 << s);
     }
-    /* position : écran, ou accrochée au héros / à un acteur (offsets
-       signés — le (0,0) ancre le coin de la vignette sur le coin du
-       metasprite suivi) */
+    /* position: on screen, or pinned to the hero / an actor (signed
+       offsets — (0,0) anchors the vignette's corner on the corner of
+       the metasprite being followed) */
     if (v_anc[s] == VIG_ANC_ACTOR)
     {
       wx = actor_pos_x(v_act[s]) - camera.x + (s8)v_x[s];
@@ -304,35 +304,35 @@ void vig_update(void)
     om = oamMemory + VIG_OAM(s);
     om[0] = sx;
     om[1] = sy;
-    om[2] = (u8)(VIG_CHAR(s) - 256); /* chars 384+ : 9e bit dans attr */
-    /* palette de la PLANCHE (5 ou 6), pas du slot : deux calques d'une
-       même animation partagent la leur */
+    om[2] = (u8)(VIG_CHAR(s) - 256); /* chars 384+: 9th bit lives in attr */
+    /* the SHEET's palette (5 or 6), not the slot's: two layers of the
+       same animation share theirs */
     om[3] = 0x30 | ((u8)(5 + v_pi[s]) << 1) | 1;
     oamSetEx(VIG_OAM(s), OBJ_LARGE, OBJ_SHOW); /* 32x32 + visible —
-        réaffirmé chaque frame (l'écran composé cache tout l'OAM) */
+        reasserted every frame (a composed screen hides the whole OAM) */
   }
 }
 
-/* Cellules transférées par VBlank : plus de plafond fixe, une demande
-   au budget (P5). Une cellule = 4 DMA de 128 octets — le bloc 32x32
-   occupe 4 rangées non contiguës de la grille de names — soit environ
-   12 lignes écran, dont 6 rien qu'en apprêts de DMA.
+/* Cells transferred per VBlank: no more fixed ceiling, a request to the
+   budget (P5). One cell = 4 DMAs of 128 bytes — the 32x32 block spans
+   4 non-contiguous rows of the name grid — that is about 12 screen
+   lines, 6 of them in DMA setup alone.
 
-   Le plafond valait 1, trouvé à tâtons : à 2, les DEUX dernières
-   rangées tombaient hors fenêtre et la VRAM les IGNORAIT (constaté sur
-   dump VRAM — la moitié basse de la seconde cellule restait vide).
-   Avancer vig_vblank dans la séquence n'en faisait passer que 6 sur 8 :
-   un plafond de temps, pas un problème d'ordre. P5 en donne enfin le
-   chiffre : la fenêtre fait 30 lignes et une frame de dialogue en
-   consomme déjà 29.
+   The ceiling used to be 1, found by trial and error: at 2, the LAST
+   TWO rows fell outside the window and VRAM IGNORED them (seen on a
+   VRAM dump — the bottom half of the second cell stayed empty). Moving
+   vig_vblank earlier in the sequence only got 6 of the 8 through: a
+   time ceiling, not an ordering problem. P5 finally gives the
+   figure: the window is 30 lines long and a dialogue frame already
+   eats 29.
 
-   Le budget remplace le plafond, donc le débit dépend maintenant de la
-   frame. Sur une frame calme (pas de streaming de carte, couche UI
-   propre) deux cellules passent ; sur une frame chargée, aucune. Pour
-   les CALQUES : K calques qui changent de cellule à la même frame se
-   mettent à jour en K/2 à K frames écran, là où c'était K tout rond
-   avant. L'avertissement de datagen sur les frames trop courtes reste
-   donc valable — il est simplement devenu prudent. */
+   The budget replaces the ceiling, so throughput now depends on the
+   frame. On a quiet frame (no map streaming, clean UI layer) two
+   cells get through; on a loaded frame, none. For LAYERS: K layers
+   changing cell on the same frame update in K/2 to K screen frames,
+   where it was a flat K before. datagen's warning about frames that
+   are too short therefore still holds — it has simply become
+   cautious. */
 
 void vig_vblank(void)
 {
@@ -342,15 +342,15 @@ void vig_vblank(void)
 
   if (!v_dirty && !v_pal)
     return;
-  /* palettes d'abord, une par VBlank : elles ne bougent qu'à l'apparition
-     d'une planche, jamais frame par frame */
+  /* palettes first, one per VBlank: they only move when a sheet
+     appears, never frame by frame */
   for (s = 0; s < VIG_PALS; s++)
     if (v_pal & (1 << s))
     {
-      if (!vbl_take(2)) /* 1 appel, 30 octets */
+      if (!vbl_take(2)) /* 1 call, 30 bytes */
         return;
       if (pal_rc[s])
-        /* palette OBJ 5+s (CGRAM 128 + (5+s)*16), couleurs 1-15 */
+        /* OBJ palette 5+s (CGRAM 128 + (5+s)*16), colours 1-15 */
         dmaCopyCGram((u8 *)vig_pals[pal_vig[s]] + 2,
                      (u16)(128 + ((u16)(5 + s) << 4) + 1), 30);
       v_pal &= (u8)~(1 << s);
@@ -360,14 +360,14 @@ void vig_vblank(void)
   {
     if (!(v_dirty & (1 << s)))
       continue;
-    if (v_id[s] == 0xFF) /* caché entre-temps : bit sale oublié */
+    if (v_id[s] == 0xFF) /* hidden meanwhile: dirty bit dropped */
     {
       v_dirty &= (u8)~(1 << s);
       continue;
     }
     if (!vbl_take(VBL_COST_VIG))
-      return; /* pas la place : le bit sale reste, la cellule repassera */
-    /* frame courante : 4 rangées de 4 chars (512 octets) */
+      return; /* no room: the dirty bit stays, the cell will come back */
+    /* current frame: 4 rows of 4 chars (512 bytes) */
     src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9);
     for (r = 0; r < 4; r++)
     {
