@@ -1,6 +1,6 @@
-// Lecture/écriture du projet via les plugins Tauri (dialog + fs).
-// Les JSON écrits restent lisibles en diff : tilemap/collision à une
-// rangée par ligne, même mise en page que les sources historiques.
+// Reading/writing the project through the Tauri plugins (dialog + fs).
+// The JSON written stays diff-readable: tilemap/collision one row per
+// line, the same layout as the historic sources.
 
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile as tauriReadText, readFile as tauriRead, writeTextFile as tauriWriteText, writeFile as tauriWrite, rename as tauriRename, remove as tauriRemove, mkdir as tauriMkdir } from "@tauri-apps/plugin-fs";
@@ -9,8 +9,8 @@ import type { Actor, EventPage, GameEvent, Project, ProjectData, Scene, TextEntr
 } from "./types";
 import { EMPTY_TILE, actorToEvent, assetStem, projectTilesets } from "./types";
 
-// Mode navigateur (vite dev/preview sans Tauri) : le "projet" est servi en
-// HTTP (lecture seule) — pratique pour développer l'UI et les captures.
+// Browser mode (vite dev/preview without Tauri): the "project" is served
+// over HTTP (read only) — handy for UI work and screenshots.
 const hasTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function readTextFile(path: string): Promise<string> {
@@ -32,8 +32,8 @@ async function writeTextFile(path: string, content: string): Promise<void> {
   console.warn(`mode navigateur : écriture ignorée (${path})`, content.length);
 }
 
-// Fichiers texte du projet par chemin relatif (database : schémas TOML,
-// instances) — root vaut "/project" en mode navigateur (voir loadProject)
+// The project's text files by relative path (database: TOML schemas,
+// instances) — root is "/project" in browser mode (see loadProject)
 export async function readProjectText(root: string, rel: string): Promise<string> {
   return readTextFile(`${root}/${rel}`);
 }
@@ -42,17 +42,17 @@ export async function writeProjectText(root: string, rel: string, content: strin
   return writeTextFile(`${root}/${rel}`, content);
 }
 
-// crée un dossier du projet s'il n'existe pas (schemas/, data/)
+// creates a project folder when it does not exist (schemas/, data/)
 export async function ensureProjectDir(root: string, rel: string): Promise<void> {
   if (!hasTauri) return;
   try {
     await tauriMkdir(`${root}/${rel}`, { recursive: true });
   } catch {
-    /* existe déjà */
+    /* already there */
   }
 }
 
-// Fichiers binaires / gestion d'assets (Resource Manager) — Tauri seulement
+// Binary files / asset management (Resource Manager) — Tauri only
 export async function readBinaryFile(path: string): Promise<Uint8Array> {
   return readFile(path);
 }
@@ -73,7 +73,7 @@ export async function removePath(path: string): Promise<void> {
   if (hasTauri) await tauriRemove(path);
 }
 
-// dialogue « enregistrer sous » (export d'assets)
+// "save as" dialogue (asset export)
 export async function pickSavePath(
   title: string,
   defaultName: string
@@ -86,21 +86,21 @@ export async function pickSavePath(
   });
 }
 
-// le mode navigateur est en lecture seule (pas d'import d'assets)
+// browser mode is read only (no asset import)
 export function canWriteFiles(): boolean {
   return hasTauri;
 }
 
 export async function pickProjectDir(): Promise<string | null> {
-  if (!hasTauri) return "/project"; // servi statiquement en mode navigateur
+  if (!hasTauri) return "/project"; // served statically in browser mode
   const dir = await open({ directory: true, title: "Ouvrir un projet SNES Studio" });
   return typeof dir === "string" ? dir : null;
 }
 
 export async function loadProject(root: string): Promise<ProjectData> {
   const project: Project = JSON.parse(await readTextFile(`${root}/project.json`));
-  // T2 : migration — les projets sans entrées tileset en reçoivent une
-  // par fichier (nom = stem), le format que la fenêtre Tilesets édite
+  // T2: migration — projects without tileset entries get one per file
+  // (name = the stem), the format the Tilesets window edits
   if (!project.tileset_defs || !project.tileset_defs.length) {
     project.tileset_defs = projectTilesets(project).map((f) => ({
       name: assetStem(f),
@@ -111,23 +111,23 @@ export async function loadProject(root: string): Promise<ProjectData> {
   const scenes: Record<string, Scene> = {};
   for (const name of project.scenes) {
     const sc: Scene = JSON.parse(await readTextFile(`${root}/scenes/${name}.json`));
-    sc.warps ??= []; // champs optionnels dans les anciens fichiers
+    sc.warps ??= []; // optional fields in the older files
     sc.script ??= [];
     sc.events ??= [];
     sc.upper ??= Array.from({ length: sc.height }, () =>
       Array.from({ length: sc.width }, () => EMPTY_TILE)
     );
     const raw = sc as unknown as Record<string, unknown>;
-    delete raw["collision"]; // héritage : dérivée du tileset
-    // héritage : les vieux "actors" deviennent des événements
+    delete raw["collision"]; // legacy: derived from the tileset
+    // legacy: the old "actors" become events
     const legacy = raw["actors"] as Actor[] | undefined;
     if (legacy?.length) {
       sc.events.push(...legacy.map((a, i) => actorToEvent(a, sc.events.length + i)));
     }
     delete raw["actors"];
     for (const e of sc.events) {
-      // v0.10 : forme "pages" du JSON -> page 1 dans les champs plats,
-      // pages 2+ dans extraPages (modèle interne de l'éditeur)
+      // v0.10: the JSON's "pages" shape -> page 1 into the flat fields,
+      // pages 2+ into extraPages (the editor's internal model)
       const rawPages = (e as unknown as { pages?: EventPage[] }).pages;
       if (rawPages && rawPages.length > 0) {
         const p1 = rawPages[0];
@@ -167,7 +167,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
     }
     scenes[name] = sc;
   }
-  // sidecars de passabilité (assets/<stem>.json) — absent = tout passable
+  // passability sidecars (assets/<stem>.json) — absent = everything walkable
   const tilesetMeta: Record<string, TilesetMeta> = {};
   for (const p of projectTilesets(project)) {
     const stem = assetStem(p);
@@ -186,7 +186,7 @@ export async function loadProject(root: string): Promise<ProjectData> {
       tilesetMeta[stem] = { autotiles: [], solid: [], above: [] };
     }
   }
-  // écrans composés (B6bis) : screens/<nom>.json — absents = projet sans écrans
+  // composed screens (B6bis): screens/<name>.json — absent = no screens
   const screens: Record<string, Screen> = {};
   for (const n of project.screens ?? []) {
     try {
@@ -194,8 +194,8 @@ export async function loadProject(root: string): Promise<ProjectData> {
       screens[n] = {
         backdrop: sc.backdrop ?? "",
         slots: sc.slots ?? [],
-        // héritage : l'ancien champ « script » devient le premier
-        // script nommé (lancé à l'ouverture)
+        // legacy: the old "script" field becomes the first named script
+        // (run when the screen opens)
         scripts: (
           sc.scripts ?? [{ name: "principal", commands: sc.script ?? [] }]
         ).map((x: { name: string; trigger?: string; cond?: unknown; commands?: unknown[] }, i: number) => ({
@@ -216,10 +216,10 @@ export async function loadProject(root: string): Promise<ProjectData> {
   return { root, project, scenes, texts, tilesetMeta, screens };
 }
 
-// Première couleur du chunk PLTE d'un PNG indexé — l'index 0 est
-// TRANSPARENT côté SNES, l'éditeur doit le rendre pareil.
+// First colour of the PLTE chunk of an indexed PNG — index 0 is
+// TRANSPARENT on the SNES, and the editor must match that.
 function pngFirstPaletteColor(bytes: Uint8Array): [number, number, number] | null {
-  let o = 8; // après la signature PNG
+  let o = 8; // after the PNG signature
   while (o + 8 <= bytes.length) {
     const len =
       (bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3];
@@ -236,8 +236,8 @@ export async function loadAssetPng(root: string, rel: string): Promise<ImageBitm
   return loadPngBitmap(`${root}/${rel}`);
 }
 
-// PNG depuis un chemin absolu (aperçus d'import) — même clé de transparence
-// que les assets projet (première couleur de la palette PLTE)
+// PNG from an absolute path (import previews) — the same transparency key
+// as the project assets (the first colour of the PLTE palette)
 export async function loadPngBitmap(path: string): Promise<ImageBitmap> {
   const bytes = await readFile(path);
   const bmp = await createImageBitmap(
@@ -257,11 +257,11 @@ export async function loadPngBitmap(path: string): Promise<ImageBitmap> {
   return createImageBitmap(cv);
 }
 
-// Sérialisation avec rangées compactes (une ligne par rangée de map)
+// Serialisation with compact rows (one line per map row)
 function sceneToJson(sc: Scene): string {
   const grid = (rows: number[][]) =>
     "[\n" + rows.map((r) => "    [" + r.join(", ") + "]").join(",\n") + "\n  ]";
-  // événements : un par ligne (les commandes imbriquées restent compactes)
+  // events: one per line (the nested commands stay compact)
   const eventJson = (e: GameEvent): string => {
     if (!e.extraPages || e.extraPages.length === 0) {
       const flat = { ...e };
@@ -312,9 +312,9 @@ function sceneToJson(sc: Scene): string {
   const music = sc.music ? `\n  "music": ${JSON.stringify(sc.music)},` : "";
   const tileset = sc.tileset ? `\n  "tileset": ${JSON.stringify(sc.tileset)},` : "";
   const parent = sc.parent ? `\n  "parent": ${JSON.stringify(sc.parent)},` : "";
-  // couche d'effet (S9) — LECON : ce serialiseur est MANUEL, tout nouveau
-  // champ de Scene doit etre ajoute ici sinon il est perdu en silence a la
-  // sauvegarde (bug de la premiere livraison S9 : effet invisible en jeu)
+  // effect layer (S9) — LESSON: this serialiser is MANUAL, every new
+  // Scene field must be added here or it is silently lost on save (the
+  // bug in the first S9 delivery: the effect invisible in game)
   const effect = sc.effect ? `\n  "effect": ${JSON.stringify(sc.effect)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
@@ -330,11 +330,11 @@ function sceneToJson(sc: Scene): string {
 `;
 }
 
-// Sidecar de passabilité, format canonique (diffs lisibles)
+// Passability sidecar, canonical format (readable diffs)
 function metaToJson(m: import("./types").TilesetMeta): string {
   const upper =
     m.upper_start !== undefined ? `,\n  "upper_start": ${m.upper_start}` : "";
-  // T1 : côtés fermés + séquences animées — omis quand vides
+  // T1: closed sides + animated sequences — omitted when empty
   const dirEntries = Object.entries(m.dirs ?? {}).filter(([, v]) => v);
   const dirs = dirEntries.length
     ? `,\n  "dirs": { ${dirEntries
@@ -359,7 +359,7 @@ function metaToJson(m: import("./types").TilesetMeta): string {
 `;
 }
 
-// PNG d'autotiles d'un tileset, dans l'ordre du sidecar
+// A tileset's autotile PNGs, in the sidecar's order
 export async function loadAutotiles(
   root: string,
   meta: import("./types").TilesetMeta
@@ -371,7 +371,7 @@ export async function loadAutotiles(
   return out;
 }
 
-// Sélection d'un fichier (sans copie)
+// File selection (without copying)
 export async function pickFile(
   title: string,
   name: string,
@@ -382,12 +382,12 @@ export async function pickFile(
   return typeof file === "string" ? file : null;
 }
 
-// Sélection d'un PNG — pour l'import de chipset RM2003
+// PNG selection — for the RM2003 chipset import
 export function pickPngFile(title: string): Promise<string | null> {
   return pickFile(title, "PNG", ["png"]);
 }
 
-// Import d'un PNG de tileset : choisi via dialog, copié dans assets/
+// Tileset PNG import: chosen through a dialog, copied into assets/
 export async function importTilesetPng(root: string): Promise<string | null> {
   if (!hasTauri) return null;
   const file = await open({
@@ -418,7 +418,7 @@ export async function saveProject(data: ProjectData): Promise<void> {
     if (!meta) continue;
     await writeTextFile(`${data.root}/${p.replace(/\.[^.]+$/, ".json")}`, metaToJson(meta));
   }
-  // écrans composés (B6bis) — un fichier par écran, comme les scènes
+  // composed screens (B6bis) — one file per screen, like the scenes
   if ((data.project.screens ?? []).length) {
     await ensureProjectDir(data.root, "screens");
     for (const n of data.project.screens ?? []) {

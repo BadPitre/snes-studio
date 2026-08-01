@@ -1,11 +1,11 @@
-// uilayout.ts — modèle et APLATISSEUR du layout UI (designer D1),
-// miroir TypeScript de tools/datagen/src/ui.rs : mêmes règles de
-// taille/placement/validation, pour que le canvas de l'éditeur montre
-// exactement ce que le compilateur produira (règle §9.3).
+// uilayout.ts — model and FLATTENER of the UI layout (D1 designer), the
+// TypeScript mirror of tools/datagen/src/ui.rs: the same
+// sizing/placement/validation rules, so that the editor's canvas shows
+// exactly what the compiler will produce (rule §9.3).
 //
-// Contrairement au Rust (qui refuse à la première erreur), l'éditeur
-// COLLECTE les erreurs et rend quand même du mieux possible — le
-// designer doit rester manipulable pendant que l'utilisateur corrige.
+// Unlike the Rust (which stops at the first error), the editor COLLECTS
+// the errors and renders as best it can anyway — the designer must stay
+// usable while the user fixes things.
 
 import { parse } from "smol-toml";
 import type { UiWin } from "./types";
@@ -28,9 +28,9 @@ export const NODE_KINDS = [
 ] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
-/** Tailles EN TUILES des pictures du projet, renseignées par la fenêtre
- *  UI (elle seule sait charger les images) — le calcul de taille d'un
- *  widget « image » en mode picture s'y réfère. */
+/** Sizes IN TILES of the project's pictures, filled in by the UI window
+ *  (it alone can load the images) — the size computation of an "image"
+ *  widget in picture mode refers to it. */
 let picSizes: Record<string, [number, number]> = {};
 export function setPicSizes(m: Record<string, [number, number]>) {
   picSizes = m;
@@ -40,15 +40,15 @@ export interface UiNode {
   id: string;
   parent?: string;
   type: NodeKind;
-  pos?: [number, number]; // racines
+  pos?: [number, number]; // roots
   size?: [number, number]; // window/gauge/icon_row/variable_display
-  margin?: [number, number]; // window (défaut [1,1])
+  margin?: [number, number]; // window (default [1,1])
   gap?: number; // vbox/hbox
   text?: string; // label
-  width?: number; // value (1-5) / image (icônes) / icon_value
-  // image : nom d'une PICTURE du projet au lieu d'icônes. La taille du
-  // widget vient alors de l'image (ramenée aux 4 couleurs de la couche
-  // UI à la compilation, comme les icônes — voir gfx::to_ui_image).
+  width?: number; // value (1-5) / image (icons) / icon_value
+  // image: the name of a project PICTURE instead of icons. The widget's
+  // size then comes from the image (brought back to the UI layer's 4
+  // colours at compile time, like the icons — see gfx::to_ui_image).
   pic?: string;
   var?: number;
   label?: string; // variable_display
@@ -56,25 +56,25 @@ export interface UiNode {
   max?: number;
   max_var?: number;
   icon?: number;
-  dir?: string; // gauge : "h" | "v"
-  pad?: number; // icon_value : zéros de tête
-  align?: string; // value : "left" (défaut : valeur alignée à droite)
-  // racines : visible au démarrage (défaut FALSE — les widgets
-  // s'affichent via la commande d'event « Afficher un widget UI »)
+  dir?: string; // gauge: "h" | "v"
+  pad?: number; // icon_value: leading zeros
+  align?: string; // value: "left" (default: value right-aligned)
+  // roots: visible at startup (default FALSE — widgets are shown through
+  // the "Afficher un widget UI" event command)
   visible?: boolean;
-  // racines : fonte du WIDGET (S2 — PNG 768x8, défaut : assets.font)
+  // roots: the WIDGET's font (S2 — a 768x8 PNG, default: assets.font)
   font?: string;
-  // list (B6) : items du menu à curseur, un par rangée
+  // list (B6): items of the cursor menu, one per row
   items?: string[];
 }
 
-// Style de boîte de dialogue (S1) — style 0 (défaut) = thème + [message]
+// Dialogue box style (S1) — style 0 (the default) = theme + [message]
 export interface DialogStyle {
   id: string;
-  windowskin?: string; // défaut : celui du thème
-  font?: string; // défaut : assets.font
-  message?: UiWin; // défaut : [message]
-  choice?: UiWin; // défaut : le message du style
+  windowskin?: string; // default: the theme's
+  font?: string; // default: assets.font
+  message?: UiWin; // default: [message]
+  choice?: UiWin; // default: the style's message
 }
 
 export interface UiLayout2 {
@@ -84,13 +84,13 @@ export interface UiLayout2 {
   styles: DialogStyle[];
 }
 
-// Primitive aplatie (ce que le moteur dessine) + le nœud d'origine
+// Flattened primitive (what the engine draws) + the node it came from
 export interface Prim {
   x: number;
   y: number;
   w: number;
   h: number;
-  kind: number; // 0-8 (8 = image en mode picture)
+  kind: number; // 0-8 (8 = image in picture mode)
   frame: boolean;
   var: number;
   icon: number;
@@ -98,17 +98,17 @@ export interface Prim {
   pad: number;
   max: number;
   maxVar?: number;
-  /** kind 8 : nom de la picture affichée (aperçu du designer) */
+  /** kind 8: name of the picture shown (designer preview) */
   pic?: string;
   bg: boolean;
   text: string;
   nodeId: string;
-  font?: string; // fonte de la racine (S2) — la preview la charge
+  font?: string; // the root's font (S2) — the preview loads it
 }
 
 export interface Flat {
   prims: Prim[];
-  // rect absolu de CHAQUE nœud (sélection/hit-test du canvas)
+  // absolute rect of EVERY node (canvas selection/hit-test)
   rects: Record<string, { x: number; y: number; w: number; h: number }>;
   errors: string[];
 }
@@ -136,8 +136,8 @@ export function rootAncestor(nodes: UiNode[], id: string): UiNode | undefined {
   return n;
 }
 
-// Taille intrinsèque (mêmes règles que size_of côté Rust) — tolérante :
-// les tailles manquantes retombent sur un défaut, l'erreur est signalée
+// Intrinsic size (the same rules as size_of on the Rust side) —
+// tolerant: missing sizes fall back to a default, the error is reported
 export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, number] {
   const kids = childrenOf(nodes, n.id);
   switch (n.type) {
@@ -193,7 +193,7 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
     case "list": {
-      // taille AUTO : 1 colonne curseur + item le plus long (+ cadre)
+      // AUTO size: 1 cursor column + the longest item (+ the frame)
       const items = n.items ?? [];
       const f = (n.frame ?? true) ? 2 : 0;
       const wmax = items.reduce((m, t) => Math.max(m, t.length), 1);
@@ -209,7 +209,7 @@ function rectsOverlap(
   return !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
 }
 
-// Aplatit l'arbre — mêmes règles que place() côté Rust
+// Flattens the tree — the same rules as place() on the Rust side
 export function flatten(lay: UiLayout2, iconCount: number): Flat {
   const errors: string[] = [];
   const prims: Prim[] = [];
@@ -250,8 +250,8 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       errors.push(`« ${n.id} » : icônes hors planche (${iconCount})`);
   };
 
-  // fonte de la racine en cours de placement (S2) — stampée sur chaque
-  // primitive pour que la preview dessine avec la bonne fonte
+  // font of the root being placed (S2) — stamped on every primitive so
+  // the preview draws with the right font
   let curFont: string | undefined;
   const emit = (p: Prim) => {
     if (p.x < 0 || p.y < 0 || p.x + p.w > SCREEN_W || p.y + p.h > SCREEN_H)
@@ -320,12 +320,12 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       }
       case "value":
         if (n.var === undefined) errors.push(`« ${n.id} » : variable requise`);
-        // le flag vertical du type 0 porte l'alignement gauche (uigen idem)
+        // the type 0 vertical flag carries left alignment (uigen likewise)
         emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base, vertical: n.align === "left" });
         break;
       case "image":
         if (n.pic) {
-          // mode picture : le widget fait la taille de l'image
+          // picture mode: the widget takes the image's size
           emit({ x, y, w: size[0], h: size[1], kind: 8, frame: false, ...base, pic: n.pic });
         } else {
           needIcon(n, size[0]);
@@ -422,7 +422,7 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
   return { prims, rects, errors };
 }
 
-// ---- lecture / écriture de ui/layout.toml ---------------------------------
+// ---- reading / writing ui/layout.toml -------------------------------------
 
 interface RawOverlay {
   id?: string;
@@ -450,7 +450,7 @@ export function parseLayoutToml(src: string): UiLayout2 {
   const message = raw.message ?? { pos: [0, 20], size: [32, 8] };
   const choice = raw.choice ?? message;
   const nodes: UiNode[] = [...(raw.node ?? [])];
-  // migration : les [[overlay]] plats (W1) deviennent des racines feuilles
+  // migration: the flat [[overlay]] entries (W1) become leaf roots
   (raw.overlay ?? []).forEach((ov, i) => {
     nodes.push({
       id: ov.id || `overlay${i + 1}`,
@@ -465,7 +465,7 @@ export function parseLayoutToml(src: string): UiLayout2 {
       icon: ov.icon,
       dir: ov.dir,
       pad: ov.pad,
-      visible: true, // compat W1 : les overlays plats restent visibles
+      visible: true, // W1 compat: the flat overlays stay visible
     });
   });
   return { message: { ...message }, choice: { ...choice }, nodes, styles: raw.dialog_style ?? [] };
@@ -480,7 +480,7 @@ export function layoutToToml(l: UiLayout2): string {
     if (st.message) s += `message = { pos = [${st.message.pos}], size = [${st.message.size}] }\n`;
     if (st.choice) s += `choice = { pos = [${st.choice.pos}], size = [${st.choice.size}] }\n`;
   }
-  // préordre : racines puis descendants (les parents précèdent toujours)
+  // preorder: roots then descendants (parents always come first)
   const emitNode = (n: UiNode) => {
     s += `\n[[node]]\nid = ${JSON.stringify(n.id)}\n`;
     if (n.parent) s += `parent = ${JSON.stringify(n.parent)}\n`;

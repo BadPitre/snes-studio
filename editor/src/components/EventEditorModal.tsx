@@ -1,7 +1,7 @@
-// Event Editor façon RPG Maker 2003 : nom + pages (P4), conditions (P4),
-// apparence (charset + direction + aperçu), déclencheur, mouvement (P4),
-// et la liste de commandes « Contenu » (@>) avec branches imbriquées
-// (choix, conditions). Les commandes sont compilées par datagen vers la VM.
+// Event Editor, RPG Maker 2003 style: name + pages (P4), conditions (P4),
+// appearance (charset + direction + preview), trigger, movement (P4), and
+// the "Contenu" command list (@>) with nested branches (choices,
+// conditions). The commands are compiled by datagen down to the VM.
 
 import { useEffect, useRef, useState } from "react";
 import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset, FnSig, ValueSrc } from "../types";
@@ -12,8 +12,8 @@ import MoveRouteModal from "./MoveRouteModal";
 import GraphicPickerModal from "./GraphicPickerModal";
 import type { Database } from "../db";
 
-// Sélecteur de transition d'écran (S18) — warps et écrans composés.
-// « fade » (défaut) n'est pas écrit dans le JSON (champ absent).
+// Screen transition selector (S18) — warps and composed screens.
+// "fade" (the default) is not written to the JSON (the field is absent).
 function TransSelect(props: {
   value?: ScreenTrans;
   onChange: (t?: ScreenTrans) => void;
@@ -44,69 +44,69 @@ interface Props {
   sceneNames: string[];
   scenes: Record<string, Scene>;
   blockCount: number;
-  // T4 — apparence tile : chipset de la scène + ids de la couche haute
+  // T4 — tile appearance: the scene's chipset + upper-layer ids
   tilesetBmp?: ImageBitmap | null;
   upperCells?: number[];
   blockNames: string[];
-  // charsets déjà affichés par la scène (héros + AUTRES events) : sert à
-  // avertir dès qu'une apparence ferait dépasser les 5 charsets/scène
+  // charsets already shown by the scene (hero + OTHER events): used to
+  // warn as soon as an appearance would exceed the 5 charsets per scene
   usedBlocks: number[];
   sprites: ImageBitmap | null;
-  labels: string[]; // labels du script manuel (champ avancé)
-  switchNames: string[]; // noms des switches (project.json)
-  varNames: string[]; // noms des variables 16-bit
-  // libellés des ENTRÉES acteur de la scène (une par page d'event) —
-  // cibles de « Déplacer un event » et « Tourner un event »
+  labels: string[]; // labels of the manual script (advanced field)
+  switchNames: string[]; // switch names (project.json)
+  varNames: string[]; // names of the 16-bit variables
+  // labels of the scene's actor ENTRIES (one per event page) — the
+  // targets of "Déplacer un event" and "Tourner un event"
   entryNames: string[];
-  charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
-  commonNames: string[]; // noms des common events (v0.16)
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Absent
-  // ailleurs : c'est ce qui décide si « Paramètre » est une source
-  // proposée, et sur quels noms.
+  charsetNames: string[]; // block names (not the routes' gfx)
+  commonNames: string[]; // common event names (v0.16)
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Absent
+  // elsewhere: this is what decides whether "Paramètre" is an offered
+  // source, and under which names.
   fnParams?: string[];
-  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
-  // F1-c — corps d'une fonction : liste de commandes restreinte à la
-  // logique et au calcul (une fonction calcule, elle ne met pas en scène)
+  fnLocals?: string[]; // F2b — locals of the function being edited
+  // F1-c — a function body: a command list restricted to logic and
+  // computation (a function computes, it does not stage anything)
   inFunction?: boolean;
-  db: Database | null; // database du projet (commande db_read, v0.17)
-  uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
-  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
-  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
-  pictures: string[]; // stems des images (S3) — commande pic_show
-  tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
-  soundNames: string[]; // stems des sons du projet (B1)
-  musicNames: string[]; // stems des musiques du projet (B1)
-  vigNames: string[]; // stems des vignettes (B5)
-  animNames: string[]; // noms des animations image par image (A1)
-  screenNames: string[]; // écrans composés (B6bis)
-  screenScriptNames?: string[]; // scripts de l'écran courant (B6bis-2)
-  onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
+  db: Database | null; // the project's database (db_read command, v0.17)
+  uiWidgets: string[]; // layout roots (ui_show command, Ph. 12)
+  uiStyles: string[]; // dialogue styles (S1) — msg/choice style field
+  texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
+  pictures: string[]; // picture stems (S3) — pic_show command
+  tintPresets: TintPreset[]; // the project's tint presets (S12b)
+  soundNames: string[]; // the project's sound stems (B1)
+  musicNames: string[]; // the project's music stems (B1)
+  vigNames: string[]; // vignette stems (B5)
+  animNames: string[]; // names of the frame-by-frame animations (A1)
+  screenNames: string[]; // composed screens (B6bis)
+  screenScriptNames?: string[]; // scripts of the current screen (B6bis-2)
+  onTintPresets: (list: TintPreset[]) => void; // replaces the list (create/delete)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
 }
 
-// Une ligne affichée de la liste Contenu. path = adresse de la commande
-// dans l'arbre ("2", "2.o0.1", "3.t.0", "3.e.1") ; les lignes "fin de
-// liste" (insertion en queue) ont l'index length.
+// One displayed row of the Contenu list. path = the command's address in
+// the tree ("2", "2.o0.1", "3.t.0", "3.e.1"); the "end of list" rows
+// (append) carry the index length.
 interface Line {
   path: string;
   depth: number;
   label: string;
-  branch?: boolean; // ligne de branche ( : Quand [Oui] ) — non éditable
-  comment?: boolean; // commande « Commentaire » — style vert RM2003
+  branch?: boolean; // branch row ( : Quand [Oui] ) — not editable
+  comment?: boolean; // "Commentaire" command — RM2003 green style
 }
 
-// suffixe de transition des commandes picture (S7) : dur 0 / fade false
-// = instantané, 16 = défaut (rien à dire), sinon la durée
+// transition suffix of the picture commands (S7): dur 0 / fade false =
+// instant, 16 = the default (nothing to say), otherwise the duration
 function picDurLabel(dur?: number, fade?: boolean): string {
   const d = fade === false && dur === undefined ? 0 : dur ?? 16;
   if (d === 0) return " (instantané)";
   return d === 16 ? "" : ` (fondu ${d}f)`;
 }
 
-// F1 — libellé court d'une valeur d'entrée, pour les résumés de ligne.
+// F1 — short label of an input value, for the row summaries.
 function srcLabel(v: { from?: VarSource; value: number }): string {
   switch (v.from) {
     case "var": return `variable [${v.value}]`;
@@ -321,8 +321,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
   }
 }
 
-// Titre de la fenêtre d'options d'une commande (mêmes libellés que le
-// sélecteur par onglets)
+// Title of a command's options window (the same labels as the tabbed
+// selector)
 function cmdTitle(c: Command["c"]): string {
   const titles: Partial<Record<Command["c"], string>> = {
     msg: "Afficher un message",
@@ -401,10 +401,10 @@ function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNa
       flatten(c.else, `${path}.e.`, depth + 2, out, ceNames, fnNames);
     }
   });
-  out.push({ path: base + cmds.length, depth, label: "" }); // queue de liste
+  out.push({ path: base + cmds.length, depth, label: "" }); // end of list
 }
 
-// Résout la LISTE contenant la commande désignée par path, et son index.
+// Resolves the LIST containing the command named by path, and its index.
 function resolve(root: Command[], path: string): { list: Command[]; index: number } {
   const parts = path.split(".");
   let list = root;
@@ -420,7 +420,7 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
       const sel = parts[i + 1];
       if (c.c === "choice" && sel.startsWith("o")) {
         list = c.options[parseInt(sel.slice(1), 10)].do;
-        i++; // consomme le sélecteur de branche
+        i++; // consumes the branch selector
       } else if (
         (c.c === "if" || c.c === "if_sw" || c.c === "if_var") &&
         (sel === "t" || sel === "e")
@@ -436,16 +436,16 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
   return { list, index: parseInt(parts[parts.length - 1], 10) };
 }
 
-// Éditeur de liste de commandes — la colonne « Contenu » (@>) avec ses
-// fenêtres (sélecteur par onglets, options, listes de variables, menu
-// contextuel, Ctrl+C/V/Suppr). Partagé entre l'Event Editor et la fenêtre
-// Common events (v0.16). La liste reçue est MUTÉE EN PLACE ; commit()
-// prévient le parent après chaque changement. Remonter le composant
-// (key=) quand la liste affichée change d'identité.
+// Command list editor — the "Contenu" column (@>) with its windows
+// (tabbed selector, options, variable lists, context menu, Ctrl+C/V/Del).
+// Shared between the Event Editor and the Common events window (v0.16).
+// The list it receives is MUTATED IN PLACE; commit() tells the parent
+// after every change. Remount the component (key=) when the displayed
+// list changes identity.
 export function CommandListEditor(props: {
   cmds: Command[];
   commit: () => void;
-  shortcutsOff?: boolean; // sous-fenêtre du parent ouverte : couper le clavier
+  shortcutsOff?: boolean; // a parent sub-window is open: cut the keyboard
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
@@ -453,17 +453,17 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
-  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
-  // source proposée, et sur quels noms.
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Empty or
+  // absent elsewhere: this is what decides whether "Paramètre" is an
+  // offered source, and under which names.
   fnParams?: string[];
-  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
+  fnLocals?: string[]; // F2b — locals of the function being edited
   inFunction?: boolean;
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
-  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
+  texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
   pictures: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
@@ -477,7 +477,7 @@ export function CommandListEditor(props: {
 }) {
   const { cmds } = props;
   const [sel, setSel] = useState<string>(String(cmds.length));
-  const [form, setForm] = useState<Command | null>(null); // en cours d'édition
+  const [form, setForm] = useState<Command | null>(null); // being edited
   const [formIsNew, setFormIsNew] = useState(false);
   const [picking, setPicking] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -487,7 +487,7 @@ export function CommandListEditor(props: {
   const lines: Line[] = [];
   flatten(cmds, "", 0, lines, props.commonNames, (props.fnSigs ?? []).map((f) => f.name));
 
-  // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
+  // Command at this path, or null when the row is empty (end of list)
   function cmdAt(path: string): Command | null {
     const line = lines.find((l) => l.path === path);
     if (!line || line.branch) return null;
@@ -495,14 +495,14 @@ export function CommandListEditor(props: {
     return list[index] ?? null;
   }
 
-  // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
+  // Opens the command selector to insert BEFORE the targeted row
   function openPicker(path: string) {
     setSel(path);
     setForm(null);
     setPicking(true);
   }
 
-  // Ouvre la fenêtre d'options de la commande de cette ligne
+  // Opens the options window of this row's command
   function openEditor(path: string) {
     const c = cmdAt(path);
     if (!c) return;
@@ -512,9 +512,9 @@ export function CommandListEditor(props: {
     setFormIsNew(false);
   }
 
-  // Ctrl+C copie la commande sélectionnée, Ctrl+V l'insère à la ligne
-  // courante, Suppr la supprime — inactifs quand un champ a le focus ou
-  // qu'une sous-fenêtre est ouverte (demande utilisateur).
+  // Ctrl+C copies the selected command, Ctrl+V inserts it at the current
+  // row, Del removes it — inactive while a field has focus or a
+  // sub-window is open.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (props.shortcutsOff || form || picking || menu || varPick) return;
@@ -696,9 +696,9 @@ export function CommandListEditor(props: {
       case "call":
         return { c: "call", n: 0 };
       case "call_fn":
-        // Un argument par parametre des le depart : datagen refuse un
-        // appel mal dimensionne, autant ne pas laisser l'auteur
-        // fabriquer ce cas.
+        // One argument per parameter from the start: datagen refuses a
+        // mis-sized call, so there is no point letting the author build
+        // that case.
         return {
           c: "call_fn",
           n: 0,
@@ -739,8 +739,8 @@ export function CommandListEditor(props: {
             }}
             onDoubleClick={() => {
               if (l.branch) return;
-              // ligne pleine : on édite ; ligne vide : on choisit une
-              // commande à insérer (comme RM2003)
+              // a filled row: we edit it; an empty row: we choose a
+              // command to insert (like RM2003)
               if (cmdAt(l.path)) openEditor(l.path);
               else openPicker(l.path);
             }}
@@ -893,7 +893,7 @@ export function CommandListEditor(props: {
 
 export default function EventEditorModal(props: Props) {
   const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
-  // page éditée : 0 = champs plats de l'event (page 1), k>0 = extraPages[k-1]
+  // edited page: 0 = the event's flat fields (page 1), k>0 = extraPages[k-1]
   const [page, setPage] = useState(0);
   const pageCount = 1 + (draft.extraPages?.length ?? 0);
   const cur: EventPage =
@@ -920,11 +920,11 @@ export default function EventEditorModal(props: Props) {
     }
   }
   const cmds = cur.commands;
-  // fenêtre Switches/Variables ouverte depuis les conditions de page (…)
+  // Switches/Variables window opened from the page conditions (…)
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
-  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
+  // Route window of the page's CUSTOM route (v0.14)
   const [pageRouteOpen, setPageRouteOpen] = useState(false);
-  // fenêtre Apparence façon RM2003 (T3)
+  // RM2003-style Appearance window (T3)
   const [graphicOpen, setGraphicOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
@@ -1292,11 +1292,11 @@ export default function EventEditorModal(props: Props) {
   );
 }
 
-// Formulaire des paramètres d'une commande (zone sous la liste, façon
-// F1 — « source + valeur », le même bloc partout : argument d'appel,
-// valeur rendue. « Paramètre » n'apparaît que dans le corps d'une
-// fonction, sinon il désignerait un cadre qui n'existe pas (datagen le
-// refuse aussi, mais mieux vaut ne pas le proposer du tout).
+// Parameter form of a command (the area under the list, in the style of
+// F1 — "source + value", the same block everywhere: a call argument, a
+// returned value. "Paramètre" only appears inside a function body,
+// otherwise it would name a frame that does not exist (datagen refuses
+// it too, but better not to offer it at all).
 function ValueSourceFields(props: {
   v: ValueSrc;
   fnParams?: string[];
@@ -1376,7 +1376,7 @@ function ValueSourceFields(props: {
   );
 }
 
-// double-clic RM2003)
+// Options form of one command (the window opened by a double-click).
 function CommandForm(props: {
   cmd: Command;
   sceneNames: string[];
@@ -1386,12 +1386,12 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
-  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
-  // source proposée, et sur quels noms.
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Empty or
+  // absent elsewhere: this is what decides whether "Paramètre" is an
+  // offered source, and under which names.
   fnParams?: string[];
-  fnLocals?: string[]; // F2b — variables locales de la fonction éditée
+  fnLocals?: string[]; // F2b — locals of the function being edited
   inFunction?: boolean;
   uiWidgets: string[];
   uiStyles: string[];
@@ -1412,9 +1412,9 @@ function CommandForm(props: {
   onCancel: () => void;
 }) {
   const { cmd, onChange } = props;
-  // fenêtre Itinéraire (commande « Déplacer un event »)
+  // Route window (the "Déplacer un event" command)
   const [routeOpen, setRouteOpen] = useState(false);
-  // nom du preset de teinte à enregistrer (S12b)
+  // name of the tint preset to save (S12b)
   const [presetName, setPresetName] = useState("");
   const varField = (v: string, set: (s: string) => void) => (
     <label>
@@ -1430,8 +1430,8 @@ function CommandForm(props: {
   const varOk = (v: string) =>
     /^[vg]\d{1,2}$/.test(v) && Number(v.slice(1)) <= 63;
 
-  // sélecteur de boîte de dialogue (S1) — affiché seulement si le projet
-  // a des styles ; absent = la boîte par défaut (toujours là)
+  // dialogue box selector (S1) — shown only when the project has styles;
+  // absent = the default box (always there)
   const styleField = (c: { style?: string }, set: (s: string | undefined) => void) =>
     props.uiStyles.length > 0 && (
       <label>
@@ -1646,13 +1646,13 @@ function CommandForm(props: {
     case "var":
       valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
       body = (
-        // alignItems flex-start : sans ça, un libellé qui passe sur deux
-        // lignes décale son champ vers le bas et la rangée part en
-        // escalier — c'est ce qui arrivait à « N° de variable source »
+        // alignItems flex-start: without it, a label that wraps onto two
+        // lines pushes its field down and the row goes stair-stepped —
+        // which is what happened to "N° de variable source"
         <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-          {/* F2b — la destination peut être une variable LOCALE de la
-              fonction en cours. Proposée seulement s'il y en a : ailleurs
-              elle désignerait un cadre qui n'existe pas. */}
+          {/* F2b — the destination can be a LOCAL variable of the
+              current function. Offered only when there are some:
+              elsewhere it would name a frame that does not exist. */}
           {(props.fnLocals?.length ?? 0) > 0 && (
             <label style={{ flex: "0 0 auto" }}>
               Destination
@@ -1714,13 +1714,13 @@ function CommandForm(props: {
               <option value="rand">hasard 0..N</option>
             </select>
           </label>
-          {/* Le bloc « source + valeur » PARTAGE, et pas une copie locale.
-              La copie qui vivait ici changeait `from` sans remettre
-              `value` a zero : passer de « variable n° 1 » a « un
-              paramètre » laissait la valeur 1, donc la commande
-              demandait le 2e paramètre d'une fonction qui n'en a qu'un.
-              Le build echouait, et le formulaire ne montrait rien
-              d'anormal. Une seule implementation, un seul comportement. */}
+          {/* The SHARED "source + value" block, not a local copy.
+              The copy that used to live here changed `from` without
+              resetting `value`: going from "variable n° 1" to "un
+              paramètre" left the value at 1, so the command asked for
+              the 2nd parameter of a function that has only one. The
+              build failed, and the form showed nothing
+              unusual. One implementation, one behaviour. */}
           <ValueSourceFields
             v={{ from: cmd.from, value: cmd.value }}
             fnParams={props.fnParams}
@@ -1762,10 +1762,10 @@ function CommandForm(props: {
       );
       break;
     case "if_var": {
-      // Les deux membres passent par le même bloc « source + valeur » que
-      // partout ailleurs : comparer un paramètre à une constante, ou deux
-      // variables entre elles, ne demande plus de recopier quoi que ce
-      // soit dans une variable globale au préalable.
+      // Both sides go through the same "source + value" block as
+      // everywhere else: comparing a parameter with a constant, or two
+      // variables with each other, no longer requires copying anything
+      // into a global variable first.
       const left = cmd.left ?? { from: "var" as const, value: cmd.n };
       const right = cmd.right ?? { value: cmd.value };
       valid =
@@ -3325,9 +3325,9 @@ function CommandForm(props: {
                   onChange={(e) => {
                     const n = Number(e.target.value);
                     const want = fns[n]?.params.length ?? 0;
-                    // le nombre d'arguments SUIT la fonction choisie :
-                    // datagen refuse un appel mal dimensionné, autant ne
-                    // pas laisser l'auteur fabriquer ce cas
+                    // the number of arguments FOLLOWS the chosen function:
+                    // datagen refuses a mis-sized call, so there is no
+                    // point letting the author build that case
                     const args: ValueSrc[] = [];
                     for (let k = 0; k < want; k++)
                       args.push(cmd.args[k] ?? { value: 0 });
@@ -3382,9 +3382,9 @@ function CommandForm(props: {
                   className="row"
                   style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}
                 >
-                  {/* flexDirection en clair : `.modal label` force une
-                      colonne, et la case se retrouvait au-dessus de son
-                      libellé */}
+                  {/* flexDirection spelled out: `.modal label` forces a
+                      column, and the checkbox ended up above its
+                      label */}
                   <label
                     style={{
                       flexDirection: "row",
