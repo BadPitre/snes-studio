@@ -3296,8 +3296,19 @@ function CommandForm(props: {
                 </select>
               </label>
               {sig?.params.map((pname, k) => (
-                <div className="row" key={k} style={{ flexWrap: "wrap" }}>
-                  <span style={{ alignSelf: "center", minWidth: 90 }}>
+                <div
+                  className="row"
+                  key={k}
+                  style={{ flexWrap: "wrap", alignItems: "flex-start" }}
+                >
+                  <span
+                    style={{
+                      alignSelf: "center",
+                      flex: "0 0 auto",
+                      minWidth: 70,
+                      textAlign: "right",
+                    }}
+                  >
                     {pname || `paramètre ${k + 1}`}
                   </span>
                   <ValueSourceFields
@@ -3314,27 +3325,54 @@ function CommandForm(props: {
                 </div>
               ))}
               {sig?.returns && (
-                <label className="row" style={{ gap: 6, alignItems: "center" }}>
-                  <input
-                    type="checkbox"
-                    style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
-                    checked={cmd.dst !== undefined}
-                    onChange={(e) =>
-                      onChange({ ...cmd, dst: e.target.checked ? 0 : undefined })
-                    }
-                  />
-                  Ranger le résultat dans la variable
-                  <input
-                    type="number" min={0} max={255}
-                    disabled={cmd.dst === undefined}
-                    value={cmd.dst ?? 0}
-                    onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
-                  />
-                  <span className="hint">{props.varNames[cmd.dst ?? 0] || ""}</span>
-                </label>
+                <div
+                  className="row"
+                  style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}
+                >
+                  {/* flexDirection en clair : `.modal label` force une
+                      colonne, et la case se retrouvait au-dessus de son
+                      libellé */}
+                  <label
+                    style={{
+                      flexDirection: "row",
+                      gap: 6,
+                      alignItems: "center",
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
+                      checked={cmd.dst !== undefined}
+                      onChange={(e) =>
+                        onChange({ ...cmd, dst: e.target.checked ? 0 : undefined })
+                      }
+                    />
+                    Stocker le résultat
+                  </label>
+                  <label style={{ flex: "1 1 160px" }}>
+                    Variable
+                    <span className="row" style={{ gap: 4 }}>
+                      <input
+                        type="number" min={0} max={255}
+                        disabled={cmd.dst === undefined}
+                        value={cmd.dst ?? 0}
+                        onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
+                      />
+                      <button className="browse" title="Choisir dans la liste"
+                        disabled={cmd.dst === undefined}
+                        onClick={() =>
+                          props.onPickVar("var", cmd.dst ?? 0, (n) =>
+                            onChange({ ...cmd, dst: n })
+                          )
+                        }>…</button>
+                    </span>
+                    <span className="hint">{props.varNames[cmd.dst ?? 0] || ""}</span>
+                  </label>
+                </div>
               )}
               <span className="hint">
-                Sans « ranger le résultat », la valeur rendue reste lisible
+                Sans « Stocker le résultat », la valeur rendue reste lisible
                 par la source « Résultat du dernier appel » — c'est ainsi
                 qu'on passe le retour d'une fonction en argument d'une
                 autre.
