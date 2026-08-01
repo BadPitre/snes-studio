@@ -22,7 +22,6 @@ pub struct Project {
     pub tilesets: Vec<String>,
     /// Character block names, written by the editor. Cosmetic here: they
     /// let error messages say "green NPC" rather than "block 3".
-    /// messages d'erreur (« PNJ vert » plutôt que « bloc 3 »)
     #[serde(default)]
     pub charsets: Vec<String>,
     /// Common events, RM2003 style: global scripts callable from any event

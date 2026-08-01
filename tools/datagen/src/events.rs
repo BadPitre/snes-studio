@@ -147,7 +147,6 @@ impl<'a> EventCompiler<'a> {
             // A local is a slot of the frame, AFTER the parameters. The
             // engine cannot tell the difference — it is here, where the
             // signature is known, that a local's name becomes an index.
-            // devient un index.
             "local" => "param",
             "ret" => "ret",
             o => bail!("{} : source inconnue « {} »", who, o),
@@ -388,7 +387,6 @@ impl<'a> EventCompiler<'a> {
         // "seen" covers BOTH lists — common events first, functions next.
         // A parallel process can call either, and a message hidden two
         // levels down is exactly what this check exists to find.
-        // exactement ce que ce controle doit trouver.
         fn scan(
             cmds: &[Value],
             commons: &[CommonEvent],
