@@ -1,10 +1,10 @@
-// Système de Database (Phase 10) — lecture des schémas et lecture/écriture
-// des instances TOML. Réf contractuelle : docs/PLANNING_SYSTEME_DATABASE.md
-// et docs/INTEGRATION_DATABASE_EDITEUR.md.
+// Database system (Phase 10) — reading the schemas and reading/writing
+// the TOML instances. Contract: docs/PLANNING_SYSTEME_DATABASE.md and
+// docs/INTEGRATION_DATABASE_EDITEUR.md.
 //
-// RÈGLE : le schéma est l'unique source de vérité — aucun type, aucune
-// borne, aucun nom de champ en dur ici. Ce module ne connaît que les
-// TYPES du système (u8/u16/s8/s16/flags8/ref:/text_id), jamais les tables.
+// RULE: the schema is the single source of truth — no type, no bound and
+// no field name hard-coded here. This module only knows the system's
+// TYPES (u8/u16/s8/s16/flags8/ref:/text_id), never the tables.
 
 import { parse } from "smol-toml";
 import { readDir } from "@tauri-apps/plugin-fs";
@@ -28,27 +28,27 @@ export interface DbSchema {
   fields: DbField[];
 }
 
-// une instance : id symbolique + libellé + valeurs de champs
+// one instance: symbolic id + label + field values
 export type DbEntry = { id: string; name?: string } & Record<string, unknown>;
 
 export interface Database {
   schemas: DbSchema[];
-  entries: Record<string, DbEntry[]>; // par nom de table
+  entries: Record<string, DbEntry[]>; // by table name
 }
 
 const hasTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-// Taille ROM d'un champ (octets) — miroir de dbgen (db.rs)
+// ROM size of a field (bytes) — mirrors dbgen (db.rs)
 export function fieldSize(ty: string): number {
   if (ty === "u16" || ty === "s16" || ty === "text_id") return 2;
-  return 1; // u8, s8, flags8, ref: — les types inconnus comptent 1 (info)
+  return 1; // u8, s8, flags8, ref: — unknown types count as 1 (informational)
 }
 
 export function entrySize(sc: DbSchema): number {
   return sc.fields.reduce((n, f) => n + fieldSize(f.type), 0);
 }
 
-// Bornes d'un champ numérique : bornes du type ∩ min/max du schéma
+// Bounds of a numeric field: the type's bounds ∩ the schema's min/max
 export function fieldBounds(f: DbField): [number, number] | null {
   const t: Record<string, [number, number]> = {
     u8: [0, 255],
@@ -65,10 +65,10 @@ export function isSnake(s: string): boolean {
   return /^[a-z][a-z0-9_]*$/.test(s);
 }
 
-// Charge schémas + instances. null = le projet n'a pas de database.
-// Énumération : readDir en Tauri (le dossier fait foi) ; en mode
-// navigateur, le manifeste schemas/_index.json (maintenu par l'éditeur à
-// la sauvegarde, ignoré par dbgen).
+// Loads schemas + instances. null = the project has no database.
+// Enumeration: readDir under Tauri (the folder is authoritative); in
+// browser mode, the schemas/_index.json manifest (kept up to date by the
+// editor on save, ignored by dbgen).
 export async function loadDatabase(root: string): Promise<Database | null> {
   let names: string[];
   if (hasTauri) {
@@ -79,7 +79,7 @@ export async function loadDatabase(root: string): Promise<Database | null> {
         .map((e) => e.name!.replace(/\.toml$/, ""))
         .sort();
     } catch {
-      return null; // pas de dossier schemas/ = pas de database
+      return null; // no schemas/ folder = no database
     }
   } else {
     try {
@@ -108,24 +108,24 @@ export async function loadDatabase(root: string): Promise<Database | null> {
       };
       list = (df.entry ?? []).map((e) => ({ ...e }));
     } catch {
-      // pas de fichier data = table vide
+      // no data file = an empty table
     }
     entries[sc.name] = list;
   }
   return { schemas, entries };
 }
 
-// ---- écriture ---------------------------------------------------------
+// ---- writing ----------------------------------------------------------
 
 function tomlScalar(v: unknown): string {
   if (typeof v === "number") return String(v);
   if (typeof v === "boolean") return v ? "true" : "false";
   if (Array.isArray(v)) return `[${v.map(tomlScalar).join(", ")}]`;
-  return JSON.stringify(String(v)); // les chaînes TOML basiques = JSON
+  return JSON.stringify(String(v)); // basic TOML strings = JSON
 }
 
-// data/<table>.toml — clés dans l'ORDRE DU SCHÉMA, une entrée par bloc :
-// diffs Git stables (règle 2 du planning)
+// data/<table>.toml — keys in SCHEMA ORDER, one entry per block: stable
+// Git diffs (rule 2 of the planning)
 export function dataToToml(sc: DbSchema, list: DbEntry[]): string {
   let s = `# GENERE par l'editeur SNES Studio — table « ${sc.name} »\n# (editable a la main : dbgen relit ce fichier tel quel)\n`;
   for (const e of list) {
@@ -133,15 +133,15 @@ export function dataToToml(sc: DbSchema, list: DbEntry[]): string {
     if (e.name !== undefined && e.name !== "") s += `name = ${tomlScalar(e.name)}\n`;
     for (const f of sc.fields) {
       const v = e[f.name];
-      if (v === undefined || v === null || v === "") continue; // défaut/absent
+      if (v === undefined || v === null || v === "") continue; // default/absent
       s += `${f.name} = ${tomlScalar(v)}\n`;
     }
   }
   return s;
 }
 
-// schemas/<table>.toml — clés dans un ordre FIXE (diffs Git stables) ;
-// relu tel quel par dbgen : l'éditeur et la main écrivent le même format
+// schemas/<table>.toml — keys in a FIXED order (stable Git diffs); read
+// back as is by dbgen: the editor and a human write the same format
 export function schemaToToml(sc: DbSchema): string {
   let s = `# Schema de la table « ${sc.name} » — docs/PLANNING_SYSTEME_DATABASE.md\nname  = ${tomlScalar(sc.name)}\n`;
   if (sc.title) s += `title = ${tomlScalar(sc.title)}\n`;
@@ -158,17 +158,17 @@ export function schemaToToml(sc: DbSchema): string {
   return s;
 }
 
-// Sauvegarde complète : schémas + instances + manifeste ; les fichiers
-// des tables supprimées dans l'éditeur sont retirés du disque.
+// Full save: schemas + instances + manifest; the files of tables deleted
+// in the editor are removed from disk.
 export async function saveDatabase(
   root: string,
   db: Database,
   removedTables: string[] = []
 ): Promise<void> {
-  await ensureProjectDir(root, "schemas"); // première table d'un projet
+  await ensureProjectDir(root, "schemas"); // first table of a project
   await ensureProjectDir(root, "data");
   for (const n of removedTables) {
-    if (db.schemas.some((s) => s.name === n)) continue; // recréée depuis
+    if (db.schemas.some((s) => s.name === n)) continue; // recreated from
     await removePath(`${root}/schemas/${n}.toml`);
     await removePath(`${root}/data/${n}.toml`);
   }
@@ -176,7 +176,7 @@ export async function saveDatabase(
     await writeProjectText(root, `schemas/${sc.name}.toml`, schemaToToml(sc));
     await writeProjectText(root, `data/${sc.name}.toml`, dataToToml(sc, db.entries[sc.name] ?? []));
   }
-  // manifeste du mode navigateur (le dossier schemas/ fait foi en Tauri)
+  // browser-mode manifest (the schemas/ folder is authoritative under Tauri)
   await writeProjectText(
     root,
     "schemas/_index.json",
@@ -186,7 +186,7 @@ export async function saveDatabase(
 
 // ---- refs -------------------------------------------------------------
 
-// usages d'une entrée : [table, id d'entrée, champ] pour chaque ref qui la vise
+// uses of an entry: [table, entry id, field] for every ref that targets it
 export function refUsages(
   db: Database,
   table: string,
@@ -204,7 +204,7 @@ export function refUsages(
   return out;
 }
 
-// renomme une entrée et met à jour TOUTES les refs (refactoring auto)
+// renames an entry and updates ALL the refs (automatic refactoring)
 export function renameEntry(db: Database, table: string, oldId: string, newId: string) {
   for (const sc of db.schemas) {
     for (const f of sc.fields) {

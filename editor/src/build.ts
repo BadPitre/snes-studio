@@ -1,6 +1,6 @@
-// Lancement de datagen depuis l'éditeur (plugin shell Tauri).
-// Convention de layout repo : <racine>/demo, <racine>/tools, <racine>/engine
-// — la racine est le dossier parent du projet ouvert.
+// Running datagen from the editor (the Tauri shell plugin).
+// Repo layout convention: <root>/demo, <root>/tools, <root>/engine — the
+// root is the parent folder of the open project.
 
 import { Command } from "@tauri-apps/plugin-shell";
 
@@ -25,9 +25,9 @@ function isWindows(): boolean {
   return typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
 }
 
-// Compile le ROM : make dans <racine>/engine. Sous Windows on passe par le
-// bash de MSYS2 (chemin configurable — réglages ⚙), ailleurs par sh.
-// clean = recompilation complète (make clean d'abord).
+// Compiles the ROM: make in <root>/engine. On Windows we go through the
+// MSYS2 bash (path configurable — settings ⚙), elsewhere through sh.
+// clean = a full rebuild (make clean first).
 export async function runMake(
   projectRoot: string,
   bashPath: string,
@@ -36,8 +36,8 @@ export async function runMake(
   return runMakeCmd(projectRoot, bashPath, clean ? "make clean && make" : "make");
 }
 
-// Build « cartouche » : make cart → engine/snesstudio.smc (512 Ko minimum,
-// miroité + checksum recalculé — validé sur Super UFO Pro 8)
+// "Cartridge" build: make cart -> engine/snesstudio.smc (512 KB minimum,
+// mirrored + checksum recomputed — validated on a Super UFO Pro 8)
 export async function runMakeCart(
   projectRoot: string,
   bashPath: string
@@ -65,8 +65,8 @@ async function runMakeCmd(
   return { ok: out.code === 0, output };
 }
 
-// Lance l'émulateur (configurable — réglages ⚙) sur le ROM compilé,
-// sans attendre sa fermeture.
+// Launches the emulator (configurable — settings ⚙) on the compiled ROM,
+// without waiting for it to close.
 export async function launchEmulator(
   projectRoot: string,
   emulator: string
@@ -83,7 +83,7 @@ export async function launchEmulator(
   return { ok: true, output: "" };
 }
 
-// Ouvre le dossier du projet dans l'explorateur de fichiers du système
+// Opens the project folder in the system's file explorer
 export async function openProjectFolder(root: string): Promise<void> {
   if (!hasTauri) return;
   if (isWindows()) {
@@ -93,7 +93,7 @@ export async function openProjectFolder(root: string): Promise<void> {
   }
 }
 
-// Import d'un chipset RPG Maker 2003 (480x256) via datagen import-chipset
+// RPG Maker 2003 chipset import (480x256) through datagen import-chipset
 export async function runImportChipset(
   projectRoot: string,
   chipsetPath: string,
@@ -119,8 +119,8 @@ export async function runImportChipset(
   return { ok: out.code === 0, output };
 }
 
-// Import d'un charset RPG Maker 2003 (288x256 ou 72x128) via
-// datagen import-charset : personnage → bloc de la feuille de sprites
+// RPG Maker 2003 charset import (288x256 or 72x128) through
+// datagen import-charset: a character -> a block of the sprite sheet
 export async function runImportCharset(
   projectRoot: string,
   charsetPath: string,
@@ -148,8 +148,8 @@ export async function runImportCharset(
   return { ok: out.code === 0, output };
 }
 
-// debug = ROM de test avec menu Start+Select+R (réglages ⚙, S6) — le
-// build cartouche passe toujours debug=false
+// debug = a test ROM with the Start+Select+R menu (settings ⚙, S6) — the
+// cartridge build always passes debug=false
 export async function runDatagen(projectRoot: string, debug = false): Promise<BuildResult> {
   if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
   const repo = parentDir(projectRoot);

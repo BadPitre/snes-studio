@@ -1,9 +1,9 @@
-// Gestionnaire de ressources façon RPG Maker 2003 : catégories à gauche,
-// liste des ressources au centre, actions à droite (Importer / Exporter /
-// Renommer / Supprimer) + aperçu. Catégories : CharSet (personnages,
-// blocs de la feuille de sprites), ChipSet (tilesets) et WindowSkin
-// (cadres 9-slice 24x24 de la Phase 11 — le thème actif se choisit dans
-// Tools → UI / Thème).
+// RPG Maker 2003 style resource manager: categories on the left, the
+// resource list in the middle, actions on the right (Import / Export /
+// Rename / Delete) plus a preview. Categories: CharSet (characters,
+// blocks of the sprite sheet), ChipSet (tilesets) and WindowSkin (the
+// 24x24 9-slice frames of Phase 11 — the active theme is chosen in
+// Tools > UI / Thème).
 
 import { useEffect, useRef, useState } from "react";
 import { loadAssetPng } from "../io";
@@ -16,28 +16,28 @@ type Cat =
 
 interface Props {
   root: string;
-  tilesetNames: string[]; // stems, ordre du projet
+  tilesetNames: string[]; // stems, project order
   tilesets: Record<string, ImageBitmap>;
   sprites: ImageBitmap | null;
   blockCount: number;
   blockNames: string[];
-  windowskins: string[]; // chemins relatifs (assets/xxx.png)
-  activeSkin?: string; // thème actif (project.ui.windowskin)
-  iconsets: string[]; // planches d'icônes des widgets (W1)
-  activeIcons?: string; // planche active (project.ui.icons)
-  fonts: string[]; // fontes 768x8 (S1) — la défaut (assets.font) en tête
-  defaultFont: string; // project.assets.font (★, non supprimable)
-  pictures: string[]; // images S3 (PNG ≤ 16 couleurs, ≤ 256x224)
-  sounds: string[]; // sons WAV (B1) — chemins assets/sounds/*.wav
-  musics: string[]; // musiques IT — chemins assets/music/*.it
-  vignettes: string[]; // bandes de frames 32x32 (B5)
-  // ressource -> scènes qui l'utilisent (pour bloquer la suppression)
+  windowskins: string[]; // relative paths (assets/xxx.png)
+  activeSkin?: string; // active theme (project.ui.windowskin)
+  iconsets: string[]; // widget icon sheets (W1)
+  activeIcons?: string; // active sheet (project.ui.icons)
+  fonts: string[]; // 768x8 fonts (S1) — the default (assets.font) first
+  defaultFont: string; // project.assets.font (★, cannot be deleted)
+  pictures: string[]; // S3 images (PNG <= 16 colours, <= 256x224)
+  sounds: string[]; // WAV sounds (B1) — assets/sounds/*.wav paths
+  musics: string[]; // IT music — assets/music/*.it paths
+  vignettes: string[]; // strips of 32x32 frames (B5)
+  // resource -> the scenes using it (to block deletion)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
   canWrite: boolean;
   onImportCharset: () => void;
   onImportChipset: () => void;
-  onImportTilesetPng: () => void; // grille PNG libre (pas un chipset RM2003)
+  onImportTilesetPng: () => void; // a free PNG grid (not an RM2003 chipset)
   onImportWindowskin: () => void;
   onImportIconset: () => void;
   onImportFont: () => void;
@@ -100,7 +100,7 @@ export default function ResourceManagerModal(p: Props) {
   const iconsActive = !!selIcons && selIcons === p.activeIcons;
   const fontDefault = !!selFont && selFont === p.defaultFont;
 
-  // la liste peut changer sous nos pieds (import/suppression)
+  // the list can change under our feet (import/deletion)
   useEffect(() => {
     if (!p.windowskins.includes(selSkin)) setSelSkin(p.windowskins[0] ?? "");
   }, [p.windowskins, selSkin]);
@@ -148,8 +148,8 @@ export default function ResourceManagerModal(p: Props) {
       void loadAssetPng(p.root, selPic).then(setPicBmp).catch(() => {});
   }, [cat, selPic, p.root, p.pictures]);
 
-  // aperçu : charset = les 4 frames de repos du bloc ; chipset = haut de la
-  // grille de tiles
+  // preview: charset = the block's 4 idle frames; chipset = the top of
+  // the tile grid
   useEffect(() => {
     const cv = previewRef.current;
     if (!cv) return;
@@ -173,8 +173,8 @@ export default function ResourceManagerModal(p: Props) {
         ctx.fillText(`${(bmp.width / 16) * (bmp.height / 16)} tiles`, 116, 14);
       }
     } else if (cat === "windowskin" && skinBmp) {
-      // la planche 24x24 en 3x, puis une fenêtre 9-slice d'exemple 12x4
-      // tiles en 2x — le rendu qu'aura le cadre en jeu
+      // the 24x24 sheet at 3x, then a sample 9-slice window 12x4 tiles at
+      // 2x — the rendering the frame will have in game
       ctx.drawImage(skinBmp, 0, 0, 24, 24, 8, 14, 72, 72);
       for (let ty = 0; ty < 4; ty++)
         for (let tx = 0; tx < 12; tx++) {
@@ -187,7 +187,7 @@ export default function ResourceManagerModal(p: Props) {
       ctx.fillText("24x24 (9 tiles)", 8, 10);
       ctx.fillText("aperçu 9-slice" + (skinActive ? " — thème actif ★" : ""), 116, 10);
     } else if (cat === "iconset" && iconsBmp) {
-      // la bande d'icônes en 3x avec l'index sous chaque icône
+      // the icon strip at 3x with the index under each icon
       const n = Math.floor(iconsBmp.width / 8);
       ctx.fillStyle = "#9aa0a8";
       ctx.font = "11px system-ui";
@@ -199,7 +199,7 @@ export default function ResourceManagerModal(p: Props) {
       }
       if (n > 20) ctx.fillText("…", 8 + 20 * 25, 40);
     } else if (cat === "picture" && picBmp) {
-      // l'image réduite pour tenir dans l'aperçu + ses dimensions
+      // the image scaled down to fit the preview + its dimensions
       const sc = Math.min(1, 96 / picBmp.height, 240 / picBmp.width);
       ctx.drawImage(picBmp, 8, 2, picBmp.width * sc, picBmp.height * sc);
       ctx.fillStyle = "#9aa0a8";
@@ -234,7 +234,7 @@ export default function ResourceManagerModal(p: Props) {
         ctx.fillText("« Changer la musique » (combat, boss…).", 8, 46);
       }
     } else if (cat === "fontset" && fontBmp) {
-      // texte d'exemple rendu avec la fonte (2x) + la bande des 96 glyphes
+      // sample text rendered with the font (2x) + the strip of 96 glyphs
       ctx.fillStyle = "#9aa0a8";
       ctx.font = "11px system-ui";
       ctx.fillText(
