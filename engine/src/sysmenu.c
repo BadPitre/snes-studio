@@ -1,9 +1,9 @@
 /*
- * sysmenu.c — menu Système (START) : sauvegarder / charger, façon RM2003.
+ * sysmenu.c — the System menu (START): save and load, RM2003 style.
  *
- * UI : la textbox et son curseur de choix (textbox_choices_raw). Les
- * libellés sont du VOCABULAIRE MOTEUR (constantes v0, comme le menu
- * intégré de RM2003 — spec §5), pas des données de jeu.
+ * UI: the textbox and its choice cursor (textbox_choices_raw). The
+ * labels are ENGINE VOCABULARY (constants, like RM2003's built-in menu
+ * — spec §5), not game data.
  */
 #include <snes.h>
 #include "formats.h"
@@ -12,18 +12,18 @@
 #include "sysmenu.h"
 
 #define SM_OFF 0
-#define SM_MAIN 1  /* Sauvegarder / Charger / Fermer */
-#define SM_SAVE 2  /* choix du slot (écriture) */
-#define SM_LOAD 3  /* choix du slot (lecture) */
-#define SM_DONE 4  /* message de confirmation, A ferme */
+#define SM_MAIN 1  /* Save / Load / Close */
+#define SM_SAVE 2  /* slot choice (writing) */
+#define SM_LOAD 3  /* slot choice (reading) */
+#define SM_DONE 4  /* confirmation message, A closes */
 
 static u8 sm_state;
 static u8 sm_sel;
-static u8 sm_load_pending; /* la destination reste dans save_info */
+static u8 sm_load_pending; /* the destination stays in save_info */
 
 static const char *const sm_main[3] = {"Sauvegarder", "Charger", "Fermer"};
 
-/* Libellés de slots reconstruits à l'ouverture ("Slot 1 : vide" / "OK") */
+/* Slot labels rebuilt on opening ("Slot 1: empty" / "OK") */
 static char sm_slots[SAVE_SLOTS][16];
 static const char *sm_slot_ptrs[SAVE_SLOTS];
 
@@ -115,7 +115,7 @@ void sysmenu_update(void)
     textbox_choice_cursor(sm_sel);
     return;
   }
-  if (down & KEY_B) /* retour / fermer */
+  if (down & KEY_B) /* back / close */
   {
     if (sm_state == SM_MAIN)
       sm_close();
@@ -148,7 +148,7 @@ void sysmenu_update(void)
   {
     save_write(sm_sel);
     sm_state = SM_DONE;
-    /* relecture immédiate : détecte une SRAM absente/défaillante */
+    /* immediate read back: catches missing or failing SRAM */
     if (save_exists(sm_sel))
       textbox_open_raw("Partie sauvegardee !");
     else

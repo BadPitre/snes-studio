@@ -1,69 +1,69 @@
 /*
- * weather.c — météo en particules (S13, façon Weather Effects RM2003) :
- * pluie ou neige en une poignée de sprites recyclés, par-dessus le jeu
- * ET par-dessus la couche d'effet (priorité OBJ 3 — les gouttes passent
- * devant les nuages). État GLOBAL : persiste entre les scènes jusqu'au
- * prochain changement, comme la teinte.
+ * weather.c — particle weather, in the spirit of RM2003's Weather
+ * Effects: rain or snow from a handful of recycled sprites, over the
+ * game AND over the effect layer (OBJ priority 3, so drops pass in
+ * front of clouds). GLOBAL state: persists across scenes until the
+ * next change, like the tint.
  *
- * Ressources réservées, jamais utilisées ailleurs :
- *  - OAM : entrées 100-123 (le joueur occupe 0-1, les acteurs 2-49) ;
- *  - chars OBJ : blocs 16x16 en FIN de région ($4000) — pluie au char
- *    484, neige au char 486 (rangées basses de la 2e name table ; les
- *    sprite sets par scène plafonnent à ~360 chars, aucune collision).
- *    Un bloc 16x16 = chars c, c+1, c+16, c+17 (grille de names OBJ) ;
- *  - palette OBJ 7 (CGRAM 240-243) — datagen avertit déjà si un set
- *    l'occupe (même règle que la palette BG 7 des pictures).
+ * Reserved resources, never used elsewhere:
+ *  - OAM: entries 100-123 (the player takes 0-1, the actors 2-49);
+ *  - OBJ chars: 16x16 blocks at the END of the region ($4000) — rain at
+ *    char 484, snow at 486, the low rows of the second name table. The
+ *    per-scene sprite sets cap out around 360 chars, so there is no
+ *    collision. A 16x16 block is chars c, c+1, c+16, c+17;
+ *  - OBJ palette 7 (CGRAM 240-243) — datagen already warns if a set
+ *    occupies it, the same rule as BG palette 7 for pictures.
  *
- * Les chars viennent de data_weather.c (TOUJOURS émis par datagen —
- * zéro donnée en dur dans le moteur), rechargés à chaque scene_load et
- * après une picture (sa fermeture recharge la région OBJ).
+ * The chars come from data_weather.c, ALWAYS emitted by datagen (no
+ * data hardcoded in the engine), reloaded at every scene_load and after
+ * a picture, whose closing reloads the OBJ region.
  *
- * Simulation en coordonnées ÉCRAN (u8, wrap 256) : la pluie tombe en
- * diagonale à deux vitesses, la neige descend lentement en oscillant.
- * Générateur LCG 16-bit maison — jamais de random de libc.
+ * Simulation in SCREEN coordinates (u8, wrapping at 256): rain falls
+ * diagonally at two speeds, snow drifts down oscillating. A hand-rolled
+ * 16-bit LCG — never libc's random.
  */
 #include <snes.h>
 #include "weather.h"
 #include "vram.h"
 
-/* data_weather.c : 2 blocs 16x16 en 4bpp planaire (TL,TR puis BL,BR)
-   + 4 couleurs de palette */
+/* data_weather.c: 2 planar 4bpp 16x16 blocks (TL,TR then BL,BR) plus
+   4 palette colours */
 extern const u8 wea_rain[128];
 extern const u8 wea_snow[128];
 extern const u16 wea_pal[4];
 
 #define WEA_MAX 24
-#define WEA_OAM(i) ((u16)(100 + (i)) << 2) /* entrées OAM 100-123 */
+#define WEA_OAM(i) ((u16)(100 + (i)) << 2) /* OAM entries 100-123 */
 #define WEA_CHAR_RAIN 484
 #define WEA_CHAR_SNOW 486
-#define WEA_PRIO 3 /* devant tout — y compris la couche d'effet (BG1H) */
+#define WEA_PRIO 3 /* in front of everything, the effect layer included (BG1H) */
 
-static u8 w_type = 0;  /* 0 aucune, 1 pluie, 2 neige */
-static u8 w_count = 0; /* particules actives (8/16/24) */
-static u8 w_shown = 0; /* entrées OAM actuellement visibles */
+static u8 w_type = 0;  /* 0 none, 1 rain, 2 snow */
+static u8 w_count = 0; /* active particles (8/16/24) */
+static u8 w_shown = 0; /* OAM entries currently visible */
 static u8 wx[WEA_MAX];
 static u8 wy[WEA_MAX];
-static u8 wv[WEA_MAX]; /* variante par particule (vitesse/phase) */
+static u8 wv[WEA_MAX]; /* per-particle variant (speed/phase) */
 static u16 w_seed = 0x1234;
 static u8 w_frm = 0;
 
 static u16 w_lcg(void)
 {
-  w_seed = w_seed * 25173 + 13849; /* LCG 16-bit, wrap naturel */
+  w_seed = w_seed * 25173 + 13849; /* 16-bit LCG, natural wrap */
   return w_seed;
 }
 
 void weather_load(void)
 {
-  /* blocs 16x16 : rangée haute (c, c+1) puis rangée basse (c+16, c+17)
-     — char c à VRAM_OBJ_GFX + c*16 words */
+  /* 16x16 blocks: top row (c, c+1) then bottom row (c+16, c+17) —
+     char c is at VRAM_OBJ_GFX + c*16 words */
   dmaCopyVram((u8 *)wea_rain, VRAM_OBJ_GFX + WEA_CHAR_RAIN * 16, 64);
   dmaCopyVram((u8 *)wea_rain + 64,
               VRAM_OBJ_GFX + (WEA_CHAR_RAIN + 16) * 16, 64);
   dmaCopyVram((u8 *)wea_snow, VRAM_OBJ_GFX + WEA_CHAR_SNOW * 16, 64);
   dmaCopyVram((u8 *)wea_snow + 64,
               VRAM_OBJ_GFX + (WEA_CHAR_SNOW + 16) * 16, 64);
-  dmaCopyCGram((u8 *)wea_pal, 240, 8); /* palette OBJ 7 */
+  dmaCopyCGram((u8 *)wea_pal, 240, 8); /* OBJ palette 7 */
 }
 
 void weather_set(u8 type, u8 pow)
@@ -97,18 +97,18 @@ void weather_draw(void)
 
   if (!w_type)
   {
-    /* rien à montrer : cacher les entrées encore visibles, UNE fois */
+    /* nothing to show: hide the still-visible entries, ONCE */
     for (i = 0; i < w_shown; i++)
       oamSetVisible(WEA_OAM(i), OBJ_HIDE);
     w_shown = 0;
     return;
   }
-  /* simulation ET dessin en UNE passe à POINTEURS, écrite DIRECTEMENT
-     dans le shadow OAM (oamMemory) : la version en deux boucles
-     indexées (update puis draw) relisait wx/wy avec des indexations
-     u16 — cumulée à l'ondulation S14, la frame débordait (60 -> 30
-     FPS au panneau S6). 4 octets par particule : x, y, char bas,
-     attr (vhoo pppc : prio 3, palette 7, 9e bit de char) */
+  /* Simulation AND drawing in ONE pointer-walking pass, written
+     DIRECTLY into the shadow OAM (oamMemory). The two-indexed-loop
+     version (update then draw) re-read wx/wy through u16 indexing;
+     added to the S14 ripple, the frame overran (60 -> 30 FPS on the
+     debug panel). 4 bytes per particle: x, y, low char, attr
+     (vhoo pppc: priority 3, palette 7, 9th char bit) */
   w_frm++;
   chlo = w_type == 1 ? (u8)WEA_CHAR_RAIN : (u8)WEA_CHAR_SNOW;
   attr = 0x30 | (7 << 1) | 1; /* prio 3, pal 7, char 256+ */
@@ -118,7 +118,7 @@ void weather_draw(void)
   pv = wv;
   if (w_type == 1)
   {
-    /* pluie : chute rapide en diagonale, deux vitesses entremêlées */
+    /* rain: fast diagonal fall, two speeds interleaved */
     for (i = 0; i < w_count; i++)
     {
       v = *pv++;
@@ -137,13 +137,13 @@ void weather_draw(void)
       om[3] = attr;
       om += 4;
       if (i >= w_shown)
-        oamSetEx(WEA_OAM(i), OBJ_SMALL, OBJ_SHOW); /* taille + X9, UNE
-          fois (oamSetEx écrase le 9e bit de X — cf actors.c) */
+        oamSetEx(WEA_OAM(i), OBJ_SMALL, OBJ_SHOW); /* size + X9, ONE
+          once (oamSetEx overwrites X's 9th bit — see actors.c) */
     }
   }
   else
   {
-    /* neige : descente lente, oscillation douce par phase */
+    /* snow: slow descent, gentle oscillation by phase */
     for (i = 0; i < w_count; i++)
     {
       v = *pv++;
@@ -152,7 +152,7 @@ void weather_draw(void)
       if ((w_frm ^ v) & 1)
         y++;
       if (((u8)(w_frm + v) & 15) == 0)
-        x += (v & 2) ? 1 : 0xFF; /* +1 ou -1 (wrap u8) */
+        x += (v & 2) ? 1 : 0xFF; /* +1 or -1 (u8 wrap) */
       if (y >= 224)
       {
         y = 0;
@@ -170,6 +170,6 @@ void weather_draw(void)
     }
   }
   for (i = w_count; i < w_shown; i++)
-    oamSetVisible(WEA_OAM(i), OBJ_HIDE); /* intensité réduite */
+    oamSetVisible(WEA_OAM(i), OBJ_HIDE); /* reduced intensity */
   w_shown = w_count;
 }
