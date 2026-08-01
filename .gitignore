@@ -18,6 +18,7 @@ engine/src/data/*.asm
 engine/src/data/*.ps
 # ... sauf les .asm ECRITS A LA MAIN, qui n'ont pas de .c du meme nom
 !engine/src/actorsfast.asm
+!engine/src/vbudgetfast.asm
 linkfile
 soundbank.asm
 soundbank.bnk

@@ -20,6 +20,7 @@
  */
 #include <snes.h>
 #include "vignette.h"
+#include "vbudget.h"
 #include "player.h"
 #include "actors.h"
 #include "camera.h"
@@ -312,21 +313,30 @@ void vig_update(void)
   }
 }
 
-/* Cellules transférées au plus par VBlank. MESURÉ, pas estimé : une
-   cellule = 4 DMA de 128 octets (le bloc 32x32 est en 4 rangées de la
-   grille de names, non contiguës). À 2 cellules, les DEUX dernières
-   rangées tombent hors fenêtre VBlank et la VRAM les IGNORE — la moitié
-   basse de la seconde cellule reste vide à l'écran (constaté sur dump
-   VRAM). Avancer vig_vblank dans la séquence n'en fait passer que 6 sur
-   8 : c'est un plafond de temps, pas un problème d'ordre.
-   Conséquence pour les CALQUES : quand K calques changent de cellule à
-   la même frame, ils se mettent à jour en K frames écran. datagen
-   prévient quand la durée d'une frame est plus courte que ça. */
-#define VIG_VB_MAX 1
+/* Cellules transférées par VBlank : plus de plafond fixe, une demande
+   au budget (P5). Une cellule = 4 DMA de 128 octets — le bloc 32x32
+   occupe 4 rangées non contiguës de la grille de names — soit environ
+   12 lignes écran, dont 6 rien qu'en apprêts de DMA.
+
+   Le plafond valait 1, trouvé à tâtons : à 2, les DEUX dernières
+   rangées tombaient hors fenêtre et la VRAM les IGNORAIT (constaté sur
+   dump VRAM — la moitié basse de la seconde cellule restait vide).
+   Avancer vig_vblank dans la séquence n'en faisait passer que 6 sur 8 :
+   un plafond de temps, pas un problème d'ordre. P5 en donne enfin le
+   chiffre : la fenêtre fait 30 lignes et une frame de dialogue en
+   consomme déjà 29.
+
+   Le budget remplace le plafond, donc le débit dépend maintenant de la
+   frame. Sur une frame calme (pas de streaming de carte, couche UI
+   propre) deux cellules passent ; sur une frame chargée, aucune. Pour
+   les CALQUES : K calques qui changent de cellule à la même frame se
+   mettent à jour en K/2 à K frames écran, là où c'était K tout rond
+   avant. L'avertissement de datagen sur les frames trop courtes reste
+   donc valable — il est simplement devenu prudent. */
 
 void vig_vblank(void)
 {
-  u8 s, r, n;
+  u8 s, r;
   const u8 *src;
   u16 base;
 
@@ -337,6 +347,8 @@ void vig_vblank(void)
   for (s = 0; s < VIG_PALS; s++)
     if (v_pal & (1 << s))
     {
+      if (!vbl_take(2)) /* 1 appel, 30 octets */
+        return;
       if (pal_rc[s])
         /* palette OBJ 5+s (CGRAM 128 + (5+s)*16), couleurs 1-15 */
         dmaCopyCGram((u8 *)vig_pals[pal_vig[s]] + 2,
@@ -344,7 +356,6 @@ void vig_vblank(void)
       v_pal &= (u8)~(1 << s);
       return;
     }
-  n = 0;
   for (s = 0; s < VIG_SLOTS; s++)
   {
     if (!(v_dirty & (1 << s)))
@@ -354,6 +365,8 @@ void vig_vblank(void)
       v_dirty &= (u8)~(1 << s);
       continue;
     }
+    if (!vbl_take(VBL_COST_VIG))
+      return; /* pas la place : le bit sale reste, la cellule repassera */
     /* frame courante : 4 rangées de 4 chars (512 octets) */
     src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9);
     for (r = 0; r < 4; r++)
@@ -362,7 +375,5 @@ void vig_vblank(void)
       dmaCopyVram((u8 *)src + ((u16)r << 7), base, 128);
     }
     v_dirty &= (u8)~(1 << s);
-    if (++n >= VIG_VB_MAX)
-      return;
   }
 }

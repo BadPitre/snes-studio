@@ -18,6 +18,7 @@
 #include "scene.h"
 #include "camera.h"
 #include "map.h"
+#include "vbudget.h"
 #include "vram.h"
 #include "effectlayer.h"
 
@@ -296,7 +297,10 @@ static void map_row_dma(u16 base_vram, u16 by, u16 *buf)
 
 void map_vblank(void)
 {
-  if (col_pending)
+  /* Colonne et rangee se demandent leur place separement : quand la
+     fenetre est courte, en poser une vaut mieux que n'en poser aucune.
+     Ce qui n'est pas transfere reste marque et repassera. */
+  if (col_pending && vbl_take(VBL_COST_MAPHALF))
   {
     map_col_dma(VRAM_BG2_MAP, col_vram_x, col_lo[0]);
     map_col_dma(VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
@@ -307,7 +311,7 @@ void map_vblank(void)
     }
     col_pending = 0;
   }
-  if (row_pending)
+  if (row_pending && vbl_take(VBL_COST_MAPHALF))
   {
     map_row_dma(VRAM_BG2_MAP, row_vram_y, row_lo[0]);
     map_row_dma(VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
