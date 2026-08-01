@@ -1,6 +1,6 @@
-//! Émission des fichiers C de données (formats de la Phase 1, réf
-//! docs/SPEC_FORMATS.md). Sortie stable et déterministe : mêmes entrées →
-//! mêmes octets.
+//! Emitting the generated C data files. Output is stable and
+//! deterministic: same inputs, same bytes. `tools/gate-datagen.sh` relies
+//! on that.
 
 use std::fmt::Write;
 
@@ -36,4 +36,3 @@ pub fn u16_array(name: &str, data: &[u16]) -> String {
     s.push_str("};\n");
     s
 }
-

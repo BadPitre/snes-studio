@@ -1,6 +1,6 @@
-//! Conversion PNG indexé → formats SNES (chars 4bpp/2bpp planaires,
-//! palettes BGR555). Les PNG doivent être en mode palette : l'index de
-//! chaque pixel EST l'index de couleur SNES (round-trip sans perte).
+//! Indexed PNG to SNES formats: planar 4bpp/2bpp chars and BGR555
+//! palettes. Source PNGs must be in palette mode — a pixel's index IS
+//! its SNES colour index, so the round-trip is lossless.
 
 use crate::tileset::dist555 as color_dist;
 use anyhow::{bail, Context, Result};
@@ -11,11 +11,11 @@ use std::path::Path;
 pub struct IndexedImage {
     pub width: usize,
     pub height: usize,
-    /// Index de palette par pixel (row-major)
+    /// Palette index per pixel, row-major.
     pub pixels: Vec<u8>,
-    /// Palette convertie en BGR555
+    /// Palette converted to BGR555.
     pub palette: Vec<u16>,
-    /// Palette source brute (triplets RGB 8-bit) — pour les outils d'import
+    /// Raw source palette (8-bit RGB triples), for the import tools.
     pub palette_rgb: Vec<u8>,
 }
 
@@ -23,15 +23,15 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
     let file = std::fs::File::open(path)
         .with_context(|| format!("ouverture de {}", path.display()))?;
     let mut decoder = png::Decoder::new(file);
-    // Surtout ne PAS étendre la palette en RGB : on veut les indices bruts
+    // Do NOT expand the palette to RGB here: we want the raw indices.
     decoder.set_transformations(png::Transformations::IDENTITY);
     let mut reader = decoder.read_info()?;
 
     let info = reader.info();
     if info.color_type != png::ColorType::Indexed {
-        // PNG truecolor (chipsets re-sauvegardés, exports d'éditeurs
-        // d'image) : indexation automatique — couleurs arrondies à la
-        // précision SNES (5 bits/canal), alpha < 128 = transparent.
+        // Truecolor PNG (re-saved chipsets, image editor exports): index
+        // it on the fly, rounding colours to SNES precision (5 bits per
+        // channel). Alpha below 128 counts as transparent.
         drop(reader);
         return load_truecolor_png(path);
     }
@@ -47,7 +47,7 @@ pub fn load_indexed_png(path: &Path) -> Result<IndexedImage> {
     let out = reader.next_frame(&mut buf)?;
     let bytes_per_row = out.line_size;
 
-    // Dépaquetage des indices selon la profondeur (PIL écrit 1/2/4/8 bits)
+    // Unpack indices according to bit depth (PIL writes 1/2/4/8).
     let mut pixels = Vec::with_capacity(width * height);
     for y in 0..height {
         let row = &buf[y * bytes_per_row..(y + 1) * bytes_per_row];
@@ -75,10 +75,10 @@ fn bgr555(r: u8, g: u8, b: u8) -> u16 {
     ((r as u16) >> 3) | (((g as u16) >> 3) << 5) | (((b as u16) >> 3) << 10)
 }
 
-/// PNG non indexé → IndexedImage : les couleurs (arrondies au pas SNES de
-/// 8, soit 5 bits utiles) deviennent la palette, l'index 0 est réservé au
-/// transparent (pixels d'alpha < 128). Refuse au-delà de 255 couleurs
-/// opaques — un chipset pixel-art légitime tient toujours dedans.
+/// Non-indexed PNG to IndexedImage. Colours rounded to the SNES step of 8
+/// (5 useful bits) become the palette; index 0 is reserved for
+/// transparency (alpha < 128). Refuses more than 255 opaque colours — a
+/// legitimate pixel-art chipset always fits.
 fn load_truecolor_png(path: &Path) -> Result<IndexedImage> {
     use std::collections::HashMap;
 
@@ -119,7 +119,7 @@ fn load_truecolor_png(path: &Path) -> Result<IndexedImage> {
                 pixels.push(0);
                 continue;
             }
-            // arrondi au pas SNES : supprime le bruit des re-sauvegardes
+            // round to the SNES step: kills the noise of re-saved files
             let key = [r & 0xF8, g & 0xF8, b & 0xF8];
             let idx = match index_of.get(&key) {
                 Some(&i) => i,
@@ -153,8 +153,8 @@ impl IndexedImage {
         self.pixels[y * self.width + x]
     }
 
-    /// char4bpp avec ré-indexation (palettes OBJ par bloc de personnage) :
-    /// chaque index source passe par la table remap avant encodage
+    /// char4bpp with re-indexing, for per-character-block OBJ palettes:
+    /// every source index goes through `remap` before encoding.
     fn char4bpp_mapped(&self, ox: usize, oy: usize, remap: &[u8; 256]) -> [u8; 32] {
         let mut out = [0u8; 32];
         for y in 0..8 {
@@ -171,21 +171,20 @@ impl IndexedImage {
         out
     }
 
-    /// Picture plein écran (S3, façon RM2003) : PNG indexé ≤ 16 couleurs,
-    /// dimensions multiples de 8, max 256x224 — centré sur la grille
-    /// 32x28 si plus petit (cellules vides = couleur 0). Retourne
-    /// (chars 4bpp dédupliqués, tilemap 32x28 palette 0, palette 16
-    /// couleurs BGR555). Budget : 512 chars (le moteur recouvre la
-    /// région tileset BG1, rechargée à la fermeture).
-    /// `trans` (S4) : image à transparence — les entrées de tilemap
-    /// prennent la PALETTE BG 7 (réservée : le décor garde les palettes
-    /// 0-6) pour que la couche carte visible derrière reste correcte.
-    /// Vignette (B5) : bande horizontale de frames 32x32 (largeur
-    /// multiple de 32, hauteur 32, 1-8 frames), ≤ 15 couleurs + index 0
-    /// transparent. Chaque frame est émise en 16 chars OBJ 4bpp en
-    /// ordre rangée par rangée (4 rangées de 4 chars = 4 DMA de 128
-    /// octets au changement de frame). Retourne (chars, nb frames,
-    /// palette 16 couleurs).
+    /// Full-screen picture, RM2003 style: indexed PNG, at most 16 colours,
+    /// dimensions multiple of 8, up to 256x224. Smaller images are centred
+    /// on the 32x28 grid, empty cells taking colour 0. Returns deduplicated
+    /// 4bpp chars, a 32x28 tilemap on palette 0, and a 16-colour BGR555
+    /// palette. Budget: 512 chars — the engine covers the BG1 tileset
+    /// region and reloads it on close.
+    /// With `trans`, the tilemap entries take BG palette 7, which is kept
+    /// free for this: the scenery keeps palettes 0-6, so the map layer
+    /// showing through stays correct.
+    /// Vignette: a horizontal strip of 32x32 frames (width a multiple of
+    /// 32, height 32, 1 to 8 frames), at most 15 colours plus transparent
+    /// index 0. Each frame is emitted as 16 OBJ 4bpp chars, row by row —
+    /// 4 rows of 4 chars, which is 4 DMA transfers of 128 bytes when the
+    /// frame changes. Returns chars, frame count and a 16-colour palette.
     pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>)> {
         if self.height != 32 || self.width == 0 || self.width % 32 != 0 {
             bail!(
@@ -233,8 +232,8 @@ impl IndexedImage {
                 self.width, self.height
             );
         }
-        // ce qui compte : les INDEX utilisés (les PNG ont souvent une
-        // palette paddée à 256 entrées — on la tronque à 16)
+        // What matters is the INDICES actually used: PNGs often carry a
+        // palette padded to 256 entries, so it is truncated to 16.
         if let Some(&mx) = self.pixels.iter().max() {
             if mx >= 16 {
                 bail!(
@@ -247,10 +246,10 @@ impl IndexedImage {
         let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
         let tw = self.width / 8;
         let th = self.height / 8;
-        // S5 : image calée en HAUT-GAUCHE de la carte — le moteur la
-        // positionne à l'écran par le scroll BG1 (commande pic_show).
-        // Carte 32x32 COMPLÈTE : au scroll vertical, les rangées 28-31
-        // deviennent visibles (wrap SC_32x32) — padding transparent.
+        // The image sits at the map's TOP-LEFT; the engine positions it on
+        // screen through the BG1 scroll (pic_show). The map is a FULL 32x32:
+        // scrolling vertically brings rows 28-31 into view through the
+        // SC_32x32 wrap, so they are padded transparent.
         let mut chars: Vec<u8> = Vec::new();
         let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
         let mut map = vec![0u16; 32 * 32];
@@ -266,7 +265,7 @@ impl IndexedImage {
                     chars.extend_from_slice(&ch);
                     n
                 });
-                // palette 0 (opaque) ou 7 (transparence S4), sans flip
+                // palette 0 (opaque) or 7 (transparency), never flipped
                 map[ty * 32 + tx] = if trans { id | (7 << 10) } else { id };
             }
         }
@@ -283,7 +282,7 @@ impl IndexedImage {
         Ok((chars, map, pal))
     }
 
-    /// Encode un char 8x8 en 2bpp planaire SNES (16 octets)
+    /// Encodes one 8x8 char as planar SNES 2bpp (16 bytes).
     fn char2bpp(&self, ox: usize, oy: usize) -> [u8; 16] {
         let mut out = [0u8; 16];
         for y in 0..8 {
@@ -297,8 +296,8 @@ impl IndexedImage {
         out
     }
 
-    /// Nombre de blocs de personnage de la feuille (12 frames 16x24 par
-    /// bloc, modèle charset RM2003) — valide aussi le format de la bande.
+    /// Number of character blocks in the sheet (12 frames of 16x24 each,
+    /// RM2003 charset model). Also validates the strip's format.
     pub fn sprite_blocks(&self) -> Result<usize> {
         if self.height != 24 || self.width % 16 != 0 {
             bail!(
@@ -309,21 +308,21 @@ impl IndexedImage {
         Ok((self.width / 16).div_ceil(12))
     }
 
-    /// Feuille OBJ d'un SET de sprites (v0.5, compilé par scène comme les
-    /// tilesets) : `blocks` liste les blocs de personnage du projet à
-    /// embarquer (max 5 — le slot local s reçoit le bloc global blocks[s]).
-    /// Chaque frame 16x24 est rendue par 2 OBJs 16x16 empilés — en VRAM,
-    /// un groupe de 8 frames occupe 4 rangées de 16 chars : rangées 0-1 =
-    /// moitiés hautes, rangées 2-3 = moitiés basses (les 8 dernières
-    /// lignes, vides, restent à 0). OBJ haut de la frame locale f :
-    /// char ((f&0xF8)<<3)|((f&7)<<1) ; bas : +32.
+    /// OBJ sheet for one sprite SET, compiled per scene like the tilesets.
+    /// `blocks` lists the project character blocks to embed (at most 5 —
+    /// local slot s receives global block blocks[s]).
+    /// Each 16x24 frame is drawn by two stacked 16x16 OBJs. In VRAM a group
+    /// of 8 frames occupies 4 rows of 16 chars: rows 0-1 hold the top
+    /// halves, rows 2-3 the bottom halves, and the last 8 lines stay empty.
+    /// Top OBJ of local frame f is char ((f&0xF8)<<3)|((f&7)<<1); the
+    /// bottom one is +32.
     ///
-    /// Chaque slot reçoit SA palette OBJ (slot s → palette s) : les
-    /// couleurs du bloc sont ré-indexées localement (1..15, 0 =
-    /// transparent) ; au-delà de 15 couleurs, fusion des plus proches avec
-    /// avertissement (jamais d'échec).
+    /// Each slot gets ITS OWN OBJ palette (slot s to palette s): the
+    /// block's colours are re-indexed locally to 1..15 with 0 transparent.
+    /// Past 15 colours the closest pair is merged, with a warning — this
+    /// never fails the build.
     ///
-    /// Retourne (chars 4bpp, CGRAM OBJ complète 8x16 couleurs).
+    /// Returns the 4bpp chars and the full 8x16-colour OBJ CGRAM.
     pub fn to_obj_sheet(&self, blocks: &[usize]) -> Result<(Vec<u8>, Vec<u16>)> {
         let total_blocks = self.sprite_blocks()?;
         let frames = self.width / 16;
@@ -331,8 +330,8 @@ impl IndexedImage {
             bail!("sprites : 5 blocs de personnage max par set (60 frames OBJ)");
         }
 
-        // Palette + ré-indexation par slot : couleurs BGR555 distinctes des
-        // frames du bloc (index source 0 = transparent, convention inchangée)
+        // Palette and re-indexing per slot: the distinct BGR555 colours of
+        // the block's frames, source index 0 staying transparent.
         let mut pal = vec![0u16; 128];
         let mut remaps: Vec<[u8; 256]> = Vec::new();
         for (s, &b) in blocks.iter().enumerate() {
@@ -341,7 +340,7 @@ impl IndexedImage {
             }
             let f0 = b * 12;
             let f1 = ((b + 1) * 12).min(frames);
-            // fréquence par couleur BGR555 (ordre d'apparition stable)
+            // frequency per BGR555 colour, in stable order of appearance
             let mut colors: Vec<(u16, usize)> = Vec::new();
             for y in 0..24 {
                 for x in f0 * 16..f1 * 16 {
@@ -356,8 +355,8 @@ impl IndexedImage {
                     }
                 }
             }
-            // > 15 couleurs : fusion des deux plus proches (la moins
-            // fréquente prend la valeur de l'autre), comme pour les tiles BG
+            // Past 15 colours, merge the closest pair — the rarer one takes
+            // the other's value, same rule as the BG tiles.
             let mut merged = 0usize;
             while colors.len() > 15 {
                 let (mut bi, mut bj, mut bd) = (0usize, 1usize, u32::MAX);
@@ -369,7 +368,7 @@ impl IndexedImage {
                         }
                     }
                 }
-                // la plus fréquente absorbe l'autre
+                // the more frequent colour absorbs the other
                 let (keep, drop) = if colors[bi].1 >= colors[bj].1 {
                     (bi, bj)
                 } else {
@@ -385,8 +384,8 @@ impl IndexedImage {
                     b, merged
                 );
             }
-            // table index source → index local du bloc (via valeur BGR555,
-            // couleur fusionnée → sa couleur d'arrivée la plus proche)
+            // source index -> local block index, keyed by BGR555 value;
+            // a merged colour maps to whichever it was merged into
             let mut remap = [0u8; 256];
             for (src, &c) in self.palette.iter().enumerate() {
                 if src == 0 {
@@ -409,9 +408,9 @@ impl IndexedImage {
             remaps.push(remap);
         }
 
-        // Chars : groupes de 8 frames locales = 4 rangées de 16 chars.
-        // La frame locale s*12+i vient de la frame source blocks[s]*12+i
-        // (blanche si le dernier bloc de la feuille est incomplet).
+        // Chars: groups of 8 local frames = 4 rows of 16 chars. Local frame
+        // s*12+i comes from source frame blocks[s]*12+i, or blank when the
+        // sheet's last block is incomplete.
         let blank = [0u8; 32];
         let mut out = Vec::new();
         let local_frames = blocks.len() * 12;
@@ -439,8 +438,8 @@ impl IndexedImage {
         Ok((out, pal))
     }
 
-    /// Fonte : bande de 96 glyphes 8x8 (ASCII 32-127) → 2bpp, précédés du
-    /// char 0 transparent généré (spec §4 : char BG3 = 1 + ascii - 32)
+    /// Font: a strip of 96 8x8 glyphs (ASCII 32-127) to 2bpp, preceded by
+    /// a generated transparent char (spec §4: BG3 char = 1 + ascii - 32).
     pub fn to_font(&self) -> Result<Vec<u8>> {
         if self.height != 8 || self.width != 96 * 8 {
             bail!("font : attendu 96 glyphes 8x8 (bande 768x8)");
@@ -452,10 +451,10 @@ impl IndexedImage {
         Ok(out)
     }
 
-    /// Windowskin 9-slice (Phase 11, docs/SPEC_SYSTEME_UI.md) : PNG 24x24
-    /// indexé, 3x3 tiles 8x8 converties en 2bpp dans l'ordre ligne par
-    /// ligne (HG H HD / G C D / BG B BD). Mêmes 4 couleurs que la fonte
-    /// (0 transparent, 1 fond, 2 texte/bord, 3 accent).
+    /// 9-slice windowskin (docs/SPEC_SYSTEME_UI.md): 24x24 indexed PNG,
+    /// 3x3 8x8 tiles converted to 2bpp row by row (TL T TR / L C R /
+    /// BL B BR). Same four colours as the font: 0 transparent, 1
+    /// background, 2 text/border, 3 accent.
     pub fn to_windowskin(&self) -> Result<Vec<u8>> {
         if self.width != 24 || self.height != 24 {
             bail!("windowskin : attendu 24x24 (9-slice de tiles 8x8), recu {}x{}",
@@ -473,17 +472,17 @@ impl IndexedImage {
         Ok(out)
     }
 
-    /// Fonte SUPPLÉMENTAIRE d'un style de dialogue (S1) : les 96 glyphes
-    /// seuls, SANS le char transparent de tête (la base pointe sur ' ').
+    /// An EXTRA font for a dialogue style: the 96 glyphs alone, without
+    /// the leading transparent char (the base points at ' ').
     pub fn to_font_glyphs(&self) -> Result<Vec<u8>> {
         let full = self.to_font()?;
         Ok(full[16..].to_vec())
     }
 
-    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
-    /// bande Nx8 (largeur multiple de 8, 64 icônes max), indexée sur la
-    /// palette de la fonte (0 transparent, 1 fond, 2 bord, 3 accent).
-    /// Chaque icône devient un char 2bpp, appendu après le windowskin.
+    /// UI widget icon sheet: an Nx8 strip (width a multiple of 8, at most
+    /// 64 icons) indexed on the font's palette (0 transparent, 1
+    /// background, 2 border, 3 accent). Each icon becomes one 2bpp char,
+    /// appended after the windowskin.
     pub fn to_icons(&self) -> Result<Vec<u8>> {
         if self.height != 8 || self.width == 0 || self.width % 8 != 0 {
             bail!(
@@ -505,25 +504,22 @@ impl IndexedImage {
         Ok(out)
     }
 
-    /// Image de la couche UI (widget « Image » en mode picture) : un
-    /// rectangle de tuiles 2bpp, comme une icône mais de taille libre.
+    /// An image for the UI layer — the "Image" widget in picture mode: a
+    /// rectangle of 2bpp tiles, like an icon but of free size.
     ///
-    /// La couche UI de la SNES n'a que 4 couleurs et TOUT y partage la
-    /// palette de la fonte (glyphes, cadres, icônes) : les couleurs de
-    /// l'image sont donc ramenées à la plus proche de cette palette.
-    /// L'index 0 reste la transparence — un pixel transparent le demeure,
-    /// on ne lui cherche pas de voisin.
+    /// The SNES UI layer has only four colours and EVERYTHING there shares
+    /// the font's palette (glyphs, frames, icons), so the image's colours
+    /// are mapped to the nearest of those. Index 0 stays transparency — a
+    /// transparent pixel remains one, no neighbour is looked for.
+    /// The image is padded with transparency up to the next multiple of 8:
+    /// the author does not have to align pixels to the tile grid. Returns
+    /// chars, width and height in TILES.
     ///
-    /// L'image est complétée en transparent jusqu'au multiple de 8 le plus
-    /// proche : l'auteur n'a pas à caler ses pixels sur la grille de
-    /// tuiles. Renvoie (chars, largeur, hauteur) en TUILES.
-    ///
-    /// Variante « fond de panneau » avec bg = true : quand le widget vit
-    /// DANS une
-    /// window du designer, les pixels transparents (et le complément à la
-    /// grille de tuiles) prennent la couleur de FOND du cadre au lieu de
-    /// laisser voir le jeu — le compositing SNES étant par tuiles, ça se
-    /// résout à la compilation, comme pour les icônes (to_icons_bg).
+    /// With `bg`, the "panel background" variant: when the widget lives
+    /// inside a designer window, transparent pixels — and the padding to
+    /// the tile grid — take the frame's BACKGROUND colour instead of
+    /// showing the game through. SNES compositing is per tile, so this is
+    /// resolved at compile time, as for the icons (to_icons_bg).
     pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool) -> Result<(Vec<u8>, u8, u8)> {
         if self.width == 0 || self.height == 0 {
             bail!("image UI : image vide");
@@ -536,11 +532,11 @@ impl IndexedImage {
                 self.width, self.height, tw, th
             );
         }
-        // Dans une window, le « vide » (transparent + complément à la
-        // grille) prend le FOND du cadre (index 1) au lieu de laisser
-        // voir le jeu au travers.
+        // Inside a window, "empty" — transparent plus the padding to the
+        // tile grid — takes the frame BACKGROUND (index 1) rather than
+        // letting the game show through.
         let void = if bg { 1u8 } else { 0u8 };
-        // correspondance couleur de l'image -> index 0-3 de la palette UI
+        // image colour -> index 0-3 of the UI palette
         let mut map = vec![void; self.palette.len().max(1)];
         for (i, &c) in self.palette.iter().enumerate() {
             if i == 0 {
@@ -558,7 +554,7 @@ impl IndexedImage {
             }
             map[i] = best as u8;
         }
-        // copie remappée, complétée à la grille de tuiles
+        // remapped copy, padded to the tile grid
         let mut padded = IndexedImage {
             width: tw * 8,
             height: th * 8,
@@ -581,11 +577,11 @@ impl IndexedImage {
         Ok((out, tw as u8, th as u8))
     }
 
-    /// Variantes « fond de panneau » des icônes (D1) : les pixels
-    /// transparents (index 0) deviennent le FOND (index 1) — une icône
-    /// posée dans une window montre le cadre derrière elle, pas le jeu
-    /// (le compositing SNES est par tiles, on résout à la compilation).
-    /// Chars appendus après les icônes normales (UI_ICON_BASE + count).
+    /// "Panel background" variants of the icons: transparent pixels
+    /// (index 0) become the BACKGROUND (index 1), so an icon placed in a
+    /// window shows the frame behind it and not the game. SNES compositing
+    /// is per tile, so it is resolved at compile time.
+    /// These chars are appended after the normal icons (UI_ICON_BASE + count).
     pub fn to_icons_bg(&self) -> Result<Vec<u8>> {
         let mut copy = self.clone();
         for p in copy.pixels.iter_mut() {
@@ -596,7 +592,7 @@ impl IndexedImage {
         copy.to_icons()
     }
 
-    /// Palette complétée/tronquée à n entrées BGR555
+    /// Palette padded or truncated to n BGR555 entries.
     pub fn palette_n(&self, n: usize) -> Vec<u16> {
         let mut p = self.palette.clone();
         p.resize(n, 0);
