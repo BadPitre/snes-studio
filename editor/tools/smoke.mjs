@@ -1,33 +1,32 @@
-// smoke-editor.mjs — vérifie que l'éditeur s'ouvre et que chaque fenêtre
-// s'affiche sans erreur, sur le projet demo.
+// smoke.mjs — checks that the editor opens and that every window renders
+// without an error, on the demo project.
 //
-// Ce n'est PAS une suite de tests fonctionnels : c'est un détecteur de
-// fenêtre cassée. Un remaniement de l'éditeur ne casse presque jamais la
-// compilation TypeScript — il casse un rendu, et personne ne s'en aperçoit
-// avant d'ouvrir la fenêtre à la main. Ici on les ouvre toutes, on relève
-// les erreurs de console et les exceptions React, et on capture l'écran.
+// This is NOT a functional test suite: it is a broken-window detector. A
+// refactor of the editor almost never breaks the TypeScript compilation —
+// it breaks a render, and nobody notices until they open the window by
+// hand. Here we open them all, collect the console errors and the React
+// exceptions, and take a screenshot.
 //
-//   npm run smoke                          (l'aperçu doit tourner)
+//   npm run smoke                          (the preview must be running)
 //   SMOKE_URL=http://localhost:4183 npm run smoke
 //
-// Les captures partent dans editor/tools/smoke-out/ — pratique pour comparer
-// deux versions à l'œil quand une différence est attendue.
+// The screenshots go to editor/tools/smoke-out/ — handy for comparing two
+// versions by eye when a difference is expected.
 
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, existsSync, readdirSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const URL = process.env.SMOKE_URL ?? "http://localhost:4183";
 const OUT = `${ROOT}/editor/tools/smoke-out`;
 
-// Chaque entrée : un chemin de menu à parcourir, et la CLASSE que la
-// fenêtre ouverte doit porter. On vérifie la classe et non un titre :
-// les fenêtres n'ont pas toutes le même balisage de titre (.palette-title
-// pour la plupart, .panel-title pour Textes, rien pour Switches), et le
-// filet ne doit pas dépendre d'une incohérence qu'il est justement là
-// pour nous laisser corriger tranquillement.
+// Each entry: a menu path to walk, and the CLASS the opened window must
+// carry. We check the class rather than a title: the windows do not all use
+// the same title markup (.palette-title for most, .panel-title for Textes,
+// nothing for Switches), and the safety net must not depend on an
+// inconsistency it exists to let us fix calmly.
 const WINDOWS = [
   { path: ["Tools", "Logique", "Switches et variables…"], cls: "varlist" },
   { path: ["Tools", "Logique", "Common events…"], cls: "cevents" },
@@ -43,13 +42,29 @@ const WINDOWS = [
 ];
 
 mkdirSync(OUT, { recursive: true });
-// PLAYWRIGHT_BROWSERS_PATH est posé par certains environnements CI ;
-// ailleurs, Playwright trouve son navigateur tout seul.
-const exe = process.env.CHROMIUM_PATH;
+// Playwright looks for a browser build matching ITS OWN version, so a
+// Chromium pre-installed under PLAYWRIGHT_BROWSERS_PATH becomes invisible
+// to it as soon as the two versions drift apart — and the failure reads as
+// "please run npx playwright install", which is the wrong advice in an
+// environment that ships the browser. CHROMIUM_PATH forces one; otherwise
+// we take any chromium-*/chrome-linux/chrome found there before falling
+// back to Playwright's own lookup.
+function findChromium() {
+  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return null;
+  for (const d of readdirSync(root)) {
+    if (!d.startsWith("chromium-")) continue;
+    const exe = join(root, d, "chrome-linux", "chrome");
+    if (existsSync(exe)) return exe;
+  }
+  return null;
+}
+const exe = findChromium();
 const browser = await chromium.launch(exe ? { executablePath: exe } : {});
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-// Un échec doit être RAPIDE : sinon onze entrées x 30 s d'attente par
-// défaut et le filet devient trop lent pour être lancé souvent.
+// A failure must be FAST: otherwise eleven entries x the 30 s default wait,
+// and the safety net gets too slow to run often.
 page.setDefaultTimeout(5000);
 
 const errors = [];
@@ -61,10 +76,9 @@ page.on("pageerror", (e) => errors.push(`exception : ${e.message}`));
 await page.goto(URL);
 await page.waitForTimeout(1200);
 
-// En mode navigateur, « Ouvrir un projet » ne passe pas par un dialogue :
-// il charge ce que public/project désigne (io.ts, pickProjectDir). Sans
-// projet, toutes les entrées de menu sont désactivées et le test ne
-// prouverait rien.
+// In browser mode, "Ouvrir un projet" does not go through a dialogue: it
+// loads whatever public/project points at (io.ts, pickProjectDir). With no
+// project, every menu entry is disabled and the test would prove nothing.
 await page.getByRole("button", { name: "Ouvrir un projet…" }).click();
 await page.waitForTimeout(2500);
 if (await page.getByRole("button", { name: "Ouvrir un projet…" }).count()) {
@@ -73,8 +87,8 @@ if (await page.getByRole("button", { name: "Ouvrir un projet…" }).count()) {
   process.exit(1);
 }
 
-// Referme ce qui est ouvert — fenêtre ET menu — pour que l'entrée
-// suivante reparte d'un écran propre, y compris après un échec.
+// Closes whatever is open — window AND menu — so the next entry starts from
+// a clean screen, including after a failure.
 async function closeModal() {
   for (let i = 0; i < 3; i++) {
     const x = page.locator(".modal-x");
@@ -83,7 +97,7 @@ async function closeModal() {
     await page.waitForTimeout(200);
   }
   await page.keyboard.press("Escape");
-  await page.mouse.click(1400, 870); // hors menu : referme un déroulant resté ouvert
+  await page.mouse.click(1400, 870); // outside the menu: closes a dropdown left open
   await page.waitForTimeout(200);
 }
 
@@ -92,9 +106,9 @@ for (const w of WINDOWS) {
   const label = w.path.join(" → ");
   const before = errors.length;
   try {
-    // On cible par la STRUCTURE, pas par le texte accessible : le bouton
-    // d'un sous-menu porte un chevron ▸ dans son nom accessible, donc un
-    // getByRole exact ne le trouve jamais. Une heure perdue là-dessus.
+    // We target by STRUCTURE, not by accessible text: a submenu's button
+    // carries a ▸ chevron in its accessible name, so an exact getByRole
+    // never finds it. An hour lost on that one.
     const [menu, group, item] = w.path;
     await page.locator(".menubar > .menu > button", { hasText: menu }).first().click();
     await page.locator(".menu-subwrap > button", { hasText: group }).first().hover();
@@ -111,7 +125,7 @@ for (const w of WINDOWS) {
     console.log(`  ✗ ${label} — ${e.message.split("\n")[0]}`);
     await page.screenshot({ path: `${OUT}/ECHEC-${w.path.at(-1).replace(/[^\w]/g, "_")}.png` });
     failures++;
-    await closeModal(); // ne pas laisser une fenêtre ouverte fausser la suivante
+    await closeModal(); // do not let an open window skew the next entry
     continue;
   }
   const fresh = errors.slice(before);
