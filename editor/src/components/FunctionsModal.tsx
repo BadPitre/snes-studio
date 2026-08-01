@@ -155,6 +155,76 @@ export default function FunctionsModal(props: Props) {
                 🗑
               </button>
             </div>
+            {/* Les paramètres vivent SOUS la liste des fonctions, dans la
+                colonne étroite : ils décrivent la fonction sélectionnée,
+                pas son contenu, et la place y était libre. Le corps, lui,
+                garde toute la largeur de droite. */}
+            {cur && (
+            <label>
+              Paramètres (max {PARAMS_MAX})
+              {/* Une LIGNE par paramètre : leur ORDRE est ce que
+                  l'appelant devra respecter, et une grille qui se
+                  réenroule au gré de la largeur ne le montre pas. Le
+                  numéro à gauche est celui qu'on retrouve dans la
+                  source « Un paramètre ». */}
+              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {cur.params.map((pname, k) => (
+                  <span
+                    key={k}
+                    style={{ display: "flex", gap: 4, alignItems: "center" }}
+                  >
+                    <span style={{ width: 16, opacity: 0.7, flex: "0 0 auto" }}>
+                      {k + 1}.
+                    </span>
+                    <input
+                      style={{ flex: "1 1 auto", minWidth: 0 }}
+                      placeholder={"p" + (k + 1)}
+                      value={pname}
+                      onChange={(e) => {
+                        const params = cur.params.slice();
+                        params[k] = e.target.value;
+                        patch({ params });
+                      }}
+                    />
+                    <button
+                      title="Retirer ce paramètre"
+                      style={{ flex: "0 0 auto", width: 24 }}
+                      onClick={() => {
+                        if (paramUsed(cur.commands, k)) {
+                          alert(
+                            `Le paramètre n° ${k + 1} (« ${pname || "sans nom"} ») ` +
+                              `est encore utilisé dans le corps de la fonction.\n\n` +
+                              `Retirer d'abord les commandes qui s'en servent : ` +
+                              `sinon elles désigneraient un paramètre qui n'existe ` +
+                              `plus, et le build échouerait.`
+                          );
+                          return;
+                        }
+                        const commands = structuredClone(cur.commands);
+                        shiftParams(commands, k);
+                        patch({
+                          params: cur.params.filter((_, i) => i !== k),
+                          commands,
+                        });
+                      }}
+                    >
+                      −
+                    </button>
+                  </span>
+                ))}
+                <span>
+                  <button
+                    title="Ajouter un paramètre"
+                    style={{ flex: "0 0 auto", width: 28, marginLeft: 20 }}
+                    disabled={cur.params.length >= PARAMS_MAX}
+                    onClick={() => patch({ params: [...cur.params, ""] })}
+                  >
+                    ＋
+                  </button>
+                </span>
+              </span>
+            </label>
+            )}
           </div>
           <div className="cevents-right">
             {!cur ? (
@@ -202,70 +272,6 @@ export default function FunctionsModal(props: Props) {
                     Retourne un résultat
                   </label>
                 </div>
-                <label>
-                  Paramètres (max {PARAMS_MAX})
-                  {/* Une LIGNE par paramètre : leur ORDRE est ce que
-                      l'appelant devra respecter, et une grille qui se
-                      réenroule au gré de la largeur ne le montre pas. Le
-                      numéro à gauche est celui qu'on retrouve dans la
-                      source « Un paramètre ». */}
-                  <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    {cur.params.map((pname, k) => (
-                      <span
-                        key={k}
-                        style={{ display: "flex", gap: 4, alignItems: "center" }}
-                      >
-                        <span style={{ width: 16, opacity: 0.7, flex: "0 0 auto" }}>
-                          {k + 1}.
-                        </span>
-                        <input
-                          style={{ flex: "1 1 auto", maxWidth: 220 }}
-                          placeholder={"p" + (k + 1)}
-                          value={pname}
-                          onChange={(e) => {
-                            const params = cur.params.slice();
-                            params[k] = e.target.value;
-                            patch({ params });
-                          }}
-                        />
-                        <button
-                          title="Retirer ce paramètre"
-                          style={{ flex: "0 0 auto", width: 24 }}
-                          onClick={() => {
-                            if (paramUsed(cur.commands, k)) {
-                              alert(
-                                `Le paramètre n° ${k + 1} (« ${pname || "sans nom"} ») ` +
-                                  `est encore utilisé dans le corps de la fonction.\n\n` +
-                                  `Retirer d'abord les commandes qui s'en servent : ` +
-                                  `sinon elles désigneraient un paramètre qui n'existe ` +
-                                  `plus, et le build échouerait.`
-                              );
-                              return;
-                            }
-                            const commands = structuredClone(cur.commands);
-                            shiftParams(commands, k);
-                            patch({
-                              params: cur.params.filter((_, i) => i !== k),
-                              commands,
-                            });
-                          }}
-                        >
-                          −
-                        </button>
-                      </span>
-                    ))}
-                    <span>
-                      <button
-                        title="Ajouter un paramètre"
-                        style={{ flex: "0 0 auto", width: 28, marginLeft: 20 }}
-                        disabled={cur.params.length >= PARAMS_MAX}
-                        onClick={() => patch({ params: [...cur.params, ""] })}
-                      >
-                        ＋
-                      </button>
-                    </span>
-                  </span>
-                </label>
                 <span className="hint">
                   Dans le corps, les paramètres se lisent avec la source
                   « Un paramètre ». Ils sont en LECTURE seule : pour un
