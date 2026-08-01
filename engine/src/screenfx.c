@@ -1,71 +1,71 @@
 /*
- * screenfx.c — effets d'écran scriptés (v0.15, spec §2) : fondu
- * (SCRHIDE/SCRSHOW via INIDISP), teinte et flash (color math sur couleur
- * fixe, $2130-$2132), secousse (offset de scroll horizontal).
+ * screenfx.c — scripted screen effects (v0.15): fade (SCRHIDE/SCRSHOW
+ * through INIDISP), tint and flash (color math on the fixed colour,
+ * $2130-$2132), shake (a horizontal scroll offset).
  *
- * Toutes les écritures registres partent au VBlank (screenfx_vblank).
- * setFadeEffect (warps) écrit INIDISP en bloquant : jamais en même temps
- * qu'un fondu scripté (SCRHIDE/SCRSHOW sont bloquants côté VM).
+ * Every register write goes out at VBlank (screenfx_vblank).
+ * setFadeEffect (warps) writes INIDISP blocking: never at the same time
+ * as a scripted fade (SCRHIDE/SCRSHOW block on the VM side).
  */
 #include <snes.h>
 #include "screenfx.h"
 
-/* Fondu scripté ($2100) — niveau 8.8 : 0x0000 (noir) à 0x0F00 (plein).
-   Durée en FRAMES (1-255, S18c) — un pas 8.8 par frame, comme les
-   fondus des écrans composés : les rampes lentes (1 s+) sont possibles. */
+/* Scripted fade ($2100) — 8.8 level: 0x0000 (black) to 0x0F00 (full).
+   Duration in FRAMES (1-255, S18c) — one 8.8 step per frame, like the
+   composed-screen fades: slow ramps (1 s+) are possible. */
 static u16 fade_lvl8;
 static u16 fade_tgt8;
 static u16 fade_step;
 static u8 fade_dirty;
-/* Transition du fondu scripté (S18c) : 0 fondu, 1 instantané, 2 mosaïque,
-   3-5 balayage (bas/haut/centre) — même codes que les warps */
+/* Transition of the scripted fade (S18c): 0 fade, 1 instant, 2 mosaic,
+   3-5 wipe (down/up/centre) — same codes as the warps */
 static u8 fade_fx;
-static u8 mos_fix; /* une écriture MOSAIC=0 au prochain VBlank (reliquat
-                      d'un hide mosaïque quand la commande suivante ne
-                      l'utilise pas) */
+static u8 mos_fix; /* one MOSAIC=0 write at the next VBlank (left
+                      over from a mosaic hide when the next command does
+                      not use it) */
 
-/* Teinte : color math add/sub de la couleur fixe sur BG1+BG2+fond (les
-   OBJ des palettes 0-3 ne participent jamais — hardware). BG3 (textbox)
-   exclu : le texte reste lisible. */
+/* Tint: add/sub color math of the fixed colour on BG1+BG2+backdrop (the
+   OBJs of palettes 0-3 never take part — hardware). BG3 (textbox) is
+   excluded: the text stays readable. */
 static u8 tint_mode; /* 0 off, 1 add, 2 sub */
 static u8 tint_r, tint_g, tint_b;
-static u8 cm_dirty; /* réécrire $2130-$2132 au prochain VBlank */
+static u8 cm_dirty; /* rewrite $2130-$2132 at the next VBlank */
 
-/* Flash : addition (r,g,b) décroissant linéairement sur flash_dur frames,
-   prioritaire sur la teinte pendant qu'il court */
+/* Flash: an (r,g,b) addition decaying linearly over flash_dur frames,
+   taking priority over the tint while it runs */
 static u8 flash_r, flash_g, flash_b;
 static u8 flash_timer, flash_dur;
 
-/* Secousse : offset horizontal ±power, alternance toutes speed frames */
+/* Shake: horizontal offset ±power, alternating every speed frames */
 static u8 shake_power, shake_speed, shake_frames, shake_phase, shake_tick;
 
-/* Dégradé de ciel (S15) : mode de la teinte VERTICALE — la couleur
-   fixe est aux mains du HDMA (hdmafx, canal 4), screenfx ne pose que
-   CGWSEL/CGADSUB. Exclusif avec la teinte plate (même registre). */
+/* Sky gradient (S15): the VERTICAL tint mode — the fixed colour is in
+   the HDMA's hands (hdmafx, channel 4), screenfx only sets CGWSEL and
+   CGADSUB. Exclusive with the flat tint (same register). */
 static u8 grad_mode;
 
-/* Spotlight (S16) : soustraction (dark,dark,dark) HORS de la fenêtre
-   couleur W1 — le cercle de lumière est tracé par le HDMA (hdmafx,
-   canal 3, WH0/WH1). screenfx détient l'intensité (source de vérité)
-   et arme fenêtre + circuit au VBlank. Exclusif avec teinte/dégradé. */
+/* Spotlight (S16): a (dark,dark,dark) subtraction OUTSIDE the W1 colour
+   window — the circle of light is drawn by the HDMA (hdmafx, channel 3,
+   WH0/WH1). screenfx owns the intensity (the source of truth) and arms
+   window + circuit at VBlank. Exclusive with tint and gradient. */
 static u8 spot_dark;
 
-/* Teinte GRADUELLE (S12, jour/nuit) : interpolation 8.8 de la teinte
-   courante vers une cible en N frames — non bloquante, persiste comme
-   la teinte. Bascule add<->sub en DEUX phases (descente vers 0 puis
-   montée : le circuit ne connaît qu'un sens à la fois). */
-static u8 tg_left;             /* frames restantes de la phase courante */
-static u8 tg_mode;             /* mode FINAL (posé en fin de phase) */
-static u8 tg_phase2;           /* frames de la phase 2 (0 = une phase) */
-static u8 tg_tr, tg_tg, tg_tb; /* cible rgb de la PHASE courante */
-static u8 tg_fr, tg_fg, tg_fb; /* cible rgb FINALE (screenfx_tintg_rgb) */
-static u16 tg_r8, tg_g8, tg_b8; /* teinte courante en 8.8 */
-static u16 tg_sr, tg_sg, tg_sb; /* pas par frame (magnitude 8.8) */
-static u8 tg_rn, tg_gn, tg_bn;  /* sens du pas (1 = décroît) */
+/* GRADUAL tint (S12, day/night): an 8.8 interpolation from the current
+   tint towards a target in N frames — non-blocking, persists like the
+   tint. An add<->sub switch runs in TWO phases (down to 0 then up: the
+   circuit only knows one direction at a time). */
+static u8 tg_left;             /* frames left in the current phase */
+static u8 tg_mode;             /* FINAL mode (set at the end of the phase) */
+static u8 tg_phase2;           /* frames of phase 2 (0 = a single phase) */
+static u8 tg_tr, tg_tg, tg_tb; /* rgb target of the CURRENT phase */
+static u8 tg_fr, tg_fg, tg_fb; /* FINAL rgb target (screenfx_tintg_rgb) */
+static u16 tg_r8, tg_g8, tg_b8; /* current tint in 8.8 */
+static u16 tg_sr, tg_sg, tg_sb; /* step per frame (8.8 magnitude) */
+static u8 tg_rn, tg_gn, tg_bn;  /* step direction (1 = decreasing) */
 
 void screenfx_init(void)
 {
-  fade_lvl8 = 0x0F00; /* init EXPLICITE de tous les statics (tcc) */
+  fade_lvl8 = 0x0F00; /* EXPLICIT init of every static (tcc) */
   fade_tgt8 = 0x0F00;
   fade_step = 0x0F00;
   fade_dirty = 0;
@@ -75,7 +75,7 @@ void screenfx_init(void)
   tint_r = 0;
   tint_g = 0;
   tint_b = 0;
-  cm_dirty = 1; /* pose un état color math connu au premier VBlank */
+  cm_dirty = 1; /* sets a known color math state at the first VBlank */
   flash_r = 0;
   flash_g = 0;
   flash_b = 0;
@@ -86,9 +86,9 @@ void screenfx_init(void)
   shake_frames = 0;
   shake_phase = 0;
   shake_tick = 0;
-  grad_mode = 0; /* dégradé de ciel (S15) */
+  grad_mode = 0; /* sky gradient (S15) */
   spot_dark = 0; /* spotlight (S16) */
-  tg_left = 0; /* teinte graduelle (S12) — init explicite (tcc) */
+  tg_left = 0; /* gradual tint (S12) — explicit init (tcc) */
   tg_mode = 0;
   tg_phase2 = 0;
   tg_tr = 0;
@@ -108,20 +108,20 @@ void screenfx_init(void)
   tg_bn = 0;
 }
 
-/* Mélange picture actif (S8) : le color math appartient à l'image —
-   screenfx_vblank ne touche plus $2130-$2132 tant que le hold est posé
-   (teinte ET flash suspendus, même circuit). Relâcher = réaffirmer. */
-static u8 cm_hold = 0; /* init explicite (tcc) — screenfx_init n'y touche
-    PAS : au boot, effect_load (scene_load) pose le hold AVANT
-    screenfx_init, et main réaffirme l'effet après setMode */
-/* registres du mélange détenteur du hold (S13) : mémorisés pour que
-   l'ÉCLAIR (flash) puisse emprunter le circuit le temps de sa
-   décroissance puis les reposer — l'orage complet : nuages mélangés
-   + pluie + flash */
+/* Picture blend active (S8): the color math belongs to the image —
+   screenfx_vblank stops touching $2130-$2132 while the hold is set (tint
+   AND flash suspended, same circuit). Releasing = reasserting. */
+static u8 cm_hold = 0; /* explicit init (tcc) — screenfx_init does
+    NOT touch it: at boot, effect_load (scene_load) sets the hold BEFORE
+    screenfx_init, and main reasserts the effect after setMode */
+/* Registers of the blend holding the hold (S13): remembered so that the
+   LIGHTNING (flash) can borrow the circuit for the length of its decay
+   and then put them back — the full storm: blended clouds + rain +
+   flash */
 static u8 hold_ts = 0;
 static u8 hold_wsel = 0;
 static u8 hold_adsub = 0;
-static u8 cm_flash = 0; /* un flash a emprunté le circuit sous hold */
+static u8 cm_flash = 0; /* a flash borrowed the circuit under hold */
 
 void screenfx_cm_hold_regs(u8 ts, u8 wsel, u8 adsub)
 {
@@ -134,7 +134,7 @@ void screenfx_cm_hold(u8 on)
 {
   cm_hold = on;
   if (!on)
-    cm_dirty = 1; /* la teinte persistante reprend ses droits */
+    cm_dirty = 1; /* the persistent tint takes over again */
 }
 
 u8 screenfx_cm_held(void)
@@ -144,16 +144,16 @@ u8 screenfx_cm_held(void)
 
 void screenfx_warp_reset(void)
 {
-  fade_lvl8 = 0x0F00; /* le fondu du warp laisse l'écran allumé */
+  fade_lvl8 = 0x0F00; /* the warp fade leaves the screen lit */
   fade_tgt8 = 0x0F00;
   fade_dirty = 0;
-  fade_fx = 0; /* un scr_hide interrompu par un warp ne laisse rien */
+  fade_fx = 0; /* a scr_hide cut short by a warp leaves nothing */
   mos_fix = 0;
   screenfx_wipe_off();
   flash_timer = 0;
   shake_power = 0;
   shake_frames = 0;
-  cm_dirty = 1; /* réaffirme la teinte (persistante) sur la nouvelle scène */
+  cm_dirty = 1; /* reasserts the tint (persistent) on the new scene */
 }
 
 void screenfx_hide(u8 dur, u8 fx)
@@ -187,10 +187,10 @@ void screenfx_tint_rgb(u8 r, u8 g, u8 b)
 void screenfx_tint(u8 mode)
 {
   tint_mode = mode <= 2 ? mode : 0;
-  tg_left = 0;   /* une teinte IMMÉDIATE annule la graduelle en cours */
+  tg_left = 0;   /* an IMMEDIATE tint cancels the gradual one */
   tg_phase2 = 0;
-  grad_mode = 0; /* … et le dégradé de ciel (même circuit, S15) */
-  spot_dark = 0; /* … et le spotlight (S16) */
+  grad_mode = 0; /* ... and the sky gradient (same circuit, S15) */
+  spot_dark = 0; /* ... and the spotlight (S16) */
   cm_dirty = 1;
 }
 
@@ -199,10 +199,10 @@ void screenfx_skygrad(u8 mode)
   grad_mode = mode <= 2 ? mode : 0;
   if (grad_mode)
   {
-    tint_mode = 0; /* le dégradé REMPLACE la teinte plate */
-    tg_left = 0;   /* et coupe une graduelle en cours */
+    tint_mode = 0; /* the gradient REPLACES the flat tint */
+    tg_left = 0;   /* and cuts a gradual tint in progress */
     tg_phase2 = 0;
-    spot_dark = 0; /* … et le spotlight (S16) */
+    spot_dark = 0; /* ... and the spotlight (S16) */
   }
   cm_dirty = 1;
 }
@@ -212,7 +212,7 @@ void screenfx_spot(u8 dark)
   spot_dark = dark > 31 ? 31 : dark;
   if (spot_dark)
   {
-    tint_mode = 0; /* le spotlight REMPLACE teinte et dégradé */
+    tint_mode = 0; /* the spotlight REPLACES tint and gradient */
     tg_left = 0;
     tg_phase2 = 0;
     grad_mode = 0;
@@ -235,7 +235,7 @@ u8 screenfx_flash_active(void)
   return flash_timer != 0;
 }
 
-/* pas 8.8 d'un canal vers sa cible — une division par phase et par canal */
+/* 8.8 step of a channel towards its target — one division per channel */
 static u16 tg_step(u8 cur, u8 tgt, u8 frames, u8 *neg)
 {
   u16 c = (u16)cur << 8;
@@ -250,7 +250,7 @@ static u16 tg_step(u8 cur, u8 tgt, u8 frames, u8 *neg)
   return (c - t) / frames;
 }
 
-/* lance une phase depuis la teinte courante (tint_r/g/b) vers tg_t* */
+/* starts a phase from the current tint (tint_r/g/b) towards tg_t* */
 static void tg_launch(u8 frames)
 {
   tg_r8 = (u16)tint_r << 8;
@@ -275,23 +275,23 @@ void screenfx_tintg(u8 mode, u8 frames)
 
   if (mode > 2)
     mode = 0;
-  grad_mode = 0; /* une teinte (même graduelle) annule le dégradé (S15) */
-  spot_dark = 0; /* … et le spotlight (S16) */
+  grad_mode = 0; /* a tint (even gradual) cancels the gradient (S15) */
+  spot_dark = 0; /* ... and the spotlight (S16) */
   if (mode == 0)
   {
-    tg_fr = 0; /* « normale » : on fond la teinte courante vers zéro */
+    tg_fr = 0; /* "normal": fade the current tint towards zero */
     tg_fg = 0;
     tg_fb = 0;
   }
   if (!frames)
   {
-    screenfx_tint_rgb(tg_fr, tg_fg, tg_fb); /* durée 0 = TINT immédiat */
+    screenfx_tint_rgb(tg_fr, tg_fg, tg_fb); /* duration 0 = immediate TINT */
     screenfx_tint(mode);
     return;
   }
   if (tint_mode == 0)
   {
-    /* pas de teinte affichée : partir de zéro dans le mode cible */
+    /* no tint displayed: start from zero in the target mode */
     tint_mode = mode ? mode : tint_mode;
     tint_r = 0;
     tint_g = 0;
@@ -300,7 +300,7 @@ void screenfx_tintg(u8 mode, u8 frames)
   tg_mode = mode;
   if (mode && tint_mode && mode != tint_mode)
   {
-    /* add <-> sub : phase 1 vers zéro (moitié), bascule, phase 2 */
+    /* add <-> sub: phase 1 down to zero (half), switch, phase 2 */
     half = frames >> 1;
     if (!half)
       half = 1;
@@ -347,19 +347,19 @@ u16 screenfx_shake_x(void)
 
   if (!shake_frames)
     return 0;
-  return shake_phase ? v : (u16)(0 - v); /* wrap u16 = soustraction */
+  return shake_phase ? v : (u16)(0 - v); /* u16 wrap = subtraction */
 }
 
-/* ---- Balayage (S18) : rideau HDMA sur la luminosité ------------------
-   Canal 2 (libre : 3 = spotlight, 4 = dégradé, 5/6 = vague, 7 = OAM du
-   NMI), mode 0 (1 octet vers $2100), table WRAM reconstruite à chaque
-   pas. Une bande = [count][valeur] — la valeur écrite en début de bande
-   tient jusqu'à la suivante ; les bandes > 127 lignes sont découpées. */
+/* ---- Wipe (S18): an HDMA curtain over brightness --------------------
+   Channel 2 (free: 3 = spotlight, 4 = gradient, 5/6 = wave, 7 = the
+   NMI's OAM), mode 0 (1 byte to $2100), WRAM table rebuilt on every
+   step. A band is [count][value] — the value written at the start of a
+   band holds until the next one; bands over 127 lines are split. */
 #define WP_LINES 224
 
-static u8 wp_tbl[16]; /* 6 entrées max (3 bandes découpées) + terminateur */
-static u8 wp_on = 0;  /* init explicite (tcc) — rideau actif : hdmafx
-                         ajoute le canal 2 à son masque $420C */
+static u8 wp_tbl[16]; /* 6 entries max (3 split bands) + terminator */
+static u8 wp_on = 0;  /* explicit init (tcc) — curtain active: hdmafx
+                         adds channel 2 to its $420C mask */
 
 u8 screenfx_wipe_active(void)
 {
@@ -387,41 +387,41 @@ void screenfx_wipe_step(u8 trans, u16 black)
 
   if (black > WP_LINES)
     black = WP_LINES;
-  if (trans == 3) /* vers le bas : le noir descend du haut */
+  if (trans == 3) /* downwards: the black comes down from the top */
   {
     p = wp_band(p, black, 0x00);
     p = wp_band(p, WP_LINES - black, 0x0F);
   }
-  else if (trans == 4) /* vers le haut : le noir monte du bas */
+  else if (trans == 4) /* upwards: the black rises from the bottom */
   {
     p = wp_band(p, WP_LINES - black, 0x0F);
     p = wp_band(p, black, 0x00);
   }
-  else /* vers le centre : deux bandes se rejoignent au milieu */
+  else /* towards the centre: two bands meet in the middle */
   {
     half = black >> 1;
     p = wp_band(p, half, 0x00);
     p = wp_band(p, WP_LINES - (half << 1), 0x0F);
     p = wp_band(p, half, 0x00);
   }
-  *p = 0; /* terminateur HDMA */
+  *p = 0; /* HDMA terminator */
 
-  *(vuint8 *)0x4320 = 0x00; /* DMAP2 : mode 0, un octet par entrée */
-  *(vuint8 *)0x4321 = 0x00; /* BBAD2 : $2100 (INIDISP) */
+  *(vuint8 *)0x4320 = 0x00; /* DMAP2: mode 0, one byte per entry */
+  *(vuint8 *)0x4321 = 0x00; /* BBAD2: $2100 (INIDISP) */
   a = (u16)(u8 *)wp_tbl;
   *(vuint8 *)0x4322 = (u8)a;
   *(vuint8 *)0x4323 = (u8)(a >> 8);
   *(vuint8 *)0x4324 = 0x7E;
   wp_on = 1;
-  REG_HDMAEN = 0x04; /* boucles bloquantes : seul canal actif ; boucle
-                        principale : hdmafx (dernier au VBlank) réécrit
-                        son masque complet, canal 2 inclus via wp_on */
+  REG_HDMAEN = 0x04; /* blocking loops: the only active channel; main
+                        loop: hdmafx (last at VBlank) rewrites its full
+                        mask, channel 2 included, through wp_on */
 }
 
 void screenfx_wipe_off(void)
 {
   wp_on = 0;
-  REG_HDMAEN = 0; /* hdmafx réaffirme son masque au prochain VBlank */
+  REG_HDMAEN = 0; /* hdmafx reasserts its mask at the next VBlank */
 }
 
 void screenfx_update(void)
@@ -442,8 +442,8 @@ void screenfx_update(void)
   }
   if (tg_left)
   {
-    /* teinte graduelle (S12) : un pas 8.8 par frame, snap en fin de
-       phase — puis phase 2 éventuelle (bascule add<->sub) */
+    /* gradual tint (S12): one 8.8 step per frame, snapped at the end of
+       the phase — then an optional phase 2 (add<->sub switch) */
     tg_left--;
     if (tg_left)
     {
@@ -461,7 +461,7 @@ void screenfx_update(void)
       tint_b = tg_tb;
       if (tg_phase2)
       {
-        tint_mode = tg_mode; /* bascule à zéro : l'autre sens démarre */
+        tint_mode = tg_mode; /* switch at zero: the other direction starts */
         tg_tr = tg_fr;
         tg_tg = tg_fg;
         tg_tb = tg_fb;
@@ -469,14 +469,14 @@ void screenfx_update(void)
         tg_phase2 = 0;
       }
       else
-        tint_mode = tg_mode; /* cible atteinte (mode 0 = teinte retirée) */
+        tint_mode = tg_mode; /* target reached (mode 0 = tint removed) */
     }
     cm_dirty = 1;
   }
   if (flash_timer)
   {
     flash_timer--;
-    cm_dirty = 1; /* intensité recalculée chaque frame (décroissance) */
+    cm_dirty = 1; /* intensity recomputed every frame (decay) */
   }
   if (shake_frames)
   {
@@ -488,7 +488,7 @@ void screenfx_update(void)
       shake_phase = !shake_phase;
     }
     if (!shake_frames)
-      shake_power = 0; /* le scroll retombe pile sur la caméra */
+      shake_power = 0; /* the scroll lands exactly back on the camera */
   }
 }
 
@@ -502,20 +502,20 @@ void screenfx_vblank(void)
   {
     mos_fix = 0;
     if (fade_fx != 2)
-      REG_MOSAIC = 0; /* reliquat d'un hide mosaïque précédent */
+      REG_MOSAIC = 0; /* left over from a previous mosaic hide */
   }
   if (fade_dirty)
   {
     fade_dirty = 0;
     if (fade_fx >= 3)
     {
-      /* balayage (S18c) : luminosité pleine, le rideau HDMA (canal 2,
-         masque composé par hdmafx) couvre (0x0F00 - niveau) >> 4 lignes
-         (0..240, clampé aux 224 lignes) */
+      /* wipe (S18c): full brightness, the HDMA curtain (channel 2, mask
+         composed by hdmafx) covers (0x0F00 - level) >> 4 lines (0..240,
+         clamped to the 224 lines) */
       if (fade_lvl8 == fade_tgt8)
       {
         screenfx_wipe_off();
-        REG_INIDISP = (u8)(fade_tgt8 >> 8); /* 0 = caché, 15 = montré */
+        REG_INIDISP = (u8)(fade_tgt8 >> 8); /* 0 = hidden, 15 = shown */
       }
       else
       {
@@ -531,7 +531,7 @@ void screenfx_vblank(void)
       mz = (u8)(fade_lvl8 >> 8);
       if (fade_fx == 2)
       {
-        /* mosaïque couplée au fondu — rendue en fin de rampe montante */
+        /* mosaic coupled to the fade — rendered at the end of the ramp */
         if (fade_lvl8 == 0x0F00)
           REG_MOSAIC = 0;
         else
@@ -542,14 +542,14 @@ void screenfx_vblank(void)
           mz = (u8)(fade_lvl8 >> 8);
         }
       }
-      REG_INIDISP = mz; /* bit 7 = 0 : écran allumé */
+      REG_INIDISP = mz; /* bit 7 = 0: screen on */
     }
   }
   if (cm_hold)
   {
-    /* le mélange (S8/S9) possède le color math — SAUF l'éclair (S13) :
-       un flash l'emprunte le temps de sa décroissance, puis les
-       registres du mélange sont reposés tels que mémorisés */
+    /* the blend (S8/S9) owns the color math — EXCEPT for lightning (S13):
+       a flash borrows it for the length of its decay, then the blend's
+       registers are put back exactly as remembered */
     if (flash_timer)
     {
       r = (u8)(((u16)flash_r * flash_timer) / flash_dur);
@@ -568,7 +568,7 @@ void screenfx_vblank(void)
       REG_TS = hold_ts;
       REG_CGWSEL = hold_wsel;
       REG_CGADSUB = hold_adsub;
-      REG_COLDATA = 0x20; /* couleur fixe rendue à zéro (les 3 plans) */
+      REG_COLDATA = 0x20; /* fixed colour given back to zero (all 3 planes) */
       REG_COLDATA = 0x40;
       REG_COLDATA = 0x80;
     }
@@ -579,40 +579,40 @@ void screenfx_vblank(void)
   cm_dirty = 0;
   if (flash_timer)
   {
-    /* flash : addition, intensité proportionnelle au temps restant */
+    /* flash: addition, intensity proportional to the time left */
     r = (u8)(((u16)flash_r * flash_timer) / flash_dur);
     g = (u8)(((u16)flash_g * flash_timer) / flash_dur);
     b = (u8)(((u16)flash_b * flash_timer) / flash_dur);
-    REG_CGWSEL = 0x00;  /* opérande = couleur fixe */
-    REG_CGADSUB = 0x23; /* addition sur BG1+BG2+fond (BG3/OBJ exclus) */
+    REG_CGWSEL = 0x00;  /* operand = the fixed colour */
+    REG_CGADSUB = 0x23; /* addition on BG1+BG2+backdrop (BG3/OBJ excluded) */
   }
   else if (spot_dark)
   {
-    /* spotlight (S16) : soustraction (dark,dark,dark) HORS de la
-       fenêtre couleur W1 — le cercle (WH0/WH1) est tracé par le HDMA
-       (hdmafx, canal 3). Le décor est noirci autour du héros ; BG3 et
-       les sprites ne participent pas (même limite hardware que la
-       teinte). */
+    /* spotlight (S16): a (dark,dark,dark) subtraction OUTSIDE the W1
+       colour window — the circle (WH0/WH1) is drawn by the HDMA (hdmafx,
+       channel 3). The scenery is darkened around the hero; BG3 and the
+       sprites do not take part (the same hardware limit as the
+       tint). */
     r = spot_dark;
     g = spot_dark;
     b = spot_dark;
-    REG_WOBJSEL = 0x20; /* W1 activée pour la fenêtre COULEUR */
-    REG_CGWSEL = 0x20;  /* color math coupé À L'INTÉRIEUR de la fenêtre */
-    REG_CGADSUB = 0xA3; /* soustraction sur BG1+BG2+fond */
+    REG_WOBJSEL = 0x20; /* W1 enabled for the COLOUR window */
+    REG_CGWSEL = 0x20;  /* color math cut INSIDE the window */
+    REG_CGADSUB = 0xA3; /* subtraction on BG1+BG2+backdrop */
   }
   else if (tint_mode)
   {
     r = tint_r;
     g = tint_g;
     b = tint_b;
-    REG_WOBJSEL = 0x00; /* fenêtre couleur rendue (spotlight off) */
+    REG_WOBJSEL = 0x00; /* colour window given back (spotlight off) */
     REG_CGWSEL = 0x00;
-    REG_CGADSUB = tint_mode == 2 ? 0xA3 : 0x23; /* bit 7 = soustraction */
+    REG_CGADSUB = tint_mode == 2 ? 0xA3 : 0x23; /* bit 7 = subtraction */
   }
   else if (grad_mode)
   {
-    /* dégradé de ciel (S15) : le circuit est armé ICI, mais COLDATA
-       appartient au HDMA (hdmafx, canal 4) — ne pas l'écrire */
+    /* sky gradient (S15): the circuit is armed HERE, but COLDATA belongs
+       to the HDMA (hdmafx, channel 4) — do not write it */
     REG_WOBJSEL = 0x00;
     REG_CGWSEL = 0x00;
     REG_CGADSUB = grad_mode == 2 ? 0xA3 : 0x23;
@@ -624,9 +624,9 @@ void screenfx_vblank(void)
     g = 0;
     b = 0;
     REG_WOBJSEL = 0x00;
-    REG_CGADSUB = 0x00; /* plus de color math */
+    REG_CGADSUB = 0x00; /* no more color math */
   }
-  REG_COLDATA = 0x20 | r; /* plans R, G, B de la couleur fixe */
+  REG_COLDATA = 0x20 | r; /* R, G, B planes of the fixed colour */
   REG_COLDATA = 0x40 | g;
   REG_COLDATA = 0x80 | b;
 }
