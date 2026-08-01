@@ -2,13 +2,14 @@
 #
 # gate-editor.sh — the safety net for any editor rework.
 #
-# Four checks, from the cheapest to the most telling:
+# Five checks, from the cheapest to the most telling:
 #   1. tsc --noEmit           the types hold
 #   2. vite build             the bundle builds
-#   3. npm run smoke          every window opens and renders
-#   4. npm run smoke:commands every command form renders
+#   3. npm run smoke           every window opens and renders
+#   4. npm run smoke:commands  every command form renders
+#   5. npm run smoke:resources every resource category lists and previews
 #
-# The last two are the ones that matter. A React rework almost never
+# The last three are the ones that matter. A React rework almost never
 # breaks the compile — it breaks a RENDER, and that only shows when the
 # window is opened. The smoke test opens them all on the demo project
 # and picks up console errors.
@@ -62,3 +63,7 @@ SMOKE_URL="http://localhost:$PORT" npm run --silent smoke
 echo ""
 echo "— command forms"
 SMOKE_URL="http://localhost:$PORT" npm run --silent smoke:commands
+
+echo ""
+echo "— resource categories"
+SMOKE_URL="http://localhost:$PORT" npm run --silent smoke:resources

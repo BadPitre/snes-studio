@@ -23,7 +23,6 @@ import {
 import {
   canWriteFiles,
   importTilesetPng,
-  pickFile,
   loadAssetPng,
   loadAutotiles,
   loadPngBitmap,
@@ -38,6 +37,8 @@ import {
   writeBinaryFile,
   writeProjectText,
 } from "./io";
+import type { ResCtx, ResKind } from "./resources";
+import { RESOURCES, runDelete, runExport, runImport, runRename } from "./resources";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
@@ -826,341 +827,56 @@ export default function App() {
     }
   }
 
-  // Windowskins (Phase 11): 24x24 9-slice PNGs imported through the
-  // resource manager — the project.windowskins register (editor only);
-  // the active theme is chosen in Tools > UI / Thème.
-  async function importWindowskin() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer un windowskin (PNG 24x24, 9-slice)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.width !== 24 || bmp.height !== 24) {
-        setStatus(`Windowskin : attendu 24x24 (9 tiles 8x8), reçu ${bmp.width}x${bmp.height}`);
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectWindowskins(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: {
-            ...d.project,
-            windowskins: [...projectWindowskins(d.project), rel],
-          },
-        }));
-      }
-      setStatus(`Windowskin importé : ${name}`);
-    } catch (e) {
-      setStatus(`Import windowskin : ${e}`);
-    }
+  // ---- Resources: windowskins, icon sheets, fonts, pictures, sounds,
+  // music, vignettes ---------------------------------------------------
+  // Seven registers, four actions each. The flows live once in
+  // resources.ts; what is left here is the context they need and the two
+  // reference rewrites that do not fit in project.json.
+  function resCtx(): ResCtx | null {
+    if (!data) return null;
+    return {
+      data,
+      sceneName,
+      setStatus,
+      mutate,
+      reload: reloadProject,
+      beginTransPick: setTransPick,
+      // A font is also named by the dialogue styles and by the widgets
+      // (S2), and those live in ui/layout.toml, not project.json.
+      renameInLayout: async (root, oldRel, newRel) => {
+        const l = await loadUiLayout2(root);
+        if (
+          l.styles.some((s) => s.font === oldRel) ||
+          l.nodes.some((n) => n.font === oldRel)
+        ) {
+          l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
+          l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
+          await writeProjectText(root, "ui/layout.toml", layoutToToml(l));
+        }
+      },
+      layoutUsers: async (root, rel) => {
+        const l = await loadUiLayout2(root);
+        return [
+          ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
+          ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
+        ];
+      },
+    };
   }
 
-  async function exportWindowskin(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter le windowskin (PNG 24x24)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Windowskin exporté : ${path}`);
-    } catch (e) {
-      setStatus(`Export windowskin : ${e}`);
-    }
-  }
-
-  async function renameWindowskin(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectWindowskins(data.project).includes(newRel)) {
-      setStatus(`Renommage : le windowskin « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      // file renamed + references (the register and the active theme) in
-      // one go, project saved so the disk stays coherent
-      const windowskins = projectWindowskins(data.project).map((r) =>
-        r === oldRel ? newRel : r
-      );
-      const ui =
-        data.project.ui?.windowskin === oldRel
-          ? { ...data.project.ui, windowskin: newRel }
-          : data.project.ui;
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, windowskins, ui },
-      };
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Windowskin renommé : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteWindowskin(rel: string) {
-    if (!data || data.project.ui?.windowskin === rel) return; // active theme
-    if (!confirm(`Supprimer le windowskin « ${assetStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const windowskins = projectWindowskins(data.project).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: {
-          ...data.project,
-          windowskins: windowskins.length ? windowskins : undefined,
-        },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Windowskin supprimé : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Widget icon sheets (W1): an Nx8 strip PNG (width a multiple of 8, 64
-  // icons max) — the same register model as the windowskins.
-  async function importIconset() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une planche d'icônes (PNG Nx8, largeur multiple de 8)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.height !== 8 || bmp.width % 8 !== 0 || bmp.width === 0 || bmp.width > 512) {
-        setStatus(
-          `Planche d'icônes : attendu une bande Nx8 (largeur multiple de 8, max 64 icônes), reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      setTransPick({ kind: "iconset", file, bytes, bmp });
-    } catch (e) {
-      setStatus(`Import planche d'icônes : ${e}`);
-    }
-  }
-
-  async function exportIconset(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la planche d'icônes (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Planche d'icônes exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export planche d'icônes : ${e}`);
-    }
-  }
-
-  async function renameIconset(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectIconsets(data.project).includes(newRel)) {
-      setStatus(`Renommage : la planche « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const iconsets = projectIconsets(data.project).map((r) => (r === oldRel ? newRel : r));
-      const ui =
-        data.project.ui?.icons === oldRel
-          ? { ...data.project.ui, icons: newRel }
-          : data.project.ui;
-      const d2: ProjectData = { ...data, project: { ...data.project, iconsets, ui } };
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Planche d'icônes renommée : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteIconset(rel: string) {
-    if (!data || data.project.ui?.icons === rel) return; // active sheet
-    if (!confirm(`Supprimer la planche d'icônes « ${assetStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const iconsets = projectIconsets(data.project).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, iconsets: iconsets.length ? iconsets : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Planche d'icônes supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Fonts (S1): a 768x8 strip PNG (96 ASCII glyphs 32-127) — the same
-  // register model. assets.font is the project's font (★); the others
-  // serve the dialogue styles. Export is offered explicitly so a font can
-  // be taken back out of the resource manager.
-  async function importFont() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une fonte (PNG 768x8 — 96 glyphes 8x8)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.width !== 768 || bmp.height !== 8) {
-        setStatus(
-          `Fonte : attendu une bande 768x8 (96 glyphes 8x8, ASCII 32-127), reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectFonts(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: { ...d.project, fonts: [...(d.project.fonts ?? []), rel] },
-        }));
-      }
-      setStatus(`Fonte importée : ${name}`);
-    } catch (e) {
-      setStatus(`Import fonte : ${e}`);
-    }
-  }
-
-  async function exportFont(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la fonte (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Fonte exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export fonte : ${e}`);
-    }
-  }
-
-  async function renameFont(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectFonts(data.project).includes(newRel)) {
-      setStatus(`Renommage : la fonte « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const fonts = (data.project.fonts ?? []).map((r) => (r === oldRel ? newRel : r));
-      const assets =
-        data.project.assets.font === oldRel
-          ? { ...data.project.assets, font: newRel }
-          : data.project.assets;
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      // the dialogue styles AND the widgets that pointed at the old font
-      // follow it (S2)
-      const l = await loadUiLayout2(data.root);
-      if (
-        l.styles.some((s) => s.font === oldRel) ||
-        l.nodes.some((n) => n.font === oldRel)
-      ) {
-        l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
-        l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
-        await writeProjectText(data.root, "ui/layout.toml", layoutToToml(l));
-      }
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, fonts: fonts.length ? fonts : undefined, assets },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Fonte renommée : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteFont(rel: string) {
-    if (!data || data.project.assets.font === rel) return; // the project's font ★
-    try {
-      // refused when a dialogue style OR a widget uses it
-      const l = await loadUiLayout2(data.root);
-      const users = [
-        ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
-        ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
-      ];
-      if (users.length) {
-        setStatus(`Fonte utilisée par : ${users.join(", ")} — changer d'abord dans Tools → UI.`);
-        return;
-      }
-      if (!confirm(`Supprimer la fonte « ${assetStem(rel)} » et son fichier ?`)) return;
-      const keep = sceneName;
-      const fonts = (data.project.fonts ?? []).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, fonts: fonts.length ? fonts : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Fonte supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-
-  // Pictures (S3): indexed PNG <= 16 colours, <= 256x224 (multiples of
-  // 8) — shown full screen by "Afficher une image". The project.pictures
-  // register is READ by datagen (the order gives the pic_ids).
-  async function importPicture() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une image (PNG indexé ≤ 16 couleurs, ≤ 256x224)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (
-        bmp.width === 0 || bmp.height === 0 ||
-        bmp.width > 256 || bmp.height > 224 ||
-        bmp.width % 8 !== 0 || bmp.height % 8 !== 0
-      ) {
-        setStatus(
-          `Image : attendu ≤ 256x224 avec dimensions multiples de 8, reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      setTransPick({ kind: "picture", file, bytes, bmp });
-    } catch (e) {
-      setStatus(`Import image : ${e}`);
-    }
+  function resAction(
+    kind: ResKind,
+    act: "import" | "export" | "rename" | "delete",
+    rel?: string,
+    name?: string
+  ) {
+    const ctx = resCtx();
+    if (!ctx) return;
+    const res = RESOURCES[kind];
+    if (act === "import") void runImport(ctx, res);
+    else if (act === "export") void runExport(ctx, res, rel!);
+    else if (act === "rename") void runRename(ctx, res, rel!, name!);
+    else void runDelete(ctx, res, rel!);
   }
 
   // Phase 2 of the picker imports (S4): the transparent colour is known
@@ -1174,14 +890,12 @@ export default function App() {
       const name = t.file.split(/[\\/]/).pop()!;
       const rel = `assets/${name}`;
       if (t.kind === "iconset") {
+        const res = RESOURCES.iconset;
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        if (!projectIconsets(data.project).includes(rel)) {
-          mutate((d) => ({
-            ...d,
-            project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
-          }));
+        if (!res.list(data.project).includes(rel)) {
+          mutate((d) => ({ ...d, project: res.add(d.project, rel) }));
         }
-        setStatus(`Planche d'icônes importée : ${name} (${t.bmp.width / 8} icônes)`);
+        setStatus(res.imported(assetStem(rel), t.bmp));
       } else if (t.kind === "picture") {
         // counting the remaining OPAQUE colours: <= 16 without
         // transparency (the indexed PNG is kept as is), <= 15 with it (the
@@ -1217,17 +931,12 @@ export default function App() {
             return;
           }
         }
+        const res = RESOURCES.picture;
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        const entry = trans ? { path: rel, trans: true } : rel;
-        if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
-          mutate((d) => ({
-            ...d,
-            project: { ...d.project, pictures: [...projectPictures(d.project), entry] },
-          }));
+        if (!res.list(data.project).includes(rel)) {
+          mutate((d) => ({ ...d, project: res.add(d.project, rel, { trans }) }));
         }
-        setStatus(
-          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${trans ? ", avec transparence — le décor se verra à travers" : ""})`
-        );
+        setStatus(res.imported(assetStem(rel), t.bmp, { trans }));
       } else {
         // charset: datagen import-charset reads a FILE — a temporary copy
         // with the transparency punched, consumed by the import window
@@ -1239,271 +948,6 @@ export default function App() {
       }
     } catch (e) {
       setStatus(`Import : ${e}`);
-    }
-  }
-
-  async function exportPicture(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter l'image (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Image exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export image : ${e}`);
-    }
-  }
-
-  async function renamePicture(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectPictures(data.project).some((e) => picPath(e) === newRel)) {
-      setStatus(`Renommage : l'image « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const pictures = projectPictures(data.project).map((e) =>
-        picPath(e) !== oldRel ? e : typeof e === "string" ? newRel : { ...e, path: newRel }
-      );
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, pictures },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(
-        `Image renommée : ${assetStem(oldRel)} → ${newStem} — corriger les « Afficher une image » qui l'utilisaient (le build les signale)`
-      );
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deletePicture(rel: string) {
-    if (!data) return;
-    if (!confirm(`Supprimer l'image « ${assetStem(rel)} » et son fichier ? Les commandes « Afficher une image » qui l'utilisent seront signalées au build.`)) return;
-    const keep = sceneName;
-    try {
-      const pictures = projectPictures(data.project).filter((e) => picPath(e) !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, pictures: pictures.length ? pictures : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Image supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Sounds & music (B1): files copied into assets/, listed in
-  // project.json (the order gives the sfx_ids / music_ids)
-  async function importAudio(kind: "sound" | "music") {
-    if (!data) return;
-    try {
-      const file =
-        kind === "sound"
-          ? await pickFile("Importer un son (WAV, ~2 s max — converti en BRR au build)", "WAV", ["wav"])
-          : await pickFile("Importer une musique (module Impulse Tracker)", "IT", ["it"]);
-      if (!file) return;
-      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
-      const rel = kind === "sound" ? `assets/sounds/${name}` : `assets/music/${name}`;
-      const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
-      if (list.includes(rel)) {
-        setStatus(`Import : « ${musicStem(rel)} » existe déjà dans le projet`);
-        return;
-      }
-      await writeBinaryFile(`${data.root}/${rel}`, await readBinaryFile(file));
-      mutate((d) => ({
-        ...d,
-        project:
-          kind === "sound"
-            ? { ...d.project, sounds: [...(d.project.sounds ?? []), rel] }
-            : { ...d.project, musics: [...(d.project.musics ?? []), rel] },
-      }));
-      setStatus(
-        kind === "sound"
-          ? `Son importé : ${musicStem(rel)} — à jouer via la commande « Jouer un son »`
-          : `Musique importée : ${musicStem(rel)} — à choisir dans l'onglet Scène ou « Changer la musique »`
-      );
-    } catch (e) {
-      setStatus(`Import audio : ${e}`);
-    }
-  }
-
-  async function exportAudio(kind: "sound" | "music", rel: string) {
-    if (!data) return;
-    const ext = kind === "sound" ? "wav" : "it";
-    const path = await pickSavePath(
-      kind === "sound" ? "Exporter le son (WAV)" : "Exporter la musique (IT)",
-      `${musicStem(rel)}.${ext}`
-    );
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Exporté : ${path}`);
-    } catch (e) {
-      setStatus(`Export : ${e}`);
-    }
-  }
-
-  async function renameAudio(kind: "sound" | "music", oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === musicStem(oldRel)) return;
-    const ext = kind === "sound" ? "wav" : "it";
-    const dir = kind === "sound" ? "assets/sounds" : "assets/music";
-    const newRel = `${dir}/${newStem}.${ext}`;
-    const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
-    if (list.includes(newRel)) {
-      setStatus(`Renommage : « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const next = list.map((r) => (r === oldRel ? newRel : r));
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = {
-        ...data,
-        project:
-          kind === "sound"
-            ? { ...data.project, sounds: next }
-            : { ...data.project, musics: next },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(
-        `Renommé : ${musicStem(oldRel)} → ${newStem}` +
-          (kind === "sound"
-            ? " — corriger les « Jouer un son » qui l'utilisaient (le build les signale)"
-            : " — corriger les scènes et « Changer la musique » qui l'utilisaient")
-      );
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteAudio(kind: "sound" | "music", rel: string) {
-    if (!data) return;
-    const what = kind === "sound" ? "le son" : "la musique";
-    if (!confirm(`Supprimer ${what} « ${musicStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const list = (kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []))
-        .filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project:
-          kind === "sound"
-            ? { ...data.project, sounds: list.length ? list : undefined }
-            : { ...data.project, musics: list.length ? list : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Supprimé : ${musicStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Vignettes (B5): strips of 32x32 frames (PNG with transparency)
-  async function importVignette() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une vignette (bande de frames 32x32, PNG à transparence)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
-      if (bmp.height !== 32 || bmp.width % 32 !== 0 || bmp.width === 0 || bmp.width > 256) {
-        setStatus(`Vignette : attendu une bande 32 px de haut, largeur multiple de 32 (1-8 frames) — reçu ${bmp.width}x${bmp.height}`);
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
-      const rel = `assets/vignettes/${name}`;
-      if ((data.project.vignettes ?? []).includes(rel)) {
-        setStatus(`Vignette « ${musicStem(rel)} » : existe déjà`);
-        return;
-      }
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      mutate((d) => ({
-        ...d,
-        project: { ...d.project, vignettes: [...(d.project.vignettes ?? []), rel] },
-      }));
-      setStatus(`Vignette importée : ${musicStem(rel)} (${bmp.width / 32} frame(s))`);
-    } catch (e) {
-      setStatus(`Import vignette : ${e}`);
-    }
-  }
-
-  async function exportVignette(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la vignette (PNG)", `${musicStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Vignette exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export : ${e}`);
-    }
-  }
-
-  async function renameVignette(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === musicStem(oldRel)) return;
-    const newRel = `assets/vignettes/${newStem}.png`;
-    if ((data.project.vignettes ?? []).includes(newRel)) {
-      setStatus(`Renommage : « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const list = (data.project.vignettes ?? []).map((r) => (r === oldRel ? newRel : r));
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = { ...data, project: { ...data.project, vignettes: list } };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Vignette renommée : ${musicStem(oldRel)} → ${newStem} — corriger les « Afficher une vignette » qui l'utilisaient (le build les signale)`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteVignette(rel: string) {
-    if (!data) return;
-    if (!confirm(`Supprimer la vignette « ${musicStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const list = (data.project.vignettes ?? []).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, vignettes: list.length ? list : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* already gone */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Vignette supprimée : ${musicStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
     }
   }
 
@@ -2351,47 +1795,20 @@ export default function App() {
           sounds={data.project.sounds ?? []}
           musics={data.project.musics ?? []}
           onImportTilesetPng={importTileset}
-          onImportSound={() => void importAudio("sound")}
-          onImportMusic={() => void importAudio("music")}
-          onExportSound={(rel) => void exportAudio("sound", rel)}
-          onExportMusic={(rel) => void exportAudio("music", rel)}
-          onRenameSound={(rel, n) => void renameAudio("sound", rel, n)}
-          onRenameMusic={(rel, n) => void renameAudio("music", rel, n)}
-          onDeleteSound={(rel) => void deleteAudio("sound", rel)}
-          onDeleteMusic={(rel) => void deleteAudio("music", rel)}
           vignettes={data.project.vignettes ?? []}
-          onImportVignette={() => void importVignette()}
-          onExportVignette={(rel) => void exportVignette(rel)}
-          onRenameVignette={(rel, n) => void renameVignette(rel, n)}
-          onDeleteVignette={(rel) => void deleteVignette(rel)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
           onImportCharset={importCharset}
           onImportChipset={importChipset}
-          onImportWindowskin={() => void importWindowskin()}
-          onImportIconset={() => void importIconset()}
-          onImportFont={() => void importFont()}
-          onImportPicture={() => void importPicture()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
-          onExportWindowskin={(rel) => void exportWindowskin(rel)}
-          onExportIconset={(rel) => void exportIconset(rel)}
-          onExportFont={(rel) => void exportFont(rel)}
-          onExportPicture={(rel) => void exportPicture(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
-          onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
-          onRenameIconset={(rel, n) => void renameIconset(rel, n)}
-          onRenameFont={(rel, n) => void renameFont(rel, n)}
-          onRenamePicture={(rel, n) => void renamePicture(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
-          onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
-          onDeleteIconset={(rel) => void deleteIconset(rel)}
-          onDeleteFont={(rel) => void deleteFont(rel)}
-          onDeletePicture={(rel) => void deletePicture(rel)}
+          onRes={resAction}
           onClose={() => setShowResources(false)}
         />
       )}

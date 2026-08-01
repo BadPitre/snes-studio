@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "smoke": "node tools/smoke.mjs",
-    "smoke:commands": "node tools/smoke-commands.mjs"
+    "smoke:commands": "node tools/smoke-commands.mjs",
+    "smoke:resources": "node tools/smoke-resources.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
