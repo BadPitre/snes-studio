@@ -1,50 +1,50 @@
 /*
- * picture.h — pictures plein écran (S3, façon RM2003) : une image
- * indexée ≤ 16 couleurs affichée sur BG1 par la commande d'event
- * « Afficher une image » (opcode SHOWPIC), refermée par HIDEPIC.
+ * picture.h — full-screen pictures, RM2003 style: an indexed image of
+ * at most 16 colours shown on BG1 by the "show a picture" event
+ * command (SHOWPIC), closed again by HIDEPIC.
  */
 #ifndef PICTURE_H
 #define PICTURE_H
 
 #include <snes.h>
 
-/* Affiche la picture id plein écran : BG2 et les sprites sont masqués,
-   BG3 (dialogues, widgets) reste au-dessus — un message peut se jouer
-   SUR l'image. Id hors bornes : ignoré. */
+/* Shows picture `id` full screen: BG2 and the sprites are hidden, BG3
+   (dialogues, widgets) stays on top — a message can play OVER the
+   image. An out-of-range id is ignored. */
 void picture_show(u8 id);
 
-/* Referme l'image : recharge le tileset de la scène (chars + palettes)
-   et redessine la fenêtre tilemap — positions et états des events
-   INTACTS (rien d'autre n'est rechargé). */
+/* Closes the image: reloads the scene's tileset (chars and palettes)
+   and redraws the tilemap window. Event positions and states are
+   UNTOUCHED — nothing else is reloaded. */
 void picture_hide(void);
 
-/* Requête différée depuis la VM (SHOWPIC/HIDEPIC) : la transition est
-   appliquée par la boucle principale via picture_apply() — même modèle
-   que le warp scripté (player_take_warp). x/y : position ÉCRAN en
-   pixels (S5, l'image est calée en haut-gauche de sa carte et placée
-   par le scroll BG1), clampée aux dims réelles de l'image. flags (S7) :
-   bit 2 = centrer (le moteur calcule avec les dims). dur = frames de
-   CHAQUE fondu (0 = instantané). La VM résout les variables (bits 0-1
-   de l'opcode) AVANT l'appel. */
+/* Deferred request from the VM (SHOWPIC/HIDEPIC): the transition is
+   applied by the main loop through picture_apply(), the same model as
+   the scripted warp (player_take_warp). x/y are a SCREEN position in
+   pixels — the image sits at the top-left of its map and is placed by
+   the BG1 scroll — clamped to the image's real dimensions. flags bit 2
+   centres it, letting the engine do the arithmetic. dur is the frame
+   count of EACH fade (0 instant). The VM resolves the variables (bits
+   0-1 of the opcode) BEFORE the call. */
 void picture_request(u8 show, u8 id, u8 x, u8 y, u8 flags, u8 dur);
 void picture_apply(void);
 
-/* Glisse l'image affichée vers (x,y) en dur frames (0 = saut) — pose
-   un état seulement (sûr depuis vm_update), le scroll avance frame par
-   frame dans picture_apply : NON-bloquant, façon Move Picture RM2003.
-   flags bit 2 = centrer. Sans image affichée : ignoré (S7). */
+/* Slides the displayed image towards (x,y) over `dur` frames (0 jumps).
+   It only records a state, so it is safe from vm_update; the scroll
+   advances frame by frame in picture_apply. NON-blocking, like RM2003's
+   Move Picture. flags bit 2 centres it. Ignored with no image shown. */
 void picture_move(u8 x, u8 y, u8 flags, u8 dur);
 
-/* Scroll BG1 de l'image (position S5) — appelé chaque VBlank par la
-   boucle principale tant que picture_active(). */
+/* BG1 scroll of the image — called every VBlank by the main loop while
+   picture_active(). */
 void picture_vblank(void);
 
-/* 1 tant qu'une image est affichée — la boucle principale gèle le
-   streaming de la map et le scroll BG1 pendant ce temps. */
+/* 1 while an image is displayed: the main loop freezes map streaming
+   and the BG1 scroll for the duration. */
 u8 picture_active(void);
 
-/* Oubli sans restauration (warp pendant une image : scene_load va tout
-   recharger de toute façon) — rétablit juste les couches TM. */
+/* Forgets without restoring (a warp during an image: scene_load will
+   reload everything anyway) — it only puts the TM layers back. */
 void picture_reset(void);
 
 #endif /* PICTURE_H */

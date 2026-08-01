@@ -1,39 +1,38 @@
 /*
- * effectlayer.h — couche d'effet par scène (S9) : motif dérivant
- * (nuages, brume…) porté par BG1 à la place de la couche sup, avec
- * mélange color math optionnel. Données : data_effects.c (datagen).
+ * effectlayer.h — the per-scene effect layer: a drifting pattern
+ * (clouds, mist) carried by BG1 in place of the upper layer, with
+ * optional colour-math blending. Data: data_effects.c.
  */
 #ifndef EFFECTLAYER_H
 #define EFFECTLAYER_H
 
 #include <snes.h>
 
-/* Charge (ou coupe) la couche d'effet de la scène — appelé par
-   scene_load, ÉCRAN ÉTEINT (DMA chars/carte/palette + registres). */
+/* Loads (or turns off) the scene's effect layer. Called by scene_load with
+   the SCREEN OFF — it DMAs chars, map and palette, and sets registers. */
 void effect_load(u8 scene_id);
 
-/* 1 si la scène courante a une couche d'effet : map.c ne streame plus
-   BG1, la boucle principale route le scroll BG1 vers effect_vblank. */
+/* 1 when the scene has an effect layer: map.c stops streaming BG1 and
+   the main loop routes the BG1 scroll to effect_vblank. */
 u8 effect_active(void);
 
-/* 1 si la couche d'effet est un PANORAMA (S17, mode « back ») : le motif
-   passe DERRIÈRE la carte (BG1 basse priorité) — map.c force alors la
-   priorité de la couche basse pour qu'elle couvre le panorama sauf sur
-   les tuiles gommées. 0 = surimpression (nuages) ou pas d'effet. */
+/* 1 when the effect layer is a PANORAMA ("back" mode): the pattern sits
+   BEHIND the map on low-priority BG1, so map.c forces the lower layer's
+   priority to cover it except on erased tiles. 0 means an overlay. */
 u8 effect_is_back(void);
 
-/* Re-pose registres BG1 + color math + palette 7 après une picture
-   (picture_hide) — les données VRAM du motif n'ont pas bougé. */
+/* Restores the BG1 registers, colour math and palette 7 after a picture:
+   the pattern's VRAM data has not moved. */
 void effect_restore(void);
 
-/* Un pas de dérive par frame (boucle principale, toujours). */
+/* One drift step per frame (main loop, always). */
 void effect_update(void);
 
-/* Scroll BG1 = dérive du motif — VBlank uniquement. */
+/* BG1 scroll = the pattern's drift — VBlank only. */
 void effect_vblank(void);
 
-/* Scroll X courant du motif (dérive + suivi caméra) — base de
-   l'ondulation HDMA (S14) quand une couche d'effet est active. */
+/* The pattern's current X scroll (drift plus camera follow), which is
+   the base of the HDMA ripple when an effect layer is active. */
 u16 effect_hofs(void);
 
 #endif /* EFFECTLAYER_H */
