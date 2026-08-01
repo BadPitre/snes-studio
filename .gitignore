@@ -31,3 +31,6 @@ editor/public/project
 tools/regress/snes9x_libretro.*
 tools/regress/harness
 tools/regress/out/
+
+# captures du smoke test de l'editeur (tools/gate-editor.sh)
+editor/tools/smoke-out/
