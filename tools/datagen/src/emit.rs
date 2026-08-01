@@ -22,10 +22,6 @@ pub fn u8_array(name: &str, data: &[u8], cols: usize, static_: bool) -> String {
     s
 }
 
-pub fn u16_array_static(name: &str, data: &[u16]) -> String {
-    format!("static {}", u16_array(name, data))
-}
-
 pub fn u16_array(name: &str, data: &[u16]) -> String {
     let mut s = String::new();
     let _ = write!(s, "const u16 {}[{}] = {{\n", name, data.len());

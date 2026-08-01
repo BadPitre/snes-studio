@@ -517,11 +517,9 @@ impl IndexedImage {
     /// L'image est complétée en transparent jusqu'au multiple de 8 le plus
     /// proche : l'auteur n'a pas à caler ses pixels sur la grille de
     /// tuiles. Renvoie (chars, largeur, hauteur) en TUILES.
-    pub fn to_ui_image(&self, ui_pal: &[u16]) -> Result<(Vec<u8>, u8, u8)> {
-        self.to_ui_image_bg(ui_pal, false)
-    }
-
-    /// Idem, variante « fond de panneau » : quand le widget vit DANS une
+    ///
+    /// Variante « fond de panneau » avec bg = true : quand le widget vit
+    /// DANS une
     /// window du designer, les pixels transparents (et le complément à la
     /// grille de tuiles) prennent la couleur de FOND du cadre au lieu de
     /// laisser voir le jeu — le compositing SNES étant par tuiles, ça se
