@@ -1,8 +1,8 @@
 /*
- * save.h — sauvegardes SRAM (spec §4bis v2) : 4 slots de 2048 octets,
- * magie + version + checksum. Une sauvegarde = l'état du jeu : scène
- * courante, position/direction du héros, gvars, switches et
- * variables 16-bit (v0.9).
+ * save.h — SRAM saves (spec §4bis v2): 4 slots of 2048 bytes, each with
+ * a magic, a version and a checksum. A save is the game state: current
+ * scene, hero position and facing, gvars, switches and 16-bit
+ * variables.
  */
 #ifndef SAVE_H
 #define SAVE_H
@@ -11,14 +11,14 @@
 
 #define SAVE_SLOTS 4
 
-/* 1 si le slot contient une sauvegarde valide (magie, version, checksum). */
+/* 1 if the slot holds a valid save (magic, version, checksum). */
 u8 save_exists(u8 slot);
 
-/* Écrit l'état courant du jeu dans le slot. */
+/* Writes the current game state into the slot. */
 void save_write(u8 slot);
 
-/* Résultat du dernier save_read (pas de paramètres pointeurs multiples :
-   tcc-816 est fragile sur ce pattern — struct globale à la place). */
+/* Result of the last save_read. No multiple pointer parameters — tcc-816
+   is fragile on that pattern (ENGINE_CONSTRAINTS.md §1.7): a global struct. */
 typedef struct
 {
   u8 scene, x, y, dir;
@@ -26,8 +26,8 @@ typedef struct
 
 extern SaveInfo save_info;
 
-/* Lit le slot : applique les gvars et remplit save_info.
-   Renvoie 0 (rien modifié) si le slot est invalide. */
+/* Reads the slot: applies the gvars and fills save_info. Returns 0,
+   having changed nothing, if the slot is invalid. */
 u8 save_read(u8 slot);
 
 #endif /* SAVE_H */

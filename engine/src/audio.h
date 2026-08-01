@@ -1,5 +1,5 @@
 /*
- * audio.h — musique par scène (snesmod / bank $87, kit §3).
+ * audio.h — per-scene music (snesmod, bank $87).
  */
 #ifndef AUDIO_H
 #define AUDIO_H
@@ -8,20 +8,20 @@
 
 #define MUSIC_NONE 0xFF
 
-/* Boot du SPC700 + soundbank. À appeler tôt (spcBoot prend du temps),
-   avant l'init vidéo. Sans musique dans le projet, ne fait rien. */
+/* Boots the SPC700 and the soundbank. Call it early — spcBoot takes a
+   while — before video init. Does nothing without music in the project. */
 void audio_init(void);
 
-/* Joue la musique music_id (index soundbank) ; MUSIC_NONE = silence.
-   Sans effet si c'est déjà la musique courante. */
+/* Plays music_id (a soundbank index); MUSIC_NONE is silence. No effect
+   if it is already the current track. */
 void audio_play_music(u8 music_id);
 
-/* Joue le son sfx_id (B1) : échantillon BRR de data_sfx.c, chargé dans
-   la région d'effets du SPC puis joué — se superpose à la musique.
-   Id hors bornes : ignoré. */
+/* Plays sfx_id: a BRR sample from data_sfx.c, loaded into the SPC
+   effect region and played over the music. An out-of-range id is
+   ignored. */
 void audio_play_sfx(u8 sfx_id);
 
-/* Alimente le flux SPC — à appeler chaque frame avant WaitForVBlank(). */
+/* Feeds the SPC stream — call every frame before WaitForVBlank(). */
 void audio_process(void);
 
 #endif /* AUDIO_H */
