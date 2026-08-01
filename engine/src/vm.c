@@ -1,10 +1,10 @@
 /*
- * vm.c — VM bytecode v0 (spec §2).
+ * vm.c — bytecode VM v0.
  *
- * Deux catégories d'opcodes : immédiats (exécutés en chaîne dans la frame,
- * budget 32/frame) et bloquants (MSG : rend la main à la boucle principale
- * jusqu'à la fermeture de la textbox). Le décodage lit le bloc scripts de
- * la scène via pointeur far (scene_ctx.scripts).
+ * Two categories of opcode: immediate ones (chained within the frame, a
+ * budget of 32 per frame) and blocking ones (MSG: hands control back to
+ * the main loop until the textbox closes). Decoding reads the scene's
+ * script block through a far pointer (scene_ctx.scripts).
  */
 #include <snes.h>
 #include "formats.h"
@@ -15,27 +15,27 @@
 #include "camera.h"
 #include "timer.h"
 #include "screenfx.h"
-#include "ui_overlay.h" /* SHOWUI : visibilité des widgets (Ph. 12) */
-#include "picture.h" /* SHOWPIC/HIDEPIC : pictures plein écran (S3) */
-#include "weather.h" /* WEATHER : météo en particules (S13) */
-#include "hdmafx.h"  /* WAVE : ondulation de l'écran (S14) */
-#include "audio.h"   /* PLAYSFX / PLAYBGM : sons et musique (B1) */
-#include "stage.h"   /* écran composé (B3) */
-#include "vignette.h" /* vignettes animées (B5) */
-#include "anim.h"     /* ANIMPLAY : animations image par image (A1) */
-#include "data/db_tables.h" /* registre de la Database (DBREAD, v0.17) */
+#include "ui_overlay.h" /* SHOWUI: widget visibility (Ph. 12) */
+#include "picture.h" /* SHOWPIC/HIDEPIC: full-screen pictures (S3) */
+#include "weather.h" /* WEATHER: particle weather (S13) */
+#include "hdmafx.h"  /* WAVE: screen ripple (S14) */
+#include "audio.h"   /* PLAYSFX / PLAYBGM: sound and music (B1) */
+#include "stage.h"   /* composed screen (B3) */
+#include "vignette.h" /* animated vignettes (B5) */
+#include "anim.h"     /* ANIMPLAY: frame-by-frame animations (A1) */
+#include "data/db_tables.h" /* Database register (DBREAD, v0.17) */
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
 
 VmState vm;
 
-/* Aléatoire de la VM (VAROP op 6) — xorshift 16-bit, semé explicitement
-   (statics tcc) et brassé par la position du héros à chaque vm_start. */
+/* The VM's randomness (VAROP op 6) — 16-bit xorshift, seeded explicitly
+   (tcc statics) and stirred by the hero's position on every vm_start. */
 static u16 vm_seed;
 
-/* Halt debug : opcode inconnu ou boucle infinie dans un script — bug de
-   données, on fige pour le voir immédiatement (kit §5). */
+/* Debug halt: unknown opcode or an infinite loop in a script — a data
+   bug, we freeze so it shows immediately. */
 static void vm_halt(void)
 {
   while (1)
@@ -47,7 +47,7 @@ void vm_init(void)
 {
   u16 i;
 
-  vm_seed = 0xBEEF; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
+  vm_seed = 0xBEEF; /* never 0 (xorshift) — EXPLICIT init (tcc) */
 
   vm.active = 0;
   vm.wait_mode = VM_WAIT_NONE;
@@ -101,7 +101,7 @@ void vm_scene_reset(void)
   vm.wait_mode = VM_WAIT_NONE;
   for (i = 0; i < 64; i++)
     vm.vars[i] = 0;
-  vm_parallel_reset(); /* le contexte parallèle pointait l'ancien bloc */
+  vm_parallel_reset(); /* the parallel context pointed at the old block */
 }
 
 void vm_start(u16 offset)
@@ -109,17 +109,17 @@ void vm_start(u16 offset)
   vm.active = 1;
   vm.wait_mode = VM_WAIT_NONE;
   vm.pc = offset;
-  vm.script_actor = 0xFF; /* renseigné après coup par l'appelant (v0.12) */
-  vm.call_sp = 0;         /* pile d'appels vide (v0.16) */
-  vm.frame_base = 0;      /* aucun cadre de fonction ouvert (F1) */
+  vm.script_actor = 0xFF; /* filled in afterwards by the caller (v0.12) */
+  vm.call_sp = 0;         /* empty call stack (v0.16) */
+  vm.frame_base = 0;      /* no function frame open (F1) */
   vm.frame_sp = 0;
-  vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* brasse l'aléatoire */
+  vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* stirs the randomness */
 }
 
-/* Table des common events AUTO/PARALLEL en tête du bloc scripts (spec §2
-   v0.16) : [n] puis n x [type u8 : 0 autorun, 1 parallel][switch u16]
-   [offset u16] à l'offset 0. Renvoie l'offset du premier common event du
-   type demandé dont le switch est ON, ou SCRIPT_NONE. */
+/* Table of the AUTO/PARALLEL common events at the head of the script
+   block (v0.16): [n] then n x [type u8: 0 autorun, 1 parallel][switch
+   u16][offset u16] at offset 0. Returns the offset of the first common
+   event of the requested type whose switch is ON, or SCRIPT_NONE. */
 static u16 common_lookup(u8 kind)
 {
   u8 n, i;
@@ -129,14 +129,14 @@ static u16 common_lookup(u8 kind)
   p = 1;
   for (i = 0; i < n; i++)
   {
-    /* type d'abord : sw/ofs ne sont lus que pour les entrées du bon
-       kind — ce scan tourne chaque frame (parallel process) et chaque
-       lecture du bloc scripts passe par un pointeur far */
+    /* the type first: sw/ofs are only read for the entries of the right
+       kind — this scan runs every frame (parallel process) and every
+       read of the script block goes through a far pointer */
     if (scene_ctx.scripts[p] == kind)
     {
       sw = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
-      /* switch 0xFFFF = pas de condition (case décochée) : toujours
-         actif */
+      /* switch 0xFFFF = no condition (the box is unchecked): always
+         active */
       if (sw == 0xFFFF || vm_switch_get(sw))
       {
         ofs = (u16)scene_ctx.scripts[p + 3] |
@@ -154,12 +154,12 @@ u16 vm_common_auto(void)
   return common_lookup(0);
 }
 
-/* --- Contexte PARALLÈLE (v0.16) — un common event « Parallel process »
-   tourne en tâche de fond sans geler le joueur, relancé tant que son
-   switch est ON. Les variables/switches sont PARTAGÉS avec le script
-   principal ; seuls les champs d'exécution (pc, attentes, pile) sont
-   échangés (swap-in/swap-out) autour de vm_step. MSG/CHOICE y sont
-   interdits (datagen les refuse : pas d'UI depuis le fond). */
+/* --- PARALLEL context (v0.16) — a "Parallel process" common event runs
+   in the background without freezing the player, restarted as long as
+   its switch is ON. The variables and switches are SHARED with the main
+   script; only the execution fields (pc, waits, stack) are swapped
+   (swap-in/swap-out) around vm_step. MSG/CHOICE are forbidden there
+   (datagen refuses them: no UI from the background). */
 static u8 p_active;
 static u16 p_pc;
 static u8 p_wait_mode;
@@ -167,28 +167,28 @@ static u8 p_wait_timer;
 static u8 p_script_actor;
 static u8 p_call_sp;
 static u16 p_call_stack[VM_CALL_DEPTH];
-/* F1 : le contexte parallèle a ses propres cadres. Les variables sont
-   partagées avec le script principal — c'est le modèle RM2003 — mais
-   les paramètres d'une fonction ne le sont pas : ce sont des données
-   d'exécution, au même titre que le pc et la pile d'appels. Un
-   parallel process qui appelle une fonction pendant qu'un dialogue en
-   appelle une autre ne doit rien lui écraser. */
+/* F1: the parallel context has its own frames. The variables are
+   shared with the main script — that is the RM2003 model — but a
+   function's parameters are not: they are execution data, just like
+   the pc and the call stack. A parallel process that calls a function
+   while a dialogue calls another one must not overwrite anything of
+   its own. */
 static u8 p_call_fb[VM_CALL_DEPTH];
 static u16 p_frame[VM_FRAME_SLOTS];
 static u8 p_frame_base;
 static u8 p_frame_sp;
 static u16 p_retval;
 
-/* KEYIN (Ph. 12) : code de la première touche du masque présente dans
-   « pressed » — codes RM2003 étendus SNES (formats.h).
-   PERF (P2) : un KEYIN non bloquant dans un common event « parallel »
-   s'exécute à CHAQUE frame. La version en boucle (12 tours, un appel de
-   fonction par tour pour convertir le code en bit SNES) coûtait à elle
-   seule ~15 lignes d'écran. Ici, chaîne de tests sur CONSTANTES : le
-   compilateur n'a plus ni boucle, ni appel, ni décalage variable, et le
-   cas « rien d'enfoncé » sort au premier test. L'ordre des codes est
-   celui de la spec — le premier code du masque effectivement enfoncé
-   gagne, comme avant. */
+/* KEYIN (Ph. 12): code of the first key of the mask present in
+   "pressed" — SNES-extended RM2003 codes (formats.h).
+   PERF (P2): a non-blocking KEYIN in a "parallel" common event runs on
+   EVERY frame. The loop version (12 iterations, one function call per
+   iteration to convert the code into an SNES bit) cost ~15 screen lines
+   on its own. Here it is a chain of tests on CONSTANTS: the compiler
+   has no loop, no call and no variable shift left, and the "nothing
+   pressed" case exits on the first test. The order of the codes is the
+   spec's — the first code of the mask actually pressed wins, as
+   before. */
 static u8 keyin_scan(u16 mask, u16 pressed)
 {
   if (!pressed)
@@ -220,7 +220,7 @@ static u8 keyin_scan(u16 mask, u16 pressed)
   return 0;
 }
 
-/* contexte parallèle : masque/destination du KEYIN en cours */
+/* parallel context: mask/destination of the KEYIN in progress */
 static u16 p_keyin_mask;
 static u8 p_keyin_dst;
 
@@ -237,10 +237,10 @@ static void pvm_swap(void)
   t8 = vm.call_sp;     vm.call_sp = p_call_sp;       p_call_sp = t8;
   t16 = vm.keyin_mask; vm.keyin_mask = p_keyin_mask;  p_keyin_mask = t16;
   t8 = vm.keyin_dst;   vm.keyin_dst = p_keyin_dst;    p_keyin_dst = t8;
-  /* seules les entrées < sp sont vivantes (CALL écrit avant que RET ne
-     lise) : n'échanger que celles-là — le cas courant, deux piles
-     vides, ne copie rien (deux swaps par frame quand un parallel
-     process tourne, ce budget compte) */
+  /* only the entries below sp are live (CALL writes before RET reads):
+     swap only those — the common case, two empty stacks, copies nothing
+     (two swaps per frame while a parallel process runs, and that budget
+     counts) */
   n = vm.call_sp;
   if (p_call_sp > n)
     n = p_call_sp;
@@ -253,9 +253,9 @@ static void pvm_swap(void)
     vm.call_fb[i] = p_call_fb[i];
     p_call_fb[i] = t8;
   }
-  /* Cadres de fonction (F1) : même règle, seuls les slots VIVANTS sont
-     échangés. Aucun appel en cours des deux côtés — le cas de très
-     loin le plus fréquent — ne copie rien du tout. */
+  /* Function frames (F1): same rule, only the LIVE slots are swapped.
+     No call in progress on either side — by far the most frequent case
+     — copies nothing at all. */
   t8 = vm.frame_base; vm.frame_base = p_frame_base; p_frame_base = t8;
   t16 = vm.retval; vm.retval = p_retval; p_retval = t16;
   n = vm.frame_sp;
@@ -310,7 +310,7 @@ static u16 fetch16(void)
   return v;
 }
 
-/* Octet variable → slot : bit 7 = variable globale (spec §2 v0.6) */
+/* Variable byte -> slot: bit 7 = global variable */
 static u8 var_get(u8 v)
 {
   return (v & VM_VAR_GLOBAL) ? vm.gvars[v & 63] : vm.vars[v & 63];
@@ -324,7 +324,7 @@ static void var_set(u8 v, u8 val)
     vm.vars[v & 63] = val;
 }
 
-/* Options du CHOICE en cours (copiées du flux au décodage) */
+/* Options of the CHOICE in progress (copied from the stream at decode) */
 static u16 choice_ids[4];
 
 static u16 vm_rand(void)
@@ -335,7 +335,7 @@ static u16 vm_rand(void)
   return vm_seed;
 }
 
-/* Valeur source d'un VAROP (spec §2 v0.13) */
+/* Source value of a VAROP (v0.13) */
 static u16 varop_src(u8 src_type, u16 src)
 {
   switch (src_type)
@@ -351,11 +351,11 @@ static u16 varop_src(u8 src_type, u16 src)
   case VARSRC_SCENE:
     return scene_ctx.scene_id;
   case VARSRC_PARAM:
-    /* paramètre n de la fonction en cours. Le masque n'est pas de la
-       coquetterie : hors d'une fonction, frame_base vaut 0 et un
-       « param » égaré lirait n'importe quel slot — datagen refuse le
-       cas, ce masque garantit qu'un bloc de données abîmé ne lise pas
-       la WRAM voisine. */
+    /* parameter n of the current function. The mask is not decoration:
+       outside a function frame_base is 0 and a stray "param" would read
+       any slot at all — datagen refuses the case, and this mask
+       guarantees that a damaged data block cannot read the neighbouring
+       WRAM. */
     return vm.frame[(u8)(vm.frame_base + (u8)src) & (VM_FRAME_SLOTS - 1)];
   case VARSRC_RET:
     return vm.retval;
@@ -364,13 +364,13 @@ static u16 varop_src(u8 src_type, u16 src)
   }
 }
 
-/* Retour d'appel, partagé par RET et RETF : dépile l'adresse ET le
-   cadre. Une fonction qui finit sur un RET ordinaire (aucune valeur à
-   rendre) rend donc quand même ses slots. Pile vide = le corps a été
-   lancé directement, il agit comme END. */
-/* L'operation d'un VAROP, isolee : la meme sert pour une variable
-   globale et pour une variable LOCALE de fonction (F2b), et personne
-   n'a envie de maintenir deux copies de la division par zero. */
+/* Call return, shared by RET and RETF: pops both the address AND the
+   frame. A function ending on a plain RET (no value to give back)
+   therefore still gives its slots back. Empty stack = the body was
+   started directly, so it acts as END. */
+/* A VAROP's operation, on its own: the same one serves a global
+   variable and a function LOCAL (F2b), and nobody wants to maintain two
+   copies of the division by zero. */
 static u16 varop_apply(u16 cur, u8 op, u16 rhs)
 {
   if (op == VAROP_SET)
@@ -385,7 +385,7 @@ static u16 varop_apply(u16 cur, u8 op, u16 rhs)
     return rhs ? (u16)(cur / rhs) : 0;
   if (op == VAROP_MOD)
     return rhs ? (u16)(cur % rhs) : 0;
-  /* aleatoire 0..rhs inclus */
+  /* random 0..rhs inclusive */
   return rhs == 0xFFFF ? vm_rand() : (u16)(vm_rand() % (rhs + 1));
 }
 
@@ -411,9 +411,9 @@ static void vm_step(void)
   while (vm.active && vm.wait_mode == VM_WAIT_NONE)
   {
     if (budget == 0)
-      return; /* budget épuisé : la VM rend la main et reprend à la frame
-                 suivante — une boucle LOOP sans commande bloquante est
-                 légale (v0.15), elle tourne 32 ops/frame comme RM2003 */
+      return; /* budget spent: the VM hands back and resumes on the next
+                 frame — a LOOP with no blocking command is legal
+                 (v0.15), it runs 32 ops/frame like RM2003 */
     budget--;
 
     op = fetch8();
@@ -423,7 +423,7 @@ static void vm_step(void)
       vm.active = 0;
       break;
 
-    case VM_OP_MSG: /* bloquant */
+    case VM_OP_MSG: /* blocking */
       ofs = fetch16();
       textbox_open(ofs);
       vm.wait_mode = VM_WAIT_TEXTBOX;
@@ -436,7 +436,7 @@ static void vm_step(void)
 
     case VM_OP_ADDVAR:
       var = fetch8();
-      var_set(var, var_get(var) + fetch8()); /* wrap 8-bit assumé (spec) */
+      var_set(var, var_get(var) + fetch8()); /* 8-bit wrap assumed (spec) */
       break;
 
     case VM_OP_JMP:
@@ -459,7 +459,7 @@ static void vm_step(void)
         vm.pc = ofs;
       break;
 
-    case VM_OP_SETGVAR: /* alias historique de SETVAR g<n> */
+    case VM_OP_SETGVAR: /* historic alias of SETVAR g<n> */
       var = fetch8();
       vm.gvars[var & 63] = fetch8();
       break;
@@ -472,7 +472,7 @@ static void vm_step(void)
         vm.pc = ofs;
       break;
 
-    case VM_OP_CHOICE: /* bloquant : 2-4 options, index -> variable */
+    case VM_OP_CHOICE: /* blocking: 2-4 options, index -> variable */
       vm.choice_var = fetch8();
       vm.choice_count = fetch8();
       for (val = 0; val < vm.choice_count; val++)
@@ -482,8 +482,8 @@ static void vm_step(void)
       vm.wait_mode = VM_WAIT_CHOICE;
       break;
 
-    case VM_OP_WARP: /* téléport scripté — le bloc scripts change de
-                        scène : le script se termine ici */
+    case VM_OP_WARP: /* scripted teleport — the script block changes
+                        scene: the script ends here */
       var = fetch8();   /* scene */
       val = fetch8();   /* x */
       idx16 = fetch8(); /* y */
@@ -491,7 +491,7 @@ static void vm_step(void)
       vm.active = 0;
       break;
 
-    case VM_OP_FACE: /* tourne l'acteur n (invisible si hors scene) */
+    case VM_OP_FACE: /* turns actor n (a no-op if outside the scene) */
       var = fetch8();
       actor_face(var, fetch8());
       break;
@@ -501,7 +501,7 @@ static void vm_step(void)
       vm_switch_set(idx16, fetch8());
       break;
 
-    case VM_OP_JSW: /* saute si switch == attendu */
+    case VM_OP_JSW: /* jump if switch == expected */
       idx16 = fetch16();
       val = fetch8();
       ofs = fetch16();
@@ -509,56 +509,56 @@ static void vm_step(void)
         vm.pc = ofs;
       break;
 
-    case VM_OP_SET16: /* variable 16-bit = val */
+    case VM_OP_SET16: /* 16-bit variable = val */
       var = fetch8();
       vm.vars16[var] = fetch16();
       break;
 
-    case VM_OP_ADD16: /* variable 16-bit += val (wrap, negatifs en
-                         complement a deux) */
+    case VM_OP_ADD16: /* 16-bit variable += val (wrap, negatives in
+                         two's complement) */
       var = fetch8();
       vm.vars16[var] += fetch16();
       break;
 
-    case VM_OP_ROUTE: /* itinéraire (v0.12/v0.13) — NON bloquant : la
-                         route part en tâche de fond (cinématiques) */
-      var = fetch8(); /* acteur, 0xFF = event du script */
+    case VM_OP_ROUTE: /* route (v0.12/v0.13) — NON blocking: the
+                         route runs in the background (cutscenes) */
+      var = fetch8(); /* actor, 0xFF = the script's event */
       val = fetch8(); /* flags */
-      actors_route_freq(fetch8()); /* fréquence 1-8 */
-      idx16 = fetch8(); /* len (octets) */
+      actors_route_freq(fetch8()); /* frequency 1-8 */
+      idx16 = fetch8(); /* len (bytes) */
       if (var == 0xFF)
         var = vm.script_actor;
       actors_route_bind_freq(var);
       actors_set_route(var, vm.pc, val, (u8)idx16);
-      vm.pc += idx16; /* les pas sont inline : les sauter */
+      vm.pc += idx16; /* the steps are inline: skip them */
       break;
 
-    case VM_OP_WAITROUTE: /* bloquant : fin de toutes les routes */
+    case VM_OP_WAITROUTE: /* blocking: end of every route */
       vm.wait_mode = VM_WAIT_ROUTE;
       break;
 
-    case VM_OP_WAIT: /* bloquant : n frames */
+    case VM_OP_WAIT: /* blocking: n frames */
       vm.wait_timer = fetch8();
       vm.wait_mode = VM_WAIT_TIMER;
       break;
 
-    case VM_OP_VAROP: /* opérations avancées (v0.13) */
-      var = fetch8();          /* variable destination */
-      val = fetch8();          /* opération */
-      idx16 = fetch8();        /* type de source */
+    case VM_OP_VAROP: /* advanced operations (v0.13) */
+      var = fetch8();          /* destination variable */
+      val = fetch8();          /* operation */
+      idx16 = fetch8();        /* source type */
       val16 = varop_src((u8)idx16, fetch16());
       vm.vars16[var] = varop_apply(vm.vars16[var], val, val16);
       break;
 
-    case VM_OP_SETLOC: /* variable LOCALE de la fonction en cours (F2b) */
+    case VM_OP_SETLOC: /* LOCAL variable of the current function (F2b) */
       var = (u8)(vm.frame_base + fetch8()) & (VM_FRAME_SLOTS - 1);
-      val = fetch8();   /* opération */
-      idx16 = fetch8(); /* type de source */
+      val = fetch8();   /* operation */
+      idx16 = fetch8(); /* source type */
       val16 = varop_src((u8)idx16, fetch16());
       vm.frame[var] = varop_apply(vm.frame[var], val, val16);
       break;
 
-    case VM_OP_TIMER: /* timer de jeu (v0.13) */
+    case VM_OP_TIMER: /* game timer (v0.13) */
       var = fetch8();
       val16 = fetch16();
       if (var == 0)
@@ -569,36 +569,36 @@ static void vm_step(void)
         timer_display(var == 2);
       break;
 
-    case VM_OP_CAMPAN: /* pan caméra scripté — NON bloquant */
+    case VM_OP_CAMPAN: /* scripted camera pan — NON blocking */
       var = fetch8();
       val = fetch8();
       camera_pan_to(var, val, fetch8());
       break;
 
-    case VM_OP_CAMRET: /* retour caméra vers le héros */
+    case VM_OP_CAMRET: /* camera back to the hero */
       camera_return(fetch8());
       break;
 
-    case VM_OP_WAITCAM: /* bloquant : fin du pan */
+    case VM_OP_WAITCAM: /* blocking: end of the pan */
       vm.wait_mode = VM_WAIT_CAM;
       break;
 
-    case VM_OP_WARPV: /* téléport aux coordonnées de variables (v0.15) —
-                         rappel d'une position mémorisée : le script se
-                         termine ici, comme WARP */
-      var = fetch8();   /* variable scène */
-      val = fetch8();   /* variable x */
-      idx16 = fetch8(); /* variable y */
+    case VM_OP_WARPV: /* teleport to variable coordinates (v0.15) —
+                         recalling a memorised position: the script ends
+                         here, like WARP */
+      var = fetch8();   /* scene variable */
+      val = fetch8();   /* x variable */
+      idx16 = fetch8(); /* y variable */
       player_request_warp((u8)vm.vars16[var], (u8)vm.vars16[val],
                           (u8)vm.vars16[idx16 & 255], fetch8());
       vm.active = 0;
       break;
 
-    case VM_OP_SETPOS: /* place un event sur une tile (v0.15) */
-      var = fetch8();   /* acteur, 0xFF = event du script */
-      val = fetch8();   /* source : 0 constantes, 1 variables */
-      idx16 = fetch8(); /* x (ou n° de variable) */
-      ofs = fetch8();   /* y (ou n° de variable) */
+    case VM_OP_SETPOS: /* places an event on a tile (v0.15) */
+      var = fetch8();   /* actor, 0xFF = the script's event */
+      val = fetch8();   /* source: 0 constants, 1 variables */
+      idx16 = fetch8(); /* x (or variable number) */
+      ofs = fetch8();   /* y (or variable number) */
       if (var == 0xFF)
         var = vm.script_actor;
       if (val)
@@ -609,7 +609,7 @@ static void vm_step(void)
       actors_set_pos(var, (u8)idx16, (u8)ofs);
       break;
 
-    case VM_OP_SWAPPOS: /* échange les positions de deux events (v0.15) */
+    case VM_OP_SWAPPOS: /* swaps the positions of two events (v0.15) */
       var = fetch8();
       val = fetch8();
       if (var == 0xFF)
@@ -619,20 +619,20 @@ static void vm_step(void)
       actors_swap_pos(var, val);
       break;
 
-    case VM_OP_SCRHIDE: /* fondu vers le noir — bloquant (v0.15) */
-      var = fetch8(); /* vitesse */
+    case VM_OP_SCRHIDE: /* fade to black — blocking (v0.15) */
+      var = fetch8(); /* speed */
       screenfx_hide(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 
-    case VM_OP_SCRSHOW: /* fondu entrant — bloquant */
-      var = fetch8(); /* vitesse */
+    case VM_OP_SCRSHOW: /* fade in — blocking */
+      var = fetch8(); /* speed */
       screenfx_show(var, fetch8());
       vm.wait_mode = VM_WAIT_SCREEN;
       break;
 
-    case VM_OP_TINT: /* teinte du décor (v0.15) — rgb PUIS mode (piège
-                        tcc des paramètres multiples : 3 u8 max) */
+    case VM_OP_TINT: /* scenery tint (v0.15) — rgb THEN mode (tcc trap
+                        tcc trap with multiple parameters: 3 u8 max) */
       var = fetch8();   /* mode */
       val = fetch8();   /* r */
       idx16 = fetch8(); /* g */
@@ -640,30 +640,30 @@ static void vm_step(void)
       screenfx_tint(var);
       break;
 
-    case VM_OP_WAVE: /* ondulation de l'écran (S14) — NON bloquant */
+    case VM_OP_WAVE: /* screen ripple (S14) — NON blocking */
       var = fetch8();
       hdmafx_wave(var, fetch8());
       break;
 
-    case VM_OP_SKYGRAD: /* dégradé de ciel (S15) — couleurs PUIS mode
-                           (parade tcc : 3 u8 max par appel) */
+    case VM_OP_SKYGRAD: /* sky gradient (S15) — colours THEN mode
+                           (tcc workaround: 3 u8 max per call) */
       var = fetch8();   /* mode */
-      val = fetch8();   /* r haut */
-      idx16 = fetch8(); /* g haut */
+      val = fetch8();   /* r top */
+      idx16 = fetch8(); /* g top */
       hdmafx_grad_top(val, (u8)idx16, fetch8());
-      val = fetch8();   /* r bas */
-      idx16 = fetch8(); /* g bas */
+      val = fetch8();   /* r bottom */
+      idx16 = fetch8(); /* g bottom */
       hdmafx_grad_bottom(val, (u8)idx16, fetch8());
       hdmafx_grad(var);
       break;
 
-    case VM_OP_SPOTLIGHT: /* cercle de lumière (S16) — NON bloquant */
+    case VM_OP_SPOTLIGHT: /* circle of light (S16) — NON blocking */
       var = fetch8();
       hdmafx_spot(var, fetch8());
       break;
 
-    case VM_OP_STAGEOPEN: /* écran composé (B3) — différé à la boucle,
-                             1 frame de pause (recette SHOWPIC) */
+    case VM_OP_STAGEOPEN: /* composed screen (B3) — deferred to the loop,
+                             1 frame of pause (the SHOWPIC recipe) */
       var = fetch8();
       val = fetch8(); /* dur */
       stage_request_open(var, val, fetch8());
@@ -671,7 +671,7 @@ static void vm_step(void)
       vm.wait_timer = 1;
       break;
 
-    case VM_OP_STAGEPOSE: /* pose une image — BLOQUANT (transfert étalé) */
+    case VM_OP_STAGEPOSE: /* lays an image — BLOCKING (spread transfer) */
       var = fetch8();   /* slot */
       val = fetch8();   /* pic */
       idx16 = fetch8(); /* tx */
@@ -679,26 +679,26 @@ static void vm_step(void)
       vm.wait_mode = VM_WAIT_STAGE;
       break;
 
-    case VM_OP_STAGECLEAR: /* retire l'image du slot — BLOQUANT (court) */
+    case VM_OP_STAGECLEAR: /* removes the slot's image — BLOCKING (short) */
       stage_clear(fetch8());
       vm.wait_mode = VM_WAIT_STAGE;
       break;
 
-    case VM_OP_STAGECLOSE: /* ferme l'écran (warp interne) — 1 frame */
+    case VM_OP_STAGECLOSE: /* closes the screen (internal warp) — 1 frame */
       var = fetch8(); /* dur */
       stage_request_close(var, fetch8());
       vm.wait_mode = VM_WAIT_TIMER;
       vm.wait_timer = 1;
       break;
 
-    case VM_OP_SLOTFX: /* effet de palette d'un slot (B4) — NON bloquant */
+    case VM_OP_SLOTFX: /* palette effect on a slot (B4) — NON blocking */
       var = fetch8();
       val = fetch8();
       stage_slotfx(var, val, fetch8());
       break;
 
-    case VM_OP_VIGSHOW: /* vignette (B5) — NON bloquant. anchor via un
-                           second appel (parade tcc : 3 u8 max) */
+    case VM_OP_VIGSHOW: /* vignette (B5) — NON blocking. anchor through a
+                           second call (tcc workaround: 3 u8 max) */
       var = fetch8();   /* slot */
       val = fetch8();   /* vig */
       idx16 = fetch8(); /* x */
@@ -706,7 +706,7 @@ static void vm_step(void)
       vig_anchor(var, fetch8());
       break;
 
-    case VM_OP_VIGPLAY: /* animation de la vignette — NON bloquant */
+    case VM_OP_VIGPLAY: /* animation of the vignette — NON blocking */
       var = fetch8();
       val = fetch8();
       vig_play(var, val, fetch8());
@@ -716,52 +716,52 @@ static void vm_step(void)
       vig_hide(fetch8());
       break;
 
-    case VM_OP_ANIMPLAY: /* animation image par image (A1) — bloquante
-                            seulement si le bit 0 des flags est levé */
+    case VM_OP_ANIMPLAY: /* frame-by-frame animation (A1) — blocking
+                            only if bit 0 of the flags is set */
       var = fetch8();   /* animation */
-      val = fetch8();   /* ancrage */
-      idx16 = fetch8(); /* cible (acteur), 0xFF = event du script */
+      val = fetch8();   /* anchor */
+      idx16 = fetch8(); /* target (actor), 0xFF = the script's event */
       if (val == ANIM_ANC_ACTOR && (u8)idx16 == 0xFF)
         idx16 = vm.script_actor;
       anim_play(var, val, (u8)idx16);
       if (fetch8() & 1)
-        vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignore les boucles */
+        vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignores loops */
       break;
 
     case VM_OP_ANIMSTOP:
       anim_stop();
       break;
 
-    case VM_OP_LISTSEL: /* menu à curseur (B6) — BLOQUANT */
-      var = fetch8();          /* widget (racine du layout) */
-      vm.choice_var = fetch8(); /* variable destination */
-      op = fetch8();            /* flags : bit 0 = B annule */
+    case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
+      var = fetch8();          /* widget (root of the layout) */
+      vm.choice_var = fetch8(); /* destination variable */
+      op = fetch8();            /* flags: bit 0 = B cancels */
       val = overlay_list_open(var);
       if (!val)
-        break; /* pas de liste sur ce widget : commande ignorée */
+        break; /* no list on that widget: command ignored */
       vm.choice_count = val;
       vm.choice_sel = 0;
       vm.list_flags = op;
       vm.wait_mode = VM_WAIT_LIST;
       break;
 
-    case VM_OP_PLAYSFX: /* jouer un son (B1) — NON bloquant */
+    case VM_OP_PLAYSFX: /* play a sound (B1) — NON blocking */
       audio_play_sfx(fetch8());
       break;
 
-    case VM_OP_PLAYBGM: /* changer la musique (B1) — NON bloquant,
-                           0xFF = silence ; la musique de la scène
-                           reprend au prochain warp */
+    case VM_OP_PLAYBGM: /* change the music (B1) — NON blocking,
+                           0xFF = silence; the scene's music comes back
+                           at the next warp */
       audio_play_music(fetch8());
       break;
 
-    case VM_OP_WEATHER: /* météo en particules (S13) — NON bloquant */
+    case VM_OP_WEATHER: /* particle weather (S13) — NON blocking */
       var = fetch8();
       weather_set(var, fetch8());
       break;
 
-    case VM_OP_TINTG: /* teinte GRADUELLE (S12) — rgb puis (mode, dur),
-                         même parade tcc que TINT (3 u8 max par appel) */
+    case VM_OP_TINTG: /* GRADUAL tint (S12) — rgb then (mode, dur),
+                         same tcc workaround as TINT (3 u8 max per call) */
       var = fetch8();   /* mode */
       val = fetch8();   /* r */
       idx16 = fetch8(); /* g */
@@ -769,7 +769,7 @@ static void vm_step(void)
       screenfx_tintg(var, fetch8());
       break;
 
-    case VM_OP_FLASH: /* flash additif décroissant — NON bloquant */
+    case VM_OP_FLASH: /* decaying additive flash — NON blocking */
       val = fetch8();
       idx16 = fetch8();
       ofs = fetch8();
@@ -777,63 +777,63 @@ static void vm_step(void)
       screenfx_flash_start(fetch8());
       break;
 
-    case VM_OP_SHAKE: /* secousse horizontale — NON bloquant */
+    case VM_OP_SHAKE: /* horizontal shake — NON blocking */
       var = fetch8();
       val = fetch8();
       screenfx_shake(var, val, fetch8());
       break;
 
-    case VM_OP_CALL: /* appel d'un corps de common event (v0.16) */
+    case VM_OP_CALL: /* call of a common event body (v0.16) */
       ofs = fetch16();
       if (vm.call_sp >= VM_CALL_DEPTH)
       {
-        vm_halt(); /* récursion trop profonde : bug de données */
+        vm_halt(); /* recursion too deep: a data bug */
         break;
       }
       vm.call_fb[vm.call_sp] = vm.frame_base;
       vm.call_stack[vm.call_sp++] = vm.pc;
-      /* pas d'arguments : le sous-script garde le cadre de l'appelant,
-         donc un common event ordinaire appelé DEPUIS une fonction voit
-         encore les paramètres de celle-ci. C'est voulu — il se comporte
-         comme un bloc de commandes inséré sur place. */
+      /* no arguments: the sub-script keeps the caller's frame, so an
+         ordinary common event called FROM a function still sees that
+         function's parameters. That is deliberate — it behaves like a
+         block of commands inserted in place. */
       vm.pc = ofs;
       break;
 
-    case VM_OP_RET: /* retour de CALL — pile vide : fin de script */
+    case VM_OP_RET: /* return from CALL — empty stack: end of script */
       vm_do_ret();
       break;
 
-    case VM_OP_CALLF: /* appel de FONCTION avec arguments (F1) */
+    case VM_OP_CALLF: /* FUNCTION call with arguments (F1) */
       ofs = fetch16();
-      var = fetch8(); /* nombre d'arguments */
-      val = fetch8(); /* taille du cadre : arguments + locales (F2b) */
+      var = fetch8(); /* number of arguments */
+      val = fetch8(); /* frame size: arguments + locals (F2b) */
       if (vm.call_sp >= VM_CALL_DEPTH ||
           (u16)vm.frame_sp + val > VM_FRAME_SLOTS)
       {
-        /* Consommer quand même les opérandes : sortir d'ici avec un pc
-           au milieu d'une instruction ferait exécuter des arguments
-           comme des opcodes, et le plantage n'aurait plus rien à voir
-           avec sa cause. */
+        /* Consume the operands anyway: leaving here with a pc in the
+           middle of an instruction would make arguments execute as
+           opcodes, and the crash would have nothing left to do with
+           its cause. */
         for (idx16 = 0; idx16 < var; idx16++)
         {
           fetch8();
           fetch16();
         }
-        vm_halt(); /* récursion trop profonde : bug de données */
+        vm_halt(); /* recursion too deep: a data bug */
         break;
       }
-      /* Les arguments sont évalués dans le cadre de l'APPELANT — c'est
-         ce qui permet de passer un paramètre reçu à une autre fonction —
-         puis ils DEVIENNENT le cadre de l'appelée. */
+      /* The arguments are evaluated in the CALLER's frame — that is what
+         allows passing a received parameter to another function — then
+         they BECOME the callee's frame. */
       for (idx16 = 0; idx16 < var; idx16++)
       {
-        val16 = fetch8(); /* type de la source */
+        val16 = fetch8(); /* type of the source */
         vm.frame[vm.frame_sp + idx16] = varop_src((u8)val16, fetch16());
       }
-      /* Les slots au-dela des arguments sont les LOCALES : a zero. Sans
-         ca elles reprendraient ce qu'un appel precedent avait laisse au
-         meme endroit — un bug qui ne se manifeste que lorsqu'une
-         deuxieme fonction passe par la, donc jamais pendant le test. */
+      /* The slots beyond the arguments are the LOCALS: zeroed. Without
+         that they would pick up whatever a previous call had left at the
+         same place — a bug that only shows once a second function comes
+         through, so never during the test. */
       for (; idx16 < val; idx16++)
         vm.frame[vm.frame_sp + idx16] = 0;
       vm.call_fb[vm.call_sp] = vm.frame_base;
@@ -843,27 +843,27 @@ static void vm_step(void)
       vm.pc = ofs;
       break;
 
-    case VM_OP_RETF: /* retour de fonction AVEC valeur (F1) */
+    case VM_OP_RETF: /* function return WITH a value (F1) */
       var = fetch8();
       vm.retval = varop_src(var, fetch16());
       vm_do_ret();
       break;
 
-    case VM_OP_DBREAD: /* vars16[dst] = champ de la database (v0.17) */
-      var = fetch8();   /* table (registre db_tables[]) */
-      val = fetch8();   /* source d'entrée : 0 constante, 1 variable */
-      idx16 = fetch8(); /* entrée (ou n° de variable) */
+    case VM_OP_DBREAD: /* vars16[dst] = a database field (v0.17) */
+      var = fetch8();   /* table (db_tables[] register) */
+      val = fetch8();   /* entry source: 0 constant, 1 variable */
+      idx16 = fetch8(); /* entry (or variable number) */
       if (val)
         idx16 = vm.vars16[idx16 & 255];
-      ofs = fetch8();   /* offset du champ */
-      val = fetch8();   /* taille : 1 ou 2 octets */
-      op = fetch8();    /* variable destination */
+      ofs = fetch8();   /* field offset */
+      val = fetch8();   /* size: 1 or 2 bytes */
+      op = fetch8();    /* destination variable */
       if (var >= DB_TABLE_COUNT || idx16 >= db_table_counts[var])
-        val16 = 0; /* entrée dynamique hors table : 0, jamais de lecture
-                      sauvage (les constantes sont validées par datagen) */
+        val16 = 0; /* dynamic entry outside the table: 0, never a wild
+                      read (the constants are validated by datagen) */
       else
       {
-        ofs += idx16 * db_table_sizes[var]; /* u16 : 255 x 255 max */
+        ofs += idx16 * db_table_sizes[var]; /* u16: 255 x 255 max */
         val16 = db_tables[var][ofs];
         if (val == 2)
           val16 |= (u16)db_tables[var][ofs + 1] << 8;
@@ -871,17 +871,17 @@ static void vm_step(void)
       vm.vars16[op] = val16;
       break;
 
-    case VM_OP_SHOWUI: /* visibilité d'un widget UI (Phase 12) */
-      var = fetch8(); /* index du widget (racine du layout) */
-      op = fetch8();  /* 1 = afficher, 0 = cacher */
+    case VM_OP_SHOWUI: /* visibility of a UI widget (Phase 12) */
+      var = fetch8(); /* widget index (root of the layout) */
+      op = fetch8();  /* 1 = show, 0 = hide */
       overlay_show(var, op);
       break;
 
     case VM_OP_KEYIN: /* Key Input Processing (RM2003, Phase 12) */
-      op = fetch8();    /* 1 = attendre un appui */
-      val16 = fetch8(); /* masque des touches autorisées (lo) */
+      op = fetch8();    /* 1 = wait for a press */
+      val16 = fetch8(); /* mask of the allowed keys (lo) */
       val16 |= (u16)fetch8() << 8;
-      var = fetch8();   /* variable destination */
+      var = fetch8();   /* destination variable */
       if (op)
       {
         vm.keyin_mask = val16;
@@ -892,24 +892,24 @@ static void vm_step(void)
         vm.vars16[var] = keyin_scan(val16, padsCurrent(0));
       break;
 
-    case VM_OP_DLGSTYLE: /* style de la prochaine boîte (S1) */
+    case VM_OP_DLGSTYLE: /* style of the next box (S1) */
       textbox_set_style(fetch8());
       break;
 
-    case VM_OP_SYSMENU: /* menu Système (sauvegarde) — Phase 12 : le
-                           mapping START en dur est retiré, l'auteur
-                           ouvre le menu par cette commande */
+    case VM_OP_SYSMENU: /* System menu (saving) — Phase 12: the
+                           hard-wired START mapping is gone, the author
+                           opens the menu with this command */
       sysmenu_open();
       break;
 
-    case VM_OP_SHOWPIC: /* picture (S3/S5/S7) — transition DIFFÉRÉE à la
-                             boucle principale (modèle du warp scripté),
-                             la VM marque une pause d'une frame pour que
-                             l'image précède la suite. Les VARIABLES
-                             (flags bits 0-1) sont résolues ICI. */
-      var = fetch8(); /* pic_id ou index de variable */
-      val = fetch8(); /* x écran ou index de variable */
-      idx16 = fetch8(); /* y écran ou index de variable */
+    case VM_OP_SHOWPIC: /* picture (S3/S5/S7) — transition DEFERRED to the
+                             main loop (the scripted warp model), the VM
+                             pauses for one frame so the image comes
+                             before what follows. The VARIABLES (flags
+                             bits 0-1) are resolved HERE. */
+      var = fetch8(); /* pic_id or variable index */
+      val = fetch8(); /* screen x or variable index */
+      idx16 = fetch8(); /* screen y or variable index */
       ofs = fetch8(); /* flags */
       if (ofs & 1)
         var = (u8)vm.vars16[var];
@@ -929,11 +929,11 @@ static void vm_step(void)
       vm.wait_timer = 1;
       break;
 
-    case VM_OP_MOVEPIC: /* glisse l'image affichée (S7) — NON-bloquant :
-                             état seulement, le scroll avance frame par
-                             frame dans picture_apply */
-      val = fetch8(); /* x ou index de variable */
-      idx16 = fetch8(); /* y ou index de variable */
+    case VM_OP_MOVEPIC: /* slides the shown image (S7) — NON blocking:
+                             state only, the scroll advances frame by
+                             frame in picture_apply */
+      val = fetch8(); /* x or variable index */
+      idx16 = fetch8(); /* y or variable index */
       ofs = fetch8(); /* flags */
       if (ofs & 2)
       {
@@ -943,15 +943,15 @@ static void vm_step(void)
       picture_move(val, (u8)idx16, (u8)ofs, fetch8());
       break;
 
-    case VM_OP_JCMP16: /* saute si la comparaison 16-bit est vraie */
-      /* Les deux membres sont des sources generales (F2) : constante,
-         variable, position du heros, parametre de fonction… Les fetch
-         sont sur des lignes separees — l'ordre d'evaluation des
-         arguments d'un appel n'est pas garanti en C, et ici il compte. */
-      var = fetch8();  /* type de la source A */
+    case VM_OP_JCMP16: /* jump if the 16-bit comparison is true */
+      /* Both sides are general sources (F2): a constant, a variable, the
+         hero's position, a function parameter… The fetches are on
+         separate lines — the evaluation order of a call's arguments is
+         not guaranteed in C, and here it matters. */
+      var = fetch8();  /* type of source A */
       idx16 = varop_src(var, fetch16());
       val = fetch8();  /* 0 ==, 1 !=, 2 >= */
-      var = fetch8();  /* type de la source B */
+      var = fetch8();  /* type of source B */
       val16 = varop_src(var, fetch16());
       ofs = fetch16();
       if ((val == 0 && idx16 == val16) || (val == 1 && idx16 != val16) ||
@@ -960,7 +960,7 @@ static void vm_step(void)
       break;
 
     default:
-      vm_halt(); /* opcode inconnu : données corrompues */
+      vm_halt(); /* unknown opcode: corrupted data */
     }
   }
 }
@@ -971,13 +971,13 @@ void vm_update(void)
 
   if (vm.wait_mode == VM_WAIT_TEXTBOX)
   {
-    textbox_tick(); /* machine à écrire (Phase 11, thème text_speed) */
+    textbox_tick(); /* typewriter (Phase 11, text_speed theme) */
     if (padsDown(0) & KEY_A)
     {
       if (textbox_waiting_key())
-        textbox_resume(); /* point d'attente \! : reprendre (T2) */
+        textbox_resume(); /* \! wait point: resume (T2) */
       else if (textbox_busy())
-        textbox_finish(); /* premier A : tout révéler (jusqu'à un \!) */
+        textbox_finish(); /* first A: reveal everything (up to a \!) */
       else
       {
         textbox_close();
@@ -986,11 +986,11 @@ void vm_update(void)
     }
     else if (!textbox_busy() && textbox_autoclose())
     {
-      /* \^ (T2) : le message se ferme seul une fois tout révélé */
+      /* \^ (T2): the message closes on its own once all is revealed */
       textbox_close();
       vm.wait_mode = VM_WAIT_NONE;
     }
-    return; /* la VM reprend à la frame suivante */
+    return; /* the VM resumes on the next frame */
   }
   if (vm.wait_mode == VM_WAIT_ROUTE)
   {
@@ -1046,8 +1046,8 @@ void vm_update(void)
   }
   if (vm.wait_mode == VM_WAIT_LIST)
   {
-    /* menu à curseur (B6) : bouclage haut/bas — le réflexe des menus
-       de combat SNES (4 options : bas depuis Fuite = Attaque) */
+    /* cursor menu (B6): wrap around top/bottom — the reflex of SNES
+       battle menus (4 options: down from Flee = Attack) */
     down = padsDown(0);
     if (down & KEY_UP)
     {
@@ -1063,7 +1063,7 @@ void vm_update(void)
     }
     else if (down & KEY_A)
     {
-      /* variable 16-bit (0-255), comme KEYIN — le circuit if_var */
+      /* 16-bit variable (0-255), like KEYIN — the if_var circuit */
       vm.vars16[vm.choice_var] = vm.choice_sel;
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
@@ -1076,8 +1076,8 @@ void vm_update(void)
     }
     else if ((down & (KEY_LEFT | KEY_RIGHT)) && (vm.list_flags & 4))
     {
-      /* multi-panneaux : la sortie latérale dit au script d'activer la
-         liste voisine (254 = sorti à gauche, 253 = à droite) */
+      /* multi-panel: leaving sideways tells the script to activate the
+         neighbouring list (254 = left, 253 = right) */
       vm.vars16[vm.choice_var] = (down & KEY_LEFT) ? 254 : 253;
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
@@ -1108,11 +1108,11 @@ void vm_update(void)
   vm_step();
 }
 
-/* Un pas du contexte PARALLÈLE (v0.16) — à appeler chaque frame hors
-   menu Système, que le script principal soit actif ou non. Lance le
-   premier common event « parallel » dont le switch est ON, gère ses
-   attentes non-UI, puis exécute ses opcodes par swap-in/swap-out. À la
-   fin du script (END), il repart du début tant que le switch reste ON. */
+/* One step of the PARALLEL context (v0.16) — to be called every frame
+   outside the System menu, whether the main script is active or not. It
+   starts the first "parallel" common event whose switch is ON, handles
+   its non-UI waits, then runs its opcodes by swap-in/swap-out. At the
+   end of the script (END) it starts again as long as the switch is ON. */
 void vm_parallel_update(void)
 {
   u16 ofs;
@@ -1178,7 +1178,7 @@ void vm_parallel_update(void)
     p_wait_mode = VM_WAIT_NONE;
   }
   if (p_wait_mode != VM_WAIT_NONE)
-    return; /* TEXTBOX/CHOICE : impossibles ici (datagen les refuse) */
+    return; /* TEXTBOX/CHOICE: impossible here (datagen refuses them) */
   pvm_swap();
   vm_step();
   pvm_swap();

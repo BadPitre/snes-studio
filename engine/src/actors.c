@@ -1,11 +1,11 @@
 /*
- * actors.c — acteurs de scène (PNJ statiques v0).
+ * actors.c — scene actors (NPCs).
  *
- * Tout vient de la table d'acteurs de la scène (spec §1.3) : position en
- * tiles, sprite_id (SLOT de bloc de personnage dans le sprite set de la
- * scène — datagen remappe les blocs projet vers les slots locaux, v0.5),
- * direction. Frame affichée = slot*12 + dir*3 (repos), palette OBJ =
- * slot. Metasprite 16x24 = 2 OBJs 16x16 empilés.
+ * Everything comes from the scene's actor table: position in tiles,
+ * sprite_id (the SLOT of a character block in the scene's sprite set —
+ * datagen remaps the project's blocks onto local slots), direction. The
+ * displayed frame is slot*12 + dir*3 (idle), the OBJ palette is the
+ * slot. A 16x24 metasprite is 2 stacked 16x16 OBJs.
  */
 #include <snes.h>
 #include "formats.h"
@@ -15,81 +15,81 @@
 #include "player.h"
 #include "vm.h"
 
-/* OAM : joueur = ids 0 et 4 ; acteur i = ids (2+2i)*4 (haut) et (3+2i)*4
-   (bas) — structure OAM PVSnesLib, id = index d'objet * 4 */
+/* OAM: the player takes ids 0 and 4; actor i takes ids (2+2i)*4 (top)
+   and (3+2i)*4 (bottom) — PVSnesLib OAM structure, id = object * 4 */
 #define ACTOR_OAM_TOP(i) ((((u16)(i) << 1) + 2) << 2)
 #define ACTOR_OAM_BOT(i) ((((u16)(i) << 1) + 3) << 2)
 #define ACTOR_OBJ_PRIO 2
 
-/* frame de repos d'un acteur : bloc*12 + dir*3 (pas d'anim v0). La
-   direction vit en WRAM (FACE, se tourner vers le héros) — la valeur ROM
-   n'est que l'état initial. */
+/* Idle frame of an actor: block*12 + dir*3. The direction lives in WRAM
+   (FACE, turning towards the hero) — the ROM value is only the initial
+   state. */
 #define ACTOR_FRAME(a, d) ((u8)((a)->sprite_id * 12 + (d) * 3))
 
-/* Slots OAM réservés aux acteurs (1..ACTOR_SLOTS) — les slots au-delà du
-   nombre d'acteurs de la scène sont cachés (résidus d'une scène plus
-   peuplée après un warp) */
+/* OAM slots reserved for actors (1..ACTOR_SLOTS) — the slots beyond the
+   scene's actor count are hidden (leftovers from a more populated scene
+   after a warp) */
 #define ACTOR_SLOTS 24
 
-/* Directions runtime (WRAM) — FACE et « se tourner vers le héros » */
+/* Runtime directions (WRAM) — FACE and "turn towards the hero" */
 u8 actor_dirs[ACTOR_SLOTS];
 
-/* Pages actives (v0.10) : 1 = cette entrée est la page active de son
-   event. Recalculé au chargement et après chaque script (les switches
-   ont pu changer) — voir actors_resolve_pages(). */
+/* Active pages (v0.10): 1 = this entry is its event's active page.
+   Recomputed on load and after every script (the switches may have
+   changed) — see actors_resolve_pages(). */
 u8 actor_active[ACTOR_SLOTS];
 
-/* PNJ mobiles (v0.11) — état runtime par slot. La position ROM (tile)
-   n'est que le point de départ : la position vraie vit ici, en pixels. */
+/* Moving NPCs (v0.11) — runtime state per slot. The ROM position (a
+   tile) is only the starting point: the true position lives here, in px. */
 u16 actor_px[ACTOR_SLOTS];
 u16 actor_py[ACTOR_SLOTS];
-u8 actor_step[ACTOR_SLOTS];  /* pixels restants du pas en cours */
-u8 actor_anim[ACTOR_SLOTS];  /* frame de marche 0-3 (comme joueur) */
-static u8 actor_timer[ACTOR_SLOTS]; /* frames avant la prochaine décision */
-static u16 mv_seed;                 /* xorshift 16-bit (aléatoire) */
-static u8 mv_phase;                 /* vitesse PNJ : 1 px 1 frame sur 2 */
+u8 actor_step[ACTOR_SLOTS];  /* pixels left in the current step */
+u8 actor_anim[ACTOR_SLOTS];  /* walk frame 0-3 (like the player) */
+static u8 actor_timer[ACTOR_SLOTS]; /* frames before the next decision */
+static u16 mv_seed;                 /* 16-bit xorshift (randomness) */
+static u8 mv_phase;                 /* NPC speed: 1 px every other frame */
 
-/* Itinéraires (v0.12) — la route vit dans le bloc scripts de la scène,
-   le slot ne garde qu'un curseur. 0xFFFF = pas de route. */
+/* Routes (v0.12) — the route lives in the scene's script block, the slot
+   only keeps a cursor. 0xFFFF = no route. */
 static u16 route_ofs[ACTOR_SLOTS];
 static u8 route_pos[ACTOR_SLOTS];
 static u8 route_len[ACTOR_SLOTS];
 static u8 route_flags[ACTOR_SLOTS];
 static u8 route_wait[ACTOR_SLOTS];
 
-/* Attributs Move Route (v0.13) : vitesse 1-4 (0.5/1/2/4 px par frame),
-   fréquence 1-8 (pause entre pas de route), direction figée, passe-
-   muraille, graphisme changé (0xFF = celui de la page). */
+/* Move Route attributes (v0.13): speed 1-4 (0.5/1/2/4 px per frame),
+   frequency 1-8 (pause between route steps), fixed direction,
+   through-walls, changed graphic (0xFF = the page's). */
 static u8 actor_speed[ACTOR_SLOTS];
 static u8 actor_freq[ACTOR_SLOTS];
 static u8 actor_dirfix[ACTOR_SLOTS];
-static u8 actor_mvdir[ACTOR_SLOTS]; /* direction du pas en cours (dirfix) */
+static u8 actor_mvdir[ACTOR_SLOTS]; /* direction of the current step (dirfix) */
 static u8 actor_thru[ACTOR_SLOTS];
 u8 actor_gfx[ACTOR_SLOTS];
 u8 actor_prio[ACTOR_SLOTS]; /* ACTOR_PRIO_* (v0.14) */
 
-/* ---- copie WRAM des champs ROM du chemin chaud (P3) ----
- * actors_update et actors_draw relisaient, par acteur ET par frame, le
- * type, l'apparence et le type de mouvement dans la table d'acteurs —
- * une structure en ROM, donc des accès far, les plus lents du 65816.
- * Ces champs sont CONSTANTS pour un slot (un slot = une page d'event) :
- * ils sont recopiés une fois au chargement de la scène.
- * actor_fbase évite en prime la multiplication par 12 (le 65816 n'en a
- * pas : tcc-816 appelle une routine) refaite à chaque frame pour placer
- * la frame du metasprite. */
+/* ---- WRAM copy of the hot path's ROM fields (P3) ----
+ * actors_update and actors_draw used to re-read the type, the
+ * appearance and the movement type from the actor table for every actor
+ * on every frame — a structure in ROM, so far accesses, the slowest
+ * ones on the 65816. Those fields are CONSTANT for a slot (a slot is
+ * one event page): they are copied once when the scene loads.
+ * actor_fbase also avoids the multiplication by 12 (the 65816 has none:
+ * tcc-816 calls a routine) that was redone every frame to place the
+ * metasprite's frame. */
 u8 actor_sprite[ACTOR_SLOTS]; /* sprite_id, 0xFF = invisible */
 static u8 actor_kind[ACTOR_SLOTS];   /* actor_type */
-static u8 actor_movet[ACTOR_SLOTS];  /* type de mouvement (flags) */
-u8 actor_fbase[ACTOR_SLOTS];  /* sprite_id * 12 : base de frame */
-u8 actor_shown[ACTOR_SLOTS];  /* OBJ actuellement visible ? */
-/* Mots 1 et 3 de la paire d'entrées OAM (numéro de tile + attribut) : ils
-   ne dépendent QUE de la frame affichée, de la palette et de la priorité.
-   Les recalculer à chaque frame coûtait plus cher que tout le reste de la
-   boucle réuni (mesuré : sans l'écriture OAM, dix PNJ tiennent les 60 fps).
-   La clé de validité est la frame elle-même — pas besoin d'invalider à la
-   main quand un PNJ tourne ou marche. */
+static u8 actor_movet[ACTOR_SLOTS];  /* movement type (flags) */
+u8 actor_fbase[ACTOR_SLOTS];  /* sprite_id * 12: frame base */
+u8 actor_shown[ACTOR_SLOTS];  /* OBJ currently visible? */
+/* Words 1 and 3 of the OAM entry pair (tile number + attribute): they
+   depend ONLY on the displayed frame, the palette and the priority.
+   Recomputing them every frame cost more than all the rest of the loop
+   put together (measured: without the OAM write, ten NPCs hold 60 fps).
+   The validity key is the frame itself — no need to invalidate by hand
+   when an NPC turns or walks. */
 u8 actor_lastf[ACTOR_SLOTS];
-u8 actor_x9[ACTOR_SLOTS];   /* 9e bit de X posé dans la table 2 */
+u8 actor_x9[ACTOR_SLOTS];   /* 9th bit of X set in table 2 */
 u16 actor_w1[ACTOR_SLOTS];
 u16 actor_w3[ACTOR_SLOTS];
 
@@ -101,23 +101,23 @@ static u16 mv_rand(void)
   return mv_seed;
 }
 
-/* Tile runtime d'un slot (centre du corps, comme le joueur) */
+/* Runtime tile of a slot (centre of the body, like the player) */
 #define ACTOR_TX(i) ((u8)((actor_px[i] + 8) >> 4))
 #define ACTOR_TY(i) ((u8)((actor_py[i] + 8) >> 4))
 
-/* ---- tiles bloquantes précalculées (chemin chaud de la collision) ----
- * tile_blocked() du joueur interroge actor_at_tile ~10 fois par frame de
- * marche ; itérer les ActorDef à chaque appel coûtait la frame entière
- * sur une scène à pages (1 def PAR page : 7 defs = 60 → 30 fps, mesuré
- * au harnais via lag_frame_counter). La liste des PNJ bloquants (actifs,
- * priorité « comme le héros ») est reconstruite UNE fois par frame (fin
- * d'actors_update) et après chaque événement qui peut la changer
- * (resolve_pages, set_pos, swap_pos) ; actor_at_tile se réduit alors à
- * un rejet bounding box + un balayage de petits tableaux u8.
- * init EXPLICITE : tcc-816 ne remet pas le BSS à zéro. */
-#define BLK_MAX (ACTOR_SLOTS + 8) /* + PNJ figés au-delà des slots */
+/* ---- precomputed blocking tiles (collision hot path) ----
+ * The player's tile_blocked() queries actor_at_tile ~10 times per frame
+ * while walking; iterating the ActorDefs on every call cost the whole
+ * frame on a scene with pages (1 def PER page: 7 defs = 60 -> 30 fps,
+ * measured on the harness through lag_frame_counter). The list of
+ * blocking NPCs (active, priority "like the hero") is rebuilt ONCE per
+ * frame (at the end of actors_update) and after every event that can
+ * change it (resolve_pages, set_pos, swap_pos); actor_at_tile then comes
+ * down to a bounding-box rejection plus a scan of small u8 arrays.
+ * EXPLICIT init: tcc-816 does not clear the BSS. */
+#define BLK_MAX (ACTOR_SLOTS + 8) /* + NPCs frozen beyond the slots */
 static u8 blk_n = 0;
-static u8 blk_ovf = 0; /* liste pleine : repli sur le parcours exact */
+static u8 blk_ovf = 0; /* list full: fall back to the exact walk */
 static u8 blk_tx[BLK_MAX];
 static u8 blk_ty[BLK_MAX];
 static u8 blk_id[BLK_MAX];
@@ -127,7 +127,7 @@ static void actors_rebuild_blockers(void)
 {
   u8 i, x, y;
   u8 k = 0;
-  u8 n = scene_ctx.actor_count; /* far struct : lu UNE fois */
+  u8 n = scene_ctx.actor_count; /* far struct: read ONCE */
 
   blk_x0 = 255;
   blk_x1 = 0;
@@ -141,13 +141,13 @@ static void actors_rebuild_blockers(void)
       if (!actor_active[i] || actor_prio[i] != ACTOR_PRIO_SAME)
         continue;
       if (actor_kind[i] != ACTOR_TYPE_NPC_STATIC)
-        continue; /* copie WRAM (P3) : plus de lecture far ici */
+        continue; /* WRAM copy (P3): no far read here */
       x = ACTOR_TX(i);
       y = ACTOR_TY(i);
     }
     else
     {
-      /* au-delà des slots : PNJ figé à sa position d'édition */
+      /* beyond the slots: the NPC is frozen at its editing position */
       const ActorDef *a = &scene_ctx.actors[i];
 
       if (a->actor_type != ACTOR_TYPE_NPC_STATIC)
@@ -157,7 +157,7 @@ static void actors_rebuild_blockers(void)
     }
     if (k >= BLK_MAX)
     {
-      blk_ovf = 1; /* pathologique — l'exactitude prime sur la vitesse */
+      blk_ovf = 1; /* pathological — correctness over speed */
       break;
     }
     blk_tx[k] = x;
@@ -176,7 +176,7 @@ static void actors_rebuild_blockers(void)
   blk_n = k;
 }
 
-/* La condition de cette page passe-t-elle ? (spec §1.3 v0.10) */
+/* Does this page's condition pass? */
 static u8 page_cond_ok(const ActorDef *a)
 {
   switch (a->flags & ACTOR_COND_MASK)
@@ -192,9 +192,9 @@ static u8 page_cond_ok(const ActorDef *a)
   }
 }
 
-/* Route custom d'une page (v0.14) : blob [flags][freq][len][pas...] à
-   route_ofs dans le bloc scripts — appliquée quand la page devient
-   active (type de mouvement « Route custom »). */
+/* A page's custom route (v0.14): a [flags][freq][len][steps...] blob at
+   route_ofs in the script block — applied when the page becomes active
+   (movement type "Custom route"). */
 static void actors_apply_page_route(u8 i)
 {
   const ActorDef *a = &scene_ctx.actors[i];
@@ -212,10 +212,10 @@ static void actors_apply_page_route(u8 i)
                    scene_ctx.scripts[ofs + 2]);
 }
 
-/* Par GROUPE de pages (entrées consécutives liées par CONTINUATION), la
-   DERNIÈRE page dont la condition passe est active — modèle RM2003 (la
-   page de plus haut numéro l'emporte). Les OBJ des pages désactivées
-   sont cachés ici (actors_draw ne touche plus qu'aux pages actives). */
+/* Within a GROUP of pages (consecutive entries linked by CONTINUATION),
+   the LAST page whose condition passes is the active one — the RM2003
+   model (the highest-numbered page wins). The OBJs of deactivated pages
+   are hidden here (actors_draw only touches active pages). */
 void actors_resolve_pages(void)
 {
   u8 i, j, start, win;
@@ -239,26 +239,26 @@ void actors_resolve_pages(void)
       {
         oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
         oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
-        actor_shown[i] = 0; /* l'OBJ est caché : actors_draw le sait */
-        actor_lastf[i] = 0xFF; /* palette/priorité à recalculer */
+        actor_shown[i] = 0; /* the OBJ is hidden: actors_draw knows */
+        actor_lastf[i] = 0xFF; /* palette/priority to recompute */
         actor_x9[i] = 0xFF;
-        route_ofs[i] = 0xFFFF; /* la page part, sa route aussi */
+        route_ofs[i] = 0xFFFF; /* the page goes, so does its route */
       }
       if (i == win && !actor_active[i])
       {
         actor_active[i] = 1;
-        actors_apply_page_route(i); /* route custom de la page (v0.14) */
+        actors_apply_page_route(i); /* custom route of the page (v0.14) */
       }
       else
         actor_active[i] = (i == win);
     }
   }
-  actors_rebuild_blockers(); /* les pages actives ont pu changer */
+  actors_rebuild_blockers(); /* the active pages may have changed */
 }
 
-/* Apparence : sprite_id 0xFF = invisible (spec §1.3 v0.8). Un event de
-   contact/auto PEUT avoir une apparence (coffre visible…) — il reste
-   traversable, « sous le héros » comme dans RM2003. */
+/* Appearance: sprite_id 0xFF = invisible. A contact/autorun event CAN
+   have an appearance (a visible chest…) — it stays walkable, "under the
+   hero" as in RM2003. */
 #define ACTOR_VISIBLE(a) ((a)->sprite_id != 0xFF)
 
 void actors_init(void)
@@ -266,14 +266,14 @@ void actors_init(void)
   u8 i;
   const ActorDef *a = scene_ctx.actors;
 
-  /* Graine de l'errance des PNJ. Le .bss n'est PAS remis a zero par
-     cette toolchain : sans cette ligne, mv_seed demarrait sur ce qui
-     trainait en WRAM. Deterministe pour un binaire donne — donc invisible
-     — mais il CHANGE des que le plan memoire bouge, si bien qu'un
-     changement de code sans rapport modifiait la promenade des PNJ. Deux
-     versions d'une scene peuplee devenaient incomparables : ca m'a coute
-     un faux diagnostic pendant P4. Une constante non nulle suffit
-     (xorshift reste bloque sur zero). */
+  /* Seed of the NPC wandering. The .bss is NOT cleared by this
+     toolchain: without this line mv_seed started on whatever was lying
+     around in WRAM. Deterministic for a given binary — so invisible —
+     but it CHANGES as soon as the memory layout moves, so an unrelated
+     code change altered how the NPCs strolled. Two versions of a
+     populated scene became incomparable: that cost me a false diagnosis
+     during P4. A non-zero constant is enough (xorshift stays stuck on
+     zero). */
   mv_seed = 0x2A69;
 
   for (i = 0; i < ACTOR_SLOTS; i++)
@@ -286,14 +286,14 @@ void actors_init(void)
     actor_py[i] = 0;
     actor_step[i] = 0;
     actor_anim[i] = 0;
-    actor_timer[i] = (u8)(20 + i * 13); /* décale les décisions */
+    actor_timer[i] = (u8)(20 + i * 13); /* staggers the decisions */
     route_ofs[i] = 0xFFFF;
     route_pos[i] = 0;
     route_len[i] = 0;
     route_flags[i] = 0;
     route_wait[i] = 0;
-    actor_speed[i] = 1;  /* 0.5 px/frame — la vitesse v0.11 */
-    actor_freq[i] = 3;   /* défaut RM2003 */
+    actor_speed[i] = 1;  /* 0.5 px/frame — the v0.11 speed */
+    actor_freq[i] = 3;   /* RM2003 default */
     actor_dirfix[i] = 0;
     actor_thru[i] = 0;
     actor_gfx[i] = 0xFF;
@@ -305,9 +305,9 @@ void actors_init(void)
     actor_fbase[i] = 0;
     actor_shown[i] = 0;
     actor_lastf[i] = 0xFF;
-    actor_x9[i] = 0xFF; /* invalide : force la première écriture */
+    actor_x9[i] = 0xFF; /* invalid: forces the first write */
   }
-  mv_seed = 0xACE1; /* jamais 0 (xorshift) — init EXPLICITE (tcc) */
+  mv_seed = 0xACE1; /* never 0 (xorshift) — EXPLICIT init (tcc) */
   mv_phase = 0;
   actors_resolve_pages();
 
@@ -321,7 +321,7 @@ void actors_init(void)
       actor_prio[i] = a->prio_speed & 3;
       if ((a->prio_speed >> 4) >= 1 && (a->prio_speed >> 4) <= 4)
         actor_speed[i] = a->prio_speed >> 4;
-      /* copie WRAM du chemin chaud (P3) : ces champs ne bougent plus */
+      /* WRAM copy of the hot path (P3): these fields no longer move */
       actor_sprite[i] = a->sprite_id;
       actor_kind[i] = a->actor_type;
       actor_movet[i] = (a->flags & ACTOR_MOVE_MASK) >> ACTOR_MOVE_SHIFT;
@@ -333,69 +333,69 @@ void actors_init(void)
            OBJ_TOP_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
     oamSet(ACTOR_OAM_BOT(i), 0, 240, ACTOR_OBJ_PRIO, 0, 0,
            OBJ_BOTTOM_TILE(ACTOR_FRAME(a, a->direction)), a->sprite_id);
-    /* oamSetEx UNE SEULE FOIS ici : il réécrit la paire de bits de la table
-       OAM 2 (taille + 9e bit de X). L'appeler après oamSet à chaque frame
-       écraserait le 9e bit de X posé par oamSet, et un sprite partiellement
-       hors écran à gauche (X négatif) réapparaîtrait à droite. */
+    /* oamSetEx ONLY ONCE here: it rewrites the pair of bits in OAM table
+       2 (size + 9th bit of X). Calling it after oamSet on every frame
+       would clobber the 9th bit of X that oamSet set, and a sprite partly
+       off screen on the left (negative X) would reappear on the right. */
     oamSetEx(ACTOR_OAM_TOP(i), OBJ_SMALL, OBJ_SHOW);
     oamSetEx(ACTOR_OAM_BOT(i), OBJ_SMALL, OBJ_SHOW);
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
   }
-  /* Le resolve_pages ci-dessus a construit la liste des bloqueurs AVANT
-     que cette boucle ne pose les positions et les priorités : elle est
-     donc à refaire ici. Tant qu'actors_update la reconstruisait à chaque
-     frame, l'erreur se corrigeait toute seule à la frame suivante. */
+  /* The resolve_pages above built the blocker list BEFORE this loop laid
+     down the positions and priorities: it therefore has to be redone
+     here. As long as actors_update rebuilt it every frame, the mistake
+     corrected itself on the following frame. */
   actors_rebuild_blockers();
 }
 
-/* ---- interface avec la boucle assembleur (actorsfast.asm, P4) ----
-   La boucle chaude vit en 65816 : a 24 PNJ visibles elle coutait 244
-   lignes ecran sur 262, soit la frame entiere (mesure au compteur V).
-   Le masquage reste ICI : il ne survient qu'a la TRANSITION hors champ,
-   donc jamais en regime etabli, et il passe par oamSetVisible. */
-u8 actors_hot_n;                     /* slots a traiter */
-u8 actors_hide_n;                    /* acteurs sortis du champ */
+/* ---- interface with the assembly loop (actorsfast.asm, P4) ----
+   The hot loop lives in 65816: at 24 visible NPCs it cost 244 screen
+   lines out of 262, that is the whole frame (measured with the V
+   counter). Hiding stays HERE: it only happens on the TRANSITION off
+   screen, so never in steady state, and it goes through oamSetVisible. */
+u8 actors_hot_n;                     /* slots to process */
+u8 actors_hide_n;                    /* actors that left the field */
 u8 actors_hide_list[ACTOR_SLOTS];
 extern void actors_draw_hot(void);
 
-/* Les tableaux ci-dessus ont perdu leur `static` : la boucle chaude est
-   ecrite en 65816 (actorsfast.asm, P4) et tcc-816 prefixe les symboles
-   statics avec le nom du fichier — l'assembleur ne pourrait pas les
-   nommer. Ils restent d'usage strictement interne au module. */
+/* The arrays above have lost their `static`: the hot loop is written in
+   65816 (actorsfast.asm, P4) and tcc-816 prefixes static symbols with
+   the file name — the assembly could not name them. They stay strictly
+   internal to the module. */
 
-/* ---- écriture directe du couple d'OBJ d'un acteur (P3) ----
- * oamSet prend huit arguments : avec tcc-816, POSER ces arguments coûte
- * plus cher que le travail lui-même (~125 instructions par appel, deux
- * appels par acteur et par frame — mesuré au compteur de scanline).
- * Ici on écrit nous-mêmes les deux entrées de l'OAM ombre (que le NMI
- * transfère) en un seul appel.
- * Table 2 de l'OAM : 2 bits par objet, bit 0 = 9e bit de X (indispensable
- * pour un sprite qui déborde à gauche : X négatif), bit 1 = taille, qu'on
- * ne touche PAS (posée une fois par oamSetEx). Les deux OBJ d'un
- * metasprite sont consécutifs et partagent X, donc leurs deux bits
- * tombent dans le même octet — une seule lecture-modification-écriture.
- * Octet 3 : vhoopppN (priorité, palette, 9e bit du numéro de tile). */
+/* ---- writing an actor's OBJ pair directly (P3) ----
+ * oamSet takes eight arguments: under tcc-816, LAYING those arguments
+ * costs more than the work itself (~125 instructions per call, two calls
+ * per actor per frame — measured with the scanline counter). Here we
+ * write the two entries of the shadow OAM ourselves (the NMI transfers
+ * it) in a single call.
+ * OAM table 2: 2 bits per object, bit 0 = the 9th bit of X (essential
+ * for a sprite hanging off the left: negative X), bit 1 = size, which we
+ * do NOT touch (set once by oamSetEx). The two OBJs of a metasprite are
+ * consecutive and share X, so their two bits fall in the same byte — a
+ * single read-modify-write.
+ * Byte 3: vhoopppN (priority, palette, 9th bit of the tile number). */
 static void actor_oam_pair(u16 id, u16 sx, u16 sy, u8 f, u8 op, u8 pal)
 {
   u16 tile = OBJ_TOP_TILE(f);
   u16 attr = ((u16)pal << 1) | ((u16)op << 4);
   u8 *hi = &oamMemory[512 + (id >> 4)];
-  /* Deux entrées OAM = quatre mots. Écrire en 16 bits évite huit
-     écritures 8 bits ET les bascules sep/rep que tcc-816 insère autour
-     de chaque opération sur un u8 (P3). L'OAM est en little-endian :
-     mot 0 = X | Y<<8, mot 1 = tile bas | attribut<<8. */
+  /* Two OAM entries = four words. Writing in 16 bits avoids eight 8-bit
+     writes AND the sep/rep switches that tcc-816 inserts around every
+     operation on a u8 (P3). The OAM is little-endian: word 0 = X | Y<<8,
+     word 1 = tile low | attribute<<8. */
   u16 *o = (u16 *)&oamMemory[id];
   u16 x8 = sx & 0xFF;
   u16 y8 = sy & 0xFF;
 
   o[0] = x8 | (y8 << 8);
   o[1] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
-  tile += 32; /* OBJ_BOTTOM_TILE : la rangée du dessous */
+  tile += 32; /* OBJ_BOTTOM_TILE: the row below */
   o[2] = x8 | (((y8 + 16) & 0xFF) << 8);
   o[3] = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
 
-  /* 9e bit de X : les deux OBJ partagent la même valeur */
+  /* 9th bit of X: the two OBJs share the same value */
   if (((id >> 2) & 3) == 0)
   {
     if (sx & 0x100)
@@ -416,8 +416,8 @@ void actors_draw(void)
 {
   u8 i, ns;
   u16 ax, ay;
-  /* invariants sortis de la boucle (P3) : scene_ctx et camera sont des
-     structures — tcc-816 recalcule une adresse longue à CHAQUE lecture. */
+  /* invariants hoisted out of the loop (P3): scene_ctx and camera are
+     structures — tcc-816 recomputes a long address on EVERY read. */
   u8 n = scene_ctx.actor_count;
   u16 cx = camera.x;
   u16 cy = camera.y;
@@ -426,34 +426,34 @@ void actors_draw(void)
 
   ns = (n > ACTOR_SLOTS) ? ACTOR_SLOTS : n;
 
-  /* Boucle CHAUDE : en assembleur (P4) — voir actorsfast.asm pour le
-     detail de la mesure qui l'a justifiee. */
+  /* HOT loop: in assembly (P4) — see actorsfast.asm for the detail of
+     the measurement that justified it. */
   actors_hot_n = ns;
-  /* RAZ ICI, pas dans l'assembleur : sa sortie anticipee (aucun slot a
-     traiter) sautait par-dessus sa propre remise a zero, et au tout
-     premier appel actors_hide_n valait le motif de .bss non initialise
-     (0x55 = 85). La boucle ci-dessous parcourait alors 85 entrees d'une
-     liste qui en compte 24, et ecrivait actor_shown/actor_x9 A DES
-     INDEX HORS TABLEAU — de la memoire moteur corrompue en silence. */
+  /* CLEARED HERE, not in the assembly: its early exit (no slot to
+     process) jumped over its own reset, and on the very first call
+     actors_hide_n held the uninitialised .bss pattern (0x55 = 85). The
+     loop below then walked 85 entries of a list that holds 24, and wrote
+     actor_shown/actor_x9 AT INDICES OUT OF THE ARRAYS — engine memory
+     corrupted in silence. */
   actors_hide_n = 0;
   actors_draw_hot();
   if (actors_hide_n > ACTOR_SLOTS)
-    actors_hide_n = ACTOR_SLOTS; /* garde-fou : jamais hors du tableau */
+    actors_hide_n = ACTOR_SLOTS; /* guard: never outside the array */
   for (i = 0; i < actors_hide_n; i++)
   {
     u8 k = actors_hide_list[i];
 
-    /* l'OAM n'est touche qu'au moment ou l'acteur SORT du champ :
-       reecrire « cache » a chaque frame pour des PNJ que personne ne
-       voit etait l'essentiel du prix d'une scene peuplee (P3). */
+    /* the OAM is only touched at the moment the actor LEAVES the field:
+       rewriting "hidden" every frame for NPCs nobody can see was most of
+       the price of a populated scene (P3). */
     oamSetVisible(ACTOR_OAM_TOP(k), OBJ_HIDE);
     oamSetVisible(ACTOR_OAM_BOT(k), OBJ_HIDE);
     actor_shown[k] = 0;
-    actor_x9[k] = 0xFF; /* oamSetVisible a repositionne l'OBJ : cache mort */
+    actor_x9[k] = 0xFF; /* oamSetVisible moved the OBJ: cache dead */
   }
 
-  /* Queue FROIDE : les PNJ au-delà des slots sont figés à leur position
-     d'édition — tout vient de la ROM, il n'y a pas d'état runtime. */
+  /* COLD tail: the NPCs beyond the slots are frozen at their editing
+     position — everything comes from ROM, there is no runtime state. */
   for (i = ACTOR_SLOTS; i < n; i++)
   {
     const ActorDef *a = &scene_ctx.actors[i];
@@ -481,20 +481,20 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty, u8 d)
   if (tx >= scene_ctx.map_w || ty >= scene_ctx.map_h)
     return 1;
   if (actor_thru[i])
-    return 0; /* passe-muraille (Through ON) : seul le bord de map bloque */
+    return 0; /* through-walls (Through ON): only the map edge blocks */
   if (COL_TYPE(scene_collision(tx, ty)) == COL_SOLID)
     return 1;
-  /* côtés fermés (T1) : sortir de la tile courante par d, ou entrer
-     dans la cible par le côté opposé (d ^ 1) */
+  /* closed sides (T1): leaving the current tile through d, or entering
+     the target through the opposite side (d ^ 1) */
   if (COL_SIDES(scene_collision(ACTOR_TX(i), ACTOR_TY(i))) & (u8)(1 << d))
     return 1;
   if (COL_SIDES(scene_collision(tx, ty)) & (u8)(1 << (d ^ 1)))
     return 1;
-  /* la tile du héros — un event sous/au-dessus du héros passe (v0.14) */
+  /* the hero's tile — an event under/above the hero lets you through */
   if (actor_prio[i] == ACTOR_PRIO_SAME &&
       tx == (u8)((player.x + 8) >> 4) && ty == (u8)((player.y + 8) >> 4))
     return 1;
-  /* les autres acteurs actifs « comme le héros » */
+  /* the other active actors that are "like the hero" */
   for (j = 0; j < scene_ctx.actor_count && j < ACTOR_SLOTS; j++)
   {
     if (j != i && actor_active[j] && actor_prio[j] == ACTOR_PRIO_SAME &&
@@ -504,17 +504,17 @@ static u8 mv_blocked(u8 i, u8 tx, u8 ty, u8 d)
   return 0;
 }
 
-/* Delta d'une direction (dx, dy en tiles) */
+/* Delta of a direction (dx, dy in tiles) */
 static const s8 mv_dx[4] = {0, 0, -1, 1};
 static const s8 mv_dy[4] = {1, -1, 0, 0};
 
-/* Lance un itinéraire (opcode ROUTE, v0.12). ofs pointe les PAS dans le
-   bloc scripts. Remplace la route en cours du slot s'il y en a une. */
+/* Starts a route (ROUTE opcode, v0.12). ofs points at the STEPS in the
+   script block. Replaces the slot's current route if it has one. */
 void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
 {
   if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count || len == 0)
     return;
-  actor_step[index] = 0; /* coupe le pas d'errance en cours */
+  actor_step[index] = 0; /* cuts the wandering step in progress */
   route_ofs[index] = ofs;
   route_pos[index] = 0;
   route_len[index] = len;
@@ -522,8 +522,8 @@ void actors_set_route(u8 index, u16 ofs, u8 flags, u8 len)
   route_wait[index] = 0;
 }
 
-/* Place l'acteur sur une tile (opcode SETPOS, v0.15) — coupe le pas en
-   cours pour ne pas laisser un déplacement à moitié fait. */
+/* Places the actor on a tile (SETPOS opcode) — cuts the step in progress
+   so as not to leave a move half done. */
 void actors_set_pos(u8 index, u8 tx, u8 ty)
 {
   if (index >= ACTOR_SLOTS || index >= scene_ctx.actor_count)
@@ -531,10 +531,10 @@ void actors_set_pos(u8 index, u8 tx, u8 ty)
   actor_px[index] = (u16)tx << 4;
   actor_py[index] = (u16)ty << 4;
   actor_step[index] = 0;
-  actors_rebuild_blockers(); /* téléportation : la liste doit suivre */
+  actors_rebuild_blockers(); /* teleport: the list must follow */
 }
 
-/* Échange les positions de deux acteurs (opcode SWAPPOS, v0.15). */
+/* Swaps the positions of two actors (SWAPPOS opcode). */
 void actors_swap_pos(u8 a, u8 b)
 {
   u16 t;
@@ -550,10 +550,10 @@ void actors_swap_pos(u8 a, u8 b)
   actor_py[b] = t;
   actor_step[a] = 0;
   actor_step[b] = 0;
-  actors_rebuild_blockers(); /* téléportation : la liste doit suivre */
+  actors_rebuild_blockers(); /* teleport: the list must follow */
 }
 
-/* Fréquence 1-8 du slot (posée par l'opcode ROUTE avant set_route) */
+/* Frequency 1-8 of the slot (set by the ROUTE opcode before set_route) */
 static u8 route_freq_pending;
 
 void actors_route_freq(u8 freq)
@@ -567,8 +567,8 @@ void actors_route_bind_freq(u8 index)
     actor_freq[index] = route_freq_pending;
 }
 
-/* 1 si une route NON-repeat est encore en cours (WAITROUTE) — les routes
-   répétées tournent pour toujours, on ne les attend pas. */
+/* 1 if a NON-repeating route is still running (WAITROUTE) — repeating
+   routes run forever, we do not wait for them. */
 u8 actors_routes_busy(void)
 {
   u8 i;
@@ -581,7 +581,7 @@ u8 actors_routes_busy(void)
   return 0;
 }
 
-/* Se tourner vers le héros (pas FACEP + interactions) */
+/* Turn towards the hero (FACEP step and interactions) */
 static u8 dir_toward_player(u8 i)
 {
   u16 dx = player.x > actor_px[i] ? player.x - actor_px[i]
@@ -594,18 +594,18 @@ static u8 dir_toward_player(u8 i)
   return player.y > actor_py[i] ? DIR_DOWN : DIR_UP;
 }
 
-/* Rotations 90 degres (indices DIR_DOWN=0 UP=1 LEFT=2 RIGHT=3) :
-   horaire 0→2→1→3→0, anti-horaire l'inverse. */
+/* 90 degree rotations (indices DIR_DOWN=0 UP=1 LEFT=2 RIGHT=3):
+   clockwise 0->2->1->3->0, anticlockwise the other way. */
 static const u8 dir_cw[4] = {2, 3, 1, 0};
 static const u8 dir_ccw[4] = {3, 2, 0, 1};
 
-/* Avance la route du slot i d'un cran (un pas par appel au plus). */
+/* Advances the slot's route by one notch (at most one step per call). */
 static void route_tick(u8 i)
 {
   u8 step, d, tx, ty, adv;
 
   if (actor_step[i])
-    return; /* pas de marche en cours : on le laisse finir */
+    return; /* a walking step is running: let it finish */
   if (route_wait[i])
   {
     route_wait[i]--;
@@ -617,7 +617,7 @@ static void route_tick(u8 i)
       route_pos[i] = 0;
     else
     {
-      route_ofs[i] = 0xFFFF; /* terminé */
+      route_ofs[i] = 0xFFFF; /* done */
       return;
     }
   }
@@ -711,7 +711,7 @@ static void route_tick(u8 i)
       d = step & 3;
       goto tourne;
     }
-    d = step & 3; /* 0x00-0x03 : marcher */
+    d = step & 3; /* 0x00-0x03: walk */
     goto marche;
   }
 
@@ -726,17 +726,17 @@ marche:
   if (mv_blocked(i, tx, ty, d))
   {
     if (!actor_dirfix[i])
-      actor_dirs[i] = d; /* on se tourne quand même (modèle RM2003) */
+      actor_dirs[i] = d; /* we turn anyway (RM2003 model) */
     if (route_flags[i] & ROUTE_FLAG_SKIP)
-      route_pos[i] += adv; /* « ignorer si bloqué » : pas suivant */
-    return; /* sinon : réessaie tant que c'est bloqué */
+      route_pos[i] += adv; /* "ignore if blocked": next step */
+    return; /* otherwise: retry while it is blocked */
   }
   if (!actor_dirfix[i])
     actor_dirs[i] = d;
-  actor_mvdir[i] = d; /* direction RÉELLE du déplacement (dirfix) */
+  actor_mvdir[i] = d; /* REAL direction of the move (dirfix) */
   actor_step[i] = 16;
   route_pos[i] += adv;
-  /* pause de fréquence APRÈS un pas de marche (1 = lent, 8 = enchaîné) */
+  /* frequency pause AFTER a walking step (1 = slow, 8 = back to back) */
   route_wait[i] = (u8)((8 - actor_freq[i]) << 2);
   return;
 
@@ -744,17 +744,17 @@ fini:
   route_pos[i] += adv;
 }
 
-/* Mouvement des PNJ (v0.11/v0.12) — appelé chaque frame par la boucle
-   principale. Les ITINÉRAIRES avancent aussi pendant les scripts (c'est
-   le moteur des cinématiques) ; l'errance (move_type) reste gelée
-   pendant les scripts, et tout s'arrête dans le menu Système.
-   Vitesse : 1 px une frame sur deux (moitié du héros). */
+/* NPC movement (v0.11/v0.12) — called every frame by the main loop.
+   ROUTES also advance during scripts (they are the cutscene engine);
+   wandering (move_type) stays frozen during scripts, and everything
+   stops in the System menu.
+   Speed: 1 px every other frame (half the hero's). */
 void actors_update(void)
 {
   u8 i, d, tx, ty, mt;
   u8 frozen = vm_active();
-  u8 moved = 0; /* un acteur a-t-il changé de position cette frame ? */
-  u8 n = scene_ctx.actor_count; /* far struct : lu UNE fois (P3) */
+  u8 moved = 0; /* has an actor changed position this frame? */
+  u8 n = scene_ctx.actor_count; /* far struct: read ONCE (P3) */
 
   if (n > ACTOR_SLOTS)
     n = ACTOR_SLOTS;
@@ -762,27 +762,27 @@ void actors_update(void)
 
   for (i = 0; i < n; i++)
   {
-    /* tout en WRAM (P3) : plus une seule lecture ROM par acteur et par
-       frame — le type et le mouvement sont recopiés au chargement */
+    /* everything in WRAM (P3): not a single ROM read per actor per frame
+       any more — the type and the movement are copied at load time */
     if (!actor_active[i])
       continue;
     if (actor_kind[i] != ACTOR_TYPE_NPC_STATIC)
       continue;
 
-    /* itinéraire prioritaire sur l'errance */
+    /* a route takes priority over wandering */
     if (route_ofs[i] != 0xFFFF)
       route_tick(i);
 
     mt = actor_movet[i];
     if (route_ofs[i] == 0xFFFF && (mt == ACTOR_MOVE_STATIC || frozen))
     {
-      /* ni route ni errance : finir le pas en cours s'il y en a un */
+      /* neither route nor wandering: finish the current step if any */
       if (!actor_step[i])
         continue;
     }
     else if (route_ofs[i] == 0xFFFF && !actor_step[i])
     {
-      /* errance (v0.11) : décision */
+      /* wandering (v0.11): the decision */
       if (actor_timer[i])
       {
         actor_timer[i]--;
@@ -807,7 +807,7 @@ void actors_update(void)
       if (mv_blocked(i, tx, ty, d))
       {
         if (mt != ACTOR_MOVE_RANDOM && !actor_dirfix[i])
-          actor_dirs[i] = d ^ 1; /* demi-tour */
+          actor_dirs[i] = d ^ 1; /* about turn */
         continue;
       }
       if (!actor_dirfix[i])
@@ -818,7 +818,7 @@ void actors_update(void)
 
     if (actor_step[i])
     {
-      /* pas en cours — vitesse 1-4 : 0.5 / 1 / 2 / 4 px par frame */
+      /* step in progress — speed 1-4: 0.5 / 1 / 2 / 4 px per frame */
       u8 px = actor_speed[i] == 1 ? (mv_phase ? 1 : 0)
               : actor_speed[i] == 2 ? 1
               : actor_speed[i] == 3 ? 2 : 4;
@@ -836,12 +836,12 @@ void actors_update(void)
     }
   }
 
-  /* PERF (P2) : la liste des bloqueurs ne dépend que des positions et des
-     pages actives. Les téléportations (SETPOS/SWAPPOS) et les changements
-     de page la reconstruisent déjà elles-mêmes ; il ne reste ici que le
-     déplacement frame par frame. Une scène de PNJ immobiles la
-     reconstruisait 60 fois par seconde pour rien — 10 % du temps de la
-     frame, mesuré au compteur de scanline. */
+  /* PERF (P2): the blocker list only depends on the positions and the
+     active pages. Teleports (SETPOS/SWAPPOS) and page changes already
+     rebuild it themselves; all that is left here is frame-by-frame
+     movement. A scene of motionless NPCs rebuilt it 60 times a second
+     for nothing — 10 % of the frame's time, measured with the scanline
+     counter. */
   if (moved)
     actors_rebuild_blockers();
 }
@@ -852,8 +852,8 @@ u8 actor_at_tile(u8 tx, u8 ty)
 
   if (!blk_ovf)
   {
-    /* cas courant : rejet bounding box puis balayage de la liste
-       précalculée (voir actors_rebuild_blockers) */
+    /* common case: bounding-box rejection then a scan of the precomputed
+       list (see actors_rebuild_blockers) */
     if (tx < blk_x0 || tx > blk_x1 || ty < blk_y0 || ty > blk_y1)
       return ACTOR_NONE;
     for (k = 0; k < blk_n; k++)
@@ -864,9 +864,9 @@ u8 actor_at_tile(u8 tx, u8 ty)
     return ACTOR_NONE;
   }
 
-  /* repli exact (liste pleine) : parcours complet, position RUNTIME pour
-     les slots — seuls les « comme le héros » bloquent et se parlent de
-     face (priorité v0.14) */
+  /* exact fallback (list full): full walk, RUNTIME position for the
+     slots — only the "like the hero" ones block and can be talked to
+     face on (priority, v0.14) */
   for (k = 0; k < scene_ctx.actor_count; k++)
   {
     if (k < ACTOR_SLOTS)
@@ -891,8 +891,8 @@ u8 actor_at_tile(u8 tx, u8 ty)
   return ACTOR_NONE;
 }
 
-/* Event « sous le héros » (priorité below) sur cette tile — interaction
-   en se tenant dessus, façon RM2003 (coffre au sol). */
+/* An event "under the hero" (below priority) on this tile — interaction
+   while standing on it, RM2003 style (a chest on the ground). */
 u8 actor_standing_at(u8 tx, u8 ty)
 {
   u8 i;
@@ -941,26 +941,26 @@ void actor_face(u8 index, u8 dir)
 {
   if (index < ACTOR_SLOTS && index < scene_ctx.actor_count &&
       !actor_dirfix[index])
-    actor_dirs[index] = dir & 3; /* Direction Fix : orientation figée */
+    actor_dirs[index] = dir & 3; /* Direction Fix: orientation frozen */
 }
 
 void actor_interact(u8 index)
 {
   u16 ofs = scene_ctx.actors[index].script_offset;
 
-  /* Réflexe RM2003 : le PNJ se tourne vers le héros (direction opposée —
-     DOWN<->UP et LEFT<->RIGHT s'échangent par xor 1) */
+  /* RM2003 reflex: the NPC turns towards the hero (the opposite
+     direction — DOWN<->UP and LEFT<->RIGHT swap through xor 1) */
   actor_face(index, player.dir ^ 1);
 
   if (ofs != SCRIPT_NONE)
   {
     vm_start(ofs);
-    vm.script_actor = index; /* cible du ROUTE « cet event » (v0.12) */
+    vm.script_actor = index; /* target of the "this event" ROUTE (v0.12) */
   }
 }
 
-/* Position PIXEL (monde) d'un acteur — ancrage des animations (A1) :
-   une animation accrochée à un event le suit s'il marche. */
+/* PIXEL position (world) of an actor — the anchor for animations (A1):
+   an animation pinned to an event follows it when it walks. */
 u16 actor_pos_x(u8 index)
 {
   return (index < ACTOR_SLOTS) ? actor_px[index] : 0;
