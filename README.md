@@ -9,17 +9,17 @@ pas du code.**
 
 ## État du projet
 
-**Phase 3 — éditeur no-code** (Phases 1-2 : moteur + pipeline validés et
-mergés). Le jeu est défini par le projet source `demo/` (JSON + PNG),
-éditable visuellement avec l'éditeur ; `datagen` génère les banks binaires
-consommées par le moteur.
+Les trois briques sont en place et se répondent : l'éditeur écrit les
+fichiers du projet, `datagen` les traduit en C et en banks binaires, le
+moteur les lit sans rien savoir du jeu.
 
 ```
-engine/   # Moteur SNES en C (PVSnesLib) — Phase 1 ✓
-tools/    # Pipeline d'assets en Rust (datagen) — Phase 2 ✓
-editor/   # Éditeur Tauri + React + TS — Phase 3 (MVP)
-demo/     # Jeu de test permanent / régression — SOURCE des données
-docs/     # Specs et planning — sources de vérité
+editor/    # Éditeur Tauri + React + TS
+tools/     # Pipeline d'assets en Rust (datagen)
+engine/    # Moteur SNES en C (PVSnesLib) + ASM 65816
+demo/      # Projet de référence — sujet de la régression pixel
+showcase/  # Projet plus large — database, écrans composés, animations, UI
+docs/      # Specs et conception — sources de vérité
 ```
 
 ## Build
@@ -44,8 +44,16 @@ accuracy** (juge de paix — un rendu correct dans Mesen2 seul ne suffit pas).
 
 ## Documentation
 
-- `docs/KIT_PHASE1_POC_MOTEUR.md` — le kit de la Phase 1 (architecture,
-  planning, pièges)
-- `docs/SPEC_FORMATS.md` — spec contractuelle des formats de données et de
-  la VM (tenue à jour avec le code)
-- `docs/CLAUDE.md` — conventions de développement du projet
+Pour contribuer, commencer par **`CONTRIBUTING.md`** : conventions,
+politique de commentaires, et les trois garde-fous à lancer avant de
+pousser.
+
+- `docs/ENGINE_CONSTRAINTS.md` — pièges de la plateforme et de la
+  toolchain. **À lire avant d'écrire du code moteur** : la plupart sont
+  silencieux (C légal, build vert, sortie fausse).
+- `docs/PERF_MEASUREMENTS.md` — le relevé de performance et la méthode
+  qui l'a produit.
+- `docs/SPEC_FORMATS.md` — spec contractuelle des formats de données et
+  de la VM (tenue à jour avec le code).
+- `docs/TOOLS.md` — le pipeline datagen.
+- `docs/EDITOR.md` — architecture de l'éditeur.
