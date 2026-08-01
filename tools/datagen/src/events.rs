@@ -84,6 +84,14 @@ pub struct EventCompiler<'a> {
     /// v0.16 — common events référencés par la scène en cours (calls +
     /// déclencheurs auto) : leurs corps sont émis dans le bloc scripts
     used_commons: Vec<bool>,
+    /// F1 — signature de la FONCTION dont on compile le corps :
+    /// (nombre de paramètres, rend une valeur). None hors d'une
+    /// fonction, et c'est ce qui permet de refuser un « param » posé
+    /// dans un event de carte, où il ne voudrait rien dire.
+    cur_fn: Option<(usize, bool)>,
+    /// F1 — signatures de tous les common events, pour vérifier les
+    /// appels (nombre d'arguments, existence d'une valeur de retour)
+    fn_sigs: Vec<(usize, bool)>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -111,7 +119,51 @@ impl<'a> EventCompiler<'a> {
             loop_ends: Vec::new(),
             cur_scene: String::new(),
             used_commons: Vec::new(),
+            cur_fn: None,
+            fn_sigs: Vec::new(),
         }
+    }
+
+    /// F1 — source d'une valeur 16-bit : {"from": .., "value": ..}.
+    /// Une seule grammaire pour l'affectation de variable, les arguments
+    /// d'un appel de fonction et la valeur rendue — il n'y avait aucune
+    /// raison d'en inventer trois. Renvoie (mnémonique assembleur,
+    /// valeur), et refuse « param » hors d'une fonction : ailleurs, il
+    /// lirait un cadre qui n'existe pas.
+    fn value_source(&self, cmd: &Value, who: &str) -> Result<(&'static str, i64)> {
+        let from = cmd["from"].as_str().unwrap_or("const");
+        let st = match from {
+            "const" => "const",
+            "var" => "var",
+            "hero_x" => "hx",
+            "hero_y" => "hy",
+            "timer" => "timer",
+            "scene" => "scene",
+            "param" => "param",
+            "ret" => "ret",
+            o => bail!("{} : source inconnue « {} »", who, o),
+        };
+        let val = cmd["value"]
+            .as_i64()
+            .filter(|v| (-32768..=65535).contains(v))
+            .unwrap_or(0);
+        if st == "param" {
+            match self.cur_fn {
+                None => bail!(
+                    "{} : « paramètre » n'a de sens que dans le corps d'une \
+                     fonction",
+                    who
+                ),
+                Some((n, _)) if val < 0 || val as usize >= n => bail!(
+                    "{} : paramètre {} demandé, la fonction n'en déclare que {}",
+                    who,
+                    val,
+                    n
+                ),
+                Some(_) => {}
+            }
+        }
+        Ok((st, val))
     }
 
     /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
@@ -333,7 +385,7 @@ impl<'a> EventCompiler<'a> {
                         scan(sub("then"), commons, seen, root_name)?;
                         scan(sub("else"), commons, seen, root_name)?;
                     }
-                    "call" => {
+                    "call" | "call_fn" => {
                         if let Some(n) = cmd["n"].as_u64() {
                             let n = n as usize;
                             if n < commons.len() && !seen[n] {
@@ -482,20 +534,7 @@ impl<'a> EventCompiler<'a> {
                     if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
                         bail!("var : operation inconnue « {} »", op);
                     }
-                    let from = cmd["from"].as_str().unwrap_or("const");
-                    let st = match from {
-                        "const" => "const",
-                        "var" => "var",
-                        "hero_x" => "hx",
-                        "hero_y" => "hy",
-                        "timer" => "timer",
-                        "scene" => "scene",
-                        o => bail!("var : source inconnue « {} »", o),
-                    };
-                    let val = cmd["value"]
-                        .as_i64()
-                        .filter(|v| (-32768..=65535).contains(v))
-                        .unwrap_or(0);
+                    let (st, val) = self.value_source(cmd, "var")?;
                     // les vieux set/add 16-bit passent aussi par VAROP
                     out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
                 }
@@ -1196,8 +1235,81 @@ impl<'a> EventCompiler<'a> {
                                 cmd
                             )
                         })? as usize;
+                    if self.fn_sigs.get(n).map(|s| s.0).unwrap_or(0) != 0 {
+                        bail!(
+                            "call : le common event {} attend des parametres — \
+                             utiliser « Appeler une fonction »",
+                            n + 1
+                        );
+                    }
                     self.used_commons[n] = true;
                     out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
+                }
+                // F1 — appel d'une FONCTION : arguments evalues chez
+                // l'appelant, valeur de retour rangee au besoin
+                "call_fn" => {
+                    let n = cmd["n"]
+                        .as_u64()
+                        .filter(|&n| (n as usize) < self.fn_sigs.len())
+                        .with_context(|| {
+                            format!(
+                                "call_fn : fonction inexistante ({} common events \
+                                 definis) : {}",
+                                self.fn_sigs.len(),
+                                cmd
+                            )
+                        })? as usize;
+                    let (nparams, returns) = self.fn_sigs[n];
+                    let args = cmd["args"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                    if args.len() != nparams {
+                        bail!(
+                            "call_fn : la fonction {} attend {} parametre(s), \
+                             {} fourni(s)",
+                            n + 1,
+                            nparams,
+                            args.len()
+                        );
+                    }
+                    let mut line = format!("  CALLF __ce{}_{}", n, self.cur_scene);
+                    for a in args {
+                        let (st, val) = self.value_source(a, "call_fn")?;
+                        line.push_str(&format!(" {} {}", st, val));
+                    }
+                    self.used_commons[n] = true;
+                    out.push(line);
+                    // « ranger le resultat » : sucre pour CALLF + VAROP,
+                    // le cas courant et celui qu'on ne veut pas faire
+                    // ecrire a la main dans l'editeur
+                    if let Some(dst) = cmd["dst"].as_u64() {
+                        if !returns {
+                            bail!(
+                                "call_fn : la fonction {} ne rend aucune valeur, \
+                                 il n'y a rien a ranger",
+                                n + 1
+                            );
+                        }
+                        if dst >= 256 {
+                            bail!("call_fn : variable destination {} hors limite", dst);
+                        }
+                        out.push(format!("  VAROP {} = ret 0", dst));
+                    }
+                }
+                // F1 — rendre une valeur et sortir de la fonction
+                "ret_fn" => {
+                    match self.cur_fn {
+                        None => bail!(
+                            "« Retourner » n'a de sens que dans une fonction : \
+                             ailleurs, il n'y a personne a qui rendre la valeur"
+                        ),
+                        Some((_, false)) => bail!(
+                            "« Retourner » : cette fonction est declaree sans \
+                             valeur de retour — cocher la case, ou retirer la \
+                             commande"
+                        ),
+                        Some(_) => {}
+                    }
+                    let (st, val) = self.value_source(cmd, "ret_fn")?;
+                    out.push(format!("  RETF {} {}", st, val));
                 }
                 "wait_route" => {
                     out.push("  WAITROUTE".to_string());
@@ -1330,6 +1442,13 @@ impl<'a> EventCompiler<'a> {
         self.gfx_blocks.clear();
         self.cur_scene = scene_name.to_string();
         self.used_commons = vec![false; commons.len()];
+        // F1 : les signatures d'abord — un event de carte peut appeler
+        // une fonction definie plus loin dans la liste, et la
+        // verification du nombre d'arguments ne peut pas attendre
+        self.fn_sigs = commons
+            .iter()
+            .map(|ce| (ce.params.len(), ce.returns))
+            .collect();
         self.db = db;
         self.ui_widgets = ui_widgets.to_vec();
         self.ui_styles = ui_styles.to_vec();
@@ -1559,6 +1678,15 @@ impl<'a> EventCompiler<'a> {
                             s
                         ),
                     };
+                    if !ce.params.is_empty() {
+                        bail!(
+                            "common event {} « {} » : une fonction a parametres \
+                             ne peut pas etre declenchee automatiquement — \
+                             personne ne lui passerait ses arguments",
+                            k + 1,
+                            ce.name
+                        );
+                    }
                     // un parallel tourne en tache de fond : pas d'UI dedans
                     if ce.trigger == "parallel" {
                         Self::check_no_ui(commons, k)?;
@@ -1587,10 +1715,16 @@ impl<'a> EventCompiler<'a> {
         {
             emitted[k] = true;
             asm.push(format!("__ce{}_{}:", k, scene_name));
-            self.compile_list(&commons[k].commands, 0, &mut asm)
-                .with_context(|| {
-                    format!("common event {} « {} »", k + 1, commons[k].name)
-                })?;
+            // F1 : c'est ici, et seulement ici, que « param » a un sens
+            self.cur_fn = Some((commons[k].params.len(), commons[k].returns));
+            let r = self.compile_list(&commons[k].commands, 0, &mut asm);
+            self.cur_fn = None;
+            r.with_context(|| {
+                format!("common event {} « {} »", k + 1, commons[k].name)
+            })?;
+            // RET depile aussi le cadre : une fonction qui tombe en bout
+            // de corps sans « Retourner » rend simplement la valeur du
+            // dernier appel, comme si elle n'en rendait pas
             asm.push("  RET".to_string());
         }
 

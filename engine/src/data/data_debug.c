@@ -7,4 +7,4 @@
 /* menu de debug en jeu (Start+Select+R) — S6/M1 */
 const u8 dbg_enabled = 0;
 /* rangée budgets pré-formatée (32 colonnes max) */
-const char dbg_banks_txt[] = "SCN 2522/32768 TXT 609/32768";
+const char dbg_banks_txt[] = "SCN 2561/32768 TXT 609/32768";

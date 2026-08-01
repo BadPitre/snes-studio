@@ -57,6 +57,9 @@ void vm_init(void)
   vm.keyin_dst = 0;
   vm.script_actor = 0xFF;
   vm.call_sp = 0;
+  vm.frame_base = 0;
+  vm.frame_sp = 0;
+  vm.retval = 0;
   for (i = 0; i < VM_CALL_DEPTH; i++)
     vm.call_stack[i] = 0;
   for (i = 0; i < 64; i++)
@@ -108,6 +111,8 @@ void vm_start(u16 offset)
   vm.pc = offset;
   vm.script_actor = 0xFF; /* renseigné après coup par l'appelant (v0.12) */
   vm.call_sp = 0;         /* pile d'appels vide (v0.16) */
+  vm.frame_base = 0;      /* aucun cadre de fonction ouvert (F1) */
+  vm.frame_sp = 0;
   vm_seed ^= player.x ^ (player.y << 5) ^ 1; /* brasse l'aléatoire */
 }
 
@@ -162,6 +167,17 @@ static u8 p_wait_timer;
 static u8 p_script_actor;
 static u8 p_call_sp;
 static u16 p_call_stack[VM_CALL_DEPTH];
+/* F1 : le contexte parallèle a ses propres cadres. Les variables sont
+   partagées avec le script principal — c'est le modèle RM2003 — mais
+   les paramètres d'une fonction ne le sont pas : ce sont des données
+   d'exécution, au même titre que le pc et la pile d'appels. Un
+   parallel process qui appelle une fonction pendant qu'un dialogue en
+   appelle une autre ne doit rien lui écraser. */
+static u8 p_call_fb[VM_CALL_DEPTH];
+static u16 p_frame[VM_FRAME_SLOTS];
+static u8 p_frame_base;
+static u8 p_frame_sp;
+static u16 p_retval;
 
 /* KEYIN (Ph. 12) : code de la première touche du masque présente dans
    « pressed » — codes RM2003 étendus SNES (formats.h).
@@ -233,6 +249,24 @@ static void pvm_swap(void)
     t16 = vm.call_stack[i];
     vm.call_stack[i] = p_call_stack[i];
     p_call_stack[i] = t16;
+    t8 = vm.call_fb[i];
+    vm.call_fb[i] = p_call_fb[i];
+    p_call_fb[i] = t8;
+  }
+  /* Cadres de fonction (F1) : même règle, seuls les slots VIVANTS sont
+     échangés. Aucun appel en cours des deux côtés — le cas de très
+     loin le plus fréquent — ne copie rien du tout. */
+  t8 = vm.frame_base; vm.frame_base = p_frame_base; p_frame_base = t8;
+  t16 = vm.retval; vm.retval = p_retval; p_retval = t16;
+  n = vm.frame_sp;
+  if (p_frame_sp > n)
+    n = p_frame_sp;
+  t8 = vm.frame_sp; vm.frame_sp = p_frame_sp; p_frame_sp = t8;
+  for (i = 0; i < n; i++)
+  {
+    t16 = vm.frame[i];
+    vm.frame[i] = p_frame[i];
+    p_frame[i] = t16;
   }
 }
 
@@ -248,8 +282,14 @@ void vm_parallel_reset(void)
   p_wait_timer = 0;
   p_script_actor = 0xFF;
   p_call_sp = 0;
+  p_frame_base = 0;
+  p_frame_sp = 0;
+  p_retval = 0;
   for (i = 0; i < VM_CALL_DEPTH; i++)
+  {
     p_call_stack[i] = 0;
+    p_call_fb[i] = 0;
+  }
 }
 
 u8 vm_active(void)
@@ -310,9 +350,35 @@ static u16 varop_src(u8 src_type, u16 src)
     return timer_secs();
   case VARSRC_SCENE:
     return scene_ctx.scene_id;
+  case VARSRC_PARAM:
+    /* paramètre n de la fonction en cours. Le masque n'est pas de la
+       coquetterie : hors d'une fonction, frame_base vaut 0 et un
+       « param » égaré lirait n'importe quel slot — datagen refuse le
+       cas, ce masque garantit qu'un bloc de données abîmé ne lise pas
+       la WRAM voisine. */
+    return vm.frame[(u8)(vm.frame_base + (u8)src) & (VM_FRAME_SLOTS - 1)];
+  case VARSRC_RET:
+    return vm.retval;
   default:
     return src;
   }
+}
+
+/* Retour d'appel, partagé par RET et RETF : dépile l'adresse ET le
+   cadre. Une fonction qui finit sur un RET ordinaire (aucune valeur à
+   rendre) rend donc quand même ses slots. Pile vide = le corps a été
+   lancé directement, il agit comme END. */
+static void vm_do_ret(void)
+{
+  if (vm.call_sp)
+  {
+    vm.call_sp--;
+    vm.pc = vm.call_stack[vm.call_sp];
+    vm.frame_sp = vm.frame_base;
+    vm.frame_base = vm.call_fb[vm.call_sp];
+  }
+  else
+    vm.active = 0;
 }
 
 static void vm_step(void)
@@ -715,16 +781,60 @@ static void vm_step(void)
     case VM_OP_CALL: /* appel d'un corps de common event (v0.16) */
       ofs = fetch16();
       if (vm.call_sp >= VM_CALL_DEPTH)
+      {
         vm_halt(); /* récursion trop profonde : bug de données */
+        break;
+      }
+      vm.call_fb[vm.call_sp] = vm.frame_base;
       vm.call_stack[vm.call_sp++] = vm.pc;
+      /* pas d'arguments : le sous-script garde le cadre de l'appelant,
+         donc un common event ordinaire appelé DEPUIS une fonction voit
+         encore les paramètres de celle-ci. C'est voulu — il se comporte
+         comme un bloc de commandes inséré sur place. */
       vm.pc = ofs;
       break;
 
     case VM_OP_RET: /* retour de CALL — pile vide : fin de script */
-      if (vm.call_sp)
-        vm.pc = vm.call_stack[--vm.call_sp];
-      else
-        vm.active = 0;
+      vm_do_ret();
+      break;
+
+    case VM_OP_CALLF: /* appel de FONCTION avec arguments (F1) */
+      ofs = fetch16();
+      var = fetch8(); /* nombre d'arguments */
+      if (vm.call_sp >= VM_CALL_DEPTH ||
+          (u16)vm.frame_sp + var > VM_FRAME_SLOTS)
+      {
+        /* Consommer quand même les opérandes : sortir d'ici avec un pc
+           au milieu d'une instruction ferait exécuter des arguments
+           comme des opcodes, et le plantage n'aurait plus rien à voir
+           avec sa cause. */
+        for (val = 0; val < var; val++)
+        {
+          fetch8();
+          fetch16();
+        }
+        vm_halt(); /* récursion trop profonde : bug de données */
+        break;
+      }
+      /* Les arguments sont évalués dans le cadre de l'APPELANT — c'est
+         ce qui permet de passer un paramètre reçu à une autre fonction —
+         puis ils DEVIENNENT le cadre de l'appelée. */
+      for (val = 0; val < var; val++)
+      {
+        idx16 = fetch8();
+        vm.frame[vm.frame_sp + val] = varop_src((u8)idx16, fetch16());
+      }
+      vm.call_fb[vm.call_sp] = vm.frame_base;
+      vm.call_stack[vm.call_sp++] = vm.pc;
+      vm.frame_base = vm.frame_sp;
+      vm.frame_sp += var;
+      vm.pc = ofs;
+      break;
+
+    case VM_OP_RETF: /* retour de fonction AVEC valeur (F1) */
+      var = fetch8();
+      vm.retval = varop_src(var, fetch16());
+      vm_do_ret();
       break;
 
     case VM_OP_DBREAD: /* vars16[dst] = champ de la database (v0.17) */

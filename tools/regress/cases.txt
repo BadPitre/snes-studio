@@ -28,6 +28,13 @@ boot 200
 # le héros marche puis parle à un PNJ : dialogue en cours de frappe.
 # C'est ce cas qui a attrapé le bug tcc-816 « variable déclarée dans un
 # case » (rangée de cœurs du HUD corrompue en silence).
+#
+# Ce PNJ appelle aussi la FONCTION « bonus » (F1) et affiche son
+# résultat : « Ton bonus : 16 » vaut 10 + 3 x 2, calculé sur la SNES par
+# CALLF/RETF. Un bug dans les cadres de paramètres ou la valeur de
+# retour change ce nombre, donc l'image — c'est la seule couverture
+# automatique de la fonctionnalité, un pixel étant tout ce que ce
+# harnais sait comparer.
 d340 340 210-290:R,300-302:D,310-311:A
 
 # même trajet, dialogue entièrement révélé

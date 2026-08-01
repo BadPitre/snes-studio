@@ -173,6 +173,16 @@ pub struct CommonEvent {
     /// Switch de condition (requis si trigger == "auto")
     #[serde(default)]
     pub switch: Option<u16>,
+    /// F1 — noms des PARAMÈTRES. Une liste non vide fait de ce common
+    /// event une FONCTION : elle s'appelle avec « call_fn » et ses
+    /// entrées se lisent avec la source « param ». Les noms ne servent
+    /// qu'à l'éditeur ; le moteur ne connaît que des index.
+    #[serde(default)]
+    pub params: Vec<String>,
+    /// F1 — la fonction rend une valeur (commande « ret_fn »), que
+    /// l'appelant lit avec la source « ret ».
+    #[serde(default)]
+    pub returns: bool,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
 }

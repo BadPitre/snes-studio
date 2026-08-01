@@ -4052,8 +4052,23 @@
      ],
      "else": [
       {
+       "c": "call_fn",
+       "n": 0,
+       "args": [
+        {
+         "from": "const",
+         "value": 10
+        },
+        {
+         "from": "const",
+         "value": 3
+        }
+       ],
+       "dst": 4
+      },
+      {
        "c": "msg",
-       "text": "Bonjour ! Je suis le premier PNJ de ce moteur."
+       "text": "Bonjour ! Premier PNJ du moteur. Ton bonus : \\v[4]."
       },
       {
        "c": "add",

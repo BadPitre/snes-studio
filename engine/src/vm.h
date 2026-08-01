@@ -5,6 +5,7 @@
 #define VM_H
 
 #include <snes.h>
+#include "formats.h"
 
 /* wait_mode — spec §2 */
 #define VM_WAIT_NONE 0
@@ -38,6 +39,11 @@ typedef struct
                       de ROUTE « cet event » (v0.12) */
   u16 call_stack[8]; /* adresses de retour des CALL (v0.16) */
   u8 call_sp;
+  u8 call_fb[8];   /* base du cadre sauvegardée par appel (F1) */
+  u16 frame[VM_FRAME_SLOTS]; /* paramètres des fonctions en cours (F1) */
+  u8 frame_base;   /* premier slot de la fonction courante */
+  u8 frame_sp;     /* sommet de la pile de cadres */
+  u16 retval;      /* valeur rendue par le dernier RETF (F1) */
   u16 keyin_mask;  /* KEYIN : touches autorisées (bit 1<<code, Ph. 12) */
   u8 keyin_dst;    /* KEYIN : variable destination du code de touche */
   u8 choice_var;   /* variable destination du CHOICE en cours */

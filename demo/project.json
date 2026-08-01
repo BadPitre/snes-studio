@@ -1,67 +1,115 @@
 {
-  "assets": {
-    "font": "assets/font.png",
-    "sprites": "assets/sprites.png",
-    "tileset": "assets/tileset.png"
+ "assets": {
+  "font": "assets/font.png",
+  "sprites": "assets/sprites.png",
+  "tileset": "assets/tileset.png"
+ },
+ "boot_scene": "plaine",
+ "musics": [
+  "assets/music/pollen8.it",
+  "assets/music/village.it",
+  "assets/music/battle.it",
+  "assets/music/victory.it"
+ ],
+ "name": "demo",
+ "scenes": [
+  "plaine",
+  "clairiere",
+  "bourg"
+ ],
+ "tilesets": [
+  "assets/tileset.png",
+  "assets/tileset_automne.png",
+  "assets/bourg.png"
+ ],
+ "tileset_defs": [
+  {
+   "name": "tileset",
+   "file": "assets/tileset.png"
   },
-  "boot_scene": "plaine",
-  "musics": [
-    "assets/music/pollen8.it",
-    "assets/music/village.it",
-    "assets/music/battle.it",
-    "assets/music/victory.it"
-  ],
-  "name": "demo",
-  "scenes": [
-    "plaine",
-    "clairiere",
-    "bourg"
-  ],
-  "tilesets": [
-    "assets/tileset.png",
-    "assets/tileset_automne.png",
-    "assets/bourg.png"
-  ],
-  "tileset_defs": [
-    { "name": "tileset", "file": "assets/tileset.png" },
-    { "name": "tileset_automne", "file": "assets/tileset_automne.png" },
-    { "name": "bourg", "file": "assets/bourg.png" }
-  ],
-  "charsets": [
-    "Héros",
-    "Villageois"
-  ],
-  "ui": {
-    "windowskin": "assets/windowskin.png",
-    "text_speed": 2,
-    "icons": "assets/icons.png"
+  {
+   "name": "tileset_automne",
+   "file": "assets/tileset_automne.png"
   },
-  "windowskins": [
-    "assets/windowskin.png"
-  ],
-  "iconsets": [
-    "assets/icons.png"
-  ],
-  "sounds": [
-    "assets/sounds/curseur.wav",
-    "assets/sounds/attaque.wav"
-  ],
-  "pictures": [
-    "assets/fond_prairie.png",
+  {
+   "name": "bourg",
+   "file": "assets/bourg.png"
+  }
+ ],
+ "charsets": [
+  "Héros",
+  "Villageois"
+ ],
+ "ui": {
+  "windowskin": "assets/windowskin.png",
+  "text_speed": 2,
+  "icons": "assets/icons.png"
+ },
+ "windowskins": [
+  "assets/windowskin.png"
+ ],
+ "iconsets": [
+  "assets/icons.png"
+ ],
+ "sounds": [
+  "assets/sounds/curseur.wav",
+  "assets/sounds/attaque.wav"
+ ],
+ "pictures": [
+  "assets/fond_prairie.png",
+  {
+   "path": "assets/gobelin.png",
+   "trans": true
+  },
+  {
+   "path": "assets/dragon.png",
+   "trans": true
+  }
+ ],
+ "vignettes": [
+  "assets/vignettes/exclam.png",
+  "assets/vignettes/coup.png"
+ ],
+ "screens": [
+  "combat_prairie"
+ ],
+ "common_events": [
+  {
+   "name": "bonus",
+   "trigger": "none",
+   "params": [
+    "base",
+    "niveau"
+   ],
+   "returns": true,
+   "commands": [
     {
-      "path": "assets/gobelin.png",
-      "trans": true
+     "c": "var",
+     "n": 250,
+     "op": "=",
+     "from": "param",
+     "value": 1
     },
     {
-      "path": "assets/dragon.png",
-      "trans": true
+     "c": "var",
+     "n": 250,
+     "op": "*",
+     "from": "const",
+     "value": 2
+    },
+    {
+     "c": "var",
+     "n": 250,
+     "op": "+",
+     "from": "param",
+     "value": 0
+    },
+    {
+     "c": "ret_fn",
+     "from": "var",
+     "value": 250
     }
-  ],
-  "vignettes": [
-    "assets/vignettes/exclam.png",
-    "assets/vignettes/coup.png"
-  ],
-  "screens": [
-    "combat_prairie"
-  ]
+   ]
+  }
+ ]
 }

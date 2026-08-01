@@ -187,6 +187,15 @@
 /* Profondeur de la pile d'appels (CALL imbriqués / récursifs) */
 #define VM_CALL_DEPTH 8
 
+/* F1 : fonctions — un common event peut déclarer des PARAMÈTRES et
+   rendre une VALEUR. Les arguments vivent dans une pile de cadres,
+   pas dans les variables globales : sans ça, une fonction qui en
+   appelle une autre (ou elle-même) écraserait ses propres entrées, et
+   l'auteur devrait réserver des variables à la main — exactement la
+   corvée que la fonctionnalité doit supprimer. */
+#define VM_FRAME_SLOTS 32 /* cadres empilés, tous appels confondus */
+#define VM_PARAMS_MAX 8   /* paramètres d'UNE fonction (datagen vérifie) */
+
 /* v0.17 : lecture de la Database (docs/PLANNING_SYSTEME_DATABASE.md) */
 #define VM_OP_DBREAD  0x23 /* table (u8, index du registre db_tables[]),
                               src entrée (u8 : 0 constante, 1 variable),
@@ -334,6 +343,23 @@
 #define VM_OP_ANIMSTOP 0x3C /* arrête toutes les animations en cours et
                                range leurs sprites (sortie d'une boucle
                                lancée sans attente). */
+
+/* F1 : appel de FONCTION — un common event avec des paramètres. */
+#define VM_OP_CALLF 0x3D /* offset (u16), argc (u8), puis argc x
+                            [type de source (u8)][valeur (u16)] — mêmes
+                            sources que VAROP, donc un argument peut être
+                            une constante, une variable, la position du
+                            héros… ou un PARAMÈTRE de la fonction
+                            appelante (récursion et composition).
+                            Les arguments sont évalués dans le cadre de
+                            l'APPELANT puis deviennent le cadre de
+                            l'appelée. Pile pleine ou cadres saturés :
+                            halt debug, c'est un bug de données. */
+#define VM_OP_RETF 0x3E  /* type de source (u8), valeur (u16) — pose la
+                            valeur rendue (lisible ensuite par la source
+                            VARSRC_RET) puis retourne comme RET. Une
+                            fonction sans valeur de retour finit sur un
+                            RET ordinaire : les deux dépilent le cadre. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — B6 : menu à
                               curseur BLOQUANT sur un widget « list » du
                               layout UI. Affiche le widget, curseur en
@@ -377,6 +403,8 @@
 #define VARSRC_HERO_Y 3
 #define VARSRC_TIMER 4
 #define VARSRC_SCENE 5 /* v0.15 : index de la scène courante */
+#define VARSRC_PARAM 6 /* F1 : paramètre n de la FONCTION en cours */
+#define VARSRC_RET 7   /* F1 : valeur rendue par le dernier CALLF */
 
 /* Budgets v0.9 : 512 switches (64 octets de bits), 256 variables 16-bit.
    Persistants entre scènes, sauvegardés en SRAM (spec §4bis v2). */
