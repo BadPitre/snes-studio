@@ -5,7 +5,8 @@
 # Trois vérifications, de la moins chère à la plus parlante :
 #   1. tsc --noEmit          les types tiennent
 #   2. vite build            le paquet se construit
-#   3. npm run smoke         chaque fenêtre s'ouvre et s'affiche
+#   3. npm run smoke          chaque fenêtre s'ouvre et s'affiche
+#   4. npm run smoke:commands chaque formulaire de commande s'affiche
 #
 # La troisième est celle qui compte. Un remaniement de React ne casse
 # presque jamais la compilation — il casse un RENDU, et ça ne se voit
@@ -57,3 +58,7 @@ done
 
 echo "— fenêtres"
 SMOKE_URL="http://localhost:$PORT" npm run --silent smoke
+
+echo ""
+echo "— formulaires de commande"
+SMOKE_URL="http://localhost:$PORT" npm run --silent smoke:commands

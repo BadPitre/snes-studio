@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "smoke": "node tools/smoke.mjs"
+    "smoke": "node tools/smoke.mjs",
+    "smoke:commands": "node tools/smoke-commands.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
