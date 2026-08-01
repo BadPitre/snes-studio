@@ -1,59 +1,131 @@
 # SNES Studio
 
-Outil de création de jeux SNES no-code (esprit GB Studio / RPG Maker) —
-l'utilisateur crée son jeu visuellement et exporte un ROM `.sfc` autonome,
-jouable sur émulateur et vraie console.
+A no-code SNES game maker, in the spirit of GB Studio and RPG Maker: you
+build a game visually and export a standalone `.sfc` ROM that runs on an
+emulator and on real hardware.
 
-**Architecture : moteur SNES fixe + VM bytecode — les jeux sont des DONNÉES,
-pas du code.**
+**One fixed engine plus a bytecode VM — a game is DATA, not code.**
 
-## État du projet
+If a gameplay value (a position, a name, a formula) shows up in engine
+code, that is an architecture bug, not a shortcut.
 
-Les trois briques sont en place et se répondent : l'éditeur écrit les
-fichiers du projet, `datagen` les traduit en C et en banks binaires, le
-moteur les lit sans rien savoir du jeu.
+---
+
+## How the three bricks fit together
 
 ```
-editor/    # Éditeur Tauri + React + TS
-tools/     # Pipeline d'assets en Rust (datagen)
-engine/    # Moteur SNES en C (PVSnesLib) + ASM 65816
-demo/      # Projet de référence — sujet de la régression pixel
-showcase/  # Projet plus large — database, écrans composés, animations, UI
-docs/      # Specs et conception — sources de vérité
+editor/    Tauri + React + TypeScript    you edit a project
+    │      writes JSON, TOML and indexed PNGs
+    ▼
+tools/     Rust (datagen)                project files -> engine data
+    │      emits engine/src/data/*.c and the binary banks
+    ▼
+engine/    C (PVSnesLib) + 65816 asm     a fixed engine that reads that data
+    │
+    ▼
+        snesstudio.sfc
 ```
 
-## Build
+Everything flows one way. The engine knows nothing about any particular
+game: it reads scene tables, a tilemap, a bytecode stream. `datagen` is a
+pure translator — same project in, same bytes out.
 
-Prérequis : [PVSnesLib](https://github.com/alekmaul/pvsneslib) installé,
-variable `PVSNESLIB_HOME` définie (chemin style Unix, y compris sous
-Windows/MSYS2 — ex. `/c/snesdev/pvsneslib`).
+Two reference projects live in the repo, and they are what the safety
+nets run against:
+
+| | |
+|---|---|
+| `demo/` | small, the subject of the pixel regression |
+| `showcase/` | larger — database, composed screens, animations, UI widgets |
+
+`docs/` holds the specs and design notes, and is the source of truth for
+the data formats.
+
+---
+
+## Getting a ROM
+
+You need [PVSnesLib](https://github.com/alekmaul/pvsneslib) installed and
+`PVSNESLIB_HOME` set to a Unix-style path (including on Windows/MSYS2 —
+e.g. `/c/snesdev/pvsneslib`), plus Rust/cargo to run `datagen`.
 
 ```bash
 cd engine
-make            # produit snesstudio.sfc
-make clean      # en cas de doute sur les artefacts
-make data       # regénère src/data/ depuis demo/ (nécessite Rust/cargo)
+make            # builds snesstudio.sfc from the data already generated
+make data       # regenerates src/data/ from demo/ (runs datagen)
+make clean      # when in doubt about stale artefacts
+make cart       # a .smc padded and checksummed for a flashcart
 ```
 
-Les fichiers `engine/src/data/*.c` sont **générés** par `tools/datagen`
-depuis le projet `demo/` — les éditer à la main sera écrasé ; éditer les
-sources JSON/PNG de `demo/` à la place (voir `docs/TOOLS.md`).
+`engine/src/data/*.c` is **generated**. Editing it by hand is wasted work
+— the next `make data` overwrites it. Edit the JSON/PNG sources under
+`demo/` instead, or use the editor.
 
-Émulateurs de validation : **Mesen2** (debug quotidien) et **bsnes mode
-accuracy** (juge de paix — un rendu correct dans Mesen2 seul ne suffit pas).
+`datagen` can also be run directly:
 
-## Documentation
+```bash
+cargo run --manifest-path tools/datagen/Cargo.toml -- demo engine
+```
 
-Pour contribuer, commencer par **`CONTRIBUTING.md`** : conventions,
-politique de commentaires, et les trois garde-fous à lancer avant de
-pousser.
+## Running the editor
 
-- `docs/ENGINE_CONSTRAINTS.md` — pièges de la plateforme et de la
-  toolchain. **À lire avant d'écrire du code moteur** : la plupart sont
-  silencieux (C légal, build vert, sortie fausse).
-- `docs/PERF_MEASUREMENTS.md` — le relevé de performance et la méthode
-  qui l'a produit.
-- `docs/SPEC_FORMATS.md` — spec contractuelle des formats de données et
-  de la VM (tenue à jour avec le code).
-- `docs/TOOLS.md` — le pipeline datagen.
-- `docs/EDITOR.md` — architecture de l'éditeur.
+```bash
+cd editor
+npm install
+npm run dev       # browser, read-only on editor/public/project
+npm run tauri dev # the real desktop app, reads and writes a project folder
+```
+
+In browser mode "Ouvrir un projet…" loads whatever `editor/public/project`
+points at, so the UI can be worked on without Tauri.
+
+---
+
+## Before you push: three gates
+
+Each one exists because something got through without it. They are cheap
+to run and they are the reason a refactor here is safe.
+
+```bash
+./tools/regress.sh --build    # engine: pixel regression, 3 cases
+./tools/gate-datagen.sh check # datagen: output identical byte for byte
+./tools/gate-editor.sh        # editor: tsc + build + 11 windows + 56 command forms
+```
+
+- **`regress.sh`** runs the demo ROM in a libretro snes9x core for a fixed
+  number of frames with a fixed key sequence, and compares the frame to a
+  committed reference. It caught a tcc-816 bug where declaring a variable
+  inside a `case` corrupted the HUD's row of hearts — invisible on review.
+  The core is not in the repo; see `tools/regress/README.md`.
+- **`gate-datagen.sh`** snapshots datagen's output, re-runs it and diffs.
+  A translator that changes one byte has changed the game, even if it
+  compiles. Take the snapshot *before* touching the code.
+- **`gate-editor.sh`** type-checks, builds, then drives a real browser:
+  it opens every Tools window and every event command's options form. A
+  broken render compiles fine — only opening the window catches it.
+
+Validation emulators: **Mesen2** for daily work, **bsnes accuracy** as the
+tie-breaker. Rendering correctly in Mesen2 alone is not enough.
+
+---
+
+## Where to read next
+
+Start with **`CONTRIBUTING.md`** — the language rule, the comment policy,
+naming, and the gates above in more detail.
+
+Then, depending on what you are touching:
+
+| You are working on | Read |
+|---|---|
+| Engine code | **`docs/ENGINE_CONSTRAINTS.md` first** |
+| Engine performance | `docs/PERF_MEASUREMENTS.md` |
+| Data formats or the VM | `docs/SPEC_FORMATS.md` |
+| datagen | `docs/TOOLS.md` |
+| The editor | `docs/EDITOR.md` |
+
+`ENGINE_CONSTRAINTS.md` is not optional reading for engine work. Most of
+what it lists is *silent*: legal C, a green build, and wrong output —
+a pointer cast that keeps 16 bits and sign-extends, a `.bss` that is
+never zeroed, an array index that miscompiles. The document exists so
+each of those is paid for once.
