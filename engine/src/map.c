@@ -20,6 +20,7 @@
 #include "map.h"
 #include "vbudget.h"
 #include "vram.h"
+#include "vramjob.h"
 #include "effectlayer.h"
 
 #define WIN_W 32     /* fenêtre en metatiles = tilemap SC_64x64 complet */
@@ -29,11 +30,10 @@
 /* Bit de priorité d'une entrée BG ($2105) — tiles ☆ de la couche sup */
 #define BG_PRIO 0x2000
 
-/* $2115 : incrément VRAM après octet haut, +1 mot (lignes) / +32 mots
-   (colonnes). $4300/01 : mode 1 (2 registres), gate $2118 (cf dmaCopyVram) */
-#define VMAIN_INC1 0x80
-#define VMAIN_INC32 0x81
-#define DMA_VRAM_CTRL 0x1801
+/* Plans de transfert (P6) — montés par map_queue_col/row, déclenchés
+   par map_vblank. Définis plus bas, près de map_vblank. */
+static void map_plan_col(u16 j, u16 base_vram, u16 bx, u16 *buf);
+static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf);
 
 /* Tables courantes du tileset (voir map_set_metatiles) */
 static const u16 *mt_table;
@@ -195,6 +195,13 @@ static void map_queue_col(u16 mx)
     usrc += scene_ctx.map_w;
   }
   col_vram_x = (mx << 1) & 63;
+  /* Plan de transfert monté ICI, hors fenêtre VBlank (P6) : le bloc
+     VBlank n'a plus qu'à déclencher. BG1 en DERNIER — la couche
+     d'effet (S9) s'arrête au quatrième transfert. */
+  map_plan_col(VJ_MAP_COL + 0, VRAM_BG2_MAP, col_vram_x, col_lo[0]);
+  map_plan_col(VJ_MAP_COL + 2, VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
+  map_plan_col(VJ_MAP_COL + 4, VRAM_BG1_MAP, col_vram_x, col_up[0]);
+  map_plan_col(VJ_MAP_COL + 6, VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
   col_pending = 1;
 }
 
@@ -239,6 +246,10 @@ static void map_queue_row(u16 my)
     usrc++;
   }
   row_vram_y = (my << 1) & 63;
+  map_plan_row(VJ_MAP_ROW + 0, VRAM_BG2_MAP, row_vram_y, row_lo[0]);
+  map_plan_row(VJ_MAP_ROW + 2, VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
+  map_plan_row(VJ_MAP_ROW + 4, VRAM_BG1_MAP, row_vram_y, row_up[0]);
+  map_plan_row(VJ_MAP_ROW + 6, VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
   row_pending = 1;
 }
 
@@ -273,53 +284,59 @@ void map_update(void)
   }
 }
 
-/* Une colonne char : 2 segments verticaux (écran haut : rangées 0-31,
-   écran bas : rangées 32-63), incrément VRAM +32 mots */
-static void map_col_dma(u16 base_vram, u16 bx, u16 *buf)
+/* Range les DEUX segments verticaux d'une colonne char dans la file
+   (P6). Écran haut = rangées 0-31, écran bas = rangées 32-63 ;
+   l'adresse VRAM avance de 32 mots entre deux rangées. */
+static void map_plan_col(u16 j, u16 base_vram, u16 bx, u16 *buf)
 {
   u16 base = base_vram + ((bx >> 5) << 10) + (bx & 31);
 
-  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC32, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&buf[32], base + (2 << 10), 32 * 2, VMAIN_INC32,
-               DMA_VRAM_CTRL);
+  vj_set(j, (const u8 *)&buf[0], base, 32 * 2);
+  vj_set(j + 1, (const u8 *)&buf[32], base + (2 << 10), 32 * 2);
 }
 
-/* Une ligne char : 2 segments horizontaux (écran gauche, écran droit),
-   incrément VRAM +1 mot */
-static void map_row_dma(u16 base_vram, u16 by, u16 *buf)
+/* Idem pour une ligne char : 2 segments horizontaux (écran gauche,
+   écran droit), mots consécutifs. */
+static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf)
 {
   u16 base = base_vram + (((by >> 5) << 1) << 10) + ((by & 31) << 5);
 
-  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC1, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&buf[32], base + (1 << 10), 32 * 2, VMAIN_INC1,
-               DMA_VRAM_CTRL);
+  vj_set(j, (const u8 *)&buf[0], base, 32 * 2);
+  vj_set(j + 1, (const u8 *)&buf[32], base + (1 << 10), 32 * 2);
 }
 
 void map_vblank(void)
 {
+  u16 n;
+
+  /* La plupart des frames n'ont rien à poser : sortir avant même de
+     demander où en est la couche d'effet. */
+  if (!col_pending && !row_pending)
+    return;
+  /* S9 : quand la couche d'effet tourne, la région VRAM de BG1 porte le
+     motif et pas la couche sup. Les quatre derniers transferts du plan
+     sont justement ceux de BG1 — il suffit de s'arrêter avant. */
+  n = effect_active() ? 4 : 8;
+
   /* Colonne et rangee se demandent leur place separement : quand la
      fenetre est courte, en poser une vaut mieux que n'en poser aucune.
      Ce qui n'est pas transfere reste marque et repassera. */
-  if (col_pending && vbl_take(VBL_COST_MAPHALF))
+  if (col_pending && vbl_take(VBL_COST_MAPHALF(n)))
   {
-    map_col_dma(VRAM_BG2_MAP, col_vram_x, col_lo[0]);
-    map_col_dma(VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
-    if (!effect_active()) /* S9 : la région BG1 porte le motif d'effet */
-    {
-      map_col_dma(VRAM_BG1_MAP, col_vram_x, col_up[0]);
-      map_col_dma(VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
-    }
+    vj_first = VJ_MAP_COL;
+    vj_n = n;
+    vj_vmain = VJ_INC32;
+    vj_ctrl = VJ_CTRL_VRAM;
+    vram_burst();
     col_pending = 0;
   }
-  if (row_pending && vbl_take(VBL_COST_MAPHALF))
+  if (row_pending && vbl_take(VBL_COST_MAPHALF(n)))
   {
-    map_row_dma(VRAM_BG2_MAP, row_vram_y, row_lo[0]);
-    map_row_dma(VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
-    if (!effect_active())
-    {
-      map_row_dma(VRAM_BG1_MAP, row_vram_y, row_up[0]);
-      map_row_dma(VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
-    }
+    vj_first = VJ_MAP_ROW;
+    vj_n = n;
+    vj_vmain = VJ_INC1;
+    vj_ctrl = VJ_CTRL_VRAM;
+    vram_burst();
     row_pending = 0;
   }
 }

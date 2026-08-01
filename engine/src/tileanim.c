@@ -9,8 +9,20 @@
  *   ta_dest[seq*4]   : les 4 chars VRAM de la tile de base
  *   ta_src[frame*4]  : les 4 chars ROM de chaque frame (charset scène)
  *
- * Un PAS = 4 DMA de 32 octets (128 o) — une seule séquence par VBlank,
- * les autres retentent la frame suivante (files courtes, jamais de pic).
+ * Un PAS = 128 octets — une seule séquence par VBlank, les autres
+ * retentent la frame suivante (files courtes, jamais de pic).
+ *
+ * P6 — Ces 128 octets partaient en QUATRE appels DMA, et le pas coûtait
+ * 18 lignes écran pour 0,75 ligne de transfert réel : tout le reste
+ * était des apprêts (voir vramjob.h). Deux corrections :
+ *  - le plan de transfert est monté dans tileanim_update(), hors de la
+ *    fenêtre VBlank — l'indirection longue sur gfx_chars[] et les huit
+ *    lectures de tableau ne s'y paient plus ;
+ *  - les chars CONSÉCUTIFs des deux côtés à la fois sont fusionnés. Le
+ *    cas courant est une tile 16x16 dont les quatre quarts se suivent
+ *    en ROM comme en VRAM : un seul transfert de 128 octets. Quand la
+ *    déduplication du datagen a cassé la suite, on retombe sur deux ou
+ *    trois transferts — c'est vérifié, pas supposé.
  */
 #include <snes.h>
 #include "formats.h"
@@ -18,6 +30,7 @@
 #include "tileanim.h"
 #include "vbudget.h"
 #include "vram.h"
+#include "vramjob.h"
 
 extern const u8 ta_first[];
 extern const u8 ta_ffirst[];
@@ -36,6 +49,7 @@ static u8 ta_cnt[TA_MAX]; /* compte à rebours par séquence */
 static u8 ta_pos[TA_MAX]; /* position dans le cycle */
 static u8 ta_pend = 0xFF; /* séquence dont un pas attend le VBlank */
 static u8 ta_pfrm = 0;    /* frame (index global) du pas en attente */
+static u16 ta_njobs = 0;  /* transferts du plan en attente (1 à 4) */
 
 void tileanim_init(u8 scene_id)
 {
@@ -51,6 +65,47 @@ void tileanim_init(u8 scene_id)
     ta_pos[i] = 0;
   }
   ta_pend = 0xFF; /* un pas de l'ancienne scène ne doit jamais partir */
+  ta_njobs = 0;
+}
+
+/* Monte le plan de transfert du pas armé. Appelé depuis tileanim_update,
+   donc HORS fenêtre VBlank : c'est là tout l'intérêt — l'indirection
+   longue sur gfx_chars[] et les huit lectures de tableau se paient sur
+   le temps d'affichage, où il y en a de reste.
+
+   Deux chars qui se suivent en ROM ET en VRAM tiennent dans le même
+   transfert. La condition porte sur les DEUX côtés : le datagen
+   déduplique les chars identiques, et une tile dont deux quarts se
+   ressemblent casse la suite côté source sans la casser côté
+   destination. */
+static void ta_plan(void)
+{
+  const u8 *chars;
+  u16 s4, f4, sc, dc, psc, pdc;
+  u8 k;
+
+  chars = gfx_chars[scene_ctx.tileset_id];
+  s4 = (u16)(ta_base + ta_pend) << 2;
+  f4 = (u16)ta_pfrm << 2;
+  ta_njobs = 0;
+  psc = 0;
+  pdc = 0;
+  for (k = 0; k < 4; k++)
+  {
+    sc = ta_src[f4 + k];
+    dc = ta_dest[s4 + k];
+    if (ta_njobs && sc == (u16)(psc + 1) && dc == (u16)(pdc + 1))
+      vj_len[VJ_TILEANIM + ta_njobs - 1] += 32; /* la suite continue */
+    else
+    {
+      /* 32 octets par char 4bpp : ROM (charset scène) -> région tileset */
+      vj_set((u16)(VJ_TILEANIM + ta_njobs), chars + ((u32)sc << 5),
+             (u16)(VRAM_BG1_GFX + (dc << 4)), 32);
+      ta_njobs++;
+    }
+    psc = sc;
+    pdc = dc;
+  }
 }
 
 void tileanim_update(void)
@@ -77,30 +132,23 @@ void tileanim_update(void)
     ta_pend = i;
     ta_pfrm = (u8)(ta_ffirst[s] + f);
     ta_cnt[i] = ta_speed[s];
+    ta_plan();
   }
 }
 
 void tileanim_vblank(void)
 {
-  const u8 *chars;
-  u16 s4, f4;
-  u8 k;
-
   if (ta_pend == 0xFF)
     return;
   /* Un pas de tile animee est ce qu'on sacrifie en premier : il ne se
      voit pas, et ta_pend reste arme donc le pas passera a la frame
      suivante. */
-  if (!vbl_take(VBL_COST_TILEANIM))
+  if (!vbl_take(VBL_COST_BURST(ta_njobs, 128)))
     return;
-  chars = gfx_chars[scene_ctx.tileset_id];
-  s4 = (u16)(ta_base + ta_pend) << 2;
-  f4 = (u16)ta_pfrm << 2;
-  for (k = 0; k < 4; k++)
-  {
-    /* 32 octets par char 4bpp : ROM (charset scène) -> région tileset */
-    dmaCopyVram((u8 *)(chars + ((u32)ta_src[f4 + k] << 5)),
-                (u16)(VRAM_BG1_GFX + (ta_dest[s4 + k] << 4)), 32);
-  }
+  vj_first = VJ_TILEANIM;
+  vj_n = ta_njobs;
+  vj_vmain = VJ_INC1;
+  vj_ctrl = VJ_CTRL_VRAM;
+  vram_burst();
   ta_pend = 0xFF;
 }

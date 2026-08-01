@@ -23,6 +23,19 @@
  *    la demo telle qu'elle est — mais zéro marge, et les pics ne se
  *    cumulent pas par chance, pas par construction.
  *
+ * CE QUE P6 A CORRIGÉ DE CE TABLEAU
+ * Deux choses, et la première est une erreur de P5. VBL_COST_MAPHALF
+ * valait 10 alors qu'une MOITIÉ de carte — colonne seule — en coûte
+ * 22 : la demo du showcase fait 22x16 metatiles, elle tient entière
+ * dans la fenêtre 32x32 et ne streame JAMAIS. P5 avait donc chiffré la
+ * carte sur une scène qui ne la sollicitait pas. Mesurée sur une carte
+ * 48x40, la colonne coûte 22 lignes, et l'arbitre qui en réservait 10
+ * laissait passer 8 frames sur 497 en débordement.
+ * Ensuite, les transferts groupés (vramjob.h) ramènent la colonne à 12
+ * et le pas de tile animée de 18 à 5. Les coûts annoncés ne sont plus
+ * des chiffres posés à la main mais une formule sur le nombre de
+ * transferts et le volume — VBL_COST_BURST ci-dessous.
+ *
  * D'où B5 : VIG_VB_MAX avait dû être ramené à 1 « parce que les
  * dernières rangées tombaient hors fenêtre ». Une cellule de plus, ce
  * sont 4 appels DMA = 6 lignes, et 29 + 6 dépasse. Le quota privé était
@@ -64,11 +77,14 @@
    Ils incluent le calcul d'adresses en C, qui pèse plus lourd que le
    transfert lui-même — tcc-816 recalcule une adresse longue à chaque
    accès de tableau. À revoir si un consommateur change. */
-#define VBL_COST_MAPHALF 10  /* mesuré : colonne OU rangée, 4 appels */
-#define VBL_COST_TILEANIM 18 /* mesuré : 4 appels de 32 octets — trois
-                                fois le coût de son propre transfert */
-#define VBL_COST_VIG 12      /* MODÉLISÉ (4 appels + 512 o), pas mesuré :
-                                la demo n'a aucune animation qui tourne */
+/* Un LOT de transferts groupés (P6, vramjob.h) : un apprêt fixe pour le
+   lot, un petit apprêt par transfert, plus le débit. */
+#define VBL_COST_BURST(n, bytes) ((u8)(2 + (n) + ((bytes) >> 7)))
+#define VBL_COST_MAPHALF(n) VBL_COST_BURST(n, (u16)(n) << 6)
+#define VBL_COST_VIG 12 /* MODÉLISÉ (4 appels + 512 o), pas mesuré : la
+                           demo n'a aucune animation qui tourne. Les
+                           vignettes n'ont pas basculé sur les lots — le
+                           slot qui passe est choisi DANS le VBlank. */
 #define VBL_COST_UI(rows) ((u8)(2 + ((rows) >> 1))) /* 1 appel + rows*64 o */
 /* Combien de rangées d'UI tiennent dans `lines` lignes (inverse). */
 #define VBL_UI_ROWS(lines) ((u8)((lines) <= 2 ? 0 : ((lines) - 2) << 1))

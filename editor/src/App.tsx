@@ -1909,24 +1909,29 @@ export default function App() {
     },
     {
       label: "Tools",
+      // Neuf entrees a plat, c'etait une LISTE, pas un menu : rien n'y
+      // disait ce qui va avec quoi. Elles sont maintenant rangees par
+      // ce qu'on est en train de FAIRE — tenir l'etat du jeu, batir une
+      // carte, mettre en scene, habiller l'interface, remplir des
+      // tables. Aucun groupe d'un seul element : un sous-menu qui ne
+      // contient qu'une entree ne regroupe rien, il ajoute un clic.
       items: [
         {
-          label: "Switches et variables…",
-          tip: "Nommer les 512 switches (ON/OFF) et 256 variables (nombres) du jeu",
-          action: () => setVarMgr(true),
-          disabled: !data,
-        },
-        {
-          // Les deux sont des SCRIPTS GLOBAUX au projet, opposés par ce
-          // qu'on en fait : un common event se déclenche, une fonction
-          // se calcule. Les réunir sous une entrée les présente comme
-          // les deux faces d'une même idée plutôt que comme deux
-          // outils sans rapport perdus dans une liste de dix.
-          label: "Scripts globaux",
-          tip: "Scripts partagés par tout le projet : common events (déclenchés) et fonctions (appelées avec des paramètres)",
+          label: "Logique",
+          tip: "Ce que le jeu retient et ce qu'il exécute : switches, variables, scripts partagés",
           disabled: !data,
           sub: [
             {
+              label: "Switches et variables…",
+              tip: "Nommer les 512 switches (ON/OFF) et 256 variables (nombres) du jeu",
+              action: () => setVarMgr(true),
+              disabled: !data,
+            },
+            {
+              // Common event et fonction sont les deux faces d'une même
+              // idée — un script qui n'appartient à aucune carte — et
+              // s'opposent par ce qu'on en fait : l'un se déclenche,
+              // l'autre se calcule.
               label: "Common events…",
               tip: "Blocs de commandes appelés depuis n'importe quel event, ou lancés en auto par un switch",
               action: () => setCommonEvOpen(true),
@@ -1941,44 +1946,46 @@ export default function App() {
           ],
         },
         {
-          label: "Écrans composés…",
-          tip: "Écrans hors carte (combat, titre, carte du monde…) : fond + images posées + scripts, joués par « Aller à l'écran »",
-          action: () => setScreensOpen(true),
+          label: "Cartes",
+          tip: "De quoi bâtir une carte : comportement des tiles et modèles d'events",
           disabled: !data,
+          sub: [
+            {
+              label: "Tilesets…",
+              tip: "Passabilité, côtés fermés et tiles animées des chipsets (façon Database RM2003)",
+              action: () => setTilesetsOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Prefabs…",
+              tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
+              action: () => setPrefabMgr(true),
+              disabled: !data,
+            },
+          ],
         },
         {
-          label: "Animations…",
-          tip: "Animations image par image (coup d'épée, explosion, soin) : cellule, position et son par frame — jouées par « Jouer une animation »",
-          action: () => setAnimsOpen(true),
+          label: "Mise en scène",
+          tip: "Ce qui se joue hors de la carte : écrans composés et animations",
           disabled: !data,
+          sub: [
+            {
+              label: "Écrans composés…",
+              tip: "Écrans hors carte (combat, titre, carte du monde…) : fond + images posées + scripts, joués par « Aller à l'écran »",
+              action: () => setScreensOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Animations…",
+              tip: "Animations image par image (coup d'épée, explosion, soin) : cellule, position et son par frame — jouées par « Jouer une animation »",
+              action: () => setAnimsOpen(true),
+              disabled: !data,
+            },
+          ],
         },
         {
-          label: "Prefabs…",
-          tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
-          action: () => setPrefabMgr(true),
-          disabled: !data,
-        },
-        {
-          label: "Tilesets…",
-          tip: "Passabilité, côtés fermés et tiles animées des chipsets (façon Database RM2003)",
-          action: () => setTilesetsOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "Database…",
-          tip: "Tables de données du jeu (monstres, objets…) : schémas et valeurs, lues en jeu par « Lire la database »",
-          action: () => setDbOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "Textes…",
-          tip: "Catalogue des textes du jeu par catégories — utilisés par les commandes Message",
-          action: () => setTextsOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "UI",
-          tip: "Interface en jeu : widgets HUD et styles de dialogue",
+          label: "Interface",
+          tip: "Ce que le joueur a sous les yeux : HUD et boîtes de dialogue",
           disabled: !data,
           sub: [
             {
@@ -1991,6 +1998,25 @@ export default function App() {
               label: "Dialogues et choix…",
               tip: "Styles des boîtes de message et de choix : windowskin, fonte, géométrie",
               action: () => setUiMode("dialogs"),
+              disabled: !data,
+            },
+          ],
+        },
+        {
+          label: "Données",
+          tip: "Les tables du projet : valeurs chiffrées et textes",
+          disabled: !data,
+          sub: [
+            {
+              label: "Database…",
+              tip: "Tables de données du jeu (monstres, objets…) : schémas et valeurs, lues en jeu par « Lire la database »",
+              action: () => setDbOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Textes…",
+              tip: "Catalogue des textes du jeu par catégories — utilisés par les commandes Message",
+              action: () => setTextsOpen(true),
               disabled: !data,
             },
           ],
