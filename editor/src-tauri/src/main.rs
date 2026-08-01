@@ -1,4 +1,4 @@
-// Empêche la console Windows en release
+// Suppresses the Windows console in release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {

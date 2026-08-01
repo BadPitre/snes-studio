@@ -82,7 +82,7 @@ await page.waitForTimeout(1200);
 await page.getByRole("button", { name: "Ouvrir un projet…" }).click();
 await page.waitForTimeout(2500);
 if (await page.getByRole("button", { name: "Ouvrir un projet…" }).count()) {
-  console.log("  ✗ le projet ne s'est pas chargé — vérifier editor/public/project");
+  console.log("  ✗ the project did not load — check editor/public/project");
   await browser.close();
   process.exit(1);
 }
@@ -114,11 +114,11 @@ for (const w of WINDOWS) {
     await page.locator(".menu-subwrap > button", { hasText: group }).first().hover();
     await page.waitForTimeout(250);
     const leaf = page.locator(".menu-sub button", { hasText: item }).first();
-    if (await leaf.isDisabled()) throw new Error("entrée désactivée");
+    if (await leaf.isDisabled()) throw new Error("menu entry disabled");
     await leaf.click();
     await page.waitForTimeout(500);
     if (!(await page.locator(`.modal.${w.cls}`).count()))
-      throw new Error(`aucune fenêtre .${w.cls} à l'écran`);
+      throw new Error(`no .${w.cls} window on screen`);
     await page.screenshot({ path: `${OUT}/${w.path.at(-1).replace(/[^\w]/g, "_")}.png` });
     await closeModal();
   } catch (e) {
@@ -130,7 +130,7 @@ for (const w of WINDOWS) {
   }
   const fresh = errors.slice(before);
   if (fresh.length) {
-    console.log(`  ✗ ${label} — ${fresh.length} erreur(s) console`);
+    console.log(`  ✗ ${label} — ${fresh.length} console error(s)`);
     fresh.forEach((t) => console.log(`      ${t}`));
     failures++;
   } else {
@@ -141,7 +141,7 @@ for (const w of WINDOWS) {
 await browser.close();
 console.log("");
 if (failures) {
-  console.log(`${failures} fenêtre(s) en échec sur ${WINDOWS.length}.`);
+  console.log(`${failures} window(s) failed out of ${WINDOWS.length}.`);
   process.exit(1);
 }
-console.log(`${WINDOWS.length} fenêtres ouvertes, aucune erreur.`);
+console.log(`${WINDOWS.length} windows opened, no errors.`);

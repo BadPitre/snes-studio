@@ -4,7 +4,7 @@
  */
 #include <snes.h>
 
-/* couche d'effet par scene (S9) — 0xFF = aucune */
+/* per-scene effect layer (S9) — 0xFF = none */
 const u8 eff_pic[3] = { 255, 255, 255, };
 const u8 eff_blend[3] = { 0, 0, 0, };
 const u8 eff_par[3] = { 0, 0, 0, };

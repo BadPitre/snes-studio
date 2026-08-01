@@ -189,7 +189,6 @@ pub struct CommonEvent {
 /// thing — a common event is a block of commands you trigger, a function
 /// is a computation you call. Parameter names serve the editor only; the
 /// engine knows nothing but indices into the call frame.
-/// index dans le cadre d'appel.
 #[derive(Deserialize)]
 pub struct FunctionDef {
     #[serde(default)]
@@ -322,7 +321,6 @@ pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
 pub struct Actor {
     /// "npc" talks with A; "trigger" fires when the hero steps on the
     /// tile; "auto" fires when the scene loads. RM2003 trigger model.
-    /// la scène) — modèle des déclencheurs RM2003 (v0.6)
     #[serde(rename = "type")]
     pub kind: String,
     pub x: u8,
@@ -418,7 +416,6 @@ pub struct Event {
     /// Conditional pages; absent means one implicit page made of the
     /// fields above. Each page has its condition, appearance, trigger and
     /// commands; the LAST page whose condition passes is active (RM2003).
-    /// passe est active (modèle RM2003).
     #[serde(default)]
     pub pages: Vec<EventPage>,
 }
@@ -550,7 +547,6 @@ pub struct AnimCell {
 
 /// One animation frame: the cells shown SIMULTANEOUSLY (one per layer),
 /// how long, and an optional sound played when the frame is entered.
-/// l'entrée de la frame.
 #[derive(Deserialize)]
 pub struct AnimFrame {
     /// One entry per LAYER.
@@ -589,7 +585,6 @@ impl AnimFrame {
 /// A frame-by-frame animation. The cell sheet is a project VIGNETTE: the
 /// graphics pipeline (32x32 OBJ chars, palette, VBlank transfer) is
 /// already written and tested, so an animation only adds the frame track.
-/// que la piste de frames.
 #[derive(Deserialize)]
 pub struct AnimEntry {
     pub name: String,

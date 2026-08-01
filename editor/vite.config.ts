@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Config Vite pour Tauri : port fixe, pas de clearScreen (logs cargo visibles)
+// Vite config for Tauri: fixed port, no clearScreen (cargo logs stay visible)
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
@@ -9,7 +9,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      // ne pas surveiller les artefacts cargo (verrouillés pendant le build)
+      // do not watch cargo artefacts (locked during the build)
       ignored: ["**/src-tauri/**"],
     },
   },

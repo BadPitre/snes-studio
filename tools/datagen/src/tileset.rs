@@ -222,12 +222,12 @@ impl SourceTileset {
     }
 }
 
-/* --- Autotiles : algorithme de bordure RM2003 -----------------------------
- * Chaque quart 8x8 d'une tile choisit sa pièce selon ses voisins de MÊME
- * autotile (bord de map = même). Pièces : 0 coin externe, 1 bord
- * horizontal, 2 bord vertical, 3 coin interne, 4 centre. Le gabarit 3x4 :
- * (0,0) îlot d'aperçu, (1,0) inutilisé, (2,0) coins internes, rangées 1-3 =
- * bloc 9-slice. */
+/* --- Autotiles: the RM2003 border algorithm -------------------------------
+ * Each 8x8 quarter of a tile picks its piece from its neighbours of the
+ * SAME autotile (a map edge counts as the same). Pieces: 0 outer corner,
+ * 1 horizontal edge, 2 vertical edge, 3 inner corner, 4 centre. The 3x4
+ * template: (0,0) preview islet, (1,0) unused, (2,0) inner corners,
+ * rows 1-3 = the 9-slice block. */
 
 fn quarter_piece(v: bool, h: bool, d: bool) -> u16 {
     match (v, h) {
@@ -300,10 +300,10 @@ fn key_of_cell(grid: &[Vec<i32>], x: usize, y: usize, w: usize, h: usize) -> Opt
     }
 }
 
-/* --- Empaquetage des jeux de couleurs en palettes de 15 -------------------
- * Deux familles d'heuristiques déterministes : fusion agglomérative (par
- * recouvrement maximal, ou par plus petite union) et best-fit décroissant.
- * Les égalités se départagent par indices croissants. */
+/* --- Packing colour sets into palettes of 15 ------------------------------
+ * Two families of deterministic heuristics: agglomerative merging (by
+ * maximum overlap, or by smallest union) and best-fit decreasing. Ties
+ * are broken by increasing index. */
 
 fn pack_agglo(mut clusters: Vec<BTreeSet<u16>>, by_union: bool) -> Vec<BTreeSet<u16>> {
     loop {
@@ -486,10 +486,11 @@ fn reduce_pass(
     false
 }
 
-/* --- Compilation par scène ------------------------------------------------
- * Quart 8x8 en pixels sources : None = transparent (index 0), Some(bgr555).
- * L'encodage 4bpp dépend de la palette attribuée au char : extraction
- * d'abord, répartition en <= 8 palettes de 15 couleurs, encodage ensuite. */
+/* --- Per-scene compilation ------------------------------------------------
+ * An 8x8 quarter in source pixels: None = transparent (index 0),
+ * Some(bgr555). The 4bpp encoding depends on the palette assigned to the
+ * char: extract first, spread over <= 8 palettes of 15 colours, encode
+ * afterwards. */
 
 type Quarter = [[Option<u16>; 8]; 8];
 
@@ -657,8 +658,6 @@ impl SourceTileset {
         // closest colours of the heaviest blocks are merged one notch and
         // we try again — graceful degradation, never a failure, the way
         // period SNES pipelines did it.
-        // et on réessaie (dégradation douce, jamais d'échec) — comme les
-        // pipelines SNES d'époque.
         let mut squeezed = 0u32;
         let mut clusters: Vec<BTreeSet<u16>>;
         loop {
@@ -666,7 +665,6 @@ impl SourceTileset {
             uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
             uniq.dedup();
             // only MAXIMAL sets constrain; subsets follow their superset
-            // suivent leur sur-ensemble)
             let mut max_sets: Vec<BTreeSet<u16>> = Vec::new();
             'outer: for s in &uniq {
                 for o in &uniq {

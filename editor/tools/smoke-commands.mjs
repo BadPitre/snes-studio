@@ -52,7 +52,7 @@ await page.waitForTimeout(1200);
 await page.getByRole("button", { name: "Ouvrir un projet…" }).click();
 await page.waitForTimeout(2500);
 if (await page.getByRole("button", { name: "Ouvrir un projet…" }).count()) {
-  console.log("  ✗ le projet ne s'est pas chargé — vérifier editor/public/project");
+  console.log("  ✗ the project did not load — check editor/public/project");
   await browser.close();
   process.exit(1);
 }
@@ -64,7 +64,7 @@ await page.waitForTimeout(250);
 await page.locator(".menu-sub button", { hasText: "Common events…" }).first().click();
 await page.waitForTimeout(600);
 if (!(await page.locator(".modal.cevents").count())) {
-  console.log("  ✗ la fenêtre Common events ne s'est pas ouverte");
+  console.log("  ✗ the Common events window did not open");
   await browser.close();
   process.exit(1);
 }
@@ -86,7 +86,7 @@ async function openPicker() {
   // its own rows, and picking one of those would just switch event.
   const rows = page.locator(".modal.cevents .cevents-right .evedit-line");
   const n = await rows.count();
-  if (!n) throw new Error("aucune ligne de commande");
+  if (!n) throw new Error("no command line");
   await rows.nth(n - 1).dblclick();
   await page.waitForTimeout(300);
   return page.locator(".modal.cmdpick");
@@ -94,12 +94,12 @@ async function openPicker() {
 
 let picker = await openPicker();
 if (!(await picker.count())) {
-  console.log("  ✗ le sélecteur de commandes ne s'est pas ouvert");
+  console.log("  ✗ the command picker did not open");
   await browser.close();
   process.exit(1);
 }
 const tabCount = await picker.locator(".cmdpick-tabs button").count();
-console.log(`— ${tabCount} onglet(s) de commandes`);
+console.log(`— ${tabCount} command tab(s)`);
 
 let checked = 0;
 let failures = 0;
@@ -142,13 +142,13 @@ for (let t = 0; t < tabCount; t++) {
       await page.waitForTimeout(150);
     }
   }
-  console.log(`  ✓ ${tabName} — ${labels.length} commande(s)`);
+  console.log(`  ✓ ${tabName} — ${labels.length} command(s)`);
 }
 
 await browser.close();
 console.log("");
 if (failures) {
-  console.log(`${failures} formulaire(s) en échec sur ${checked + failures}.`);
+  console.log(`${failures} form(s) failed out of ${checked + failures}.`);
   process.exit(1);
 }
-console.log(`${checked} formulaires de commande ouverts, aucune erreur.`);
+console.log(`${checked} command forms opened, no errors.`);

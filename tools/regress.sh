@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# regress.sh — régression PIXEL du moteur.
+# regress.sh — the engine's PIXEL regression.
 #
-# Construit (ou reprend) le ROM de la demo, le fait tourner dans le core
-# libretro snes9x sur un nombre de frames FIXE avec une séquence de
-# touches FIXE, et compare l'image obtenue OCTET À OCTET à une référence
-# versionnée. Un pixel qui bouge sans raison se voit.
+# Builds (or reuses) the demo ROM, runs it in the snes9x libretro core
+# for a FIXED number of frames with a FIXED key sequence, and compares
+# the resulting image BYTE FOR BYTE against a versioned reference. A
+# pixel that moves for no reason shows up.
 #
-# C'est le seul garde-fou du projet contre les régressions silencieuses :
-# il a attrapé un bug tcc-816 où déclarer une variable dans un `case`
-# corrompait la rangée de cœurs du HUD — invisible à la relecture.
+# It is the project's only guard rail against silent regressions: it
+# caught a tcc-816 bug where declaring a variable inside a `case`
+# corrupted the HUD's row of hearts — invisible on a re-read.
 #
-#   ./tools/regress.sh              vérifie
-#   ./tools/regress.sh --build      régénère les données + recompile avant
-#   ./tools/regress.sh --bless      remplace les références (changement voulu)
+#   ./tools/regress.sh              check
+#   ./tools/regress.sh --build      regenerate the data + rebuild first
+#   ./tools/regress.sh --bless      replace the references (an intended change)
 #
-# Le core snes9x n'est PAS dans le dépôt (2,4 Mo de binaire). Voir
-# tools/regress/README.md pour l'obtenir ; le script le cherche seul.
+# The snes9x core is NOT in the repository (2.4 MB of binary). See
+# tools/regress/README.md to get it; the script finds it on its own.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,11 +31,11 @@ for a in "$@"; do
     --build) BUILD=1 ;;
     --bless) BLESS=1 ;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "option inconnue : $a" >&2; exit 2 ;;
+    *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
 done
 
-# ---- core libretro ---------------------------------------------------
+# ---- libretro core ---------------------------------------------------
 find_core() {
   [ -n "${SNES9X_CORE:-}" ] && { echo "$SNES9X_CORE"; return; }
   local c
@@ -48,14 +48,14 @@ find_core() {
 CORE="$(find_core || true)"
 if [ -z "$CORE" ]; then
   cat >&2 <<EOF
-ERREUR : core libretro snes9x introuvable.
+ERROR: snes9x libretro core not found.
 
-Il n'est pas versionné (2,4 Mo de binaire). Posez-le dans
-  tools/regress/snes9x_libretro.so    (.dll sous Windows)
-ou donnez son chemin :
-  SNES9X_CORE=/chemin/snes9x_libretro.so ./tools/regress.sh
+It is not versioned (2.4 MB of binary). Drop it in
+  tools/regress/snes9x_libretro.so    (.dll on Windows)
+or give its path:
+  SNES9X_CORE=/path/snes9x_libretro.so ./tools/regress.sh
 
-Détails dans tools/regress/README.md.
+Details in tools/regress/README.md.
 EOF
   exit 3
 fi
@@ -63,7 +63,7 @@ fi
 # ---- harness ---------------------------------------------------------
 HARNESS="$KIT/harness"
 if [ ! -x "$HARNESS" ] || [ "$KIT/harness.c" -nt "$HARNESS" ]; then
-  echo "  compilation du harness…"
+  echo "  building the harness…"
   cc -O2 -I"$KIT" -o "$HARNESS" "$KIT/harness.c" -ldl
 fi
 
@@ -75,9 +75,9 @@ if [ "$BUILD" = 1 ]; then
   echo "  make"
   make -C "$ROOT/engine" >/dev/null
 fi
-[ -f "$ROM" ] || { echo "ERREUR : $ROM absent — lancer avec --build." >&2; exit 4; }
+[ -f "$ROM" ] || { echo "ERROR: $ROM missing — run with --build." >&2; exit 4; }
 
-# ---- cas -------------------------------------------------------------
+# ---- cases -----------------------------------------------------------
 mkdir -p "$OUT"
 fail=0
 total=0
@@ -87,42 +87,42 @@ while read -r name frames inputs; do
   got="$OUT/$name.ppm"
   ref="$KIT/ref/$name.ppm"
   "$HARNESS" "$CORE" "$ROM" "$frames" "$got" ${inputs:+"$inputs"} >/dev/null 2>&1 || {
-    echo "  ✗ $name — le harness a échoué (ROM qui gèle ?)"
+    echo "  ✗ $name — the harness failed (a frozen ROM?)"
     fail=$((fail + 1)); continue
   }
   if [ "$BLESS" = 1 ]; then
     cp "$got" "$ref"
-    echo "  ↻ $name — référence remplacée"
+    echo "  ↻ $name — reference replaced"
   elif [ ! -f "$ref" ]; then
-    echo "  ✗ $name — aucune référence (--bless pour la créer)"
+    echo "  ✗ $name — no reference (--bless to create it)"
     fail=$((fail + 1))
   elif cmp -s "$got" "$ref"; then
     echo "  ✓ $name"
     rm -f "$got"
   else
-    # nombre d'octets qui diffèrent : donne l'ordre de grandeur (un
-    # glyphe déplacé vs tout l'écran) sans dépendre d'outils d'image
-    # `cmp -l` sort en 1 quand ça diffère : sans le `|| true`, pipefail
-    # ferait mourir le script au PREMIER écart et masquerait les autres
+    # the number of differing bytes: gives the order of magnitude (one
+    # glyph moved vs the whole screen) without depending on image tools
+    # `cmp -l` exits 1 when they differ: without the `|| true`, pipefail
+    # would kill the script on the FIRST mismatch and hide the others
     n=$({ cmp -l "$got" "$ref" 2>/dev/null || true; } | wc -l | tr -d ' ')
-    echo "  ✗ $name — $n octets diffèrent ; obtenu : $got"
+    echo "  ✗ $name — $n bytes differ; got: $got"
     fail=$((fail + 1))
   fi
 done < "$KIT/cases.txt"
 
 echo
 if [ "$BLESS" = 1 ]; then
-  echo "$total référence(s) remplacée(s) — RELIRE le diff git avant de commiter."
+  echo "$total reference(s) replaced — RE-READ the git diff before committing."
 elif [ "$fail" = 0 ]; then
-  echo "$total cas — aucune différence."
+  echo "$total cases — no difference."
 else
   cat <<EOF
-$fail cas sur $total en écart.
+$fail case(s) out of $total differ.
 
-Si le changement est VOULU (données de demo/, rendu modifié exprès) :
-regarder les .ppm de tools/regress/out, puis ./tools/regress.sh --bless.
-Sinon, c'est une régression — et le ROM fautif est le meilleur indice
-qu'on puisse garder : le copier avant de recompiler.
+If the change is INTENDED (demo/ data, rendering deliberately changed):
+look at the .ppm files in tools/regress/out, then ./tools/regress.sh --bless.
+Otherwise it is a regression — and the offending ROM is the best clue
+you can keep: copy it before rebuilding.
 EOF
   exit 1
 fi

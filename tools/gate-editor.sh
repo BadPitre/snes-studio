@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #
-# gate-editor.sh — filet de sécurité pour tout remaniement de l'éditeur.
+# gate-editor.sh — the safety net for any editor rework.
 #
-# Trois vérifications, de la moins chère à la plus parlante :
-#   1. tsc --noEmit          les types tiennent
-#   2. vite build            le paquet se construit
-#   3. npm run smoke          chaque fenêtre s'ouvre et s'affiche
-#   4. npm run smoke:commands chaque formulaire de commande s'affiche
+# Four checks, from the cheapest to the most telling:
+#   1. tsc --noEmit           the types hold
+#   2. vite build             the bundle builds
+#   3. npm run smoke          every window opens and renders
+#   4. npm run smoke:commands every command form renders
 #
-# La troisième est celle qui compte. Un remaniement de React ne casse
-# presque jamais la compilation — il casse un RENDU, et ça ne se voit
-# qu'en ouvrant la fenêtre. Le smoke test les ouvre toutes sur le projet
-# demo et relève les erreurs de console.
+# The last two are the ones that matter. A React rework almost never
+# breaks the compile — it breaks a RENDER, and that only shows when the
+# window is opened. The smoke test opens them all on the demo project
+# and picks up console errors.
 #
-#   ./tools/gate-editor.sh          les trois
-#   ./tools/gate-editor.sh --fast   sans le smoke test (tsc + build)
+#   ./tools/gate-editor.sh          all of them
+#   ./tools/gate-editor.sh --fast   without the smoke tests (tsc + build)
 #
-# Le mode navigateur de l'éditeur sert le projet depuis editor/public/project
-# (voir io.ts, pickProjectDir). Le script y pointe la demo le temps du
-# test et remet le lien d'origine en sortant.
+# The editor's browser mode serves the project from editor/public/project
+# (see io.ts, pickProjectDir). The script points that at the demo for the
+# duration of the test and restores the original link on the way out.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,12 +31,12 @@ FAST=0
 cd "$ED"
 echo "— types"
 npx tsc --noEmit -p tsconfig.json
-echo "— paquet"
+echo "— bundle"
 npm run build >/dev/null
-[ $FAST -eq 1 ] && { echo ""; echo "éditeur : types et paquet OK (smoke test ignoré)."; exit 0; }
+[ $FAST -eq 1 ] && { echo ""; echo "editor: types and bundle OK (smoke tests skipped)."; exit 0; }
 
-# Le lien vers le projet servi est local et non versionné : on le
-# sauvegarde avant de le détourner vers la demo.
+# The link to the served project is local and unversioned: save it before
+# diverting it to the demo.
 SAVED=""
 if [ -L "$LINK" ]; then SAVED="$(readlink "$LINK")"; fi
 restore() {
@@ -48,7 +48,7 @@ trap restore EXIT
 rm -f "$LINK"
 ln -s "$ROOT/demo" "$LINK"
 
-echo "— aperçu sur le port $PORT"
+echo "— preview on port $PORT"
 npx vite preview --port "$PORT" --strictPort >/tmp/gate-editor-preview.log 2>&1 &
 PREVIEW_PID=$!
 for _ in $(seq 1 30); do
@@ -56,9 +56,9 @@ for _ in $(seq 1 30); do
   sleep 0.5
 done
 
-echo "— fenêtres"
+echo "— windows"
 SMOKE_URL="http://localhost:$PORT" npm run --silent smoke
 
 echo ""
-echo "— formulaires de commande"
+echo "— command forms"
 SMOKE_URL="http://localhost:$PORT" npm run --silent smoke:commands
