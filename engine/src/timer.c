@@ -1,34 +1,34 @@
 /*
- * timer.c — timer de jeu affichable (v0.13, modèle RM2003).
+ * timer.c — the displayable game timer, RM2003 model.
  *
- * Un décompte en secondes, piloté par l'opcode TIMER (spec §2) : régler/
- * démarrer, arrêter, afficher/cacher. L'affichage « M:SS » vit sur BG3
- * (fonte de la textbox, déjà en VRAM), coin HAUT-DROIT. Depuis M1
- * (Phase 12), il est composé dans le tampon partagé ui_map dès que
- * l'état change (hors VBlank) — transfert centralisé ui_screen_vblank.
- * Cas assumé (doc M1) : une fenêtre de dialogue qui recouvre sa rangée
- * l'efface jusqu'au tick suivant.
+ * A countdown in seconds driven by the TIMER opcode (spec §2): set and
+ * start, stop, show and hide. The "M:SS" display lives on BG3, using
+ * the textbox font already in VRAM, in the TOP-RIGHT corner. It is
+ * composed into the shared ui_map buffer as soon as the state changes,
+ * outside the VBlank; ui_screen_vblank does the transfer.
+ * Accepted case: a dialogue window covering its row erases it until the
+ * next tick.
  */
 #include <snes.h>
 #include "formats.h"
 #include "timer.h"
 #include "ui_screen.h"
 
-/* Même encodage d'entrée BG3 que la textbox (textbox.c) : char 0 =
-   transparent, la fonte commence au char 1 (glyphe = ascii - 31) */
+/* Same BG3 entry encoding as the textbox (textbox.c): char 0 is
+   transparent and the font starts at char 1 (glyph = ascii - 31) */
 #define T_ENTRY(c) ((u16)((c) - 31) | 0x3000)
 
-/* Position de l'affichage : rangée 1, colonnes 26-30 (32 colonnes) */
+/* Display position: row 1, columns 26-30 (of 32) */
 #define T_ROW 1
 #define T_COL 26
 #define T_LEN 5
 
-static u16 t_secs;    /* secondes restantes */
-static u8 t_frames;   /* frames écoulées de la seconde en cours */
-static u8 t_run;      /* 1 = décompte actif */
-static u8 t_show;     /* 1 = affiché */
+static u16 t_secs;    /* seconds left */
+static u8 t_frames;   /* frames elapsed in the current second */
+static u8 t_run;      /* 1 = countdown running */
+static u8 t_show;     /* 1 = shown */
 
-/* Compose « M:SS » (ou l'efface) dans ui_map — hors VBlank */
+/* Composes "M:SS" into ui_map, or erases it — outside the VBlank */
 static void t_render(void)
 {
   u16 m, s, base;
@@ -41,8 +41,8 @@ static void t_render(void)
     s = t_secs % 60;
     if (m > 99)
       m = 99;
-    /* pas de zéro de tête sur les minutes — espace OPAQUE (fond fonte),
-       comme avant M1 : le rendu doit rester pixel-identique */
+    /* no leading zero on the minutes — an OPAQUE space (the font's
+       background), as before M1: the rendering must stay pixel-identical */
     ui_map[base + 0] = m < 10 ? T_ENTRY(' ') : T_ENTRY('0' + m / 10);
     ui_map[base + 1] = T_ENTRY('0' + m % 10);
     ui_map[base + 2] = T_ENTRY(':');
@@ -65,9 +65,8 @@ void timer_init(void)
   t_show = 0;
 }
 
-/* API à paramètre UNIQUE : le couple (u8, u16) en paramètres était
-   corrompu par tcc-816 (90 arrivait en ~556) — même famille de piège que
-   les multi-pointeurs. Un seul argument par fonction = passage fiable. */
+/* Single-argument API: a (u8, u16) parameter pair was corrupted by
+   tcc-816 — 90 arrived as ~556. See docs/ENGINE_CONSTRAINTS.md §1.6. */
 void timer_set(u16 secs)
 {
   t_secs = secs;
@@ -87,8 +86,8 @@ void timer_display(u8 on)
   t_render();
 }
 
-/* Redessin inconditionnel — la bande du dialogue vient d'être effacée
-   et peut couvrir la rangée du timer (tb_clear_band, W1) */
+/* Unconditional redraw — the dialogue band has just been cleared and
+   may cover the timer's row (tb_clear_band) */
 void timer_refresh(void)
 {
   if (t_show)
@@ -100,7 +99,7 @@ u16 timer_secs(void)
   return t_secs;
 }
 
-/* Un tick par frame (60 Hz NTSC). S'arrête à zéro. */
+/* One tick per frame (60 Hz NTSC). Stops at zero. */
 void timer_tick(void)
 {
   if (!t_run || t_secs == 0)
