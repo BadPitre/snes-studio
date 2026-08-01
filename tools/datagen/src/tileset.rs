@@ -1,24 +1,24 @@
-//! tileset.rs — tilesets sources (grille + autotiles RM2003 + sidecar de
-//! passabilité) et compilation des GFX PAR SCÈNE.
+//! Source tilesets (grid, RM2003 autotiles, passability sidecar) and the
+//! compilation of PER-SCENE graphics.
 //!
-//! Id logiques (JSON auteur) :
-//!   0..count-1     tile de la grille PNG (rangée par rangée, max 999)
-//!   1000 + k       autotile k du sidecar (les bordures sont calculées)
-//!   -1             vide (couche supérieure uniquement)
+//! Logical ids, as written in the author's JSON:
+//!   0..count-1     a tile of the PNG grid, row by row, up to 999
+//!   1000 + k       autotile k from the sidecar; its borders are computed
+//!   -1             empty (upper layer only)
 //!
-//! Depuis la Phase 5d, la VRAM est budgétée PAR SCÈNE (réalité SNES : une
-//! scène ne peut afficher que 512 chars 8x8 et 8 palettes de 15 couleurs).
-//! datagen compile pour chaque scène un « gfx set » : uniquement les tiles
-//! utilisées, chars dédupliqués (char 0 réservé transparent), palettes
-//! multiples réparties par char (bits 10-12 des entrées BG), table de
-//! priorités ☆. Les scènes au contenu identique partagent le même set.
-//! Les PNG sources peuvent donc avoir jusqu'à 256 couleurs (chipsets
-//! RM2003) : les limites s'appliquent à la scène, pas au tileset.
+//! VRAM is budgeted PER SCENE, because that is the SNES reality: one
+//! scene can only show 512 8x8 chars and 8 palettes of 15 colours.
+//! datagen compiles a "gfx set" for each scene: only the tiles actually
+//! used, chars deduplicated (char 0 reserved transparent), several
+//! palettes spread per char (bits 10-12 of the BG entries), and a
+//! priority table. Scenes with identical content share one set.
+//! Source PNGs may therefore hold up to 256 colours (RM2003 chipsets):
+//! the limits apply to the scene, not to the tileset.
 //!
-//! Passabilité (sidecar assets/<stem>.json) : `solid` = ids logiques X,
-//! `above` = ids ☆ (au-dessus du héros sur la couche sup, jamais
-//! bloquants). La couche collision binaire est DÉRIVÉE : tile sup présente
-//! et non-☆ → sa passabilité l'emporte (ponts), sinon la tile inférieure.
+//! Passability (sidecar assets/<stem>.json): `solid` lists blocking
+//! logical ids, `above` lists the ones drawn over the hero on the upper
+//! layer, never blocking. The binary collision layer is DERIVED: a
+//! present, non-above upper tile wins (bridges), otherwise the lower one.
 
 use crate::gfx::IndexedImage;
 use anyhow::{bail, Context, Result};
@@ -29,29 +29,29 @@ use std::path::Path;
 pub const AUTO_BASE: i32 = 1000;
 pub const EMPTY: i32 = -1;
 
-/// Sidecar optionnel `assets/<stem>.json`
+/// Optional sidecar `assets/<stem>.json`.
 #[derive(Deserialize, Default)]
 pub struct TilesetMeta {
-    /// PNG d'autotiles 48x64 (3x4 tiles, format RPG Maker 2003)
+    /// 48x64 autotile PNGs (3x4 tiles, RPG Maker 2003 format).
     #[serde(default)]
     pub autotiles: Vec<String>,
-    /// Ids logiques bloquants (X)
+    /// Blocking logical ids.
     #[serde(default)]
     pub solid: Vec<i32>,
-    /// Ids logiques ☆ (au-dessus du héros, passables)
+    /// Above-the-hero logical ids: drawn over him, walkable.
     #[serde(default)]
     pub above: Vec<i32>,
-    /// Indication éditeur (palette par couche) — ignorée par datagen
+    /// Editor hint (palette per layer); datagen ignores it.
     #[serde(default)]
     #[allow(dead_code)]
     pub upper_start: Option<u32>,
-    /// T1 — côtés FERMÉS par id logique (clé = id en chaîne JSON) :
-    /// bits 1 bas, 2 haut, 4 gauche, 8 droite (1 << DIR_*)
+    /// CLOSED sides per logical id (key = the id as a JSON string):
+    /// bits 1 down, 2 up, 4 left, 8 right (1 << DIR_*).
     #[serde(default)]
     pub dirs: std::collections::HashMap<String, u8>,
-    /// T1 — séquences de tiles ANIMÉES (tiles de grille uniquement) :
-    /// la première tile est celle posée sur les maps, les suivantes
-    /// sont ses frames (2-4 tiles, mode "123" ou "1232")
+    /// ANIMATED tile sequences (grid tiles only): the first tile is the
+    /// one posed on the maps, the rest are its frames — 2 to 4 tiles,
+    /// mode "123" or "1232".
     #[serde(default)]
     pub anims: Vec<AnimDef>,
 }
@@ -77,38 +77,38 @@ pub struct SourceTileset {
     pub img: IndexedImage,
     pub autos: Vec<IndexedImage>,
     pub meta: TilesetMeta,
-    /// Nombre de tiles de la grille PNG
+    /// Number of tiles in the PNG grid.
     pub count: u16,
 }
 
-/// GFX compilés d'une scène (ou partagés par plusieurs scènes identiques)
+/// The compiled graphics of a scene, possibly shared by identical scenes.
 pub struct GfxSet {
     pub charset: Vec<u8>,
     pub table: Vec<u16>,
-    /// 1 octet par id local : 1 = ☆ (priorité BG1 sur la couche sup)
+    /// One byte per local id: 1 means above (BG1 priority on the upper layer).
     pub prio: Vec<u8>,
-    /// CGRAM BG : 8 palettes x 16 couleurs (entrée 0 transparente)
+    /// BG CGRAM: 8 palettes x 16 colours, entry 0 transparent.
     pub pal: Vec<u16>,
     pub blank_id: u8,
     local_of: BTreeMap<TileKey, u8>,
-    /// Quarts effectivement compilés (après quantifications) — référence
-    /// de l'auto-contrôle
+    /// The quarters actually compiled, after any quantisation — the
+    /// reference the self-check compares against.
     quarters: Vec<Quarter>,
 }
 
 impl GfxSet {
-    /// Entrées de table (char | pal<<10 | prio) des 4 quarts d'une tile
-    /// de GRILLE — None si la tile n'est pas compilée dans cette scène
+    /// Table entries (char | pal<<10 | prio) for the 4 quarters of a GRID
+    /// tile; None when the tile is not compiled into this scene.
     pub fn plain_entries(&self, id: u16) -> Option<[u16; 4]> {
         let &local = self.local_of.get(&TileKey::Grid(id))?;
         let i = local as usize * 4;
         Some([self.table[i], self.table[i + 1], self.table[i + 2], self.table[i + 3]])
     }
 
-    /// Le char c est-il partagé par une tile HORS de l'ensemble donné ?
-    /// (dédup : animer un char partagé animerait aussi l'autre tile —
-    /// le partage ENTRE les frames d'une même séquence est légitime,
-    /// leurs quarts inchangés pointent les mêmes chars)
+    /// Is char c shared by a tile OUTSIDE the given set? Animating a
+    /// shared char would animate the other tile too. Sharing BETWEEN the
+    /// frames of one sequence is legitimate — their unchanged quarters
+    /// point at the same chars.
     pub fn char_shared_outside(&self, c: u16, allowed: &[u8]) -> bool {
         for (i, e) in self.table.iter().enumerate() {
             if (e & 0x3FF) == c && !allowed.contains(&((i / 4) as u8)) {
@@ -118,20 +118,20 @@ impl GfxSet {
         false
     }
 
-    /// id local d'une tile de grille
+    /// Local id of a grid tile.
     pub fn plain_local(&self, id: u16) -> Option<u8> {
         self.local_of.get(&TileKey::Grid(id)).copied()
     }
 }
 
-/// Grilles binaires d'une scène (row-major, w*h octets chacune)
+/// A scene's binary grids, row-major, w*h bytes each.
 pub struct SceneGrids {
     pub lower: Vec<u8>,
     pub upper: Vec<u8>,
     pub collision: Vec<u8>,
 }
 
-/// Tile référencée par une scène, en ids sources
+/// A tile referenced by a scene, in source ids.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum TileKey {
     Grid(u16),
@@ -171,8 +171,8 @@ pub fn load_source(proj_dir: &Path, png_rel: &str) -> Result<SourceTileset> {
         }
     }
 
-    // Avertissement (une fois par tileset) : tiles dont un bloc 8x8 dépasse
-    // 15 couleurs — elles seront quantifiées (fusion des plus proches)
+    // Warn once per tileset about tiles whose 8x8 block exceeds 15
+    // colours: they will be quantised by merging the closest pair.
     let mut over: BTreeSet<u16> = BTreeSet::new();
     let cols_grid = src.img.width / 16;
     for by in 0..src.img.height / 8 {
@@ -213,7 +213,7 @@ impl SourceTileset {
     fn is_above(&self, id: i32) -> bool {
         self.meta.above.contains(&id)
     }
-    /// Côtés fermés d'un id logique (T1) — nibble haut de la collision
+    /// Closed sides of a logical id — the high nibble of the collision byte.
     fn closed_sides(&self, id: i32) -> u8 {
         if id == EMPTY {
             return 0;
@@ -244,9 +244,9 @@ fn quarter_piece(v: bool, h: bool, d: bool) -> u16 {
     }
 }
 
-/// Position (col,row) de la pièce p dans le gabarit, pour le quart (qx,qy).
-/// Gabarit RM2003 : (0,0) îlot, (1,0) inutilisé, (2,0) coins internes,
-/// rangées 1-3 = bloc 9-slice.
+/// Position (col, row) of piece p in the template, for quarter (qx, qy).
+/// RM2003 template: (0,0) island, (1,0) unused, (2,0) inner corners,
+/// rows 1-3 the 9-slice block.
 fn piece_pos(p: u16, qx: usize, qy: usize) -> (usize, usize) {
     let cx = if qx == 1 { 2 } else { 0 };
     let ry = if qy == 1 { 3 } else { 1 };
@@ -260,7 +260,7 @@ fn piece_pos(p: u16, qx: usize, qy: usize) -> (usize, usize) {
     }
 }
 
-/// Clé de variante : pièce de chaque quart (TL,TR,BL,BR), encodée base 5
+/// Variant key: the piece of each quarter (TL,TR,BL,BR), base-5 encoded.
 #[allow(clippy::too_many_arguments)]
 pub fn variant_key(
     n: bool, e: bool, s: bool, w: bool, nw: bool, ne: bool, sw: bool, se: bool,
@@ -272,7 +272,7 @@ pub fn variant_key(
     tl * 125 + tr * 25 + bl * 5 + br
 }
 
-/// Clé de variante de la cellule (x,y) d'une grille logique (hors-map = même)
+/// Variant key of cell (x,y) of a logical grid; off-map counts as same.
 fn cell_key(grid: &[Vec<i32>], x: usize, y: usize, w: usize, h: usize) -> u16 {
     let id = grid[y][x];
     let same = |dx: i32, dy: i32| -> bool {
@@ -358,10 +358,10 @@ fn pack_bfd(sets: &[BTreeSet<u16>]) -> Vec<BTreeSet<u16>> {
     clusters
 }
 
-/// Solveur exact (backtracking borné) : trouve une répartition en
-/// `max_pal` palettes si elle existe. Jeux triés du plus contraint au
-/// moins contraint ; élagage par symétrie (clusters identiques) et budget
-/// de nœuds pour rester instantané.
+/// Exact solver (bounded backtracking): finds a split into `max_pal`
+/// palettes if one exists. Sets are sorted most-constrained first, with
+/// symmetry pruning (identical clusters) and a node budget so it stays
+/// instantaneous.
 fn pack_exact(sets: &[BTreeSet<u16>], max_pal: usize) -> Option<Vec<BTreeSet<u16>>> {
     let mut sorted = sets.to_vec();
     sorted.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
@@ -414,8 +414,8 @@ fn pack_exact(sets: &[BTreeSet<u16>], max_pal: usize) -> Option<Vec<BTreeSet<u16
     }
 }
 
-/// Regroupe les jeux maximaux par cluster d'accueil (premier sur-ensemble)
-/// et recalcule les unions effectives.
+/// Groups maximal sets by host cluster (the first superset) and
+/// recomputes the effective unions.
 fn regroup(
     sets: &[BTreeSet<u16>],
     clusters: &[BTreeSet<u16>],
@@ -439,8 +439,8 @@ fn regroup(
     (out_g, out_u)
 }
 
-/// Tente de dissoudre UN cluster (le plus petit possible) en redistribuant
-/// ses jeux dans les autres. Retourne true si un cluster a disparu.
+/// Tries to dissolve ONE cluster — the smallest possible — by
+/// redistributing its sets into the others. True if one disappeared.
 fn reduce_pass(
     groups: &mut Vec<Vec<usize>>,
     unions: &mut Vec<BTreeSet<u16>>,
@@ -507,7 +507,7 @@ fn extract_quarter(img: &IndexedImage, ox: usize, oy: usize) -> Quarter {
     q
 }
 
-/// Distance entre deux couleurs BGR555 (carrés des écarts par canal)
+/// Distance between two BGR555 colours: squared per-channel differences.
 pub(crate) fn dist555(a: u16, b: u16) -> u32 {
     let d = |x: u16, y: u16| {
         let v = (x as i32) - (y as i32);
@@ -516,9 +516,9 @@ pub(crate) fn dist555(a: u16, b: u16) -> u32 {
     d(a & 31, b & 31) + d((a >> 5) & 31, (b >> 5) & 31) + d((a >> 10) & 31, (b >> 10) & 31)
 }
 
-/// Une étape de fusion : les deux couleurs les plus proches du bloc sont
-/// confondues (la moins fréquente prend la valeur de l'autre), de façon
-/// déterministe. Retourne false si le bloc a moins de 2 couleurs.
+/// One merge step: the block's two closest colours are conflated, the
+/// rarer taking the other's value, deterministically. False when the
+/// block has fewer than 2 colours.
 fn quantize_step(q: &mut Quarter) -> bool {
     let mut counts: BTreeMap<u16, u32> = BTreeMap::new();
     for c in q.iter().flatten().flatten() {
@@ -532,7 +532,7 @@ fn quantize_step(q: &mut Quarter) -> bool {
     for i in 0..cols.len() {
         for j in i + 1..cols.len() {
             let (a, b) = (cols[i], cols[j]);
-            // victime = la moins fréquente (à égalité : la plus grande)
+            // victim: the rarer one; on a tie, the larger value
             let (from, to) = if (counts[&a], b) < (counts[&b], a) {
                 (a, b)
             } else {
@@ -555,9 +555,9 @@ fn quantize_step(q: &mut Quarter) -> bool {
     true
 }
 
-/// Un bloc 8x8 SNES a 15 couleurs max : au-delà (chipsets RM2003), fusion
-/// des couleurs les plus proches jusqu'à passer sous la limite. Appliqué à
-/// l'EXTRACTION : compilation et auto-contrôle voient le même bloc.
+/// An 8x8 SNES block holds at most 15 colours. Past that (RM2003
+/// chipsets) the closest colours are merged until it fits. Applied at
+/// EXTRACTION, so compilation and self-check see the same block.
 fn quantize_quarter(q: &mut Quarter) {
     loop {
         let n: BTreeSet<u16> = q.iter().flatten().flatten().copied().collect();
@@ -567,7 +567,7 @@ fn quantize_quarter(q: &mut Quarter) {
     }
 }
 
-/// Les 4 quarts (TL,TR,BL,BR) d'une tile référencée
+/// The 4 quarters (TL,TR,BL,BR) of a referenced tile.
 fn tile_quarters(src: &SourceTileset, key: TileKey) -> Result<[Quarter; 4]> {
     Ok(match key {
         TileKey::Grid(t) => {
@@ -598,9 +598,9 @@ fn tile_quarters(src: &SourceTileset, key: TileKey) -> Result<[Quarter; 4]> {
 }
 
 impl SourceTileset {
-    /// Compile le gfx set d'une scène : tiles utilisées par les deux
-    /// couches logiques uniquement. Limites PAR SCÈNE : 254 ids locaux,
-    /// 512 chars, 8 palettes de 15 couleurs.
+    /// Compiles a scene's gfx set: only the tiles used by the two logical
+    /// layers. PER-SCENE limits: 254 local ids, 512 chars, 8 palettes of
+    /// 15 colours.
     pub fn compile_scene(
         &self,
         name: &str,
@@ -610,7 +610,7 @@ impl SourceTileset {
         let h = lower.len();
         let w = if h > 0 { lower[0].len() } else { 0 };
 
-        // 1. tiles utilisées, ordre déterministe (BTreeSet)
+        // 1. tiles used, in deterministic order (BTreeSet)
         let mut used: BTreeSet<TileKey> = BTreeSet::new();
         for grid in [lower, upper] {
             for y in 0..h {
@@ -621,9 +621,9 @@ impl SourceTileset {
                 }
             }
         }
-        // T1 : les FRAMES des tiles animées rejoignent le charset dès que
-        // leur tile de base est posée — leurs chars servent de source ROM
-        // au module tileanim (jamais référencés par la carte)
+        // The FRAMES of animated tiles join the charset as soon as their
+        // base tile is posed: their chars are the ROM source for the
+        // tileanim module, and are never referenced by the map.
         for a in &self.meta.anims {
             if a.tiles.first().map_or(false, |&b| {
                 b >= 0 && used.contains(&TileKey::Grid(b as u16))
@@ -640,23 +640,23 @@ impl SourceTileset {
             bail!("scene '{}' : {} tiles distinctes > 254", name, locals.len());
         }
 
-        // 2. quarts + jeux de couleurs
+        // 2. quarters and colour sets
         let colorset = |q: &Quarter| -> BTreeSet<u16> {
             q.iter().flatten().flatten().copied().collect()
         };
         let mut quarters: Vec<Quarter> = Vec::with_capacity(locals.len() * 4);
         for &key in &locals {
-            // les blocs > 15 couleurs sont quantifiés à l'extraction
+            // blocks over 15 colours are quantised at extraction
             quarters.extend_from_slice(&tile_quarters(self, key)?);
         }
 
-        // 3. répartition en palettes : jeux uniques triés (taille desc puis
-        //    contenu), placement dans la première palette qui peut absorber
-        // 3. Empaquetage en <= 8 palettes de 15 : bin-packing avec la
-        // contrainte « chaque jeu de couleurs entier dans une palette ».
-        // Stratégie : plusieurs gloutons déterministes + passe de réduction
-        // + solveur exact ; si la scène est VRAIMENT trop riche, on fusionne
-        // les couleurs les plus proches des blocs les plus chargés d'un cran
+        // 3. Pack into <= 8 palettes of 15: bin-packing under the
+        // constraint that each colour set fits whole in one palette.
+        // Strategy: several deterministic greedy passes, a reduction pass,
+        // then the exact solver. If the scene is TRULY too rich, the
+        // closest colours of the heaviest blocks are merged one notch and
+        // we try again — graceful degradation, never a failure, the way
+        // period SNES pipelines did it.
         // et on réessaie (dégradation douce, jamais d'échec) — comme les
         // pipelines SNES d'époque.
         let mut squeezed = 0u32;
@@ -665,7 +665,7 @@ impl SourceTileset {
             let mut uniq: Vec<BTreeSet<u16>> = quarters.iter().map(colorset).collect();
             uniq.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
             uniq.dedup();
-            // seuls les jeux MAXIMAUX contraignent (les sous-ensembles
+            // only MAXIMAL sets constrain; subsets follow their superset
             // suivent leur sur-ensemble)
             let mut max_sets: Vec<BTreeSet<u16>> = Vec::new();
             'outer: for s in &uniq {
@@ -676,8 +676,8 @@ impl SourceTileset {
                 }
                 max_sets.push(s.clone());
             }
-            // les sous-ensembles servent parfois de « ponts » à la fusion
-            // agglomérative : chaque stratégie est essayée avec ET sans eux
+            // subsets sometimes act as "bridges" for agglomerative
+            // merging, so each strategy is tried with AND without them
             let mut best: Option<Vec<BTreeSet<u16>>> = None;
             for cand in [
                 pack_agglo(uniq.clone(), false),
@@ -693,8 +693,8 @@ impl SourceTileset {
                     best = Some(unions);
                 }
             }
-            // Faisable : <= 8 palettes ET, si 8, la plus petite doit tenir
-            // en 12 couleurs (slots CGRAM 16-19 réservés à la textbox)
+            // Feasible: <= 8 palettes, and at 8 the smallest must fit in
+            // 12 colours (CGRAM slots 16-19 are reserved for the textbox)
             let feasible = |c: &Vec<BTreeSet<u16>>| {
                 c.len() <= 7
                     || (c.len() == 8
@@ -717,7 +717,7 @@ impl SourceTileset {
                 clusters = c;
                 break;
             }
-            // trop riche : serre d'un cran les blocs les plus chargés
+            // too rich: tighten the heaviest blocks by one notch
             let maxlen = quarters.iter().map(|q| colorset(q).len()).max().unwrap_or(0);
             if maxlen <= 2 {
                 bail!("scene '{}' : empaquetage de palettes impossible (bug datagen)", name);
@@ -737,11 +737,11 @@ impl SourceTileset {
             );
         }
         clusters.sort(); // ordre stable
-        // Palettes hardware : la CGRAM 16-19 (palette 1, indices 0-3) est
-        // RÉSERVÉE à la fonte de la textbox (BG3 2bpp, spec §4). Tant qu'il
-        // y a <= 7 clusters, la palette 1 n'est pas utilisée ; à 8, le plus
-        // petit cluster (<= 12 couleurs) y loge, ses couleurs placées aux
-        // indices 4-15 (CGRAM 20-31).
+        // Hardware palettes: CGRAM 16-19 (palette 1, indices 0-3) is
+        // RESERVED for the textbox font (BG3 2bpp, spec §4). With <= 7
+        // clusters palette 1 goes unused; at 8, the smallest cluster
+        // (<= 12 colours) lodges there, its colours placed at indices
+        // 4-15 (CGRAM 20-31).
         let hw_free: [u8; 7] = [0, 2, 3, 4, 5, 6, 7];
         let mut hw: Vec<u8> = vec![0; clusters.len()];
         if clusters.len() <= 7 {
@@ -788,7 +788,7 @@ impl SourceTileset {
             assign.insert(key, p as u8);
         }
 
-        // 4. encodage 4bpp + dédup chars + table de metatiles
+        // 4. 4bpp encoding, char dedup, metatile table
         let mut charset: Vec<u8> = vec![0; 32]; // char 0 : transparent réservé
         let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
         seen.insert([0u8; 32], 0);
@@ -828,7 +828,7 @@ impl SourceTileset {
             }
         }
 
-        // metatile transparent (id local = dernier)
+        // transparent metatile (local id = last)
         let blank_id = (table.len() / 4) as u8;
         table.extend_from_slice(&[0, 0, 0, 0]);
 
@@ -840,7 +840,7 @@ impl SourceTileset {
             );
         }
 
-        // 5. priorités ☆ + CGRAM 8x16
+        // 5. priorities and the 8x16 CGRAM
         let mut prio: Vec<u8> = locals
             .iter()
             .map(|&key| {
@@ -865,8 +865,8 @@ impl SourceTileset {
         Ok(GfxSet { charset, table, prio, pal, blank_id, local_of, quarters })
     }
 
-    /// Grilles binaires d'une scène : couches en ids locaux + collision
-    /// dérivée de la passabilité (règle : la tile sup non-☆ l'emporte)
+    /// A scene's binary grids: the layers in local ids, plus collision
+    /// derived from passability (a non-above upper tile wins).
     pub fn expand_scene(
         &self,
         gfx: &GfxSet,
@@ -882,9 +882,9 @@ impl SourceTileset {
             for y in 0..h {
                 for x in 0..w {
                     out.push(match key_of_cell(grid, x, y, w, h) {
-                        // S10 : -1 accepte sur les DEUX couches — cellule
-                        // vide = char transparent, la couleur de fond
-                        // (CGRAM 0, forcee noire par le moteur) se voit
+                        // -1 is accepted on BOTH layers: an empty cell is
+                        // a transparent char, and the backdrop colour
+                        // (CGRAM 0, forced black by the engine) shows.
                         None => gfx.blank_id,
                         Some(key) => *gfx
                             .local_of
@@ -902,7 +902,7 @@ impl SourceTileset {
                 let u = upper[y][x];
                 let eff = if u != EMPTY && !self.is_above(u) { u } else { lower[y][x] };
                 let solid = self.is_solid(eff);
-                // T1 : côtés fermés (nibble haut) — inutiles sur du solide
+                // closed sides (high nibble); pointless on solid tiles
                 let sides = if solid { 0 } else { self.closed_sides(eff) };
                 collision.push(solid as u8 | (sides << 4));
             }
@@ -917,10 +917,10 @@ impl SourceTileset {
 }
 
 impl GfxSet {
-    /// Auto-contrôle : décode chaque tile compilée (char 4bpp + bits de
-    /// palette + CGRAM) et la compare pixel par pixel aux quarts compilés
-    /// (source après quantifications éventuelles). Toute divergence est un
-    /// bug datagen — on refuse d'émettre des données fausses.
+    /// Self-check: decode every compiled tile (4bpp char, palette bits,
+    /// CGRAM) and compare it pixel by pixel against the compiled quarters
+    /// (the source after any quantisation). Any divergence is a datagen
+    /// bug — we refuse to emit wrong data.
     pub fn verify(&self, name: &str) -> Result<()> {
         for local in 0..self.quarters.len() / 4 {
             for q in 0..4 {
@@ -957,7 +957,7 @@ impl GfxSet {
 }
 
 impl GfxSet {
-    /// Empreinte pour partager un set entre scènes identiques
+    /// Fingerprint, so identical scenes share one set.
     pub fn fingerprint(&self) -> Vec<u8> {
         let mut v = self.charset.clone();
         for &e in &self.table {
