@@ -530,6 +530,7 @@ fn main() -> Result<()> {
                 name,
                 &scene.events,
                 &project.common_events,
+                &project.functions,
                 database.as_ref(),
                 &ui_widget_ids,
                 &ui_style_ids,

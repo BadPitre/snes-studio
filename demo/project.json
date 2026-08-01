@@ -73,10 +73,9 @@
  "screens": [
   "combat_prairie"
  ],
- "common_events": [
+ "functions": [
   {
    "name": "bonus",
-   "trigger": "none",
    "params": [
     "base",
     "niveau"

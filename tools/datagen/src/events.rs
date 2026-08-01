@@ -37,7 +37,7 @@
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
 
 use crate::db::Db;
-use crate::project::{Actor, CommonEvent, Event, ScreenDef, TextEntry};
+use crate::project::{FunctionDef, Actor, CommonEvent, Event, ScreenDef, TextEntry};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -89,9 +89,12 @@ pub struct EventCompiler<'a> {
     /// fonction, et c'est ce qui permet de refuser un « param » posé
     /// dans un event de carte, où il ne voudrait rien dire.
     cur_fn: Option<(usize, bool)>,
-    /// F1 — signatures de tous les common events, pour vérifier les
-    /// appels (nombre d'arguments, existence d'une valeur de retour)
+    /// F1 — signatures des FONCTIONS du projet, pour vérifier les appels
+    /// (nombre d'arguments, existence d'une valeur de retour)
     fn_sigs: Vec<(usize, bool)>,
+    /// F1 — fonctions référencées par la scène en cours : leurs corps
+    /// sont émis dans le bloc scripts, transitivement
+    used_fns: Vec<bool>,
 }
 
 impl<'a> EventCompiler<'a> {
@@ -121,6 +124,7 @@ impl<'a> EventCompiler<'a> {
             used_commons: Vec::new(),
             cur_fn: None,
             fn_sigs: Vec::new(),
+            used_fns: Vec::new(),
         }
     }
 
@@ -362,10 +366,19 @@ impl<'a> EventCompiler<'a> {
     /// Un common event « parallel » tourne en tâche de fond : messages et
     /// choix y sont interdits — transitivement, à travers les appels
     /// (v0.16, pas d'UI hors du script principal).
-    fn check_no_ui(commons: &[CommonEvent], root: usize) -> Result<()> {
+    fn check_no_ui(
+        commons: &[CommonEvent],
+        functions: &[FunctionDef],
+        root: usize,
+    ) -> Result<()> {
+        // « seen » couvre les DEUX listes : les common events d'abord,
+        // les fonctions ensuite — un parallel process peut appeler l'un
+        // comme l'autre, et un message caché deux niveaux plus bas est
+        // exactement ce que ce controle doit trouver.
         fn scan(
             cmds: &[Value],
             commons: &[CommonEvent],
+            functions: &[FunctionDef],
             seen: &mut Vec<bool>,
             root_name: &str,
         ) -> Result<()> {
@@ -380,17 +393,29 @@ impl<'a> EventCompiler<'a> {
                          tourne en tache de fond, sans dialogue)",
                         root_name
                     ),
-                    "loop" => scan(sub("do"), commons, seen, root_name)?,
+                    "loop" => scan(sub("do"), commons, functions, seen, root_name)?,
                     "if" | "if_sw" | "if_var" => {
-                        scan(sub("then"), commons, seen, root_name)?;
-                        scan(sub("else"), commons, seen, root_name)?;
+                        scan(sub("then"), commons, functions, seen, root_name)?;
+                        scan(sub("else"), commons, functions, seen, root_name)?;
                     }
-                    "call" | "call_fn" => {
+                    "call" => {
                         if let Some(n) = cmd["n"].as_u64() {
                             let n = n as usize;
                             if n < commons.len() && !seen[n] {
                                 seen[n] = true;
-                                scan(&commons[n].commands, commons, seen, root_name)?;
+                                let body = &commons[n].commands;
+                                scan(body, commons, functions, seen, root_name)?;
+                            }
+                        }
+                    }
+                    "call_fn" => {
+                        if let Some(n) = cmd["n"].as_u64() {
+                            let n = n as usize;
+                            let i = commons.len() + n;
+                            if n < functions.len() && !seen[i] {
+                                seen[i] = true;
+                                let body = &functions[n].commands;
+                                scan(body, commons, functions, seen, root_name)?;
                             }
                         }
                     }
@@ -399,9 +424,15 @@ impl<'a> EventCompiler<'a> {
             }
             Ok(())
         }
-        let mut seen = vec![false; commons.len()];
+        let mut seen = vec![false; commons.len() + functions.len()];
         seen[root] = true;
-        scan(&commons[root].commands, commons, &mut seen, &commons[root].name)
+        scan(
+            &commons[root].commands,
+            commons,
+            functions,
+            &mut seen,
+            &commons[root].name,
+        )
     }
 
     /// Compile une liste de commandes en lignes d'assembleur (spec §2)
@@ -1235,13 +1266,6 @@ impl<'a> EventCompiler<'a> {
                                 cmd
                             )
                         })? as usize;
-                    if self.fn_sigs.get(n).map(|s| s.0).unwrap_or(0) != 0 {
-                        bail!(
-                            "call : le common event {} attend des parametres — \
-                             utiliser « Appeler une fonction »",
-                            n + 1
-                        );
-                    }
                     self.used_commons[n] = true;
                     out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
                 }
@@ -1253,8 +1277,7 @@ impl<'a> EventCompiler<'a> {
                         .filter(|&n| (n as usize) < self.fn_sigs.len())
                         .with_context(|| {
                             format!(
-                                "call_fn : fonction inexistante ({} common events \
-                                 definis) : {}",
+                                "call_fn : fonction inexistante ({} definies) : {}",
                                 self.fn_sigs.len(),
                                 cmd
                             )
@@ -1270,12 +1293,12 @@ impl<'a> EventCompiler<'a> {
                             args.len()
                         );
                     }
-                    let mut line = format!("  CALLF __ce{}_{}", n, self.cur_scene);
+                    let mut line = format!("  CALLF __fn{}_{}", n, self.cur_scene);
                     for a in args {
                         let (st, val) = self.value_source(a, "call_fn")?;
                         line.push_str(&format!(" {} {}", st, val));
                     }
-                    self.used_commons[n] = true;
+                    self.used_fns[n] = true;
                     out.push(line);
                     // « ranger le resultat » : sucre pour CALLF + VAROP,
                     // le cas courant et celui qu'on ne veut pas faire
@@ -1422,6 +1445,7 @@ impl<'a> EventCompiler<'a> {
         scene_name: &str,
         events: &[Event],
         commons: &[CommonEvent],
+        functions: &[FunctionDef],
         db: Option<&'a Db>,
         ui_widgets: &[String],
         ui_styles: &[String],
@@ -1442,13 +1466,28 @@ impl<'a> EventCompiler<'a> {
         self.gfx_blocks.clear();
         self.cur_scene = scene_name.to_string();
         self.used_commons = vec![false; commons.len()];
+        self.used_fns = vec![false; functions.len()];
         // F1 : les signatures d'abord — un event de carte peut appeler
         // une fonction definie plus loin dans la liste, et la
         // verification du nombre d'arguments ne peut pas attendre
-        self.fn_sigs = commons
+        self.fn_sigs = functions
             .iter()
-            .map(|ce| (ce.params.len(), ce.returns))
+            .map(|f| (f.params.len(), f.returns))
             .collect();
+        // F1-c : un projet du format precedent porte encore ses
+        // parametres sur un common event. Le refuser franchement plutot
+        // que de compiler une fonction amputee de ses entrees.
+        for (k, ce) in commons.iter().enumerate() {
+            if !ce.params.is_empty() {
+                bail!(
+                    "common event {} « {} » : les fonctions ont maintenant leur \
+                     propre liste (Tools > Fonctions). Rouvrir le projet dans \
+                     l'editeur suffit a le convertir.",
+                    k + 1,
+                    ce.name
+                );
+            }
+        }
         self.db = db;
         self.ui_widgets = ui_widgets.to_vec();
         self.ui_styles = ui_styles.to_vec();
@@ -1678,18 +1717,9 @@ impl<'a> EventCompiler<'a> {
                             s
                         ),
                     };
-                    if !ce.params.is_empty() {
-                        bail!(
-                            "common event {} « {} » : une fonction a parametres \
-                             ne peut pas etre declenchee automatiquement — \
-                             personne ne lui passerait ses arguments",
-                            k + 1,
-                            ce.name
-                        );
-                    }
                     // un parallel tourne en tache de fond : pas d'UI dedans
                     if ce.trigger == "parallel" {
-                        Self::check_no_ui(commons, k)?;
+                        Self::check_no_ui(commons, functions, k)?;
                     }
                     self.used_commons[k] = true;
                     cetab.push_str(&format!(
@@ -1709,23 +1739,43 @@ impl<'a> EventCompiler<'a> {
                 ),
             }
         }
-        let mut emitted = vec![false; commons.len()];
-        while let Some(k) =
-            (0..commons.len()).find(|&k| self.used_commons[k] && !emitted[k])
-        {
-            emitted[k] = true;
-            asm.push(format!("__ce{}_{}:", k, scene_name));
-            // F1 : c'est ici, et seulement ici, que « param » a un sens
-            self.cur_fn = Some((commons[k].params.len(), commons[k].returns));
-            let r = self.compile_list(&commons[k].commands, 0, &mut asm);
-            self.cur_fn = None;
-            r.with_context(|| {
-                format!("common event {} « {} »", k + 1, commons[k].name)
-            })?;
-            // RET depile aussi le cadre : une fonction qui tombe en bout
-            // de corps sans « Retourner » rend simplement la valeur du
-            // dernier appel, comme si elle n'en rendait pas
-            asm.push("  RET".to_string());
+        // Les corps referencés sont émis une fois chacun, et la boucle
+        // alterne entre les deux listes : un common event peut appeler
+        // une fonction, une fonction peut appeler un common event, et
+        // chacun peut en marquer un nouveau au moment où on le compile.
+        let mut em_ce = vec![false; commons.len()];
+        let mut em_fn = vec![false; functions.len()];
+        loop {
+            if let Some(k) =
+                (0..commons.len()).find(|&k| self.used_commons[k] && !em_ce[k])
+            {
+                em_ce[k] = true;
+                asm.push(format!("__ce{}_{}:", k, scene_name));
+                self.compile_list(&commons[k].commands, 0, &mut asm)
+                    .with_context(|| {
+                        format!("common event {} « {} »", k + 1, commons[k].name)
+                    })?;
+                asm.push("  RET".to_string());
+                continue;
+            }
+            if let Some(k) = (0..functions.len()).find(|&k| self.used_fns[k] && !em_fn[k])
+            {
+                em_fn[k] = true;
+                asm.push(format!("__fn{}_{}:", k, scene_name));
+                // F1 : c'est ici, et seulement ici, que « param » a un sens
+                self.cur_fn = Some((functions[k].params.len(), functions[k].returns));
+                let r = self.compile_list(&functions[k].commands, 0, &mut asm);
+                self.cur_fn = None;
+                r.with_context(|| {
+                    format!("fonction {} « {} »", k + 1, functions[k].name)
+                })?;
+                // RET depile aussi le cadre : une fonction qui tombe en
+                // bout de corps sans « Retourner » ne rend rien, mais
+                // rend bien ses slots
+                asm.push("  RET".to_string());
+                continue;
+            }
+            break;
         }
 
         Ok((asm, actors, std::mem::take(&mut self.gfx_blocks), cetab))

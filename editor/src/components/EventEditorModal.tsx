@@ -60,7 +60,7 @@ interface Props {
   entryNames: string[];
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
   commonNames: string[];
-  commonSigs?: FnSig[]; // F1 — signatures, pour les formulaires d'appel
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
   // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
@@ -116,7 +116,7 @@ function srcLabel(v: { from?: VarSource; value: number }): string {
   }
 }
 
-function labelOf(c: Command, ceNames?: string[]): string {
+function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
   switch (c.c) {
     case "msg":
       return `Message${c.style ? ` [${c.style}]` : ""} : ${
@@ -308,7 +308,7 @@ function labelOf(c: Command, ceNames?: string[]): string {
     case "call_fn": {
       const args = c.args.map((a) => srcLabel(a)).join(", ");
       const dst = c.dst !== undefined ? `Variable [${c.dst}] = ` : "";
-      return `${dst}${ceNames?.[c.n] || "fonction " + (c.n + 1)}(${args})`;
+      return `${dst}${fnNames?.[c.n] || "fonction " + (c.n + 1)}(${args})`;
     }
     case "ret_fn":
       return `Retourner ${srcLabel(c)}`;
@@ -379,23 +379,23 @@ function cmdTitle(c: Command["c"]): string {
   return titles[c] ?? "Options de la commande";
 }
 
-function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNames?: string[]) {
+function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNames?: string[], fnNames?: string[]) {
   cmds.forEach((c, i) => {
     const path = base + i;
-    out.push({ path, depth, label: labelOf(c, ceNames), comment: c.c === "rem" });
+    out.push({ path, depth, label: labelOf(c, ceNames, fnNames), comment: c.c === "rem" });
     if (c.c === "loop") {
-      flatten(c.do, `${path}.d.`, depth + 1, out, ceNames);
+      flatten(c.do, `${path}.d.`, depth + 1, out, ceNames, fnNames);
       out.push({ path: `${path}.d.-1`, depth: depth + 1, label: ": Fin de boucle", branch: true });
     } else if (c.c === "choice") {
       c.options.forEach((o, k) => {
         out.push({ path: `${path}.o${k}.-1`, depth: depth + 1, label: `: Quand [${o.text}]`, branch: true });
-        flatten(o.do, `${path}.o${k}.`, depth + 2, out, ceNames);
+        flatten(o.do, `${path}.o${k}.`, depth + 2, out, ceNames, fnNames);
       });
     } else if (c.c === "if" || c.c === "if_sw" || c.c === "if_var") {
       out.push({ path: `${path}.t.-1`, depth: depth + 1, label: ": Si vrai", branch: true });
-      flatten(c.then, `${path}.t.`, depth + 2, out, ceNames);
+      flatten(c.then, `${path}.t.`, depth + 2, out, ceNames, fnNames);
       out.push({ path: `${path}.e.-1`, depth: depth + 1, label: ": Sinon", branch: true });
-      flatten(c.else, `${path}.e.`, depth + 2, out, ceNames);
+      flatten(c.else, `${path}.e.`, depth + 2, out, ceNames, fnNames);
     }
   });
   out.push({ path: base + cmds.length, depth, label: "" }); // queue de liste
@@ -450,7 +450,7 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  commonSigs?: FnSig[]; // F1 — signatures, pour les formulaires d'appel
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
   // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
@@ -480,7 +480,7 @@ export function CommandListEditor(props: {
   const [clipCmd, setClipCmd] = useState<Command | null>(null);
 
   const lines: Line[] = [];
-  flatten(cmds, "", 0, lines, props.commonNames);
+  flatten(cmds, "", 0, lines, props.commonNames, (props.fnSigs ?? []).map((f) => f.name));
 
   // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
   function cmdAt(path: string): Command | null {
@@ -686,20 +686,15 @@ export function CommandListEditor(props: {
         return { c: "shake", power: 4, speed: 2, frames: 30 };
       case "call":
         return { c: "call", n: 0 };
-      case "call_fn": {
-        // Viser la premiere VRAIE fonction : n = 0 designerait le premier
-        // common event venu, qui n'en est pas forcement une — le menu
-        // deroulant afficherait alors autre chose que ce que la commande
-        // contient, et l'auteur validerait un appel qu'il n'a pas choisi.
-        const sigs = props.commonSigs ?? [];
-        const i = sigs.findIndex((sg) => sg.params.length > 0 || sg.returns);
-        const n = i < 0 ? 0 : i;
+      case "call_fn":
+        // Un argument par parametre des le depart : datagen refuse un
+        // appel mal dimensionne, autant ne pas laisser l'auteur
+        // fabriquer ce cas.
         return {
           c: "call_fn",
-          n,
-          args: (sigs[n]?.params ?? []).map(() => ({ value: 0 })),
+          n: 0,
+          args: (props.fnSigs?.[0]?.params ?? []).map(() => ({ value: 0 })),
         };
-      }
       case "ret_fn":
         return { c: "ret_fn", value: 0 };
       case "db_read": {
@@ -765,7 +760,7 @@ export function CommandListEditor(props: {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
-              commonSigs={props.commonSigs}
+              fnSigs={props.fnSigs}
               fnParams={props.fnParams}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -1187,7 +1182,7 @@ export default function EventEditorModal(props: Props) {
               entryNames={props.entryNames}
               charsetNames={props.charsetNames}
               commonNames={props.commonNames}
-              commonSigs={props.commonSigs}
+              fnSigs={props.fnSigs}
               fnParams={props.fnParams}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -1352,7 +1347,7 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  commonSigs?: FnSig[]; // F1 — signatures, pour les formulaires d'appel
+  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
   // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
@@ -3242,29 +3237,18 @@ function CommandForm(props: {
       );
       break;
     case "call_fn": {
-      const sigs = props.commonSigs ?? [];
-      const fns = sigs
-        .map((sg, i) => ({ sg, i }))
-        .filter(({ sg }) => sg.params.length > 0 || sg.returns);
-      const sig = sigs[cmd.n];
-      const isFn = !!sig && (sig.params.length > 0 || sig.returns);
+      const fns = props.fnSigs ?? [];
+      const sig = fns[cmd.n];
       valid =
-        isFn &&
-        cmd.args.length === sig!.params.length &&
+        !!sig &&
+        cmd.args.length === sig.params.length &&
         (cmd.dst === undefined || (sig.returns && cmd.dst >= 0 && cmd.dst < 256));
       body = (
         <>
-          {fns.length > 0 && !isFn && (
-            <span className="hint" style={{ color: "#ff7070" }}>
-              La commande désigne le common event {cmd.n + 1}, qui n'est pas
-              une fonction — choisir dans la liste ci-dessous.
-            </span>
-          )}
           {fns.length === 0 ? (
             <span className="hint" style={{ color: "#ff7070" }}>
-              Aucune fonction dans le projet. Une fonction est un common
-              event auquel on a ajouté des paramètres (ou une valeur de
-              retour) : Tools → Common events…
+              Aucune fonction dans le projet — les créer via
+              Tools → Fonctions…
             </span>
           ) : (
             <>
@@ -3275,7 +3259,7 @@ function CommandForm(props: {
                   autoFocus
                   onChange={(e) => {
                     const n = Number(e.target.value);
-                    const want = sigs[n]?.params.length ?? 0;
+                    const want = fns[n]?.params.length ?? 0;
                     // le nombre d'arguments SUIT la fonction choisie :
                     // datagen refuse un appel mal dimensionné, autant ne
                     // pas laisser l'auteur fabriquer ce cas
@@ -3286,11 +3270,11 @@ function CommandForm(props: {
                       ...cmd,
                       n,
                       args,
-                      dst: sigs[n]?.returns ? cmd.dst : undefined,
+                      dst: fns[n]?.returns ? cmd.dst : undefined,
                     });
                   }}
                 >
-                  {fns.map(({ sg, i }) => (
+                  {fns.map((sg, i) => (
                     <option key={i} value={i}>
                       {String(i + 1).padStart(4, "0")}: {sg.name}(
                       {sg.params.join(", ")}){sg.returns ? " → valeur" : ""}

@@ -26,6 +26,7 @@ export interface Project {
   switches?: string[]; // noms des switches (éditeur seulement, index = n)
   variables?: string[]; // noms des variables 16-bit (éditeur seulement)
   common_events?: CommonEvent[]; // scripts globaux (v0.16, compilés par datagen)
+  functions?: FunctionDef[]; // fonctions à paramètres (F1) — Tools > Fonctions
   // Thème UI v1 (Phase 11, docs/SPEC_SYSTEME_UI.md) : windowskin 24x24
   // (9-slice, palette de la fonte), vitesse de la machine à écrire, et
   // planche d'icônes des widgets (W1 — bande Nx8, max 64)
@@ -359,17 +360,23 @@ export interface CommonEvent {
   name: string;
   trigger: "none" | "auto" | "parallel";
   switch?: number; // condition optionnelle (absente = toujours actif)
-  // F1 — un common event qui déclare des PARAMÈTRES est une FONCTION :
-  // il s'appelle avec « Appeler une fonction » (arguments fournis à
-  // l'appel), et son corps lit ses entrées avec la source « Paramètre ».
-  // Les noms ne servent qu'ici ; le moteur ne connaît que des index.
-  params?: string[];
-  returns?: boolean; // rend une valeur (commande « Retourner »)
   commands: Command[];
 }
 
-// Signature d'un common event, telle que les formulaires en ont besoin
-// pour proposer les bons champs (nombre d'arguments, valeur de retour).
+// F1 — une FONCTION : un script global qui prend des paramètres et peut
+// rendre une valeur. Volontairement SÉPARÉE des common events : un
+// common event est un bloc de commandes qu'on déclenche, une fonction
+// est un calcul qu'on appelle. Mélanger les deux dans la même fenêtre
+// obligeait à lire une case à cocher pour savoir de quoi on parlait.
+export interface FunctionDef {
+  name: string;
+  params: string[]; // noms (éditeur seulement — le moteur voit des index)
+  returns: boolean; // rend une valeur (commande « Retourner »)
+  commands: Command[];
+}
+
+// Signature d'une fonction, telle que les formulaires en ont besoin pour
+// proposer les bons champs (nombre d'arguments, valeur de retour).
 export interface FnSig {
   name: string;
   params: string[];

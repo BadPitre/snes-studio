@@ -14,6 +14,7 @@ import VarListModal from "./VarListModal";
 
 interface Props {
   commons: CommonEvent[];
+  fnSigs: import("../types").FnSig[]; // fonctions appelables (F1)
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
@@ -151,77 +152,6 @@ export default function CommonEventsModal(props: Props) {
                     </span>
                   </label>
                 </div>
-                <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <label style={{ flex: "1 1 260px" }}>
-                    Paramètres (max 8)
-                    <span className="row" style={{ gap: 4, flexWrap: "wrap" }}>
-                      {(cur.params ?? []).map((pname, k) => (
-                        <span className="row" key={k} style={{ gap: 2 }}>
-                          <input
-                            style={{ width: 90 }}
-                            placeholder={"p" + (k + 1)}
-                            value={pname}
-                            onChange={(e) => {
-                              const params = (cur.params ?? []).slice();
-                              params[k] = e.target.value;
-                              patch({ params });
-                            }}
-                          />
-                          <button
-                            title="Retirer ce paramètre"
-                            style={{ flex: "0 0 auto", width: 22 }}
-                            onClick={() =>
-                              patch({
-                                params: (cur.params ?? []).filter((_, i) => i !== k),
-                              })
-                            }
-                          >
-                            −
-                          </button>
-                        </span>
-                      ))}
-                      <button
-                        title="Ajouter un paramètre"
-                        style={{ flex: "0 0 auto", width: 28 }}
-                        disabled={
-                          (cur.params?.length ?? 0) >= 8 || cur.trigger !== "none"
-                        }
-                        onClick={() =>
-                          patch({ params: [...(cur.params ?? []), ""] })
-                        }
-                      >
-                        ＋
-                      </button>
-                    </span>
-                  </label>
-                  <label className="row" style={{ gap: 6, alignItems: "center", flex: "0 0 auto" }}>
-                    <input
-                      type="checkbox"
-                      style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
-                      checked={!!cur.returns}
-                      onChange={(e) => patch({ returns: e.target.checked || undefined })}
-                    />
-                    Rend une valeur
-                  </label>
-                </div>
-                {((cur.params?.length ?? 0) > 0 || cur.returns) && (
-                  <span className="hint">
-                    Ce common event est une FONCTION : elle s'appelle avec
-                    « Appeler une fonction », qui demandera une valeur pour
-                    chaque paramètre. Dans son corps, les paramètres se
-                    lisent avec la source « Un paramètre ». Ils sont en
-                    LECTURE seule — pour un brouillon, passer par une
-                    variable.
-                  </span>
-                )}
-                {cur.trigger !== "none" && (cur.params?.length ?? 0) > 0 && (
-                  <span className="hint" style={{ color: "#ff7070" }}>
-                    Une fonction à paramètres ne peut pas être déclenchée
-                    automatiquement : personne ne lui passerait ses
-                    arguments. Repasser le déclencheur sur « None », ou
-                    retirer les paramètres.
-                  </span>
-                )}
                 {cur.trigger === "auto" && (
                   <span className="hint">
                     Autorun : relancé tant que la condition passe, le joueur
@@ -242,12 +172,7 @@ export default function CommonEventsModal(props: Props) {
                 <CommandListEditor
                   key={sel}
                   cmds={cur.commands}
-                  commonSigs={draft.map((ce) => ({
-                    name: ce.name,
-                    params: ce.params ?? [],
-                    returns: !!ce.returns,
-                  }))}
-                  fnParams={cur.params ?? []}
+                  fnSigs={props.fnSigs}
                   commit={() => setDraft([...draft])}
                   shortcutsOff={swPick}
                   sceneNames={props.sceneNames}
