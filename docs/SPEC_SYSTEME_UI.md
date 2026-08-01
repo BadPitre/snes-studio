@@ -1,60 +1,65 @@
-# SNES STUDIO — Spécification du Système UI
+# SNES STUDIO — UI System specification
 
-**Objectif :** Permettre aux créateurs de personnaliser entièrement l'interface de leur jeu
-(dialogues, HUD, menus) — du style Dragon Quest au style Final Fantasy — sans coder,
-via un système de **layouts déclaratifs** : les écrans d'UI sont des données, pas du code.
-**Références design :** windowskins RPG Maker (habillage), menus FF6/DQ/Chrono Trigger
-(diversité des layouts), Earthbound/Undertale (menus-scènes scriptés).
-**S'appuie sur :** le système de database (`PLANNING_SYSTEME_DATABASE.md`) pour les thèmes,
-le format de scène et la VM (`KIT_PHASE1_POC_MOTEUR.md`) pour les menus pleins écran.
-
----
-
-## 1. Fondations techniques SNES
-
-- **Canal d'affichage UI :** BG3 en mode 1 (2bpp = 4 couleurs par palette, 8 palettes).
-  Économe en VRAM, priorité d'affichage au-dessus des BG de jeu.
-- **Fenêtres :** construites en tiles via **windowskin 9-slice** (4 coins, 4 bords, 1 fond,
-  tiles 8x8) — cadres de taille arbitraire à partir de 9 tiles. Fond translucide possible
-  via color math (comme FF6).
-- **Texte :** fonte 8x8 (1 tile = 1 caractère), v1 à largeur fixe. Jeu de glyphes défini
-  par le créateur (PNG importé) : ASCII + accents français minimum.
-- **Curseurs/ornements :** sprites (la main de DQ, la flèche de FF) — animables,
-  indépendants de la grille de tiles.
-- **Positions et tailles : TOUJOURS en tiles** (unités de 8px). Alignement garanti par
-  construction, budgets vérifiables à la compilation.
+**Goal:** let creators fully customise their game's interface (dialogues,
+HUD, menus) — from Dragon Quest to Final Fantasy — without coding, through
+**declarative layouts**: UI screens are data, not code.
+**Design references:** RPG Maker windowskins (the dressing), FF6/DQ/Chrono
+Trigger menus (layout variety), Earthbound/Undertale (scripted menu
+scenes).
+**Builds on:** the database system (`PLANNING_SYSTEME_DATABASE.md`) for
+the themes, and the scene format plus the VM (`KIT_PHASE1_POC_MOTEUR.md`)
+for full-screen menus.
 
 ---
 
-## 2. Les trois contextes d'affichage
+## 1. SNES technical foundations
 
-Un même format de layout, trois modes d'existence :
-
-| Contexte | Description | Exemples | Mécanisme |
-|----------|-------------|----------|-----------|
-| **overlay** | Fenêtres permanentes pendant le gameplay | Barre HP, or, compteur de quête, boussole | Dessinées sur BG3 en continu ; zone limitée (max 4 rangées de tiles, haut ou bas) validée à la compilation |
-| **popup** | Fenêtres temporaires par-dessus le jeu, monde en pause ou non | Textbox de dialogue, menu de choix, nom d'objet obtenu | Ouvertes/fermées par la VM ou le moteur ; recouvrent temporairement l'overlay |
-| **screen** | Écrans pleins, changement de contexte graphique complet | Menu principal, inventaire, statut, écran de combat, boutiques | **Scène de type MENU** via la pile de scènes (voir §5) |
+- **The UI display channel:** BG3 in mode 1 (2bpp = 4 colours per palette,
+  8 palettes). Cheap in VRAM, with display priority above the game BGs.
+- **Windows:** built from tiles through a **9-slice windowskin** (4
+  corners, 4 edges, 1 fill, 8x8 tiles) — frames of arbitrary size from 9
+  tiles. A translucent background is possible through color math (as in
+  FF6).
+- **Text:** an 8x8 font (1 tile = 1 character), fixed width in v1. The
+  glyph set is the creator's (an imported PNG): ASCII plus French accents
+  at minimum.
+- **Cursors and ornaments:** sprites (DQ's hand, FF's arrow) — animatable,
+  independent of the tile grid.
+- **Positions and sizes: ALWAYS in tiles** (units of 8 px). Alignment is
+  guaranteed by construction, and budgets are checkable at compile time.
 
 ---
 
-## 3. Format de layout déclaratif
+## 2. The three display contexts
 
-Un fichier TOML par écran/ensemble, compilé en binaire par `uigen` (outil Rust, Phase 2/4).
+One layout format, three ways of existing:
+
+| Context | Description | Examples | Mechanism |
+|---------|-------------|----------|-----------|
+| **overlay** | Permanent windows during gameplay | HP bar, gold, a quest counter, a compass | Drawn on BG3 continuously; a limited area (at most 4 tile rows, top or bottom) validated at compile time |
+| **popup** | Temporary windows over the game, world paused or not | The dialogue textbox, the choice menu, the name of an item received | Opened and closed by the VM or the engine; they temporarily cover the overlay |
+| **screen** | Full screens, a complete change of graphics context | Main menu, inventory, status, battle screen, shops | A **MENU type scene** through the scene stack (see §5) |
+
+---
+
+## 3. Declarative layout format
+
+One TOML file per screen or set, compiled to binary by `uigen` (a Rust
+tool, Phase 2/4).
 
 ```toml
-# ui/menu_main_dq.toml — exemple style Dragon Quest
+# ui/menu_main_dq.toml — a Dragon Quest style example
 [screen]
 id = "menu_main"
 context = "screen"
-theme = "THEME_DEFAULT"          # ref vers la table UITheme (database)
+theme = "THEME_DEFAULT"          # a ref into the UITheme table (database)
 
 [[window]]
 id = "commands"
-pos = [1, 1]                     # en tiles [x, y]
-size = [8, 12]                   # en tiles [w, h]
+pos = [1, 1]                     # in tiles [x, y]
+size = [8, 12]                   # in tiles [w, h]
 content = "command_list"
-items = ["items", "magic", "equip", "status", "save"]  # IDs de commandes moteur
+items = ["items", "magic", "equip", "status", "save"]  # engine command IDs
 columns = 1
 
 [[window]]
@@ -65,307 +70,307 @@ content = "gold_display"
 
 [navigation]
 initial_focus = "commands"
-# v2 : graphe de navigation entre fenêtres (confirm/cancel → quelle fenêtre)
+# v2: a navigation graph between windows (confirm/cancel → which window)
 ```
 
-**Règles du format :**
-- Positions/tailles en tiles uniquement ; le compilateur rejette les chevauchements
-  interdits et les dépassements d'écran.
-- `content` doit appartenir au catalogue (§4) ; les paramètres admis dépendent du type.
-- Un layout référence un thème ; le thème est interchangeable sans toucher au layout
-  (changer l'habillage ≠ changer la structure).
-- Budgets validés à la compilation : tiles totaux du layout, fenêtres simultanées
-  (max 8 par écran en v1), profondeur de texte.
+**Format rules:**
+- Positions and sizes in tiles only; the compiler rejects forbidden
+  overlaps and anything running off screen.
+- `content` must be in the catalogue (§4); the parameters accepted depend
+  on the type.
+- A layout references a theme; the theme is interchangeable without
+  touching the layout (changing the dressing is not changing the
+  structure).
+- Budgets validated at compile time: the layout's total tiles, the number
+  of simultaneous windows (max 8 per screen in v1), text depth.
 
 ---
 
-## 4. Catalogue des content types
+## 4. Catalogue of content types
 
-Le moteur sait dessiner chaque type dans une fenêtre de dimensions arbitraires.
-C'est LE point d'extension du système : chaque version enrichit le catalogue.
+The engine knows how to draw each type in a window of arbitrary size. That
+is THE extension point of the system: each version enriches the catalogue.
 
 ### v1 (Phase 4)
-| Type | Description | Paramètres |
+| Type | Description | Parameters |
 |------|-------------|------------|
-| `text` | Texte statique ou text_id | text_id, alignement |
-| `message` | Le contenu de la textbox (typewriter, avance) | vitesse (via thème) |
-| `choice_list` | Liste de choix pilotée par la VM | columns |
-| `gold_display` | Or du joueur avec suffixe configurable | — |
-| `variable_display` | Valeur d'une variable + libellé (compteurs de quête custom) | var_id, label text_id |
-| `hp_bar` | Jauge de vie en tiles (pleine/partielle/vide) | actor_ref, style (jauge/nombres) |
+| `text` | Static text, or a text_id | text_id, alignment |
+| `message` | The textbox's contents (typewriter, advance) | speed (through the theme) |
+| `choice_list` | A choice list driven by the VM | columns |
+| `gold_display` | The player's gold with a configurable suffix | — |
+| `variable_display` | A variable's value plus a label (custom quest counters) | var_id, label text_id |
+| `hp_bar` | A life gauge in tiles (full/partial/empty) | actor_ref, style (gauge or numbers) |
 
-### v2 (avec les systèmes RPG complets)
+### v2 (with the full RPG systems)
 | Type | Description |
 |------|-------------|
-| `command_list` | Commandes de menu (branche vers les écrans moteur) |
-| `party_list` | Liste des héros : nom, portrait, HP/MP, états |
-| `item_grid` | Inventaire paginé, quantités, curseur 2D |
-| `stat_block` | Bloc de stats d'un héros (lit la database Stats) |
-| `portrait` | Portrait d'un acteur (streaming VRAM budgété) |
-| `icon_row` | Rangée d'icônes (états, objets clés) |
-| `timer_display` | Timer de jeu |
+| `command_list` | Menu commands (branch to the engine screens) |
+| `party_list` | The heroes: name, portrait, HP/MP, states |
+| `item_grid` | A paginated inventory, quantities, a 2D cursor |
+| `stat_block` | A hero's stat block (reads the Stats database) |
+| `portrait` | An actor's portrait (budgeted VRAM streaming) |
+| `icon_row` | A row of icons (states, key items) |
+| `timer_display` | The game timer |
 
-### v3+ (si demande communautaire)
-- Content types scriptables : une fenêtre dont le contenu est dessiné par un script VM
-  (opcodes de dessin tile/texte) — la soupape pour les besoins non couverts.
+### v3+ (if the community asks)
+- Scriptable content types: a window whose contents are drawn by a VM
+  script (tile/text drawing opcodes) — the escape valve for needs the
+  catalogue does not cover.
 
 ---
 
-## 5. Menus pleins écran : la pile de scènes
+## 5. Full-screen menus: the scene stack
 
-**Principe :** un menu plein écran est une **scène** (`scene_type = MENU`) — le « téléport
-vers le menu » est un vrai changement de contexte graphique, comme sur le hardware d'époque
-(FF6 décharge réellement les tiles du monde pour charger ceux du menu).
+**The principle:** a full-screen menu is a **scene** (`scene_type = MENU`)
+— "teleporting to the menu" is a real change of graphics context, as on
+the hardware of the era (FF6 genuinely unloads the world's tiles to load
+the menu's).
 
-**Mécanisme push/pop :**
+**Push/pop mechanism:**
 ```
-[Scène jeu active]
-   │  ouverture menu (event, touche START)
+[Game scene active]
+   │  the menu opens (an event, the START key)
    ▼
 scene_push(SCENE_MENU_MAIN)
-   ├─ sauvegarde du contexte WRAM de la scène jeu (map, position, acteurs)
-   ├─ fondu sortant (~2-3 frames), déchargement/chargement VRAM
-   └─ la scène MENU s'exécute (layouts + VM)
-   │  fermeture (cancel, commande "retour")
+   ├─ the game scene's WRAM context is saved (map, position, actors)
+   ├─ fade out (~2-3 frames), VRAM unloaded and reloaded
+   └─ the MENU scene runs (layouts + VM)
+   │  closing (cancel, a "back" command)
    ▼
 scene_pop()
-   ├─ restauration du contexte, rechargement des tiles du monde
-   └─ fondu entrant — le joueur reprend exactement où il était
+   ├─ the context is restored, the world's tiles reloaded
+   └─ fade in — the player resumes exactly where they were
 ```
 
-- **Profondeur de pile : 2 en v1** (jeu → menu). Extensible à 3 si besoin prouvé
-  (jeu → menu → sous-écran plein).
-- Les popups/overlays ne passent PAS par la pile (pas de changement de contexte VRAM).
-- **Menus-scènes créatifs :** une scène de menu peut aussi être de type TOP_DOWN avec
-  flag `pause_world` — un menu qui est une pièce où le perso marche entre des objets
-  (à la Earthbound/Undertale). Deux briques existantes, zéro système nouveau.
+- **Stack depth: 2 in v1** (game → menu). Extensible to 3 if the need is
+  proven (game → menu → a full sub-screen).
+- Popups and overlays do NOT go through the stack (no VRAM context
+  change).
+- **Creative menu-scenes:** a menu scene can also be a TOP_DOWN scene with
+  a `pause_world` flag — a menu that is a room where the character walks
+  between objects (Earthbound/Undertale style). Two existing bricks, no
+  new system.
 
 ---
 
-## 6. Le thème (habillage) — table database `UITheme`
+## 6. The theme (dressing) — the `UITheme` database table
 
-Schéma dans le système de database (une table comme les autres) :
+A schema in the database system (a table like any other):
 
 ```
 UITheme {
-  windowskin: asset_ref      # PNG 24x24 → 9-slice
-  font: asset_ref            # PNG de glyphes 8x8
-  text_color: u8             # index palette
-  text_speed: u8             # frames par caractère (0 = instantané)
-  window_opacity: u8         # via color math (0/25/50/100%)
+  windowskin: asset_ref      # a 24x24 PNG → 9-slice
+  font: asset_ref            # a PNG of 8x8 glyphs
+  text_color: u8             # a palette index
+  text_speed: u8             # frames per character (0 = instant)
+  window_opacity: u8         # through color math (0/25/50/100%)
   cursor_sprite: asset_ref
   cursor_anim_speed: u8
-  sfx_cursor: ref:sounds     # v2, sons système
+  sfx_cursor: ref:sounds     # v2, system sounds
   sfx_confirm: ref:sounds
   sfx_cancel: ref:sounds
 }
 ```
 
-- Plusieurs thèmes par jeu possibles ; changement par event (opcode VM `SET_THEME`).
-- Le thème est orthogonal aux layouts : mêmes écrans, habillage différent.
+- Several themes per game are possible; switching is done by an event (the
+  VM opcode `SET_THEME`).
+- The theme is orthogonal to the layouts: same screens, different
+  dressing.
 
 ---
 
-## 7. Côté éditeur
+## 7. On the editor side
 
-| Phase | Livrable |
-|-------|----------|
-| **P3** | Rien (textbox en dur du moteur) |
-| **P4** | Onglet **UI/Thème** : import windowskin + fonte avec validation, formulaire de thème (généré par le schéma), **preview temps réel** (canvas simulant textbox + choix avec le thème, rendu fidèle tiles) |
-| **v2** | **Designer de layouts à grille** : glisser des fenêtres sur la grille de tiles, choisir le content type dans une liste, paramètres en panneau, preview live. + **Presets livrés** : « Dragon Quest », « Final Fantasy », « Minimal » |
-| **v3+** | Éditeur de navigation (graphe focus/confirm/cancel), content types scriptables |
+| Phase | Deliverable |
+|-------|-------------|
+| **P3** | Nothing (the engine's hard-coded textbox) |
+| **P4** | A **UI/Theme** tab: windowskin and font import with validation, a theme form (generated from the schema), a **live preview** (a canvas simulating the textbox plus choices with the theme, faithful tile rendering) |
+| **v2** | A **grid layout designer**: drag windows onto the tile grid, pick the content type from a list, parameters in a panel, live preview. Plus **shipped presets**: "Dragon Quest", "Final Fantasy", "Minimal" |
+| **v3+** | A navigation editor (the focus/confirm/cancel graph), scriptable content types |
 
-**Principes éditeur :** le designer est *contraint par la grille* (pas de placement libre au
-pixel — c'est une feature, pas une limite : impossible de créer un layout invalide).
-La validation est celle de `uigen`, exposée en direct. Les presets sont de simples fichiers
-TOML — la communauté pourra en partager.
-
----
-
-## 8. Impact planning (précision, pas d'allongement)
-
-- **Phase 1 :** textbox codée en dur — AUCUN changement au kit.
-- **Phase 2 :** prévoir l'emplacement de `uigen` dans tools/ (squelette, pas d'implémentation).
-- **Phase 4 :** le système naît — windowskin, thème, `uigen` v1, la textbox et le choice_list
-  passent au format layout, contexte overlay minimal (hp_bar/gold en option). ~2-3 semaines
-  intégrées à la phase.
-- **v2 :** catalogue complet + pile de scènes MENU + designer à grille, au rythme des
-  systèmes RPG (inventaire → item_grid, combat → écrans de combat, etc.).
+**Editor principles:** the designer is *constrained by the grid* (no
+free pixel placement — that is a feature, not a limit: an invalid layout
+cannot be created). The validation is `uigen`'s, exposed live. The presets
+are plain TOML files — the community will be able to share them.
 
 ---
 
-## 9. Règles de conception
+## 8. Planning impact (precision, not lengthening)
 
-1. **Structure ≠ habillage ≠ contenu.** Layout (structure), thème (habillage), database/VM
-   (contenu) sont trois axes indépendants et recomposables.
-2. **Tout en tiles.** Aucune position au pixel dans les layouts — la grille est le contrat
-   avec le hardware.
-3. **Le compilateur refuse l'invalide.** Budgets VRAM/fenêtres/zones vérifiés par uigen,
-   jamais découverts en jeu.
-4. **Le catalogue s'étend, le format ne change pas.** Ajouter un content type = code moteur
-   + une entrée au catalogue ; les layouts existants restent valides.
-5. **Presets d'abord.** Chaque nouveau pouvoir arrive avec des presets soignés — 80 % des
-   créateurs partent d'un preset, et les presets sont la vitrine des capacités de l'outil.
-
----
-
-*Document généré le 28 juillet 2026 — à ranger dans `docs/`, à relire au démarrage de la Phase 4.*
+- **Phase 1:** a hard-coded textbox — NO change to the kit.
+- **Phase 2:** reserve `uigen`'s place in tools/ (a skeleton, no
+  implementation).
+- **Phase 4:** the system is born — windowskin, theme, `uigen` v1, the
+  textbox and the choice_list move to the layout format, a minimal overlay
+  context (hp_bar/gold optional). ~2-3 weeks folded into the phase.
+- **v2:** the full catalogue + the MENU scene stack + the grid designer,
+  at the pace of the RPG systems (inventory → item_grid, combat → battle
+  screens, and so on).
 
 ---
 
-## État d'implémentation (Phase 11)
+## 9. Design rules
 
-- **Livré (cran A)** : windowskin 9-slice (24x24, palette de la fonte,
-  chars BG3 97-105), thème v1 `project.json "ui"` (windowskin,
-  text_speed), machine à écrire (A révèle puis ferme).
-- **Livré (cran B)** : `ui/layout.toml` (uigen, module `ui.rs` de
-  datagen) — fenêtres `message`/`choice` déplaçables, contexte
-  **overlay** (4 rangées du haut, 8 fenêtres max, `variable_display`),
-  validation compile (bornes/zone/chevauchements), moteur `ui_overlay.c`.
-- **Livré (cran C)** : fenêtre éditeur « UI / Thème » (Tools →) —
-  windowskin choisi parmi les ressources (l'import 24x24 validé vit
-  dans le Gestionnaire de ressources, catégorie WindowSkin ; registre
-  `windowskins` de project.json), vitesse du texte, layout complet
-  (message/choice/overlays) avec les MÊMES règles que uigen (OK bloqué
-  sur erreur, §9.3) et preview 256x224 fidèle tiles (fonte et skin
-  réels du projet). Écrit `ui/layout.toml` + `project.json "ui"`. Réf
+1. **Structure ≠ dressing ≠ content.** Layout (structure), theme
+   (dressing) and database/VM (content) are three independent,
+   recombinable axes.
+2. **Everything in tiles.** No pixel position in the layouts — the grid is
+   the contract with the hardware.
+3. **The compiler refuses the invalid.** VRAM, window and area budgets are
+   checked by uigen, never discovered in game.
+4. **The catalogue grows, the format does not change.** Adding a content
+   type = engine code plus a catalogue entry; existing layouts stay valid.
+5. **Presets first.** Every new power ships with careful presets — 80 % of
+   creators start from one, and the presets are the showcase of what the
+   tool can do.
+
+---
+
+## Implementation status (Phase 11)
+
+- **Shipped (step A)**: the 9-slice windowskin (24x24, the font's palette,
+  BG3 chars 97-105), theme v1 in `project.json "ui"` (windowskin,
+  text_speed), the typewriter (A reveals, then closes).
+- **Shipped (step B)**: `ui/layout.toml` (uigen, datagen's `ui.rs` module)
+  — movable `message`/`choice` windows, the **overlay** context (the top 4
+  rows, 8 windows max, `variable_display`), compile-time validation
+  (bounds, area, overlaps), and the `ui_overlay.c` engine side.
+- **Shipped (step C)**: the editor's "UI / Thème" window (Tools >) — the
+  windowskin chosen among the resources (the validated 24x24 import lives
+  in the resource manager, WindowSkin category; the `windowskins` register
+  of project.json), text speed, the full layout (message/choice/overlays)
+  under the SAME rules as uigen (OK blocked on an error, §9.3) and a
+  256x224 preview faithful to the tiles (the project's real font and
+  skin). Writes `ui/layout.toml` plus `project.json "ui"`. See
   `EDITOR.md`.
-- **Livré (Phase 12 M1)** : tampon d'écran UI unifié `ui_screen.c` —
-  ui_map[32*28] est LA vérité de BG3, textbox/overlay/timer y composent
-  hors VBlank (ui_mark), un seul DMA du span sale au VBlank. Prérequis
-  du placement libre des widgets et des écrans MENU. Réf
-  `PLANNING_SYSTEME_MENUS.md` (plan contractuel Phase 12).
-- **Livré (Phase 12 W1) — widgets HUD à la Zelda.** Le contexte
-  `[[overlay]]` du layout devient un système de widgets :
-  - **Placement LIBRE** sur l'écran 32x28 (la zone « rangées 0-3 » de
-    v1 est abolie). Interdits : chevaucher un autre overlay, ou les
-    fenêtres message/choice (les dialogues l'écraseraient — uigen et
-    l'éditeur refusent). La bande du dialogue redessine les widgets
-    qu'elle borde à chaque ouverture (`overlay_refresh`, idem timer).
-  - `content` : `variable_display` (v1), `gauge` (barre pleine/demie/
-    vide, `dir = "h"|"v"` — verticale remplie de BAS en haut, ALttP),
-    `icon_row` (icônes répétées façon cœurs), `icon_value` (icône +
-    compteur, `pad` = zéros de tête 0-5).
-  - `frame = true|false` : cadre 9-slice/boîte ou widget NU posé sur le
-    jeu (défaut : true pour variable_display, false pour les widgets).
-    Minimums : cadré 3x3 (4x3 vardisp), nu 1x1 (2x1 icon_value, 3x1
-    vardisp).
-  - `var` = variable mesurée ; `max = n` constant OU `max_var = n`
-    (jauges/cœurs, 2 unités par tile, clamp au max) ; `icon = n` dans
-    la **planche d'icônes** : `project.json "ui" { "icons": png }`,
-    bande Nx8 (≤ 64), palette de la fonte, chars `UI_ICON_BASE`+
-    (après le windowskin) — gauge/icon_row consomment n, n+1, n+2 =
-    pleine, demie, vide.
-  - Moteur : `ui_ov_type/frame/icon/dir/pad/maxvar/maxlo+maxhi`
-    (u16 scindé — pas de u16 nu), redessin quand var OU max_var change.
-  - Éditeur : catégorie **IconSet** du Gestionnaire de ressources
-    (import bande Nx8 validé, EXPORT PNG, renommer, supprimer bloqué si
-    planche active ★, aperçu avec index sous chaque icône), sélection
-    de la planche dans UI / Thème, formulaires par type de widget et
-    preview fidèle (icônes réelles, jauge remplie à 58 %).
-- **Livré (Phase 12 D1) — designer à canvas (modèle UMG).**
-  `ui/layout.toml` passe au format ARBRE `[[node]]` (les `[[overlay]]`
-  plats W1 restent acceptés — migration transparente) :
-  - conteneurs : `window` (cadre 9-slice, size explicite, margin=[1,1],
-    empile ses enfants verticalement), `vbox` (empilement vertical,
-    gap), `hbox` (alignement horizontal, gap) ;
-  - feuilles : `label` (texte statique), `value` (variable, width 1-5,
-    alignée à droite), `image` (suite d'icônes), + les widgets W1
-    (`gauge`/`icon_row`/`icon_value`/`variable_display`), + `list`
-    (B6 : menu à curseur — `items = ["Attaque", ...]` 2-16 items ASCII,
-    frame défaut true, taille AUTO : 1 colonne curseur + item le plus
-    long ; piloté par l'opcode LISTSEL, voir SPEC_FORMATS §2) ;
-  - `parent = "id"` rattache à un conteneur, une racine a `pos` ;
-  - uigen APLATIT l'arbre en primitives positionnées en tiles (types
-    moteur 4 panel / 5 label / 6 image — STATIQUES, 7 list (B6), plus 0-3 W1, cap
-    32 primitives, tableau `ui_ov_bg` : les cellules vides d'un widget
-    posé dans une window prennent le fond du cadre au lieu de percer
-    jusqu'au jeu). Zéro conteneur au runtime.
-  - Icônes sur panneau : datagen génère automatiquement une VARIANTE
-    « fond de panneau » de chaque icône (pixels transparents → couleur
-    1, chars UI_ICON_BASE + UI_ICON_COUNT + n) — le moteur l'utilise
-    quand l'icône vit dans une window (ui_ov_bg), l'icône montre le
-    cadre derrière elle et pas le jeu. Budget VRAM : 106 + 2×64 chars
-    max ≤ 256.
-  - `value` : `align = "left"` colle la valeur au texte précédent (via
-    le flag dir, inutilisé par le type 0) — par défaut elle est alignée
-    à droite dans sa largeur. Le pas des `gap` reste 1 tile = 8 px
-    (grille matérielle BG3, pas de demi-tile sans fonte à largeur
-    variable).
-  - Widgets NOMMÉS dans l'éditeur : chaque racine = un widget ; la
-    liste « Widgets » du designer permet ✧ Nouveau widget (posé sur
-    une place LIBRE du canvas, designer ouvert dessus), l'édition
-    scopée (structure limitée au widget, les autres estompés sur le
-    canvas — cliquer un autre widget bascule dessus), ⛶ Tout l'écran
-    pour dé-scoper.
-  - Éditeur : la fenêtre UI / Thème devient le **designer** — palette
-    d'objets, arborescence (sélection, ↑↓, suppression en cascade),
-    canvas interactif (clic = sélection du nœud le plus profond,
-    glisser = déplacer la racine, poignée coin = redimensionner, snap
-    tiles), inspecteur par type (pickers variables/icônes), erreurs
-    live miroir de uigen (uilayout.ts), OK bloqué si invalide.
-    Round-trip prouvé : le TOML écrit par l'éditeur redonne les mêmes
-    primitives dans uigen.
-- **Livré (Phase 12, visibilité scriptée)** : les widgets sont CACHÉS
-  par défaut (`visible = true` sur une racine = visible au boot ; les
-  `[[overlay]]` W1 restent visibles — compat). Opcode VM 0x24 `SHOWUI
-  [widget][on]` + commande d'event « Afficher/cacher un widget UI »
-  (nom résolu vers l'index de racine à la compilation). Moteur :
-  visibilité runtime par widget (`ui_ov_widget` par primitive,
-  `ui_widget_vis` initiale, `overlay_show` dessine/efface, update et
-  refresh respectent l'état, valeurs suivies même caché). Éditeur : la
-  fenêtre devient « UI » en DEUX PAGES — liste des widgets (👁 visible
-  au boot, Éditer…, 🗑, ✧ Nouveau) puis le designer scopé sur le widget
-  choisi (← Widgets pour revenir, « Vue d'ensemble » pour tout
-  l'écran).
-- **Livré (Phase 12, S1 — styles de dialogue)** : plusieurs BOÎTES DE
-  DIALOGUE nommées, en plus de la boîte par défaut (toujours là).
-  - Layout : blocs `[[dialog_style]]` dans `ui/layout.toml` (max 3 en
-    plus du défaut) — `id` ASCII unique, `windowskin` (défaut : celui
-    du thème), `font` (PNG 768x8, défaut : `assets.font`), `message` /
-    `choice` (fenêtres propres, min 8x3 ; choice hérite du message du
-    style, message hérite de `[message]`). Les overlays ne doivent
-    chevaucher AUCUNE fenêtre d'AUCUN style (union = bande UI_SHADOW).
-  - Datagen : plan VRAM BG3 dédupliqué — fonte 0 (97 chars, base 1),
-    skins 9 chars chacun, icônes 2×N, fontes SUPPLÉMENTAIRES 96 chars
-    (base sur ' ') après les icônes ; budget 256 chars vérifié avec
-    erreur détaillée. v1 : toutes les fontes et skins partagent la
-    PALETTE de la fonte 0 (CGRAM 16-19). Tables `ui_styles.c`
-    (`ui_st_mx/my/mw/mh/cx/cy/cw/ch/font/skin`, ligne 0 = défaut) +
-    `UI_STYLE_COUNT` dans ui_cfg.h — TOUJOURS générées.
-  - VM : opcode 0x27 `DLGSTYLE [n]` arme le style de la PROCHAINE
-    boîte ; émis devant chaque msg/choice UNIQUEMENT si le projet a
-    des styles (sinon bytecode byte-identique). Champ `style` sur les
-    commandes msg/choice (absent = défaut) — nom résolu à la
-    compilation, erreur avec la liste des styles connus.
-  - Moteur : textbox à géométrie/fonte/skin RUNTIME
-    (`textbox_set_style`, copie des tables ; `TB_CHAR` = base fonte du
-    style). ATTENTION frame de lag : le test du skin est hissé HORS
-    des boucles de `tb_box_at` — l'ouverture de message frôle le
-    budget d'une frame, prudence sur ce chemin chaud.
-  - Éditeur : Tools → UI → Dialogues et choix = liste « Boîtes de
-    dialogue » ((défaut) ★ + styles : ✧ Nouveau, ✎ renommer, 🗑) ; par
-    style : windowskin, fonte, fenêtres propres ; preview avec le skin
-    ET la fonte du style sélectionné. Formulaires Message/Choix :
-    select « Boîte de dialogue ». Ressource FontSet (import 768x8,
-    EXPORT PNG, renommer — les styles suivent —, suppression bloquée
-    si fonte du projet ★ ou utilisée par un style).
-- **Livré (Phase 12, S2 — fonte par widget)** : `font` sur la RACINE
-  d'un widget (`[[node]]` sans parent — erreur uigen sur un enfant) :
-  tout le texte du widget (labels, valeurs, compteurs) se dessine avec
-  cette fonte. Datagen : les fontes des widgets entrent dans le même
-  plan VRAM dédupliqué que celles des styles (une fonte partagée ne
-  coûte qu'une fois ses 96 chars) ; table `ui_ov_font[]` par PRIMITIVE
-  (base du glyphe ' ', 1 = fonte du projet) dans ui_overlays.c —
-  TOUJOURS émise. Moteur : `OV_FCHAR` = `ui_ov_font[i] + ascii - 32`
-  dans ov_draw (types 0/3/5, chiffres compris) — équivalent à l'ancien
-  `OV_CHAR` quand la table vaut 1, rendu inchangé pour les projets
-  sans fonte de widget. Éditeur : select « Fonte du widget » dans
-  l'inspecteur (racines seulement), canvas preview avec la fonte de
-  chaque widget ; renommage/suppression de FontSet tiennent compte des
-  widgets comme des styles.
-- **À venir** (plan détaillé dans `PLANNING_SYSTEME_MENUS.md`) :
-  écrans de menu déclaratifs M2, listes + curseur + pile M3 (menu FF4
-  — l'objet liste deviendra NAVIGABLE, le designer le pose déjà),
-  portraits/listes database/hp_bar M4, thèmes multiples en table
-  database + SET_THEME.
+- **Shipped (Phase 12 M1)**: the unified UI screen buffer `ui_screen.c` —
+  ui_map[32*28] is THE truth of BG3, textbox/overlay/timer compose into it
+  outside VBlank (ui_mark), and a single DMA of the dirty span goes out at
+  VBlank. A prerequisite for free widget placement and for MENU screens.
+  See `PLANNING_SYSTEME_MENUS.md` (the contractual Phase 12 plan).
+- **Shipped (Phase 12 W1) — Zelda style HUD widgets.** The layout's
+  `[[overlay]]` context becomes a widget system:
+  - **FREE placement** on the 32x28 screen (v1's "rows 0-3" area is
+    abolished). Forbidden: overlapping another overlay, or the
+    message/choice windows (the dialogues would overwrite it — uigen and
+    the editor refuse it). The dialogue band redraws the widgets it
+    borders on each opening (`overlay_refresh`, likewise the timer).
+  - `content`: `variable_display` (v1), `gauge` (a full/half/empty bar,
+    `dir = "h"|"v"` — the vertical one filled from the BOTTOM up, ALttP),
+    `icon_row` (repeated icons, hearts style), `icon_value` (an icon plus
+    a counter, `pad` = leading zeros 0-5).
+  - `frame = true|false`: a 9-slice frame/box, or a BARE widget laid over
+    the game (default: true for variable_display, false for the widgets).
+    Minimums: framed 3x3 (4x3 for vardisp), bare 1x1 (2x1 for icon_value,
+    3x1 for vardisp).
+  - `var` = the measured variable; `max = n` constant OR `max_var = n`
+    (gauges and hearts, 2 units per tile, clamped to the max); `icon = n`
+    in the **icon sheet**: `project.json "ui" { "icons": png }`, an Nx8
+    strip (<= 64), the font's palette, chars `UI_ICON_BASE`+ (after the
+    windowskin) — gauge/icon_row consume n, n+1, n+2 = full, half, empty.
+  - Engine: `ui_ov_type/frame/icon/dir/pad/maxvar/maxlo+maxhi` (the u16
+    split — no bare u16), redrawn when var OR max_var changes.
+  - Editor: the **IconSet** category in the resource manager (a validated
+    Nx8 strip import, PNG EXPORT, rename, deletion blocked while the sheet
+    is active ★, a preview with the index under each icon), the sheet
+    selected in UI / Thème, per-type widget forms and a faithful preview
+    (real icons, a gauge filled to 58 %).
+- **Shipped (Phase 12 D1) — the canvas designer (the UMG model).**
+  `ui/layout.toml` moves to a `[[node]]` TREE format (W1's flat
+  `[[overlay]]` entries are still accepted — a transparent migration):
+  - containers: `window` (a 9-slice frame, explicit size, margin=[1,1],
+    stacks its children vertically), `vbox` (vertical stacking, gap),
+    `hbox` (horizontal layout, gap);
+  - leaves: `label` (static text), `value` (a variable, width 1-5,
+    right-aligned), `image` (a run of icons), plus the W1 widgets
+    (`gauge`/`icon_row`/`icon_value`/`variable_display`), plus `list`
+    (B6: a cursor menu — `items = ["Attaque", …]`, 2-16 ASCII items,
+    frame true by default, AUTO size: 1 cursor column plus the longest
+    item; driven by the LISTSEL opcode, see SPEC_FORMATS §2);
+  - `parent = "id"` attaches to a container, a root carries `pos`;
+  - uigen FLATTENS the tree into primitives positioned in tiles (engine
+    types 4 panel / 5 label / 6 image — STATIC, 7 list (B6), plus 0-3 from
+    W1, capped at 32 primitives, with a `ui_ov_bg` table: the empty cells
+    of a widget laid inside a window take the frame's background instead
+    of punching through to the game). No containers at runtime.
+  - Icons on a panel: datagen automatically generates a "panel background"
+    VARIANT of each icon (transparent pixels → colour 1, chars
+    UI_ICON_BASE + UI_ICON_COUNT + n) — the engine uses it when the icon
+    lives inside a window (ui_ov_bg), so the icon shows the frame behind
+    it and not the game. VRAM budget: 106 + 2×64 chars max <= 256.
+  - `value`: `align = "left"` sticks the value to the preceding text
+    (through the dir flag, unused by type 0) — by default it is
+    right-aligned within its width. The `gap` step stays 1 tile = 8 px
+    (the BG3 hardware grid; no half-tile without a variable-width font).
+  - NAMED widgets in the editor: each root is a widget; the designer's
+    "Widgets" list offers ✧ Nouveau widget (laid on a FREE spot of the
+    canvas, with the designer opened on it), scoped editing (the structure
+    limited to the widget, the others dimmed on the canvas — clicking
+    another widget switches to it), and ⛶ Tout l'écran to unscope.
+  - Editor: the UI / Thème window becomes the **designer** — an object
+    palette, a tree (selection, ↑↓, cascading deletion), an interactive
+    canvas (click = select the deepest node, drag = move the root, corner
+    handle = resize, tile snap), a per-type inspector (variable and icon
+    pickers), live errors mirroring uigen (uilayout.ts), OK blocked when
+    invalid. The round trip is proven: the TOML the editor writes gives
+    uigen back the same primitives.
+- **Shipped (Phase 12, scripted visibility)**: widgets are HIDDEN by
+  default (`visible = true` on a root means visible at boot; W1's
+  `[[overlay]]` entries stay visible — compatibility). VM opcode 0x24
+  `SHOWUI [widget][on]` plus the "Afficher/cacher un widget UI" event
+  command (the name resolved to the root index at compile time). Engine:
+  runtime visibility per widget (`ui_ov_widget` per primitive,
+  `ui_widget_vis` initially, `overlay_show` draws or erases, update and
+  refresh respect the state, values tracked even while hidden). Editor:
+  the window becomes "UI" in TWO PAGES — the widget list (👁 visible at
+  boot, Éditer…, 🗑, ✧ Nouveau) then the designer scoped on the chosen
+  widget (← Widgets to go back, "Vue d'ensemble" for the whole screen).
+- **Shipped (Phase 12, S1 — dialogue styles)**: several NAMED DIALOGUE
+  BOXES, on top of the default box (always there).
+  - Layout: `[[dialog_style]]` blocks in `ui/layout.toml` (max 3 beyond
+    the default) — a unique ASCII `id`, `windowskin` (default: the
+    theme's), `font` (a 768x8 PNG, default: `assets.font`), `message` /
+    `choice` (windows of its own, min 8x3; choice inherits the style's
+    message, message inherits `[message]`). Overlays must not overlap ANY
+    window of ANY style (their union is the UI_SHADOW band).
+  - Datagen: a deduplicated BG3 VRAM plan — font 0 (97 chars, base 1),
+    skins at 9 chars each, icons 2×N, then the EXTRA fonts at 96 chars
+    (based on ' ') after the icons; the 256-char budget is checked with a
+    detailed error. v1: every font and skin shares font 0's PALETTE (CGRAM
+    16-19). The `ui_styles.c` tables
+    (`ui_st_mx/my/mw/mh/cx/cy/cw/ch/font/skin`, row 0 = the default) plus
+    `UI_STYLE_COUNT` in ui_cfg.h — ALWAYS generated.
+  - VM: opcode 0x27 `DLGSTYLE [n]` arms the style of the NEXT box; emitted
+    before each msg/choice ONLY when the project has styles (otherwise the
+    bytecode is byte-identical). A `style` field on the msg/choice
+    commands (absent = the default) — the name resolved at compile time,
+    with an error listing the known styles.
+  - Engine: a textbox with RUNTIME geometry, font and skin
+    (`textbox_set_style`, copying the tables; `TB_CHAR` = the style's font
+    base). MIND THE LAG FRAME: the skin test is hoisted OUT of the loops
+    in `tb_box_at` — opening a message grazes a frame's budget, so tread
+    carefully on that hot path.
+  - Editor: Tools > UI > Dialogues et choix is a "Boîtes de dialogue" list
+    ((défaut) ★ plus the styles: ✧ Nouveau, ✎ rename, 🗑); per style: the
+    windowskin, the font, its own windows; a preview with the selected
+    style's skin AND font. The Message/Choice forms gain a "Boîte de
+    dialogue" select. The FontSet resource (a 768x8 import, PNG EXPORT,
+    rename — the styles follow — and deletion blocked when it is the
+    project font ★ or used by a style).
+- **Shipped (Phase 12, S2 — a font per widget)**: `font` on a widget's
+  ROOT (a `[[node]]` with no parent — a uigen error on a child): all the
+  widget's text (labels, values, counters) is drawn with that font.
+  Datagen: widget fonts join the same deduplicated VRAM plan as the
+  styles' (a shared font costs its 96 chars once); a `ui_ov_font[]` table
+  per PRIMITIVE (the base of the ' ' glyph, 1 = the project font) in
+  ui_overlays.c — ALWAYS emitted. Engine: `OV_FCHAR` = `ui_ov_font[i] +
+  ascii - 32` in ov_draw (types 0/3/5, digits included) — equivalent to
+  the old `OV_CHAR` when the table holds 1, so rendering is unchanged for
+  projects with no widget font. Editor: a "Fonte du widget" select in the
+  inspector (roots only), a canvas preview using each widget's font;
+  renaming and deleting a FontSet account for widgets as well as styles.
+- **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
+  declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
+  the list object will become NAVIGABLE, the designer already lays it
+  down), portraits / database lists / hp_bar M4, several themes in a
+  database table plus SET_THEME.
