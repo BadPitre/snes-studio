@@ -455,1041 +455,63 @@ impl<'a> EventCompiler<'a> {
         for cmd in cmds {
             let c = cmd["c"].as_str().with_context(|| format!("commande sans champ c : {}", cmd))?;
             match c {
-                "msg" => {
-                    // Each message picks its box; style 0 is the default.
-                    // With NO styles in the project nothing is emitted, so
-                    // existing projects keep byte-identical bytecode — the
-                    // extra opcode shifted the typewriter by one frame.
-                    // With styles, the reset to 0 is always emitted.
-                    if !self.ui_styles.is_empty() {
-                        out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
-                    } else {
-                        self.style_index(cmd)?; /* valide quand même le champ */
-                    }
-                    // Free text OR a reference to the catalogue (Tools >
-                    // Texts): text_ref names an entry of texts.json, shared
-                    // between commands and editable in the catalogue
-                    // without touching the events.
-                    let name = if let Some(r) = cmd["text_ref"].as_str() {
-                        if !self.texts.iter().any(|t| t.name == r) {
-                            bail!(
-                                "msg : texte « {} » introuvable dans le \
-                                 catalogue (Tools > Textes)",
-                                r
-                            );
-                        }
-                        r.to_string()
-                    } else {
-                        let t = cmd["text"].as_str().context("msg sans texte")?;
-                        self.text_name(t)?
-                    };
-                    out.push(format!("  MSG {}", name));
-                }
-                "choice" => {
-                    if !self.ui_styles.is_empty() {
-                        out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
-                    } else {
-                        self.style_index(cmd)?;
-                    }
-                    let var = Self::var_ref(&cmd["var"], CHOICE_VAR)?;
-                    let opts = cmd["options"].as_array().context("choice sans options")?;
-                    if opts.len() < 2 || opts.len() > 4 {
-                        bail!("choice : 2 a 4 options (recu {})", opts.len());
-                    }
-                    let mut names = Vec::new();
-                    for o in opts {
-                        let t = o["text"].as_str().context("option sans texte")?;
-                        names.push(self.text_name(t)?);
-                    }
-                    let end = self.label("finchoix");
-                    let branch: Vec<String> =
-                        (1..opts.len()).map(|i| self.label(&format!("opt{}", i))).collect();
-                    out.push(format!("  CHOICE {} {}", var, names.join(" ")));
-                    for (i, lbl) in branch.iter().enumerate() {
-                        out.push(format!("  JEQ {} {} {}", var, i + 1, lbl));
-                    }
-                    // option 0 falls through in sequence
-                    self.compile_list(
-                        opts[0]["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    )?;
-                    out.push(format!("  JMP {}", end));
-                    for (i, lbl) in branch.iter().enumerate() {
-                        out.push(format!("{}:", lbl));
-                        self.compile_list(
-                            opts[i + 1]["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                            depth + 1,
-                            out,
-                        )?;
-                        if i + 1 < branch.len() {
-                            out.push(format!("  JMP {}", end));
-                        }
-                    }
-                    out.push(format!("{}:", end));
-                }
-                "set" | "add" => {
-                    let var = Self::var_ref(&cmd["var"], "")?;
-                    let val = Self::u8_field(cmd, "value")?;
-                    out.push(format!(
-                        "  {} {} {}",
-                        if c == "set" { "SETVAR" } else { "ADDVAR" },
-                        var,
-                        val
-                    ));
-                }
-                "if" => {
-                    let var = Self::var_ref(&cmd["var"], "")?;
-                    let val = Self::u8_field(cmd, "value")?;
-                    let opc = match cmd["op"].as_str().unwrap_or("==") {
-                        "==" => "JEQ",
-                        "!=" => "JNE",
-                        ">=" => "JGEQ",
-                        other => bail!("if : operateur inconnu « {} » (==, !=, >=)", other),
-                    };
-                    let then_l = self.label("alors");
-                    let end = self.label("finsi");
-                    out.push(format!("  {} {} {} {}", opc, var, val, then_l));
-                    self.compile_list(
-                        cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    )?;
-                    out.push(format!("  JMP {}", end));
-                    out.push(format!("{}:", then_l));
-                    self.compile_list(
-                        cmd["then"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    )?;
-                    out.push(format!("{}:", end));
-                }
-                "switch" => {
-                    let n = Self::idx_field(cmd, "n", 512)?;
-                    let on = cmd["on"].as_bool().context("switch sans champ on")?;
-                    out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
-                }
-                "var" => {
-                    // Full arithmetic, randomness, and sources (constant,
-                    // variable, hero X/Y, timer).
-                    // "dst" picks the destination space: a project global,
-                    // or a LOCAL of the function being compiled.
-                    let op = cmd["op"].as_str().unwrap_or("=");
-                    if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
-                        bail!("var : operation inconnue « {} »", op);
-                    }
-                    let (st, val) = self.value_source(cmd, "var")?;
-                    if cmd["dst"].as_str() == Some("local") {
-                        let (np, nl, _) = self.cur_fn.with_context(|| {
-                            "var : une variable LOCALE n'a de sens que dans le \
-                             corps d'une fonction"
-                                .to_string()
-                        })?;
-                        let k = Self::idx_field(cmd, "n", 256)?;
-                        if k as usize >= nl {
-                            bail!(
-                                "var : variable locale n° {} demandée, mais la \
-                                 fonction n'en déclare que {}",
-                                k + 1,
-                                nl
-                            );
-                        }
-                        // locals follow the parameters in the frame
-                        out.push(format!(
-                            "  SETLOC {} {} {} {}",
-                            np as u64 + k as u64,
-                            op,
-                            st,
-                            val
-                        ));
-                    } else {
-                        let n = Self::idx_field(cmd, "n", 256)?;
-                        // the old 16-bit set/add also go through VAROP
-                        out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
-                    }
-                }
-                "timer" => {
-                    let op = match cmd["op"].as_str().unwrap_or("start") {
-                        "start" => "start",
-                        "stop" => "stop",
-                        "show" => "show",
-                        "hide" => "hide",
-                        o => bail!("timer : operation inconnue « {} »", o),
-                    };
-                    let secs = cmd["secs"].as_u64().filter(|&v| v <= 5999).unwrap_or(0);
-                    out.push(format!("  TIMER {} {}", op, secs));
-                }
-                "campan" => {
-                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
-                    out.push(format!(
-                        "  CAMPAN {} {} {}",
-                        Self::u8_field(cmd, "x")?,
-                        Self::u8_field(cmd, "y")?,
-                        speed
-                    ));
-                }
-                "cam_return" => {
-                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
-                    out.push(format!("  CAMRET {}", speed));
-                }
-                "wait_cam" => {
-                    out.push("  WAITCAM".to_string());
-                }
-                // screen effects
-                "scr_hide" | "scr_show" => {
-                    // Duration in FRAMES. Legacy: the old "speed" field
-                    // (1-15 brightness steps per frame) is converted to
-                    // the equivalent duration, about 15/speed.
-                    let dur = match cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)) {
-                        Some(v) => v,
-                        None => {
-                            let speed = cmd["speed"]
-                                .as_u64()
-                                .filter(|&v| (1..=15).contains(&v))
-                                .unwrap_or(1);
-                            (15 + speed - 1) / speed
-                        }
-                    };
-                    out.push(format!(
-                        "  {} {} {}",
-                        if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
-                        dur,
-                        Self::trans_field(cmd)?
-                    ));
-                }
-                // UI widget visibility (SHOWUI)
-                "ui_show" => {
-                    let name = cmd["widget"].as_str().unwrap_or("");
-                    let idx = self
-                        .ui_widgets
-                        .iter()
-                        .position(|w| w == name)
-                        .with_context(|| {
-                            format!(
-                                "ui_show : widget « {} » introuvable dans ui/layout.toml                                  (widgets : {})",
-                                name,
-                                if self.ui_widgets.is_empty() {
-                                    "aucun".to_string()
-                                } else {
-                                    self.ui_widgets.join(", ")
-                                }
-                            )
-                        })?;
-                    let on = cmd["on"].as_bool().unwrap_or(true);
-                    out.push(format!("  SHOWUI {} {}", idx, on as u8));
-                }
-                // Cursor menu: the chosen index goes to a variable
-                // (255 when cancelled with B and cancelling is allowed).
-                "list_select" => {
-                    let name = cmd["widget"].as_str().unwrap_or("");
-                    let idx = self
-                        .ui_widgets
-                        .iter()
-                        .position(|w| w == name)
-                        .with_context(|| {
-                            format!(
-                                "list_select : widget « {} » introuvable dans                                  ui/layout.toml (widgets : {})",
-                                name,
-                                if self.ui_widgets.is_empty() {
-                                    "aucun".to_string()
-                                } else {
-                                    self.ui_widgets.join(", ")
-                                }
-                            )
-                        })?;
-                    let var = cmd["var"]
-                        .as_u64()
-                        .filter(|&v| v < 256)
-                        .with_context(|| "list_select : var 0-255".to_string())?;
-                    let cancel = cmd["cancel"].as_bool().unwrap_or(true);
-                    // bit 1: the widget stays visible on close
-                    // (multi-panel); bit 2: Left/Right exit, returning
-                    // 254/253 — navigation between neighbouring lists
-                    let keep = cmd["keep"].as_bool().unwrap_or(false);
-                    let lr = cmd["lr"].as_bool().unwrap_or(false);
-                    let flags = cancel as u8 | (keep as u8) << 1 | (lr as u8) << 2;
-                    out.push(format!("  LISTSEL {} {} {}", idx, var, flags));
-                }
-                // Full-screen pictures, RM2003 style: the name is resolved
-                // to a pic_id of project.pictures.
-                "pic_show" => {
-                    // the image from the list, OR a number read in a variable
-                    let mut flags: u8 = 0;
-                    let (id, dims) = match cmd["pic_var"].as_u64() {
-                        Some(v) => {
-                            if v > 255 {
-                                bail!("pic_show : pic_var = 0-255");
-                            }
-                            flags |= 1;
-                            (v as usize, None)
-                        }
-                        None => {
-                            let name = cmd["pic"].as_str().unwrap_or("");
-                            let idx = self
-                                .pictures
-                                .iter()
-                                .position(|p| p == name)
-                                .with_context(|| {
-                                    format!(
-                                        "pic_show : image « {} » introuvable dans \
-                                         project.pictures (images : {})",
-                                        name,
-                                        if self.pictures.is_empty() {
-                                            "aucune — Gestionnaire de ressources > Picture"
-                                                .to_string()
-                                        } else {
-                                            self.pictures.join(", ")
-                                        }
-                                    )
-                                })?;
-                            (idx, Some(self.pic_dims[idx]))
-                        }
-                    };
-                    let (x, y) = Self::pic_pos(cmd, &mut flags, dims, "pic_show")?;
-                    // colour math blending with the scenery (flags bits 3-4)
-                    flags |= match cmd["blend"].as_str() {
-                        None => 0,
-                        Some("half") => 1 << 3,
-                        Some("add") => 2 << 3,
-                        Some("sub") => 3 << 3,
-                        Some(o) => bail!(
-                            "pic_show : blend inconnu « {} » (half, add ou sub)",
-                            o
-                        ),
-                    };
-                    let dur = Self::pic_dur(cmd)?;
-                    out.push(format!("  SHOWPIC {} {} {} {} {}", id, x, y, flags, dur));
-                }
-                "pic_hide" => {
-                    out.push(format!("  HIDEPIC {}", Self::pic_dur(cmd)?));
-                }
-                // Slides the displayed image (RM2003's Move Picture) to
-                // (x,y) over N frames. NON-blocking: the script continues.
-                "pic_move" => {
-                    let mut flags: u8 = 0;
-                    let (x, y) = Self::pic_pos(cmd, &mut flags, None, "pic_move")?;
-                    let dur = Self::pic_dur(cmd)?;
-                    out.push(format!("  MOVEPIC {} {} {} {}", x, y, flags, dur));
-                }
-                // Key Input Processing (RM2003): the code of the pressed
-                // key lands in a variable, 0 meaning none.
-                "key_input" => {
-                    let var = cmd["var"].as_u64().filter(|&v| v < 256).with_context(|| {
-                        "key_input : var = 0-255 requis".to_string()
-                    })?;
-                    let wait = cmd["wait"].as_bool().unwrap_or(true);
-                    let mut mask: u16 = 0;
-                    let keys = cmd["keys"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
-                    if keys.is_empty() {
-                        bail!("key_input : keys = [codes 1-12] (au moins une touche)");
-                    }
-                    for k in keys {
-                        let code = k.as_u64().filter(|&c| (1..=12).contains(&c))
-                            .with_context(|| {
-                                format!("key_input : code de touche invalide « {} » (1-12)", k)
-                            })?;
-                        mask |= 1u16 << code;
-                    }
-                    out.push(format!(
-                        "  KEYIN {} {} {} {}",
-                        wait as u8, mask & 0xFF, mask >> 8, var
-                    ));
-                }
-                "sysmenu" => {
-                    out.push("  SYSMENU".to_string());
-                }
-                "tint" => {
-                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
-                        "off" => "off",
-                        "add" => "add",
-                        "sub" => "sub",
-                        o => bail!("tint : mode inconnu « {} » (off, add, sub)", o),
-                    };
-                    let comp = |key: &str| -> u64 {
-                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
-                    };
-                    // "dur" in frames means a GRADUAL tint (TINTG);
-                    // absent or 0 is an immediate TINT, bytecode unchanged
-                    match cmd["dur"].as_u64() {
-                        Some(d) if d > 0 => {
-                            if d > 255 {
-                                bail!("tint : durée invalide {} (1-255 frames)", d);
-                            }
-                            out.push(format!(
-                                "  TINTG {} {} {} {} {}",
-                                mode, comp("r"), comp("g"), comp("b"), d
-                            ));
-                        }
-                        _ => out.push(format!(
-                            "  TINT {} {} {} {}",
-                            mode, comp("r"), comp("g"), comp("b")
-                        )),
-                    }
-                }
-                // "Go to screen": the composition made with the mouse
-                // (screens/<name>.json) is UNROLLED here into stage
-                // commands plus the screen's inline script. The engine
-                // sees nothing new — editor sugar, like the autotiles.
-                // MAX_DEPTH guards against screens calling each other in
-                // a loop.
-                "screen" => {
-                    let name = cmd["name"].as_str().unwrap_or("");
-                    let idx = self
-                        .screens
-                        .iter()
-                        .position(|sc| sc.name == name)
-                        .with_context(|| {
-                            format!(
-                                "commande écran : '{}' introuvable \
-                                 (supprimé ou renommé ?)",
-                                name
-                            )
-                        })?;
-                    let sc = self.screens[idx].clone();
-                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
-                    let bid = if sc.backdrop.is_empty() {
-                        255
-                    } else {
-                        self.pictures
-                            .iter()
-                            .position(|p| *p == sc.backdrop)
-                            .unwrap() as u64 // validé par main.rs
-                    };
-                    out.push(format!(
-                        "  STAGEOPEN {} {} {}",
-                        bid, dur,
-                        Self::trans_field(cmd)?
-                    ));
-                    for sl in &sc.slots {
-                        let pid = self
-                            .pictures
-                            .iter()
-                            .position(|p| *p == sl.pic)
-                            .unwrap(); // validé par main.rs
-                        out.push(format!(
-                            "  STAGEPOSE {} {} {} {}",
-                            sl.slot - 1, pid, sl.x / 8, sl.y / 8
-                        ));
-                    }
-                    // AUTO scripts play on open, in order; a condition
-                    // (switch or variable) becomes an `if` around the
-                    // body. "call" scripts wait for screen_call, with the
-                    // context stacked.
-                    self.screen_stack.push(idx);
-                    for scr in &sc.scripts {
-                        if scr.trigger != "auto" {
-                            continue;
-                        }
-                        let body = match &scr.cond {
-                            None => serde_json::Value::Array(scr.commands.clone()),
-                            Some(c) if c.kind == "switch" => serde_json::json!([{
-                                "c": "if_sw",
-                                "n": c.n,
-                                "on": c.on.unwrap_or(true),
-                                "then": scr.commands.clone(),
-                                "else": []
-                            }]),
-                            Some(c) => serde_json::json!([{
-                                "c": "if_var",
-                                "n": c.n,
-                                "op": c.op.clone().unwrap_or_else(|| "==".to_string()),
-                                "value": c.value.unwrap_or(0),
-                                "then": scr.commands.clone(),
-                                "else": []
-                            }]),
-                        };
-                        let list = body.as_array().cloned().unwrap_or_default();
-                        self.compile_list(&list, depth + 1, out)?;
-                    }
-                    self.screen_stack.pop();
-                }
-                // Calls ANOTHER script of the current screen, unrolled
-                // inline; MAX_DEPTH guards against call loops.
-                "screen_call" => {
-                    let sname = cmd["script"].as_str().unwrap_or("");
-                    let sidx = *self.screen_stack.last().with_context(|| {
-                        "screen_call : uniquement depuis un script \
-                         d'écran composé"
-                            .to_string()
-                    })?;
-                    let body = self.screens[sidx]
-                        .scripts
-                        .iter()
-                        .find(|sc| sc.name == sname)
-                        .map(|sc| sc.commands.clone())
-                        .with_context(|| {
-                            format!(
-                                "screen_call : script '{}' introuvable dans \
-                                 l'écran '{}'",
-                                sname, self.screens[sidx].name
-                            )
-                        })?;
-                    self.compile_list(&body, depth + 1, out)?;
-                }
-                // Composed screen: a background plus posed images in slots
-                "stage_open" => {
-                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
-                    let pic = cmd["pic"].as_str().unwrap_or("");
-                    let id = if pic.is_empty() {
-                        255
-                    } else {
-                        self.pictures
-                            .iter()
-                            .position(|p| p == pic)
-                            .with_context(|| {
-                                format!(
-                                    "stage_open : image '{}' introuvable \
-                                     (supprimée ou renommée ?)",
-                                    pic
-                                )
-                            })? as u64
-                    };
-                    out.push(format!(
-                        "  STAGEOPEN {} {} {}",
-                        id, dur,
-                        Self::trans_field(cmd)?
-                    ));
-                }
-                "stage_pose" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=5).contains(&v))
-                        .with_context(|| "stage_pose : slot 1-5".to_string())?;
-                    let pic = cmd["pic"].as_str().unwrap_or("");
-                    let id = self
-                        .pictures
-                        .iter()
-                        .position(|p| p == pic)
-                        .with_context(|| {
-                            format!(
-                                "stage_pose : image '{}' introuvable \
-                                 (supprimée ou renommée ?)",
-                                pic
-                            )
-                        })?;
-                    // Position is in PIXELS for the author and in TILES
-                    // (x8) in the binary format, rounded to the tile.
-                    let tx = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(0) / 8;
-                    let ty = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(0) / 8;
-                    out.push(format!(
-                        "  STAGEPOSE {} {} {} {}",
-                        slot - 1, id, tx, ty
-                    ));
-                }
-                "stage_clear" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=5).contains(&v))
-                        .with_context(|| "stage_clear : slot 1-5".to_string())?;
-                    out.push(format!("  STAGECLEAR {}", slot - 1));
-                }
-                // Animated vignettes (32x32 sprites, 2 slots)
-                "vig_show" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=2).contains(&v))
-                        .with_context(|| "vig_show : slot 1-2".to_string())?;
-                    let name = cmd["vig"].as_str().unwrap_or("");
-                    let id = self
-                        .vignettes
-                        .iter()
-                        .position(|v| v == name)
-                        .with_context(|| {
-                            format!(
-                                "vig_show : vignette '{}' introuvable \
-                                 (supprimée ou renommée ?)",
-                                name
-                            )
-                        })?;
-                    let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
-                        "hero" => 1u8,
-                        _ => 0,
-                    };
-                    let x = cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
-                    let y = cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
-                    out.push(format!(
-                        "  VIGSHOW {} {} {} {} {}",
-                        slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor
-                    ));
-                }
-                "vig_play" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=2).contains(&v))
-                        .with_context(|| "vig_play : slot 1-2".to_string())?;
-                    let mode = match cmd["mode"].as_str().unwrap_or("loop") {
-                        "once" => 1u8,
-                        "stop" => 0,
-                        _ => 2, // loop
-                    };
-                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
-                    out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
-                }
-                // Frame-by-frame animations; the cell sheet is a vignette
-                "anim_play" => {
-                    let name = cmd["anim"].as_str().unwrap_or("");
-                    let id = self
-                        .animations
-                        .iter()
-                        .position(|a| a == name)
-                        .with_context(|| {
-                            format!(
-                                "anim_play : animation '{}' introuvable \
-                                 (supprimée ou renommée ?)",
-                                name
-                            )
-                        })?;
-                    // anchor: the screen (offsets around its centre), the
-                    // hero, or an event of the scene
-                    let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
-                        "hero" => 1u8,
-                        "event" => 2,
-                        _ => 0,
-                    };
-                    let target = if anchor == 2 {
-                        match cmd["event"].as_i64() {
-                            None | Some(-1) => "self".to_string(),
-                            Some(n) if (0..24).contains(&n) => n.to_string(),
-                            Some(n) => bail!("anim_play : event {} hors limite (0-23)", n),
-                        }
-                    } else {
-                        "0".to_string()
-                    };
-                    let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
-                    out.push(format!("  ANIMPLAY {} {} {} {}", id, anchor, target, wait));
-                }
-                "anim_stop" => {
-                    out.push("  ANIMSTOP".to_string());
-                }
-                "vig_hide" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=2).contains(&v))
-                        .with_context(|| "vig_hide : slot 1-2".to_string())?;
-                    out.push(format!("  VIGHIDE {}", slot - 1));
-                }
-                "slot_fx" => {
-                    let slot = cmd["slot"]
-                        .as_u64()
-                        .filter(|&v| (1..=5).contains(&v))
-                        .with_context(|| "slot_fx : slot 1-5".to_string())?;
-                    let fx = match cmd["fx"].as_str().unwrap_or("restore") {
-                        "flash" => 1u8,
-                        "fadeout" => 2,
-                        "dark" => 3,
-                        _ => 0, // restore
-                    };
-                    let dur = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(0);
-                    out.push(format!("  SLOTFX {} {} {}", slot - 1, fx, dur));
-                }
-                "stage_close" => {
-                    let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
-                    out.push(format!(
-                        "  STAGECLOSE {} {}",
-                        dur,
-                        Self::trans_field(cmd)?
-                    ));
-                }
-                // Play a BRR sound effect; non-blocking
-                "sfx" => {
-                    let name = cmd["sound"].as_str().unwrap_or("");
-                    let id = self
-                        .sounds
-                        .iter()
-                        .position(|s| s == name)
-                        .with_context(|| {
-                            format!(
-                                "commande sfx : son '{}' introuvable dans le \
-                                 projet (supprimé ou renommé ?)",
-                                name
-                            )
-                        })?;
-                    out.push(format!("  PLAYSFX {}", id));
-                }
-                // Change the music ("" is silence); non-blocking, and the
-                // scene's own music resumes at the next warp
-                "bgm" => {
-                    let name = cmd["music"].as_str().unwrap_or("");
-                    if name.is_empty() {
-                        out.push("  PLAYBGM 255".to_string());
-                    } else {
-                        let id = self
-                            .musics
-                            .iter()
-                            .position(|s| s == name)
-                            .with_context(|| {
-                                format!(
-                                    "commande bgm : musique '{}' introuvable \
-                                     dans le projet (supprimée ou renommée ?)",
-                                    name
-                                )
-                            })?;
-                        out.push(format!("  PLAYBGM {}", id));
-                    }
-                }
-                // Spotlight: a circle of light around the hero
-                "spotlight" => {
-                    let rad = cmd["radius"]
-                        .as_u64()
-                        .filter(|&v| v == 0 || (16..=96).contains(&v))
-                        .unwrap_or(0);
-                    let dark = cmd["dark"].as_u64().filter(|&v| (1..=31).contains(&v)).unwrap_or(31);
-                    out.push(format!("  SPOTLIGHT {} {}", rad, dark));
-                }
-                // Sky gradient: a vertical tint, top to bottom
-                "skygrad" => {
-                    let mode = match cmd["mode"].as_str().unwrap_or("off") {
-                        "add" => "add",
-                        "sub" => "sub",
-                        _ => "off",
-                    };
-                    let ch = |k: &str| cmd[k].as_u64().filter(|&v| v <= 31).unwrap_or(0);
-                    out.push(format!(
-                        "  SKYGRAD {} {} {} {} {} {} {}",
-                        mode, ch("r"), ch("g"), ch("b"), ch("r2"), ch("g2"), ch("b2")
-                    ));
-                }
-                // Screen ripple (HDMA); power 0 stops it
-                "wave" => {
-                    let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);
-                    let spd = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
-                    out.push(format!("  WAVE {} {}", pow, spd));
-                }
-                // Particle weather (RM2003 Weather Effects): persists
-                // across scenes until the next change
-                "weather" => {
-                    let kind = match cmd["kind"].as_str().unwrap_or("off") {
-                        "off" => 0u8,
-                        "rain" => 1,
-                        "snow" => 2,
-                        o => bail!("weather : type inconnu « {} » (off, rain, snow)", o),
-                    };
-                    let pow = cmd["power"].as_u64().filter(|&v| (1..=3).contains(&v)).unwrap_or(2);
-                    out.push(format!("  WEATHER {} {}", kind, pow));
-                }
-                "flash" => {
-                    let comp = |key: &str| -> u64 {
-                        cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(31)
-                    };
-                    let frames = cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)).unwrap_or(8);
-                    out.push(format!(
-                        "  FLASH {} {} {} {}",
-                        comp("r"), comp("g"), comp("b"), frames
-                    ));
-                }
-                "shake" => {
-                    let power = cmd["power"].as_u64().filter(|&v| v <= 8).unwrap_or(4);
-                    let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
-                    let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
-                    out.push(format!("  SHAKE {} {} {}", power, speed, frames));
-                }
-                "if_sw" | "if_var" => {
-                    let then_l = self.label("alors");
-                    let end = self.label("finsi");
-                    if c == "if_sw" {
-                        let n = Self::idx_field(cmd, "n", 512)?;
-                        let on = cmd["on"].as_bool().unwrap_or(true);
-                        out.push(format!("  JSW {} {} {}", n, if on { 1 } else { 0 }, then_l));
-                    } else {
-                        let ops = match cmd["op"].as_str().unwrap_or("==") {
-                            "==" => "==",
-                            "!=" => "!=",
-                            ">=" => ">=",
-                            o => bail!("if_var : operateur inconnu « {} » (==, !=, >=)", o),
-                        };
-                        // Both sides are general sources. The HISTORICAL
-                        // form is still accepted — "n" on the left, a
-                        // constant "value" on the right — so projects that
-                        // predate "left"/"right" keep working. The editor
-                        // always writes the full form.
-                        let (la, lv) = match cmd.get("left") {
-                            Some(l) if l.is_object() => self.value_source(l, "if_var")?,
-                            _ => ("var", Self::idx_field(cmd, "n", 256)? as i64),
-                        };
-                        let (ra, rv) = match cmd.get("right") {
-                            Some(r) if r.is_object() => self.value_source(r, "if_var")?,
-                            _ => (
-                                "const",
-                                cmd["value"]
-                                    .as_i64()
-                                    .filter(|&v| (-32768..=65535).contains(&v))
-                                    .with_context(|| {
-                                        format!("if_var : valeur invalide : {}", cmd)
-                                    })?,
-                            ),
-                        };
-                        out.push(format!(
-                            "  JCMP16 {} {} {} {} {} {}",
-                            la, lv, ops, ra, rv, then_l
-                        ));
-                    }
-                    self.compile_list(
-                        cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    )?;
-                    out.push(format!("  JMP {}", end));
-                    out.push(format!("{}:", then_l));
-                    self.compile_list(
-                        cmd["then"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    )?;
-                    out.push(format!("{}:", end));
-                }
-                "wait" => {
-                    let n = Self::u8_field(cmd, "frames")?;
-                    out.push(format!("  WAIT {}", n));
-                }
-                // RM2003 loop: head label, body, jump back. "break" jumps
-                // to the end label of the innermost loop. A loop with no
-                // blocking command runs 32 ops per frame — the VM yields
-                // (spec §2).
-                "loop" => {
-                    let start = self.label("boucle");
-                    let end = self.label("finboucle");
-                    out.push(format!("{}:", start));
-                    self.loop_ends.push(end.clone());
-                    let r = self.compile_list(
-                        cmd["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
-                        depth + 1,
-                        out,
-                    );
-                    self.loop_ends.pop();
-                    r?;
-                    out.push(format!("  JMP {}", start));
-                    out.push(format!("{}:", end));
-                }
-                "break" => {
-                    let end = self
-                        .loop_ends
-                        .last()
-                        .context("« Sortir de la boucle » hors d'une boucle")?;
-                    out.push(format!("  JMP {}", end));
-                }
+                "msg" => self.cmd_msg(cmd, out)?,
+                "choice" => self.cmd_choice(cmd, out, depth)?,
+                "set" | "add" => self.cmd_set_add(cmd, out, c)?,
+                "if" => self.cmd_if(cmd, out, depth)?,
+                "switch" => self.cmd_switch(cmd, out)?,
+                "var" => self.cmd_var(cmd, out)?,
+                "timer" => self.cmd_timer(cmd, out)?,
+                "campan" => self.cmd_campan(cmd, out)?,
+                "cam_return" => self.cmd_cam_return(cmd, out)?,
+                "wait_cam" => self.cmd_wait_cam(out)?,
+                "scr_hide" | "scr_show" => self.cmd_scr(cmd, out, c)?,
+                "ui_show" => self.cmd_ui_show(cmd, out)?,
+                "list_select" => self.cmd_list_select(cmd, out)?,
+                "pic_show" => self.cmd_pic_show(cmd, out)?,
+                "pic_hide" => self.cmd_pic_hide(cmd, out)?,
+                "pic_move" => self.cmd_pic_move(cmd, out)?,
+                "key_input" => self.cmd_key_input(cmd, out)?,
+                "sysmenu" => self.cmd_sysmenu(out)?,
+                "tint" => self.cmd_tint(cmd, out)?,
+                "screen" => self.cmd_screen(cmd, out, depth)?,
+                "screen_call" => self.cmd_screen_call(cmd, out, depth)?,
+                "stage_open" => self.cmd_stage_open(cmd, out)?,
+                "stage_pose" => self.cmd_stage_pose(cmd, out)?,
+                "stage_clear" => self.cmd_stage_clear(cmd, out)?,
+                "vig_show" => self.cmd_vig_show(cmd, out)?,
+                "vig_play" => self.cmd_vig_play(cmd, out)?,
+                "anim_play" => self.cmd_anim_play(cmd, out)?,
+                "anim_stop" => self.cmd_anim_stop(out)?,
+                "vig_hide" => self.cmd_vig_hide(cmd, out)?,
+                "slot_fx" => self.cmd_slot_fx(cmd, out)?,
+                "stage_close" => self.cmd_stage_close(cmd, out)?,
+                "sfx" => self.cmd_sfx(cmd, out)?,
+                "bgm" => self.cmd_bgm(cmd, out)?,
+                "spotlight" => self.cmd_spotlight(cmd, out)?,
+                "skygrad" => self.cmd_skygrad(cmd, out)?,
+                "wave" => self.cmd_wave(cmd, out)?,
+                "weather" => self.cmd_weather(cmd, out)?,
+                "flash" => self.cmd_flash(cmd, out)?,
+                "shake" => self.cmd_shake(cmd, out)?,
+                "if_sw" | "if_var" => self.cmd_if_sw_var(cmd, out, c, depth)?,
+                "wait" => self.cmd_wait(cmd, out)?,
+                "loop" => self.cmd_loop(cmd, out, depth)?,
+                "break" => self.cmd_break(out)?,
                 // Comment: decorative in the editor, no bytecode emitted
                 "rem" => {}
-                // Read a database field into a variable:
-                // {"c":"db_read","table":"stats","from":"const"|"var",
-                //  "entry":"slime"|<variable number>,"field":"attack","dst":n}
-                "db_read" => {
-                    let dbr = self.db.with_context(|| {
-                        "db_read : le projet n'a pas de database (schemas/)".to_string()
-                    })?;
-                    let table = cmd["table"].as_str().context("db_read sans table")?;
-                    let ti = dbr.table_id(table).with_context(|| {
-                        format!("db_read : table inconnue « {} »", table)
-                    })?;
-                    let field = cmd["field"].as_str().context("db_read sans field")?;
-                    let (ofs, size) = dbr.field_info(ti, field).with_context(|| {
-                        format!("db_read : champ « {} » absent de {}", field, table)
-                    })?;
-                    if ofs > 255 {
-                        bail!("db_read : offset du champ « {} » > 255", field);
-                    }
-                    let dst = Self::idx_field(cmd, "dst", 256)?;
-                    let (esrc, entry) = match cmd["from"].as_str().unwrap_or("const") {
-                        "const" => {
-                            let id = cmd["entry"].as_str().with_context(|| {
-                                format!("db_read : entry (id symbolique de {})", table)
-                            })?;
-                            let idx = dbr.entry_index(ti, id).with_context(|| {
-                                format!("db_read : « {} » absent de la table {}", id, table)
-                            })?;
-                            (0, idx as u64)
-                        }
-                        "var" => (
-                            1,
-                            cmd["entry"].as_u64().filter(|&n| n < 256).with_context(|| {
-                                format!("db_read : entry = n° de variable (0-255) : {}", cmd)
-                            })?,
-                        ),
-                        o => bail!("db_read : source inconnue « {} » (const, var)", o),
-                    };
-                    out.push(format!(
-                        "  DBREAD {} {} {} {} {} {}",
-                        ti, esrc, entry, ofs, size, dst
-                    ));
-                }
-                // Call a common event (CALL/RET, stack of 8)
-                "call" => {
-                    let n = cmd["n"]
-                        .as_u64()
-                        .filter(|&n| (n as usize) < self.used_commons.len())
-                        .with_context(|| {
-                            format!(
-                                "call : common event inexistant ({} definis) : {}",
-                                self.used_commons.len(),
-                                cmd
-                            )
-                        })? as usize;
-                    self.used_commons[n] = true;
-                    out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
-                }
-                // Call a FUNCTION: arguments are evaluated in the
-                // CALLER's frame, the return value stored if wanted
-                "call_fn" => {
-                    let n = cmd["n"]
-                        .as_u64()
-                        .filter(|&n| (n as usize) < self.fn_sigs.len())
-                        .with_context(|| {
-                            format!(
-                                "call_fn : fonction inexistante ({} definies) : {}",
-                                self.fn_sigs.len(),
-                                cmd
-                            )
-                        })? as usize;
-                    let (nparams, nlocals, returns) = self.fn_sigs[n];
-                    let args = cmd["args"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
-                    if args.len() != nparams {
-                        bail!(
-                            "call_fn : la fonction {} attend {} parametre(s), \
-                             {} fourni(s)",
-                            n + 1,
-                            nparams,
-                            args.len()
-                        );
-                    }
-                    // nslots is arguments plus locals of the CALLEE: the
-                    // frame it will occupy. The engine zeroes the slots
-                    // past the arguments.
-                    let mut line = format!(
-                        "  CALLF __fn{}_{} {}",
-                        n,
-                        self.cur_scene,
-                        nparams + nlocals
-                    );
-                    for a in args {
-                        let (st, val) = self.value_source(a, "call_fn")?;
-                        line.push_str(&format!(" {} {}", st, val));
-                    }
-                    self.used_fns[n] = true;
-                    out.push(line);
-                    // "store the result" is sugar for CALLF + VAROP — the
-                    // common case, and the one we do not want anyone
-                    // writing by hand in the editor
-                    if let Some(dst) = cmd["dst"].as_u64() {
-                        if !returns {
-                            bail!(
-                                "call_fn : la fonction {} ne rend aucune valeur, \
-                                 il n'y a rien a ranger",
-                                n + 1
-                            );
-                        }
-                        if dst >= 256 {
-                            bail!("call_fn : variable destination {} hors limite", dst);
-                        }
-                        out.push(format!("  VAROP {} = ret 0", dst));
-                    }
-                }
-                // Return a value and leave the function
-                "ret_fn" => {
-                    match self.cur_fn {
-                        None => bail!(
-                            "« Retourner » n'a de sens que dans une fonction : \
-                             ailleurs, il n'y a personne a qui rendre la valeur"
-                        ),
-                        Some((_, _, false)) => bail!(
-                            "« Retourner » : cette fonction est declaree sans \
-                             valeur de retour — cocher la case, ou retirer la \
-                             commande"
-                        ),
-                        Some(_) => {}
-                    }
-                    let (st, val) = self.value_source(cmd, "ret_fn")?;
-                    out.push(format!("  RETF {} {}", st, val));
-                }
-                "wait_route" => {
-                    out.push("  WAITROUTE".to_string());
-                }
-                "route" => {
-                    // {"c":"route","event":-1|n,"repeat":b,"skip":b,
-                    //  "steps":[{"s":"up"}|{"s":"wait","n":2}...]}
-                    // event -1 means "this event", resolved by
-                    // compile_scene through self_actor — the entry index
-                    let target = match cmd["event"].as_i64() {
-                        None | Some(-1) => "self".to_string(),
-                        Some(n) if (0..24).contains(&n) => n.to_string(),
-                        Some(n) => bail!("route : event {} hors limite (0-23)", n),
-                    };
-                    let steps = cmd["steps"].as_array().context("route sans steps")?;
-                    let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
-                    if steps.is_empty() || steps.len() > 200 {
-                        bail!("route : 1 a 200 pas (recu {})", steps.len());
-                    }
-                    let freq = cmd["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
-                    out.push(format!(
-                        "  ROUTE {} {} {} {} {}",
-                        target,
-                        if cmd["repeat"].as_bool().unwrap_or(false) { 1 } else { 0 },
-                        if cmd["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
-                        freq,
-                        toks.join(" ")
-                    ));
-                }
-                // Scripted positions (RM2003 memorise/recall)
-                "hero_loc" => {
-                    // writes the hero's scene/X/Y into three 16-bit variables
-                    let vs = Self::idx_field(cmd, "vs", 256)?;
-                    let vx = Self::idx_field(cmd, "vx", 256)?;
-                    let vy = Self::idx_field(cmd, "vy", 256)?;
-                    out.push(format!("  VAROP {} = scene 0", vs));
-                    out.push(format!("  VAROP {} = hx 0", vx));
-                    out.push(format!("  VAROP {} = hy 0", vy));
-                }
-                "warp_var" => {
-                    let vs = Self::idx_field(cmd, "vs", 256)?;
-                    let vx = Self::idx_field(cmd, "vx", 256)?;
-                    let vy = Self::idx_field(cmd, "vy", 256)?;
-                    out.push(format!(
-                        "  WARPV {} {} {} {}",
-                        vs, vx, vy,
-                        Self::trans_field(cmd)?
-                    ));
-                }
-                "setpos" => {
-                    let target = match cmd["event"].as_i64() {
-                        None | Some(-1) => "self".to_string(),
-                        Some(n) if (0..24).contains(&n) => n.to_string(),
-                        Some(n) => bail!("setpos : event {} hors limite (0-23)", n),
-                    };
-                    let src = match cmd["from"].as_str().unwrap_or("const") {
-                        "const" => "c",
-                        "vars" => "v",
-                        o => bail!("setpos : source inconnue « {} » (const, vars)", o),
-                    };
-                    out.push(format!(
-                        "  SETPOS {} {} {} {}",
-                        target,
-                        src,
-                        Self::u8_field(cmd, "x")?,
-                        Self::u8_field(cmd, "y")?
-                    ));
-                }
-                "swappos" => {
-                    let ev = |key: &str| -> Result<String> {
-                        Ok(match cmd[key].as_i64() {
-                            None | Some(-1) => "self".to_string(),
-                            Some(n) if (0..24).contains(&n) => n.to_string(),
-                            Some(n) => bail!("swappos : event {} hors limite (0-23)", n),
-                        })
-                    };
-                    out.push(format!("  SWAPPOS {} {}", ev("a")?, ev("b")?));
-                }
-                "warp" => {
-                    let to = cmd["to"].as_str().context("warp sans scene cible")?;
-                    out.push(format!(
-                        "  WARP {} {} {} {}",
-                        to,
-                        Self::u8_field(cmd, "x")?,
-                        Self::u8_field(cmd, "y")?,
-                        Self::trans_field(cmd)?
-                    ));
-                }
-                "face" => {
-                    let dir = cmd["dir"].as_str().context("face sans direction")?;
-                    out.push(format!("  FACE {} {}", Self::u8_field(cmd, "event")?, dir));
-                }
+                "db_read" => self.cmd_db_read(cmd, out)?,
+                "call" => self.cmd_call(cmd, out)?,
+                "call_fn" => self.cmd_call_fn(cmd, out)?,
+                "ret_fn" => self.cmd_ret_fn(cmd, out)?,
+                "wait_route" => self.cmd_wait_route(out)?,
+                "route" => self.cmd_route(cmd, out)?,
+                "hero_loc" => self.cmd_hero_loc(cmd, out)?,
+                "warp_var" => self.cmd_warp_var(cmd, out)?,
+                "setpos" => self.cmd_setpos(cmd, out)?,
+                "swappos" => self.cmd_swappos(cmd, out)?,
+                "warp" => self.cmd_warp(cmd, out)?,
+                "face" => self.cmd_face(cmd, out)?,
                 other => bail!("commande inconnue : « {} »", other),
             }
         }
@@ -1847,5 +869,1148 @@ impl<'a> EventCompiler<'a> {
         }
 
         Ok((asm, actors, std::mem::take(&mut self.gfx_blocks), cetab))
+    }
+
+    fn cmd_msg(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // Each message picks its box; style 0 is the default.
+        // With NO styles in the project nothing is emitted, so
+        // existing projects keep byte-identical bytecode — the
+        // extra opcode shifted the typewriter by one frame.
+        // With styles, the reset to 0 is always emitted.
+        if !self.ui_styles.is_empty() {
+            out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
+        } else {
+            self.style_index(cmd)?; /* valide quand même le champ */
+        }
+        // Free text OR a reference to the catalogue (Tools >
+        // Texts): text_ref names an entry of texts.json, shared
+        // between commands and editable in the catalogue
+        // without touching the events.
+        let name = if let Some(r) = cmd["text_ref"].as_str() {
+            if !self.texts.iter().any(|t| t.name == r) {
+                bail!(
+                    "msg : texte « {} » introuvable dans le \
+                     catalogue (Tools > Textes)",
+                    r
+                );
+            }
+            r.to_string()
+        } else {
+            let t = cmd["text"].as_str().context("msg sans texte")?;
+            self.text_name(t)?
+        };
+        out.push(format!("  MSG {}", name));
+        Ok(())
+    }
+
+    fn cmd_choice(&mut self, cmd: &Value, out: &mut Vec<String>, depth: usize) -> Result<()> {
+        if !self.ui_styles.is_empty() {
+            out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
+        } else {
+            self.style_index(cmd)?;
+        }
+        let var = Self::var_ref(&cmd["var"], CHOICE_VAR)?;
+        let opts = cmd["options"].as_array().context("choice sans options")?;
+        if opts.len() < 2 || opts.len() > 4 {
+            bail!("choice : 2 a 4 options (recu {})", opts.len());
+        }
+        let mut names = Vec::new();
+        for o in opts {
+            let t = o["text"].as_str().context("option sans texte")?;
+            names.push(self.text_name(t)?);
+        }
+        let end = self.label("finchoix");
+        let branch: Vec<String> =
+            (1..opts.len()).map(|i| self.label(&format!("opt{}", i))).collect();
+        out.push(format!("  CHOICE {} {}", var, names.join(" ")));
+        for (i, lbl) in branch.iter().enumerate() {
+            out.push(format!("  JEQ {} {} {}", var, i + 1, lbl));
+        }
+        // option 0 falls through in sequence
+        self.compile_list(
+            opts[0]["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        )?;
+        out.push(format!("  JMP {}", end));
+        for (i, lbl) in branch.iter().enumerate() {
+            out.push(format!("{}:", lbl));
+            self.compile_list(
+                opts[i + 1]["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+                depth + 1,
+                out,
+            )?;
+            if i + 1 < branch.len() {
+                out.push(format!("  JMP {}", end));
+            }
+        }
+        out.push(format!("{}:", end));
+        Ok(())
+    }
+
+    fn cmd_set_add(&mut self, cmd: &Value, out: &mut Vec<String>, c: &str) -> Result<()> {
+        let var = Self::var_ref(&cmd["var"], "")?;
+        let val = Self::u8_field(cmd, "value")?;
+        out.push(format!(
+            "  {} {} {}",
+            if c == "set" { "SETVAR" } else { "ADDVAR" },
+            var,
+            val
+        ));
+        Ok(())
+    }
+
+    fn cmd_if(&mut self, cmd: &Value, out: &mut Vec<String>, depth: usize) -> Result<()> {
+        let var = Self::var_ref(&cmd["var"], "")?;
+        let val = Self::u8_field(cmd, "value")?;
+        let opc = match cmd["op"].as_str().unwrap_or("==") {
+            "==" => "JEQ",
+            "!=" => "JNE",
+            ">=" => "JGEQ",
+            other => bail!("if : operateur inconnu « {} » (==, !=, >=)", other),
+        };
+        let then_l = self.label("alors");
+        let end = self.label("finsi");
+        out.push(format!("  {} {} {} {}", opc, var, val, then_l));
+        self.compile_list(
+            cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        )?;
+        out.push(format!("  JMP {}", end));
+        out.push(format!("{}:", then_l));
+        self.compile_list(
+            cmd["then"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        )?;
+        out.push(format!("{}:", end));
+        Ok(())
+    }
+
+    fn cmd_switch(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let n = Self::idx_field(cmd, "n", 512)?;
+        let on = cmd["on"].as_bool().context("switch sans champ on")?;
+        out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
+        Ok(())
+    }
+
+    fn cmd_var(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // Full arithmetic, randomness, and sources (constant,
+        // variable, hero X/Y, timer).
+        // "dst" picks the destination space: a project global,
+        // or a LOCAL of the function being compiled.
+        let op = cmd["op"].as_str().unwrap_or("=");
+        if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
+            bail!("var : operation inconnue « {} »", op);
+        }
+        let (st, val) = self.value_source(cmd, "var")?;
+        if cmd["dst"].as_str() == Some("local") {
+            let (np, nl, _) = self.cur_fn.with_context(|| {
+                "var : une variable LOCALE n'a de sens que dans le \
+                 corps d'une fonction"
+                    .to_string()
+            })?;
+            let k = Self::idx_field(cmd, "n", 256)?;
+            if k as usize >= nl {
+                bail!(
+                    "var : variable locale n° {} demandée, mais la \
+                     fonction n'en déclare que {}",
+                    k + 1,
+                    nl
+                );
+            }
+            // locals follow the parameters in the frame
+            out.push(format!(
+                "  SETLOC {} {} {} {}",
+                np as u64 + k as u64,
+                op,
+                st,
+                val
+            ));
+        } else {
+            let n = Self::idx_field(cmd, "n", 256)?;
+            // the old 16-bit set/add also go through VAROP
+            out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
+        }
+        Ok(())
+    }
+
+    fn cmd_timer(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let op = match cmd["op"].as_str().unwrap_or("start") {
+            "start" => "start",
+            "stop" => "stop",
+            "show" => "show",
+            "hide" => "hide",
+            o => bail!("timer : operation inconnue « {} »", o),
+        };
+        let secs = cmd["secs"].as_u64().filter(|&v| v <= 5999).unwrap_or(0);
+        out.push(format!("  TIMER {} {}", op, secs));
+        Ok(())
+    }
+
+    fn cmd_campan(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+        out.push(format!(
+            "  CAMPAN {} {} {}",
+            Self::u8_field(cmd, "x")?,
+            Self::u8_field(cmd, "y")?,
+            speed
+        ));
+        Ok(())
+    }
+
+    fn cmd_cam_return(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+        out.push(format!("  CAMRET {}", speed));
+        Ok(())
+    }
+
+    fn cmd_wait_cam(&mut self, out: &mut Vec<String>) -> Result<()> {
+        out.push("  WAITCAM".to_string());
+        Ok(())
+    }
+
+    // screen effects
+    fn cmd_scr(&mut self, cmd: &Value, out: &mut Vec<String>, c: &str) -> Result<()> {
+        // Duration in FRAMES. Legacy: the old "speed" field
+        // (1-15 brightness steps per frame) is converted to
+        // the equivalent duration, about 15/speed.
+        let dur = match cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)) {
+            Some(v) => v,
+            None => {
+                let speed = cmd["speed"]
+                    .as_u64()
+                    .filter(|&v| (1..=15).contains(&v))
+                    .unwrap_or(1);
+                (15 + speed - 1) / speed
+            }
+        };
+        out.push(format!(
+            "  {} {} {}",
+            if c == "scr_hide" { "SCRHIDE" } else { "SCRSHOW" },
+            dur,
+            Self::trans_field(cmd)?
+        ));
+        Ok(())
+    }
+
+    // UI widget visibility (SHOWUI)
+    fn cmd_ui_show(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["widget"].as_str().unwrap_or("");
+        let idx = self
+            .ui_widgets
+            .iter()
+            .position(|w| w == name)
+            .with_context(|| {
+                format!(
+                    "ui_show : widget « {} » introuvable dans ui/layout.toml                                  (widgets : {})",
+                    name,
+                    if self.ui_widgets.is_empty() {
+                        "aucun".to_string()
+                    } else {
+                        self.ui_widgets.join(", ")
+                    }
+                )
+            })?;
+        let on = cmd["on"].as_bool().unwrap_or(true);
+        out.push(format!("  SHOWUI {} {}", idx, on as u8));
+        Ok(())
+    }
+
+    // Cursor menu: the chosen index goes to a variable
+    // (255 when cancelled with B and cancelling is allowed).
+    fn cmd_list_select(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["widget"].as_str().unwrap_or("");
+        let idx = self
+            .ui_widgets
+            .iter()
+            .position(|w| w == name)
+            .with_context(|| {
+                format!(
+                    "list_select : widget « {} » introuvable dans                                  ui/layout.toml (widgets : {})",
+                    name,
+                    if self.ui_widgets.is_empty() {
+                        "aucun".to_string()
+                    } else {
+                        self.ui_widgets.join(", ")
+                    }
+                )
+            })?;
+        let var = cmd["var"]
+            .as_u64()
+            .filter(|&v| v < 256)
+            .with_context(|| "list_select : var 0-255".to_string())?;
+        let cancel = cmd["cancel"].as_bool().unwrap_or(true);
+        // bit 1: the widget stays visible on close
+        // (multi-panel); bit 2: Left/Right exit, returning
+        // 254/253 — navigation between neighbouring lists
+        let keep = cmd["keep"].as_bool().unwrap_or(false);
+        let lr = cmd["lr"].as_bool().unwrap_or(false);
+        let flags = cancel as u8 | (keep as u8) << 1 | (lr as u8) << 2;
+        out.push(format!("  LISTSEL {} {} {}", idx, var, flags));
+        Ok(())
+    }
+
+    // Full-screen pictures, RM2003 style: the name is resolved
+    // to a pic_id of project.pictures.
+    fn cmd_pic_show(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // the image from the list, OR a number read in a variable
+        let mut flags: u8 = 0;
+        let (id, dims) = match cmd["pic_var"].as_u64() {
+            Some(v) => {
+                if v > 255 {
+                    bail!("pic_show : pic_var = 0-255");
+                }
+                flags |= 1;
+                (v as usize, None)
+            }
+            None => {
+                let name = cmd["pic"].as_str().unwrap_or("");
+                let idx = self
+                    .pictures
+                    .iter()
+                    .position(|p| p == name)
+                    .with_context(|| {
+                        format!(
+                            "pic_show : image « {} » introuvable dans \
+                             project.pictures (images : {})",
+                            name,
+                            if self.pictures.is_empty() {
+                                "aucune — Gestionnaire de ressources > Picture"
+                                    .to_string()
+                            } else {
+                                self.pictures.join(", ")
+                            }
+                        )
+                    })?;
+                (idx, Some(self.pic_dims[idx]))
+            }
+        };
+        let (x, y) = Self::pic_pos(cmd, &mut flags, dims, "pic_show")?;
+        // colour math blending with the scenery (flags bits 3-4)
+        flags |= match cmd["blend"].as_str() {
+            None => 0,
+            Some("half") => 1 << 3,
+            Some("add") => 2 << 3,
+            Some("sub") => 3 << 3,
+            Some(o) => bail!(
+                "pic_show : blend inconnu « {} » (half, add ou sub)",
+                o
+            ),
+        };
+        let dur = Self::pic_dur(cmd)?;
+        out.push(format!("  SHOWPIC {} {} {} {} {}", id, x, y, flags, dur));
+        Ok(())
+    }
+
+    fn cmd_pic_hide(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        out.push(format!("  HIDEPIC {}", Self::pic_dur(cmd)?));
+        Ok(())
+    }
+
+    // Slides the displayed image (RM2003's Move Picture) to
+    // (x,y) over N frames. NON-blocking: the script continues.
+    fn cmd_pic_move(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let mut flags: u8 = 0;
+        let (x, y) = Self::pic_pos(cmd, &mut flags, None, "pic_move")?;
+        let dur = Self::pic_dur(cmd)?;
+        out.push(format!("  MOVEPIC {} {} {} {}", x, y, flags, dur));
+        Ok(())
+    }
+
+    // Key Input Processing (RM2003): the code of the pressed
+    // key lands in a variable, 0 meaning none.
+    fn cmd_key_input(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let var = cmd["var"].as_u64().filter(|&v| v < 256).with_context(|| {
+            "key_input : var = 0-255 requis".to_string()
+        })?;
+        let wait = cmd["wait"].as_bool().unwrap_or(true);
+        let mut mask: u16 = 0;
+        let keys = cmd["keys"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+        if keys.is_empty() {
+            bail!("key_input : keys = [codes 1-12] (au moins une touche)");
+        }
+        for k in keys {
+            let code = k.as_u64().filter(|&c| (1..=12).contains(&c))
+                .with_context(|| {
+                    format!("key_input : code de touche invalide « {} » (1-12)", k)
+                })?;
+            mask |= 1u16 << code;
+        }
+        out.push(format!(
+            "  KEYIN {} {} {} {}",
+            wait as u8, mask & 0xFF, mask >> 8, var
+        ));
+        Ok(())
+    }
+
+    fn cmd_sysmenu(&mut self, out: &mut Vec<String>) -> Result<()> {
+        out.push("  SYSMENU".to_string());
+        Ok(())
+    }
+
+    fn cmd_tint(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let mode = match cmd["mode"].as_str().unwrap_or("off") {
+            "off" => "off",
+            "add" => "add",
+            "sub" => "sub",
+            o => bail!("tint : mode inconnu « {} » (off, add, sub)", o),
+        };
+        let comp = |key: &str| -> u64 {
+            cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
+        };
+        // "dur" in frames means a GRADUAL tint (TINTG);
+        // absent or 0 is an immediate TINT, bytecode unchanged
+        match cmd["dur"].as_u64() {
+            Some(d) if d > 0 => {
+                if d > 255 {
+                    bail!("tint : durée invalide {} (1-255 frames)", d);
+                }
+                out.push(format!(
+                    "  TINTG {} {} {} {} {}",
+                    mode, comp("r"), comp("g"), comp("b"), d
+                ));
+            }
+            _ => out.push(format!(
+                "  TINT {} {} {} {}",
+                mode, comp("r"), comp("g"), comp("b")
+            )),
+        }
+        Ok(())
+    }
+
+    // "Go to screen": the composition made with the mouse
+    // (screens/<name>.json) is UNROLLED here into stage
+    // commands plus the screen's inline script. The engine
+    // sees nothing new — editor sugar, like the autotiles.
+    // MAX_DEPTH guards against screens calling each other in
+    // a loop.
+    fn cmd_screen(&mut self, cmd: &Value, out: &mut Vec<String>, depth: usize) -> Result<()> {
+        let name = cmd["name"].as_str().unwrap_or("");
+        let idx = self
+            .screens
+            .iter()
+            .position(|sc| sc.name == name)
+            .with_context(|| {
+                format!(
+                    "commande écran : '{}' introuvable \
+                     (supprimé ou renommé ?)",
+                    name
+                )
+            })?;
+        let sc = self.screens[idx].clone();
+        let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+        let bid = if sc.backdrop.is_empty() {
+            255
+        } else {
+            self.pictures
+                .iter()
+                .position(|p| *p == sc.backdrop)
+                .unwrap() as u64 // validé par main.rs
+        };
+        out.push(format!(
+            "  STAGEOPEN {} {} {}",
+            bid, dur,
+            Self::trans_field(cmd)?
+        ));
+        for sl in &sc.slots {
+            let pid = self
+                .pictures
+                .iter()
+                .position(|p| *p == sl.pic)
+                .unwrap(); // validé par main.rs
+            out.push(format!(
+                "  STAGEPOSE {} {} {} {}",
+                sl.slot - 1, pid, sl.x / 8, sl.y / 8
+            ));
+        }
+        // AUTO scripts play on open, in order; a condition
+        // (switch or variable) becomes an `if` around the
+        // body. "call" scripts wait for screen_call, with the
+        // context stacked.
+        self.screen_stack.push(idx);
+        for scr in &sc.scripts {
+            if scr.trigger != "auto" {
+                continue;
+            }
+            let body = match &scr.cond {
+                None => serde_json::Value::Array(scr.commands.clone()),
+                Some(c) if c.kind == "switch" => serde_json::json!([{
+                    "c": "if_sw",
+                    "n": c.n,
+                    "on": c.on.unwrap_or(true),
+                    "then": scr.commands.clone(),
+                    "else": []
+                }]),
+                Some(c) => serde_json::json!([{
+                    "c": "if_var",
+                    "n": c.n,
+                    "op": c.op.clone().unwrap_or_else(|| "==".to_string()),
+                    "value": c.value.unwrap_or(0),
+                    "then": scr.commands.clone(),
+                    "else": []
+                }]),
+            };
+            let list = body.as_array().cloned().unwrap_or_default();
+            self.compile_list(&list, depth + 1, out)?;
+        }
+        self.screen_stack.pop();
+        Ok(())
+    }
+
+    // Calls ANOTHER script of the current screen, unrolled
+    // inline; MAX_DEPTH guards against call loops.
+    fn cmd_screen_call(&mut self, cmd: &Value, out: &mut Vec<String>, depth: usize) -> Result<()> {
+        let sname = cmd["script"].as_str().unwrap_or("");
+        let sidx = *self.screen_stack.last().with_context(|| {
+            "screen_call : uniquement depuis un script \
+             d'écran composé"
+                .to_string()
+        })?;
+        let body = self.screens[sidx]
+            .scripts
+            .iter()
+            .find(|sc| sc.name == sname)
+            .map(|sc| sc.commands.clone())
+            .with_context(|| {
+                format!(
+                    "screen_call : script '{}' introuvable dans \
+                     l'écran '{}'",
+                    sname, self.screens[sidx].name
+                )
+            })?;
+        self.compile_list(&body, depth + 1, out)?;
+        Ok(())
+    }
+
+    // Composed screen: a background plus posed images in slots
+    fn cmd_stage_open(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+        let pic = cmd["pic"].as_str().unwrap_or("");
+        let id = if pic.is_empty() {
+            255
+        } else {
+            self.pictures
+                .iter()
+                .position(|p| p == pic)
+                .with_context(|| {
+                    format!(
+                        "stage_open : image '{}' introuvable \
+                         (supprimée ou renommée ?)",
+                        pic
+                    )
+                })? as u64
+        };
+        out.push(format!(
+            "  STAGEOPEN {} {} {}",
+            id, dur,
+            Self::trans_field(cmd)?
+        ));
+        Ok(())
+    }
+
+    fn cmd_stage_pose(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=5).contains(&v))
+            .with_context(|| "stage_pose : slot 1-5".to_string())?;
+        let pic = cmd["pic"].as_str().unwrap_or("");
+        let id = self
+            .pictures
+            .iter()
+            .position(|p| p == pic)
+            .with_context(|| {
+                format!(
+                    "stage_pose : image '{}' introuvable \
+                     (supprimée ou renommée ?)",
+                    pic
+                )
+            })?;
+        // Position is in PIXELS for the author and in TILES
+        // (x8) in the binary format, rounded to the tile.
+        let tx = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(0) / 8;
+        let ty = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(0) / 8;
+        out.push(format!(
+            "  STAGEPOSE {} {} {} {}",
+            slot - 1, id, tx, ty
+        ));
+        Ok(())
+    }
+
+    fn cmd_stage_clear(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=5).contains(&v))
+            .with_context(|| "stage_clear : slot 1-5".to_string())?;
+        out.push(format!("  STAGECLEAR {}", slot - 1));
+        Ok(())
+    }
+
+    // Animated vignettes (32x32 sprites, 2 slots)
+    fn cmd_vig_show(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=2).contains(&v))
+            .with_context(|| "vig_show : slot 1-2".to_string())?;
+        let name = cmd["vig"].as_str().unwrap_or("");
+        let id = self
+            .vignettes
+            .iter()
+            .position(|v| v == name)
+            .with_context(|| {
+                format!(
+                    "vig_show : vignette '{}' introuvable \
+                     (supprimée ou renommée ?)",
+                    name
+                )
+            })?;
+        let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
+            "hero" => 1u8,
+            _ => 0,
+        };
+        let x = cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+        let y = cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+        out.push(format!(
+            "  VIGSHOW {} {} {} {} {}",
+            slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor
+        ));
+        Ok(())
+    }
+
+    fn cmd_vig_play(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=2).contains(&v))
+            .with_context(|| "vig_play : slot 1-2".to_string())?;
+        let mode = match cmd["mode"].as_str().unwrap_or("loop") {
+            "once" => 1u8,
+            "stop" => 0,
+            _ => 2, // loop
+        };
+        let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
+        out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
+        Ok(())
+    }
+
+    // Frame-by-frame animations; the cell sheet is a vignette
+    fn cmd_anim_play(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["anim"].as_str().unwrap_or("");
+        let id = self
+            .animations
+            .iter()
+            .position(|a| a == name)
+            .with_context(|| {
+                format!(
+                    "anim_play : animation '{}' introuvable \
+                     (supprimée ou renommée ?)",
+                    name
+                )
+            })?;
+        // anchor: the screen (offsets around its centre), the
+        // hero, or an event of the scene
+        let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
+            "hero" => 1u8,
+            "event" => 2,
+            _ => 0,
+        };
+        let target = if anchor == 2 {
+            match cmd["event"].as_i64() {
+                None | Some(-1) => "self".to_string(),
+                Some(n) if (0..24).contains(&n) => n.to_string(),
+                Some(n) => bail!("anim_play : event {} hors limite (0-23)", n),
+            }
+        } else {
+            "0".to_string()
+        };
+        let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
+        out.push(format!("  ANIMPLAY {} {} {} {}", id, anchor, target, wait));
+        Ok(())
+    }
+
+    fn cmd_anim_stop(&mut self, out: &mut Vec<String>) -> Result<()> {
+        out.push("  ANIMSTOP".to_string());
+        Ok(())
+    }
+
+    fn cmd_vig_hide(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=2).contains(&v))
+            .with_context(|| "vig_hide : slot 1-2".to_string())?;
+        out.push(format!("  VIGHIDE {}", slot - 1));
+        Ok(())
+    }
+
+    fn cmd_slot_fx(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=5).contains(&v))
+            .with_context(|| "slot_fx : slot 1-5".to_string())?;
+        let fx = match cmd["fx"].as_str().unwrap_or("restore") {
+            "flash" => 1u8,
+            "fadeout" => 2,
+            "dark" => 3,
+            _ => 0, // restore
+        };
+        let dur = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(0);
+        out.push(format!("  SLOTFX {} {} {}", slot - 1, fx, dur));
+        Ok(())
+    }
+
+    fn cmd_stage_close(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+        out.push(format!(
+            "  STAGECLOSE {} {}",
+            dur,
+            Self::trans_field(cmd)?
+        ));
+        Ok(())
+    }
+
+    // Play a BRR sound effect; non-blocking
+    fn cmd_sfx(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["sound"].as_str().unwrap_or("");
+        let id = self
+            .sounds
+            .iter()
+            .position(|s| s == name)
+            .with_context(|| {
+                format!(
+                    "commande sfx : son '{}' introuvable dans le \
+                     projet (supprimé ou renommé ?)",
+                    name
+                )
+            })?;
+        out.push(format!("  PLAYSFX {}", id));
+        Ok(())
+    }
+
+    // Change the music ("" is silence); non-blocking, and the
+    // scene's own music resumes at the next warp
+    fn cmd_bgm(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["music"].as_str().unwrap_or("");
+        if name.is_empty() {
+            out.push("  PLAYBGM 255".to_string());
+        } else {
+            let id = self
+                .musics
+                .iter()
+                .position(|s| s == name)
+                .with_context(|| {
+                    format!(
+                        "commande bgm : musique '{}' introuvable \
+                         dans le projet (supprimée ou renommée ?)",
+                        name
+                    )
+                })?;
+            out.push(format!("  PLAYBGM {}", id));
+        }
+        Ok(())
+    }
+
+    // Spotlight: a circle of light around the hero
+    fn cmd_spotlight(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let rad = cmd["radius"]
+            .as_u64()
+            .filter(|&v| v == 0 || (16..=96).contains(&v))
+            .unwrap_or(0);
+        let dark = cmd["dark"].as_u64().filter(|&v| (1..=31).contains(&v)).unwrap_or(31);
+        out.push(format!("  SPOTLIGHT {} {}", rad, dark));
+        Ok(())
+    }
+
+    // Sky gradient: a vertical tint, top to bottom
+    fn cmd_skygrad(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let mode = match cmd["mode"].as_str().unwrap_or("off") {
+            "add" => "add",
+            "sub" => "sub",
+            _ => "off",
+        };
+        let ch = |k: &str| cmd[k].as_u64().filter(|&v| v <= 31).unwrap_or(0);
+        out.push(format!(
+            "  SKYGRAD {} {} {} {} {} {} {}",
+            mode, ch("r"), ch("g"), ch("b"), ch("r2"), ch("g2"), ch("b2")
+        ));
+        Ok(())
+    }
+
+    // Screen ripple (HDMA); power 0 stops it
+    fn cmd_wave(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);
+        let spd = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+        out.push(format!("  WAVE {} {}", pow, spd));
+        Ok(())
+    }
+
+    // Particle weather (RM2003 Weather Effects): persists
+    // across scenes until the next change
+    fn cmd_weather(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let kind = match cmd["kind"].as_str().unwrap_or("off") {
+            "off" => 0u8,
+            "rain" => 1,
+            "snow" => 2,
+            o => bail!("weather : type inconnu « {} » (off, rain, snow)", o),
+        };
+        let pow = cmd["power"].as_u64().filter(|&v| (1..=3).contains(&v)).unwrap_or(2);
+        out.push(format!("  WEATHER {} {}", kind, pow));
+        Ok(())
+    }
+
+    fn cmd_flash(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let comp = |key: &str| -> u64 {
+            cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(31)
+        };
+        let frames = cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)).unwrap_or(8);
+        out.push(format!(
+            "  FLASH {} {} {} {}",
+            comp("r"), comp("g"), comp("b"), frames
+        ));
+        Ok(())
+    }
+
+    fn cmd_shake(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let power = cmd["power"].as_u64().filter(|&v| v <= 8).unwrap_or(4);
+        let speed = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
+        let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
+        out.push(format!("  SHAKE {} {} {}", power, speed, frames));
+        Ok(())
+    }
+
+    fn cmd_if_sw_var(&mut self, cmd: &Value, out: &mut Vec<String>, c: &str, depth: usize) -> Result<()> {
+        let then_l = self.label("alors");
+        let end = self.label("finsi");
+        if c == "if_sw" {
+            let n = Self::idx_field(cmd, "n", 512)?;
+            let on = cmd["on"].as_bool().unwrap_or(true);
+            out.push(format!("  JSW {} {} {}", n, if on { 1 } else { 0 }, then_l));
+        } else {
+            let ops = match cmd["op"].as_str().unwrap_or("==") {
+                "==" => "==",
+                "!=" => "!=",
+                ">=" => ">=",
+                o => bail!("if_var : operateur inconnu « {} » (==, !=, >=)", o),
+            };
+            // Both sides are general sources. The HISTORICAL
+            // form is still accepted — "n" on the left, a
+            // constant "value" on the right — so projects that
+            // predate "left"/"right" keep working. The editor
+            // always writes the full form.
+            let (la, lv) = match cmd.get("left") {
+                Some(l) if l.is_object() => self.value_source(l, "if_var")?,
+                _ => ("var", Self::idx_field(cmd, "n", 256)? as i64),
+            };
+            let (ra, rv) = match cmd.get("right") {
+                Some(r) if r.is_object() => self.value_source(r, "if_var")?,
+                _ => (
+                    "const",
+                    cmd["value"]
+                        .as_i64()
+                        .filter(|&v| (-32768..=65535).contains(&v))
+                        .with_context(|| {
+                            format!("if_var : valeur invalide : {}", cmd)
+                        })?,
+                ),
+            };
+            out.push(format!(
+                "  JCMP16 {} {} {} {} {} {}",
+                la, lv, ops, ra, rv, then_l
+            ));
+        }
+        self.compile_list(
+            cmd["else"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        )?;
+        out.push(format!("  JMP {}", end));
+        out.push(format!("{}:", then_l));
+        self.compile_list(
+            cmd["then"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        )?;
+        out.push(format!("{}:", end));
+        Ok(())
+    }
+
+    fn cmd_wait(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let n = Self::u8_field(cmd, "frames")?;
+        out.push(format!("  WAIT {}", n));
+        Ok(())
+    }
+
+    // RM2003 loop: head label, body, jump back. "break" jumps
+    // to the end label of the innermost loop. A loop with no
+    // blocking command runs 32 ops per frame — the VM yields
+    // (spec §2).
+    fn cmd_loop(&mut self, cmd: &Value, out: &mut Vec<String>, depth: usize) -> Result<()> {
+        let start = self.label("boucle");
+        let end = self.label("finboucle");
+        out.push(format!("{}:", start));
+        self.loop_ends.push(end.clone());
+        let r = self.compile_list(
+            cmd["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
+            depth + 1,
+            out,
+        );
+        self.loop_ends.pop();
+        r?;
+        out.push(format!("  JMP {}", start));
+        out.push(format!("{}:", end));
+        Ok(())
+    }
+
+    fn cmd_break(&mut self, out: &mut Vec<String>) -> Result<()> {
+        let end = self
+            .loop_ends
+            .last()
+            .context("« Sortir de la boucle » hors d'une boucle")?;
+        out.push(format!("  JMP {}", end));
+        Ok(())
+    }
+
+    // Read a database field into a variable:
+    // {"c":"db_read","table":"stats","from":"const"|"var",
+    //  "entry":"slime"|<variable number>,"field":"attack","dst":n}
+    fn cmd_db_read(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dbr = self.db.with_context(|| {
+            "db_read : le projet n'a pas de database (schemas/)".to_string()
+        })?;
+        let table = cmd["table"].as_str().context("db_read sans table")?;
+        let ti = dbr.table_id(table).with_context(|| {
+            format!("db_read : table inconnue « {} »", table)
+        })?;
+        let field = cmd["field"].as_str().context("db_read sans field")?;
+        let (ofs, size) = dbr.field_info(ti, field).with_context(|| {
+            format!("db_read : champ « {} » absent de {}", field, table)
+        })?;
+        if ofs > 255 {
+            bail!("db_read : offset du champ « {} » > 255", field);
+        }
+        let dst = Self::idx_field(cmd, "dst", 256)?;
+        let (esrc, entry) = match cmd["from"].as_str().unwrap_or("const") {
+            "const" => {
+                let id = cmd["entry"].as_str().with_context(|| {
+                    format!("db_read : entry (id symbolique de {})", table)
+                })?;
+                let idx = dbr.entry_index(ti, id).with_context(|| {
+                    format!("db_read : « {} » absent de la table {}", id, table)
+                })?;
+                (0, idx as u64)
+            }
+            "var" => (
+                1,
+                cmd["entry"].as_u64().filter(|&n| n < 256).with_context(|| {
+                    format!("db_read : entry = n° de variable (0-255) : {}", cmd)
+                })?,
+            ),
+            o => bail!("db_read : source inconnue « {} » (const, var)", o),
+        };
+        out.push(format!(
+            "  DBREAD {} {} {} {} {} {}",
+            ti, esrc, entry, ofs, size, dst
+        ));
+        Ok(())
+    }
+
+    // Call a common event (CALL/RET, stack of 8)
+    fn cmd_call(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let n = cmd["n"]
+            .as_u64()
+            .filter(|&n| (n as usize) < self.used_commons.len())
+            .with_context(|| {
+                format!(
+                    "call : common event inexistant ({} definis) : {}",
+                    self.used_commons.len(),
+                    cmd
+                )
+            })? as usize;
+        self.used_commons[n] = true;
+        out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
+        Ok(())
+    }
+
+    // Call a FUNCTION: arguments are evaluated in the
+    // CALLER's frame, the return value stored if wanted
+    fn cmd_call_fn(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let n = cmd["n"]
+            .as_u64()
+            .filter(|&n| (n as usize) < self.fn_sigs.len())
+            .with_context(|| {
+                format!(
+                    "call_fn : fonction inexistante ({} definies) : {}",
+                    self.fn_sigs.len(),
+                    cmd
+                )
+            })? as usize;
+        let (nparams, nlocals, returns) = self.fn_sigs[n];
+        let args = cmd["args"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+        if args.len() != nparams {
+            bail!(
+                "call_fn : la fonction {} attend {} parametre(s), \
+                 {} fourni(s)",
+                n + 1,
+                nparams,
+                args.len()
+            );
+        }
+        // nslots is arguments plus locals of the CALLEE: the
+        // frame it will occupy. The engine zeroes the slots
+        // past the arguments.
+        let mut line = format!(
+            "  CALLF __fn{}_{} {}",
+            n,
+            self.cur_scene,
+            nparams + nlocals
+        );
+        for a in args {
+            let (st, val) = self.value_source(a, "call_fn")?;
+            line.push_str(&format!(" {} {}", st, val));
+        }
+        self.used_fns[n] = true;
+        out.push(line);
+        // "store the result" is sugar for CALLF + VAROP — the
+        // common case, and the one we do not want anyone
+        // writing by hand in the editor
+        if let Some(dst) = cmd["dst"].as_u64() {
+            if !returns {
+                bail!(
+                    "call_fn : la fonction {} ne rend aucune valeur, \
+                     il n'y a rien a ranger",
+                    n + 1
+                );
+            }
+            if dst >= 256 {
+                bail!("call_fn : variable destination {} hors limite", dst);
+            }
+            out.push(format!("  VAROP {} = ret 0", dst));
+        }
+        Ok(())
+    }
+
+    // Return a value and leave the function
+    fn cmd_ret_fn(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        match self.cur_fn {
+            None => bail!(
+                "« Retourner » n'a de sens que dans une fonction : \
+                 ailleurs, il n'y a personne a qui rendre la valeur"
+            ),
+            Some((_, _, false)) => bail!(
+                "« Retourner » : cette fonction est declaree sans \
+                 valeur de retour — cocher la case, ou retirer la \
+                 commande"
+            ),
+            Some(_) => {}
+        }
+        let (st, val) = self.value_source(cmd, "ret_fn")?;
+        out.push(format!("  RETF {} {}", st, val));
+        Ok(())
+    }
+
+    fn cmd_wait_route(&mut self, out: &mut Vec<String>) -> Result<()> {
+        out.push("  WAITROUTE".to_string());
+        Ok(())
+    }
+
+    fn cmd_route(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // {"c":"route","event":-1|n,"repeat":b,"skip":b,
+        //  "steps":[{"s":"up"}|{"s":"wait","n":2}...]}
+        // event -1 means "this event", resolved by
+        // compile_scene through self_actor — the entry index
+        let target = match cmd["event"].as_i64() {
+            None | Some(-1) => "self".to_string(),
+            Some(n) if (0..24).contains(&n) => n.to_string(),
+            Some(n) => bail!("route : event {} hors limite (0-23)", n),
+        };
+        let steps = cmd["steps"].as_array().context("route sans steps")?;
+        let toks = Self::steps_tokens(steps, &mut self.gfx_blocks)?;
+        if steps.is_empty() || steps.len() > 200 {
+            bail!("route : 1 a 200 pas (recu {})", steps.len());
+        }
+        let freq = cmd["freq"].as_u64().filter(|&f| (1..=8).contains(&f)).unwrap_or(3);
+        out.push(format!(
+            "  ROUTE {} {} {} {} {}",
+            target,
+            if cmd["repeat"].as_bool().unwrap_or(false) { 1 } else { 0 },
+            if cmd["skip"].as_bool().unwrap_or(false) { 1 } else { 0 },
+            freq,
+            toks.join(" ")
+        ));
+        Ok(())
+    }
+
+    // Scripted positions (RM2003 memorise/recall)
+    fn cmd_hero_loc(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // writes the hero's scene/X/Y into three 16-bit variables
+        let vs = Self::idx_field(cmd, "vs", 256)?;
+        let vx = Self::idx_field(cmd, "vx", 256)?;
+        let vy = Self::idx_field(cmd, "vy", 256)?;
+        out.push(format!("  VAROP {} = scene 0", vs));
+        out.push(format!("  VAROP {} = hx 0", vx));
+        out.push(format!("  VAROP {} = hy 0", vy));
+        Ok(())
+    }
+
+    fn cmd_warp_var(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let vs = Self::idx_field(cmd, "vs", 256)?;
+        let vx = Self::idx_field(cmd, "vx", 256)?;
+        let vy = Self::idx_field(cmd, "vy", 256)?;
+        out.push(format!(
+            "  WARPV {} {} {} {}",
+            vs, vx, vy,
+            Self::trans_field(cmd)?
+        ));
+        Ok(())
+    }
+
+    fn cmd_setpos(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let target = match cmd["event"].as_i64() {
+            None | Some(-1) => "self".to_string(),
+            Some(n) if (0..24).contains(&n) => n.to_string(),
+            Some(n) => bail!("setpos : event {} hors limite (0-23)", n),
+        };
+        let src = match cmd["from"].as_str().unwrap_or("const") {
+            "const" => "c",
+            "vars" => "v",
+            o => bail!("setpos : source inconnue « {} » (const, vars)", o),
+        };
+        out.push(format!(
+            "  SETPOS {} {} {} {}",
+            target,
+            src,
+            Self::u8_field(cmd, "x")?,
+            Self::u8_field(cmd, "y")?
+        ));
+        Ok(())
+    }
+
+    fn cmd_swappos(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let ev = |key: &str| -> Result<String> {
+            Ok(match cmd[key].as_i64() {
+                None | Some(-1) => "self".to_string(),
+                Some(n) if (0..24).contains(&n) => n.to_string(),
+                Some(n) => bail!("swappos : event {} hors limite (0-23)", n),
+            })
+        };
+        out.push(format!("  SWAPPOS {} {}", ev("a")?, ev("b")?));
+        Ok(())
+    }
+
+    fn cmd_warp(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let to = cmd["to"].as_str().context("warp sans scene cible")?;
+        out.push(format!(
+            "  WARP {} {} {} {}",
+            to,
+            Self::u8_field(cmd, "x")?,
+            Self::u8_field(cmd, "y")?,
+            Self::trans_field(cmd)?
+        ));
+        Ok(())
+    }
+
+    fn cmd_face(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dir = cmd["dir"].as_str().context("face sans direction")?;
+        out.push(format!("  FACE {} {}", Self::u8_field(cmd, "event")?, dir));
+        Ok(())
     }
 }
