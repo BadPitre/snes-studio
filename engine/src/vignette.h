@@ -1,34 +1,31 @@
 /*
- * vignette.h — vignettes animées (B5) : petites images en SPRITES,
- * jouées par planches de frames 32x32 — émoticônes au-dessus des
- * têtes (« ! », « ? »), objets brandis, scintillements, et les
- * ANIMATIONS D'ATTAQUE par-dessus les monstres de l'écran composé.
+ * vignette.h — animated vignettes: small SPRITE images played from
+ * strips of 32x32 frames — emotes above heads ("!", "?"), held items,
+ * sparkles, and the ATTACK ANIMATIONS over the monsters of a composed
+ * screen.
  *
- * 4 slots simultanés (chars 384-447, entrées OAM 96-99). Seule la
- * frame COURANTE vit en VRAM : un changement de frame = 512 octets de
- * DMA. Une vignette = UNE entrée OAM 32x32 (OBJ_LARGE).
+ * 4 simultaneous slots (chars 384-447, OAM entries 96-99). Only the
+ * CURRENT frame lives in VRAM: a frame change is 512 bytes of DMA. One
+ * vignette is ONE 32x32 OAM entry (OBJ_LARGE).
  *
- * Les palettes OBJ sont la ressource RARE : les sets de personnages de
- * scène occupent 0-4 et la météo 7, il n'en reste que DEUX (5 et 6).
- * Elles sont donc allouées PAR PLANCHE et non par slot : plusieurs
- * slots qui affichent la MÊME vignette partagent une palette. C'est ce
- * qui rend les calques d'animation (A1-e) gratuits en palettes — les
- * cellules simultanées d'une animation viennent toutes de sa planche.
- * Limite assumée : 2 planches DISTINCTES à l'écran en même temps ; au
- * delà, vig_show est ignoré (et anim_play refuse de démarrer).
+ * OBJ palettes are the SCARCE resource: scene character sets take 0-4
+ * and the weather takes 7, leaving TWO (5 and 6). They are therefore
+ * allocated PER SHEET and not per slot: several slots showing the SAME
+ * vignette share one palette. That is what makes animation layers free
+ * in palette terms — the simultaneous cells of an animation all come
+ * from its sheet. The accepted limit: 2 DISTINCT sheets on screen at
+ * once; beyond that vig_show is ignored and anim_play refuses to start.
  *
- * Ancrage : écran (fixe), héros (suit le joueur — émoticônes) ou
- * ACTEUR (suit un event — ancrage des animations A1).
- * Les vignettes persistent entre les scènes et fonctionnent sur la
- * map ET sur l'écran composé ; pendant une picture plein écran (qui
- * emprunte toute la région OBJ) elles sont suspendues et reviennent
- * à la fermeture.
+ * Anchoring: the screen (fixed), the hero (follows the player, for
+ * emotes), or an ACTOR (follows an event — how animations anchor).
+ * Vignettes persist across scenes and work on the map AND on a composed
+ * screen; during a full-screen picture, which borrows the whole OBJ
+ * region, they are suspended and come back when it closes.
  *
- * Le lecteur d'animations (anim.c, A1) EMPRUNTE ces slots : une
- * animation image par image, c'est une vignette dont la cellule, la
- * position et le son changent à chaque frame. Il pose son drapeau de
- * propriété (vig_own_anim) ; un vig_show scripté le retire, ce qui
- * signale au lecteur que son slot a été préempté.
+ * The animation player (anim.c) BORROWS these slots: a frame-by-frame
+ * animation is a vignette whose cell, position and sound change every
+ * frame. It sets its ownership flag (vig_own_anim); a scripted vig_show
+ * clears it, which tells the player its slot has been preempted.
  */
 #ifndef VIGNETTE_H
 #define VIGNETTE_H
@@ -36,62 +33,61 @@
 #include <snes.h>
 
 #define VIG_SLOTS 4
-#define VIG_PALS 2 /* palettes OBJ disponibles (5 et 6) — voir ci-dessus */
+#define VIG_PALS 2 /* OBJ palettes available (5 and 6) — see above */
 
 #define VIG_ANC_SCREEN 0
 #define VIG_ANC_HERO 1
 #define VIG_ANC_ACTOR 2
 
-/* Affiche la vignette vig_id dans le slot, frame 0, sans animation.
-   anchor : 0 = position écran (x,y), 1 = accrochée au héros (x,y =
-   offsets SIGNÉS autour de sa tête). */
+/* Shows vignette vig_id in the slot, frame 0, without animation.
+   anchor: 0 is a screen position (x,y), 1 sticks it to the hero, where
+   x,y are SIGNED offsets around his head. */
 void vig_show(u8 slot, u8 vig_id, u8 x, u8 y);
 void vig_anchor(u8 slot, u8 anchor);
 
-/* Ancrage sur un acteur de la scène (VIG_ANC_ACTOR + cible). */
+/* Anchoring on a scene actor (VIG_ANC_ACTOR plus a target). */
 void vig_anchor_actor(u8 slot, u8 index);
 
-/* Pilotage frame par frame (lecteur d'animations) : cellule courante de
-   la planche, et position/offset. Ne touchent pas au mode d'animation
-   interne (vig_play), qui reste à l'arrêt. */
+/* Frame-by-frame control, for the animation player: the sheet's current
+   cell, and the position or offset. Neither touches the internal
+   animation mode (vig_play), which stays stopped. */
 void vig_set_frame(u8 slot, u8 frame);
 void vig_move(u8 slot, u8 x, u8 y);
 
-/* Masque le sprite du slot SANS le libérer : un calque d'animation qui
-   n'affiche rien cette frame garde sa place (bloc VRAM + palette), sinon
-   un autre la prendrait entre deux frames. */
+/* Hides the slot's sprite WITHOUT freeing it: an animation layer that
+   shows nothing this frame keeps its place (VRAM block and palette),
+   otherwise another would take it between two frames. */
 void vig_set_visible(u8 slot, u8 on);
 
-/* Slot libre pour un usage automatique — le PLUS HAUT non occupé, pour
-   laisser les slots bas aux vig_show scriptés. 0xFF si aucun. */
+/* A free slot for automatic use — the HIGHEST unoccupied one, leaving
+   the low slots to scripted vig_show. 0xFF if none. */
 u8 vig_free_slot(void);
 
-/* 1 si une palette peut encore accueillir cette planche (elle la détient
-   déjà, ou l'une des deux est inutilisée) — le lecteur d'animations le
-   demande AVANT de réserver ses slots, pour ne pas laisser une animation
-   à moitié posée. */
+/* 1 if a palette can still take this sheet: it already holds it, or one
+   of the two is unused. The animation player asks BEFORE reserving its
+   slots, so it never leaves an animation half posed. */
 u8 vig_pal_available(u8 vig_id);
 
-/* Propriété du slot : posée par le lecteur d'animations, retirée par
-   tout vig_show scripté (préemption) et par vig_hide. */
+/* Slot ownership: set by the animation player, cleared by any scripted
+   vig_show (preemption) and by vig_hide. */
 void vig_own_anim(u8 slot);
 u8 vig_is_anim(u8 slot);
 
-/* Lance l'animation : mode 0 = stop (fige la frame courante), 1 = une
-   fois PUIS CACHE la vignette (coup d'épée), 2 = boucle. speed =
-   frames d'affichage par image de la planche. */
+/* Starts the animation: mode 0 stops (freezing the current frame), 1
+   plays once AND THEN HIDES the vignette (a sword swing), 2 loops.
+   speed is the display frames per image of the sheet. */
 void vig_play(u8 slot, u8 mode, u8 speed);
 
 void vig_hide(u8 slot);
 
-/* Recharge frames + palettes des slots actifs — après tout ce qui
-   écrase la région OBJ ou la CGRAM OBJ (picture_hide, ouverture d'un
-   écran composé, player_init/warp). */
+/* Reloads the frames and palettes of the active slots — after anything
+   that overwrites the OBJ region or the OBJ CGRAM (picture_hide,
+   opening a composed screen, player_init, a warp). */
 void vig_reload(void);
 
-/* Un pas d'animation + écriture du shadow OAM (boucle principale). */
+/* One animation step plus the shadow OAM write (main loop). */
 void vig_update(void);
-/* Transferts VRAM/CGRAM des frames marquées sales — VBlank. */
+/* VRAM/CGRAM transfers of the frames marked dirty — VBlank. */
 void vig_vblank(void);
 
 #endif /* VIGNETTE_H */

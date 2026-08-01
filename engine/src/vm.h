@@ -1,5 +1,5 @@
 /*
- * vm.h — VM bytecode v0 (spec §2) : 8 opcodes, interactions PNJ/dialogue.
+ * vm.h — the bytecode VM (spec §2): NPC and dialogue interaction.
  */
 #ifndef VM_H
 #define VM_H
@@ -9,87 +9,87 @@
 
 /* wait_mode — spec §2 */
 #define VM_WAIT_NONE 0
-#define VM_WAIT_KEY 1     /* KEYIN : attente d'une touche autorisée (Ph. 12) */
-#define VM_WAIT_TEXTBOX 2 /* attend la fermeture de la textbox (touche A) */
-#define VM_WAIT_CHOICE 3  /* CHOICE : curseur haut/bas, A valide (v0.6) */
-#define VM_WAIT_ROUTE 4   /* WAITROUTE : fin des itinéraires (v0.12) */
-#define VM_WAIT_TIMER 5   /* WAIT : compteur de frames (v0.12) */
-#define VM_WAIT_CAM 6     /* WAITCAM : fin du pan camera (v0.13) */
-#define VM_WAIT_SCREEN 7  /* SCRHIDE/SCRSHOW : fin du fondu (v0.15) */
-#define VM_WAIT_STAGE 8   /* STAGEPOSE/CLEAR : fin du transfert (B3) */
-#define VM_WAIT_LIST 9    /* LISTSEL : menu à curseur (B6) — A valide,
-                             B annule si permis, bouclage haut/bas */
-#define VM_WAIT_ANIM 10   /* ANIMPLAY « attendre la fin » : fin des
-                             animations image par image non bouclées (A1) */
+#define VM_WAIT_KEY 1     /* KEYIN: waiting for an allowed key */
+#define VM_WAIT_TEXTBOX 2 /* waiting for the textbox to close (A) */
+#define VM_WAIT_CHOICE 3  /* CHOICE: cursor up/down, A confirms */
+#define VM_WAIT_ROUTE 4   /* WAITROUTE: routes finished */
+#define VM_WAIT_TIMER 5   /* WAIT: frame counter */
+#define VM_WAIT_CAM 6     /* WAITCAM: camera pan finished */
+#define VM_WAIT_SCREEN 7  /* SCRHIDE/SCRSHOW: fade finished */
+#define VM_WAIT_STAGE 8   /* STAGEPOSE/CLEAR: transfer finished */
+#define VM_WAIT_LIST 9    /* LISTSEL: cursor menu — A confirms,
+                             B cancels when allowed, wraps top/bottom */
+#define VM_WAIT_ANIM 10   /* ANIMPLAY "wait for the end": non-looping
+                             frame-by-frame animations */
 
-/* État de la VM (WRAM) — spec §2. Représentation C : pas de champ bank,
-   le bloc scripts de la scène est déjà un pointeur far (scene_ctx.scripts),
-   pc est l'offset dans ce bloc. */
+/* VM state (WRAM) — spec §2. The C representation has no bank field:
+   the scene's script block is already a far pointer (scene_ctx.scripts)
+   and pc is an offset into it. */
 typedef struct
 {
   u8 active;    /* 0 = inactive */
   u8 wait_mode; /* VM_WAIT_* */
-  u16 pc;       /* offset dans le bloc scripts de la scène */
-  u8 vars[64];  /* variables de scène (reset au chargement de scène) */
-  u8 gvars[64]; /* variables globales (persistent entre scènes) */
-  u8 switches[64];  /* 512 switches (bits), persistants — v0.9 */
-  u16 vars16[256];  /* 256 variables 16-bit, persistantes — v0.9 */
-  u8 wait_timer;   /* frames restantes du WAIT (v0.12) */
-  u8 script_actor; /* acteur qui a lancé le script (0xFF = aucun) — cible
-                      de ROUTE « cet event » (v0.12) */
-  u16 call_stack[8]; /* adresses de retour des CALL (v0.16) */
+  u16 pc;       /* offset in the scene's script block */
+  u8 vars[64];  /* scene variables (reset on scene load) */
+  u8 gvars[64]; /* global variables (persist across scenes) */
+  u8 switches[64];  /* 512 switches (bits), persistent */
+  u16 vars16[256];  /* 256 16-bit variables, persistent */
+  u8 wait_timer;   /* frames left on the WAIT */
+  u8 script_actor; /* actor that started the script (0xFF none) — the
+                      target of a ROUTE aimed at "this event" */
+  u16 call_stack[8]; /* CALL return addresses */
   u8 call_sp;
-  u8 call_fb[8];   /* base du cadre sauvegardée par appel (F1) */
-  u16 frame[VM_FRAME_SLOTS]; /* paramètres des fonctions en cours (F1) */
-  u8 frame_base;   /* premier slot de la fonction courante */
-  u8 frame_sp;     /* sommet de la pile de cadres */
-  u16 retval;      /* valeur rendue par le dernier RETF (F1) */
-  u16 keyin_mask;  /* KEYIN : touches autorisées (bit 1<<code, Ph. 12) */
-  u8 keyin_dst;    /* KEYIN : variable destination du code de touche */
-  u8 choice_var;   /* variable destination du CHOICE en cours */
-  u8 choice_count; /* nombre d'options (2-4) — partagé par LISTSEL (B6) */
-  u8 choice_sel;   /* option sous le curseur */
-  u8 list_flags;   /* LISTSEL (B6) : bit 0 = B annule (var = 255),
-                      bit 1 = laisser le widget affiché à la fermeture,
-                      bit 2 = Gauche/Droite sortent (var = 254/253) */
+  u8 call_fb[8];   /* frame base saved per call */
+  u16 frame[VM_FRAME_SLOTS]; /* parameters of the functions in progress */
+  u8 frame_base;   /* first slot of the current function */
+  u8 frame_sp;     /* top of the frame stack */
+  u16 retval;      /* value returned by the last RETF */
+  u16 keyin_mask;  /* KEYIN: allowed keys (bit 1<<code) */
+  u8 keyin_dst;    /* KEYIN: destination variable of the key code */
+  u8 choice_var;   /* destination variable of the CHOICE in progress */
+  u8 choice_count; /* option count (2-4) — shared with LISTSEL */
+  u8 choice_sel;   /* option under the cursor */
+  u8 list_flags;   /* LISTSEL: bit 0 = B cancels (var = 255),
+                      bit 1 = leave the widget shown on close,
+                      bit 2 = Left/Right exit (var = 254/253) */
 } VmState;
 
 extern VmState vm;
 
-/* Init complète (boot) : vars + gvars à zéro, VM inactive. */
+/* Full init (boot): vars and gvars zeroed, VM inactive. */
 void vm_init(void);
 
-/* Changement de scène : vars remises à zéro (spec §2), gvars conservées. */
+/* Scene change: vars reset (spec §2), gvars kept. */
 void vm_scene_reset(void);
 
-/* Lance un script : pc = offset dans le bloc scripts de la scène courante. */
+/* Starts a script: pc is an offset into the current scene's block. */
 void vm_start(u16 offset);
 
-/* 1 si un script a le contrôle (le joueur est gelé). */
+/* 1 while a script has control (the player is frozen). */
 u8 vm_active(void);
 
-/* Switches v0.9 (0-511) — exposés pour la sauvegarde et, plus tard, les
-   pages d'events conditionnelles. */
+/* Switches (0-511) — exposed for saves and for conditional event
+   pages. */
 u8 vm_switch_get(u16 idx);
 void vm_switch_set(u16 idx, u8 on);
 
-/* Common events AUTO (v0.16) : le bloc scripts de chaque scène commence
-   par la table [n] puis n x [type u8][switch u16][offset u16] — renvoie
-   l'offset du premier common event AUTORUN (type 0) dont le switch est
-   ON, ou SCRIPT_NONE. À appeler quand la VM est libre : le script
-   relance tant que le switch reste ON (modèle RM2003 — c'est au script
-   d'éteindre son switch). */
+/* AUTO common events: every scene's script block opens with the table
+   [n] then n x [type u8][switch u16][offset u16]. Returns the offset of
+   the first AUTORUN common event (type 0) whose switch is ON, or
+   SCRIPT_NONE. Call it when the VM is free: the script restarts while
+   the switch stays ON — RM2003's model, where turning the switch off is
+   the script's job. */
 u16 vm_common_auto(void);
 
-/* Common events PARALLEL (type 1, v0.16) : un pas du contexte de fond —
-   chaque frame hors menu Système. Ne gèle pas le joueur ; relancé tant
-   que son switch est ON ; MSG/CHOICE interdits (datagen). */
+/* PARALLEL common events (type 1): one step of the background context,
+   every frame outside the System menu. Does not freeze the player, is
+   restarted while its switch is ON, and forbids MSG/CHOICE (datagen). */
 void vm_parallel_update(void);
 void vm_parallel_reset(void);
 
-/* À appeler chaque frame quand la VM est active : route les inputs vers la
-   textbox si un opcode bloquant attend, sinon exécute les opcodes immédiats
-   (garde-fou : max 32 par frame). */
+/* Call every frame while the VM is active: routes inputs to the textbox
+   when a blocking opcode is waiting, otherwise runs the immediate
+   opcodes (guard rail: at most 32 per frame). */
 void vm_update(void);
 
 #endif /* VM_H */
