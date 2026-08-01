@@ -78,7 +78,7 @@ export default function FunctionsModal(props: Props) {
                   onClick={() => setSel(i)}
                 >
                   {String(i + 1).padStart(4, "0")}: {f.name}({f.params.join(", ")})
-                  {f.returns ? " → valeur" : ""}
+                  {f.returns ? " → résultat" : ""}
                 </div>
               ))}
             </div>
@@ -133,9 +133,17 @@ export default function FunctionsModal(props: Props) {
                     />
                   </label>
                   <label
-                    className="row"
-                    style={{ gap: 6, alignItems: "center", flex: "0 0 auto" }}
-                    title="La fonction rend une valeur, que l'appelant peut ranger dans une variable"
+                    // `.modal label` force une colonne : sans ce
+                    // flexDirection en clair, la case se retrouve AU-DESSUS
+                    // de son libelle
+                    style={{
+                      flexDirection: "row",
+                      gap: 6,
+                      alignItems: "center",
+                      flex: "0 0 auto",
+                      paddingBottom: 4,
+                    }}
+                    title="La fonction rend un résultat, que l'appelant peut ranger dans une variable"
                   >
                     <input
                       type="checkbox"
@@ -143,16 +151,27 @@ export default function FunctionsModal(props: Props) {
                       checked={cur.returns}
                       onChange={(e) => patch({ returns: e.target.checked })}
                     />
-                    Rend une valeur
+                    Retourne un résultat
                   </label>
                 </div>
                 <label>
                   Paramètres (max {PARAMS_MAX})
-                  <span className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+                  {/* Une LIGNE par paramètre : leur ORDRE est ce que
+                      l'appelant devra respecter, et une grille qui se
+                      réenroule au gré de la largeur ne le montre pas. Le
+                      numéro à gauche est celui qu'on retrouve dans la
+                      source « Un paramètre ». */}
+                  <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {cur.params.map((pname, k) => (
-                      <span className="row" key={k} style={{ gap: 2 }}>
+                      <span
+                        key={k}
+                        style={{ display: "flex", gap: 4, alignItems: "center" }}
+                      >
+                        <span style={{ width: 16, opacity: 0.7, flex: "0 0 auto" }}>
+                          {k + 1}.
+                        </span>
                         <input
-                          style={{ width: 100 }}
+                          style={{ flex: "1 1 auto", maxWidth: 220 }}
                           placeholder={"p" + (k + 1)}
                           value={pname}
                           onChange={(e) => {
@@ -163,7 +182,7 @@ export default function FunctionsModal(props: Props) {
                         />
                         <button
                           title="Retirer ce paramètre"
-                          style={{ flex: "0 0 auto", width: 22 }}
+                          style={{ flex: "0 0 auto", width: 24 }}
                           onClick={() =>
                             patch({ params: cur.params.filter((_, i) => i !== k) })
                           }
@@ -172,14 +191,16 @@ export default function FunctionsModal(props: Props) {
                         </button>
                       </span>
                     ))}
-                    <button
-                      title="Ajouter un paramètre"
-                      style={{ flex: "0 0 auto", width: 28 }}
-                      disabled={cur.params.length >= PARAMS_MAX}
-                      onClick={() => patch({ params: [...cur.params, ""] })}
-                    >
-                      ＋
-                    </button>
+                    <span>
+                      <button
+                        title="Ajouter un paramètre"
+                        style={{ flex: "0 0 auto", width: 28, marginLeft: 20 }}
+                        disabled={cur.params.length >= PARAMS_MAX}
+                        onClick={() => patch({ params: [...cur.params, ""] })}
+                      >
+                        ＋
+                      </button>
+                    </span>
                   </span>
                 </label>
                 <span className="hint">
@@ -194,6 +215,7 @@ export default function FunctionsModal(props: Props) {
                   cmds={cur.commands}
                   fnSigs={sigs}
                   fnParams={cur.params}
+                  inFunction
                   commit={() => setDraft([...draft])}
                   sceneNames={props.sceneNames}
                   scenes={props.scenes}

@@ -1917,16 +1917,28 @@ export default function App() {
           disabled: !data,
         },
         {
-          label: "Common events…",
-          tip: "Scripts globaux au projet : appelés depuis n'importe quel event, ou lancés en auto par un switch",
-          action: () => setCommonEvOpen(true),
+          // Les deux sont des SCRIPTS GLOBAUX au projet, opposés par ce
+          // qu'on en fait : un common event se déclenche, une fonction
+          // se calcule. Les réunir sous une entrée les présente comme
+          // les deux faces d'une même idée plutôt que comme deux
+          // outils sans rapport perdus dans une liste de dix.
+          label: "Scripts globaux",
+          tip: "Scripts partagés par tout le projet : common events (déclenchés) et fonctions (appelées avec des paramètres)",
           disabled: !data,
-        },
-        {
-          label: "Fonctions…",
-          tip: "Calculs réutilisables : la fonction prend des paramètres, peut rendre une valeur, et s'appelle depuis n'importe quel event",
-          action: () => setFnOpen(true),
-          disabled: !data,
+          sub: [
+            {
+              label: "Common events…",
+              tip: "Blocs de commandes appelés depuis n'importe quel event, ou lancés en auto par un switch",
+              action: () => setCommonEvOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Fonctions…",
+              tip: "Calculs réutilisables : la fonction prend des paramètres, peut retourner un résultat, et s'appelle depuis n'importe quel event",
+              action: () => setFnOpen(true),
+              disabled: !data,
+            },
+          ],
         },
         {
           label: "Écrans composés…",

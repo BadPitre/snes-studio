@@ -264,12 +264,24 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .evedit-line.comment { color: #2e8b2e; font-style: italic; }
 /* Fenêtre « Commande d'événement » (façon Event Command de RM2003) —
    ONGLETS par catégorie, extensible quand la liste des commandes grossit */
-.modal.cmdpick { width: 560px; min-height: 300px; }
-.cmdpick-tabs { display: flex; gap: 1px; border-bottom: 1px solid var(--shadow); padding: 3px 3px 0; }
+.modal.cmdpick { width: 620px; min-height: 300px; }
+/* Les onglets DÉBORDAIENT : douze catégories sur une seule ligne dans une
+   fenêtre de largeur fixe, et les derniers sortaient du cadre. Ils
+   s'enroulent maintenant sur plusieurs rangées — la fenêtre grandit d'une
+   ligne plutôt que de rogner des onglets qu'on ne peut plus cliquer.
+   `flex: 0 0 auto` est indispensable ici : `.row > *` met flex: 1 un peu
+   partout dans ce fichier, et un onglet étiré ne se distingue plus de
+   son voisin. */
+.cmdpick-tabs {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  border-bottom: 1px solid var(--shadow); padding: 3px 3px 0;
+}
 .cmdpick-tabs button {
+  flex: 0 0 auto;
   padding: 4px 10px; font-size: 11px; border-radius: 3px 3px 0 0;
   box-shadow: inset 0 0 0 1px var(--shadow);
   background: var(--face-dark);
+  white-space: nowrap;
 }
 .cmdpick-tabs button.active { background: var(--face); font-weight: 700; margin-top: -2px; padding-bottom: 6px; }
 .cmdpick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; align-content: start; flex: 1; }
@@ -368,7 +380,12 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .cevents-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .cevents-form .evedit-cmds { flex: 1; max-height: none; overflow-y: auto; }
 /* Fenêtre d'options d'une commande (double-clic sur une ligne pleine) */
-.modal.cmdform { width: 520px; }
+/* 600 et non 520 : « Modifier une variable » aligne quatre champs —
+   variable, opération, source, valeur — et à 520 le dernier se
+   renvoyait seul sur une deuxième rangée, étiré sur toute la largeur.
+   C'est la commande la plus utilisée de l'éditeur, elle mérite de
+   tenir sur une ligne. */
+.modal.cmdform { width: 600px; }
 .modal.cmdform .evedit-form { border: none; padding: 0; background: none; box-shadow: none; }
 /* Fenêtre Itinéraire (Move Route RM2003) */
 .modal.moveroute { width: 860px; }

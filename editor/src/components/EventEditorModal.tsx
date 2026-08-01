@@ -59,12 +59,15 @@ interface Props {
   // cibles de « Déplacer un event » et « Tourner un event »
   entryNames: string[];
   charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
-  commonNames: string[];
+  commonNames: string[]; // noms des common events (v0.16)
   fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
-  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
-  // source proposée, et sur quels noms.
-  fnParams?: string[]; // noms des common events (v0.16)
+  // F1 — paramètres de la FONCTION dont on édite le corps. Absent
+  // ailleurs : c'est ce qui décide si « Paramètre » est une source
+  // proposée, et sur quels noms.
+  fnParams?: string[];
+  // F1-c — corps d'une fonction : liste de commandes restreinte à la
+  // logique et au calcul (une fonction calcule, elle ne met pas en scène)
+  inFunction?: boolean;
   db: Database | null; // database du projet (commande db_read, v0.17)
   uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
   uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
@@ -455,6 +458,7 @@ export function CommandListEditor(props: {
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
   fnParams?: string[];
+  inFunction?: boolean;
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
@@ -762,6 +766,7 @@ export function CommandListEditor(props: {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
@@ -786,6 +791,7 @@ export function CommandListEditor(props: {
 
       {picking && (
         <EventCommandPicker
+          inFunction={props.inFunction}
           onClose={() => setPicking(false)}
           onPick={(t) => {
             setForm(defaultCmd(t));
@@ -1184,6 +1190,7 @@ export default function EventEditorModal(props: Props) {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
               uiStyles={props.uiStyles}
@@ -1280,6 +1287,7 @@ export default function EventEditorModal(props: Props) {
 function ValueSourceFields(props: {
   v: ValueSrc;
   fnParams?: string[];
+  inFunction?: boolean;
   onChange: (v: ValueSrc) => void;
 }) {
   const { v } = props;
@@ -1352,6 +1360,7 @@ function CommandForm(props: {
   // absent ailleurs : c'est ce qui décide si « Paramètre » est une
   // source proposée, et sur quels noms.
   fnParams?: string[];
+  inFunction?: boolean;
   uiWidgets: string[];
   uiStyles: string[];
   texts: TextEntry[];
@@ -1605,9 +1614,12 @@ function CommandForm(props: {
     case "var":
       valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
       body = (
-        <div className="row" style={{ flexWrap: "wrap" }}>
+        // alignItems flex-start : sans ça, un libellé qui passe sur deux
+        // lignes décale son champ vers le bas et la rangée part en
+        // escalier — c'est ce qui arrivait à « N° de variable source »
+        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
           <label>
-            Variable (0-255)
+            Variable
             <span className="row" style={{ gap: 4 }}>
               <input
                 type="number" min={0} max={255} value={cmd.n} autoFocus
@@ -1668,12 +1680,31 @@ function CommandForm(props: {
                 ))}
               </select>
             </label>
-          ) : (cmd.from ?? "const") === "const" || cmd.from === "var" ? (
+          ) : cmd.from === "var" ? (
+            // même forme que la destination — champ, bouton « … » vers la
+            // liste, nom en dessous. Retenir un numéro de variable de
+            // tête est exactement ce que la liste nommée doit éviter, et
+            // il n'y avait aucune raison que la SOURCE y ait moins droit
+            // que la destination.
             <label>
-              {cmd.from === "var" ? "N° de variable source" : "Valeur"}
+              Variable source
+              <span className="row" style={{ gap: 4 }}>
+                <input
+                  type="number" min={0} max={255} value={cmd.value}
+                  onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+                />
+                <button className="browse" title="Choisir dans la liste"
+                  onClick={() =>
+                    props.onPickVar("var", cmd.value, (n) => onChange({ ...cmd, value: n }))
+                  }>…</button>
+              </span>
+              <span className="hint">{props.varNames[cmd.value] || ""}</span>
+            </label>
+          ) : (cmd.from ?? "const") === "const" ? (
+            <label>
+              Valeur
               <input
-                type="number" min={cmd.from === "var" ? 0 : -32768}
-                max={cmd.from === "var" ? 255 : 65535} value={cmd.value}
+                type="number" min={-32768} max={65535} value={cmd.value}
                 onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
               />
             </label>
@@ -3277,7 +3308,7 @@ function CommandForm(props: {
                   {fns.map((sg, i) => (
                     <option key={i} value={i}>
                       {String(i + 1).padStart(4, "0")}: {sg.name}(
-                      {sg.params.join(", ")}){sg.returns ? " → valeur" : ""}
+                      {sg.params.join(", ")}){sg.returns ? " → résultat" : ""}
                     </option>
                   ))}
                 </select>
@@ -3290,6 +3321,7 @@ function CommandForm(props: {
                   <ValueSourceFields
                     v={cmd.args[k] ?? { value: 0 }}
                     fnParams={props.fnParams}
+              inFunction={props.inFunction}
                     onChange={(v) => {
                       const args = cmd.args.slice();
                       args[k] = v;
@@ -3339,6 +3371,7 @@ function CommandForm(props: {
             <ValueSourceFields
               v={cmd}
               fnParams={props.fnParams}
+              inFunction={props.inFunction}
               onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
             />
           </div>
