@@ -9,6 +9,7 @@
 //!    src/data/databanks.asm
 //!  - engine/src/data/*.c — graphics and tables as generated C
 
+mod anim;
 mod binbank;
 mod charset;
 mod chipset;
@@ -17,6 +18,7 @@ mod emit;
 mod events;
 mod gfx;
 mod project;
+mod screens;
 mod script;
 mod sfx;
 mod tileset;
@@ -100,100 +102,23 @@ fn main() -> Result<()> {
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
 
-    // BG3 VRAM plan (char bases, budget 256): font 0 (97 chars, a
-    // transparent one plus 96 glyphs) | skins (9 chars each) | icons
-    // (2 x N: normal, then panel-background variants) | extra fonts
-    // (96 chars, based on ' ').
-    let theme_skin = project.ui.as_ref().and_then(|u| u.windowskin.clone());
-    let mut ui_fonts: Vec<String> = vec![project.assets.font.clone()];
-    let mut ui_skins: Vec<String> = Vec::new();
-    if let Some(skn) = &theme_skin {
-        ui_skins.push(skn.clone());
-    }
-    for st in &ui_layout.dialog_style {
-        if let Some(f) = &st.font {
-            if !ui_fonts.contains(f) {
-                ui_fonts.push(f.clone());
-            }
-        }
-        if let Some(k) = &st.windowskin {
-            if !ui_skins.contains(k) {
-                ui_skins.push(k.clone());
-            }
-        }
-    }
-    // WIDGET fonts, deduplicated against the style fonts
-    for p in &ui_prims {
-        if let Some(f) = &p.font {
-            if !ui_fonts.contains(f) {
-                ui_fonts.push(f.clone());
-            }
-        }
-    }
-    let ui_skin_base = |path: &Option<String>| -> usize {
-        // a skin's base char (0 means a solid box); the theme's if absent
-        let p = path.as_ref().or(theme_skin.as_ref());
-        match p {
-            Some(p) => ui_skins.iter().position(|k| k == p).map(|i| 97 + 9 * i).unwrap_or(0),
-            None => 0,
-        }
-    };
-    let ui_icon_base = 97 + 9 * ui_skins.len();
-    let ui_font_base = |path: &Option<String>| -> usize {
-        match path {
-            None => 1,
-            Some(p) => {
-                let i = ui_fonts.iter().position(|f| f == p).unwrap_or(0);
-                if i == 0 { 1 } else { ui_icon_base + 2 * ui_icon_count + 96 * (i - 1) }
-            }
-        }
-    };
-    // Widget images (picture mode): their chars sit AFTER the extra
-    // fonts. Until now the primitives only carried the image's index;
-    // it is replaced here by the final base char.
-    let ui_pic_base = ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
-    let mut ui_pic_offsets: Vec<usize> = Vec::new();
-    let mut ui_pic_chars = 0usize;
-    for (_, chars, _, _) in ui_pics.iter() {
-        ui_pic_offsets.push(ui_pic_chars);
-        ui_pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
-    }
-    for p in ui_prims.iter_mut() {
-        if p.kind == 8 {
-            p.icon = (ui_pic_base + ui_pic_offsets[p.icon as usize]) as u8;
-        }
-    }
+    // BG3 VRAM char plan (bases and budget): see ui::Plan.
+    let ui_plan = ui::plan(
+        &ui_layout,
+        &mut ui_prims,
+        &ui_pics,
+        &project.assets.font,
+        project.ui.as_ref().and_then(|u| u.windowskin.clone()),
+        ui_icon_count,
+    )?;
     let ui_prims = ui_prims;
-    let ui_total_chars = ui_pic_base + ui_pic_chars;
-    if ui_total_chars > 256 {
-        bail!(
-            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
-             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
-             Retirer un style, une fonte, des icones, ou reduire une image.",
-            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count,
-            ui_pics.len(), ui_pic_chars
-        );
-    }
-    if ui_pic_chars > 0 {
+    if ui_plan.pic_chars > 0 {
         println!(
             "  ui : {} image(s) de widget -> {} chars BG3 ({} / 256 utilises)",
-            ui_pics.len(), ui_pic_chars, ui_total_chars
+            ui_pics.len(), ui_plan.pic_chars, ui_plan.total_chars
         );
     }
-    // Style tables: style 0 (default), then the dialog_style entries
-    let ui_msg = ui_layout.message.clone().unwrap();
-    let ui_chc = ui_layout.choice.clone().unwrap();
-    let mut ui_style_rows: Vec<(ui::Win, ui::Win, usize, usize)> = vec![(
-        ui_msg.clone(),
-        ui_chc.clone(),
-        1,
-        ui_skin_base(&None),
-    )];
-    for st in &ui_layout.dialog_style {
-        let m = st.message.clone().unwrap_or_else(|| ui_msg.clone());
-        let c = st.choice.clone().unwrap_or_else(|| m.clone());
-        ui_style_rows.push((m, c, ui_font_base(&st.font), ui_skin_base(&st.windowskin)));
-    }
+    let ui_style_rows = ui_plan.style_rows(&ui_layout);
 
     // Pictures: indexed PNGs of at most 16 colours, compiled to
     // deduplicated 4bpp chars plus a tilemap and a palette. pic_show
@@ -246,66 +171,9 @@ fn main() -> Result<()> {
         bail!("{} vignettes (max 32)", vig_names.len());
     }
 
-    // Composed screens (screens/<name>.json): validated here, unrolled
-    // into stage commands by events.rs. No new binary format.
-    let mut screens: Vec<project::ScreenDef> = Vec::new();
-    for name in &project.screens {
-        let path = proj_dir.join("screens").join(format!("{}.json", name));
-        let txt = std::fs::read_to_string(&path)
-            .with_context(|| format!("écran '{}' : lecture de {}", name, path.display()))?;
-        let mut def: project::ScreenDef = serde_json::from_str(&txt)
-            .with_context(|| format!("écran '{}' : JSON invalide", name))?;
-        def.name = name.clone();
-        if screens.iter().any(|s| s.name == def.name) {
-            bail!("écran '{}' : nom en double", name);
-        }
-        // legacy: the old "script" field becomes the first named script
-        if def.scripts.is_empty() {
-            def.scripts.push(project::ScreenScript {
-                name: "principal".to_string(),
-                trigger: "auto".to_string(),
-                cond: None,
-                commands: std::mem::take(&mut def.script),
-            });
-        }
-        for (i, sc) in def.scripts.iter_mut().enumerate() {
-            if sc.trigger.is_empty() {
-                sc.trigger = if i == 0 { "auto" } else { "call" }.to_string();
-            }
-            if sc.trigger != "auto" && sc.trigger != "call" {
-                bail!(
-                    "écran '{}' : script '{}' — déclencheur inconnu '{}'",
-                    name, sc.name, sc.trigger
-                );
-            }
-        }
-        {
-            let mut seen = std::collections::HashSet::new();
-            for sc in &def.scripts {
-                if !seen.insert(sc.name.clone()) {
-                    bail!("écran '{}' : script '{}' en double", name, sc.name);
-                }
-            }
-        }
-        for sl in &def.slots {
-            if sl.slot < 1 || sl.slot > 5 {
-                bail!("écran '{}' : slot {} (attendu 1-5)", name, sl.slot);
-            }
-            if !pic_names.contains(&sl.pic) {
-                bail!(
-                    "écran '{}' : image '{}' introuvable (supprimée ou renommée ?)",
-                    name, sl.pic
-                );
-            }
-        }
-        if !def.backdrop.is_empty() && !pic_names.contains(&def.backdrop) {
-            bail!(
-                "écran '{}' : fond '{}' introuvable (supprimé ou renommé ?)",
-                name, def.backdrop
-            );
-        }
-        screens.push(def);
-    }
+    // Composed screens: loaded and validated by screens.rs, unrolled into
+    // stage commands by events.rs. No new binary format.
+    let screens = screens::load(&proj_dir, &project.screens, &pic_names)?;
 
     let mut scenes = Vec::new();
 
@@ -326,153 +194,11 @@ fn main() -> Result<()> {
         bail!("trop de sons (max {})", sfx::SFX_MAX_COUNT);
     }
 
-    // ---- Frame-by-frame animations -----------------------------------
-    // The cell sheet is a project VIGNETTE: the graphics pipeline (32x32
-    // OBJ chars, palette, VBlank transfer) already exists and is tested,
-    // so an animation only adds the frame track.
-    // The track is FLATTENED with a FIXED stride, so the engine advances
-    // by a constant step with no variable-length decoding. Per frame: L
-    // records of 3 bytes [cell][signed dx][signed dy], one per LAYER
-    // (cell 0xFF means that layer shows nothing), then [duration
-    // 1-255][sound, 0xFF for none]. The stride is 3L + 2; with one layer
-    // that is exactly the original 5-byte format.
-    let mut anim_names: Vec<String> = Vec::new();
-    let mut anim_vig: Vec<u8> = Vec::new();
-    let mut anim_flags: Vec<u8> = Vec::new();
-    let mut anim_layers: Vec<u8> = Vec::new();
-    let mut anim_nframes: Vec<u8> = Vec::new();
-    let mut anim_ofs: Vec<u16> = Vec::new();
-    let mut anim_track: Vec<u8> = Vec::new();
-    for a in &project.animations {
-        if anim_names.contains(&a.name) {
-            bail!("animation '{}' : nom en double", a.name);
-        }
-        let vig = vig_names
-            .iter()
-            .position(|v| v == &a.vignette)
-            .with_context(|| {
-                format!(
-                    "animation '{}' : vignette '{}' introuvable (vignettes du projet : {})",
-                    a.name,
-                    a.vignette,
-                    if vig_names.is_empty() {
-                        "aucune".to_string()
-                    } else {
-                        vig_names.join(", ")
-                    }
-                )
-            })?;
-        let cells = vig_data[vig].1;
-        if a.frames.is_empty() {
-            bail!("animation '{}' : aucune frame", a.name);
-        }
-        if a.frames.len() > 255 {
-            bail!("animation '{}' : {} frames (max 255)", a.name, a.frames.len());
-        }
-        // layers: the engine's limits (vignette slots and OAM entries)
-        let nl = a.layers as usize;
-        if !(1..=4).contains(&nl) {
-            bail!(
-                "animation '{}' : {} calques (1 a 4 — au dela, plus de slot de vignette)",
-                a.name, a.layers
-            );
-        }
-        let stride = nl * 3 + 2;
-        if anim_track.len() + a.frames.len() * stride > 65535 {
-            bail!("animations : piste trop longue (max 64 Ko)");
-        }
-        anim_ofs.push(anim_track.len() as u16);
-        for (i, f) in a.frames.iter().enumerate() {
-            let posed = f.posed();
-            if posed.len() > nl {
-                bail!(
-                    "animation '{}', frame {} : {} cellules posees pour {} calque(s)",
-                    a.name, i + 1, posed.len(), nl
-                );
-            }
-            if f.dur == 0 {
-                bail!("animation '{}', frame {} : duree nulle", a.name, i + 1);
-            }
-            for l in 0..nl {
-                // A layer left unset on this frame shows nothing, which is
-                // what lets a layer appear midway without needing a second
-                // timeline.
-                let (c, x, y) = posed.get(l).copied().unwrap_or((-1, 0, 0));
-                if c < 0 {
-                    anim_track.extend_from_slice(&[0xFF, 0, 0]);
-                    continue;
-                }
-                if c as usize >= cells {
-                    bail!(
-                        "animation '{}', frame {}, calque {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
-                        a.name, i + 1, l + 1, c, a.vignette, cells
-                    );
-                }
-                if !(-128..=127).contains(&x) || !(-128..=127).contains(&y) {
-                    bail!(
-                        "animation '{}', frame {}, calque {} : decalage [{}, {}] hors de -128..127",
-                        a.name, i + 1, l + 1, x, y
-                    );
-                }
-                anim_track.push(c as u8);
-                anim_track.push(x as i8 as u8);
-                anim_track.push(y as i8 as u8);
-            }
-            let sfx = match &f.sfx {
-                None => 0xFFu8,
-                Some(n) => *sound_ids.get(n).with_context(|| {
-                    format!(
-                        "animation '{}', frame {} : son '{}' introuvable dans le projet",
-                        a.name, i + 1, n
-                    )
-                })?,
-            };
-            anim_track.push(f.dur);
-            anim_track.push(sfx);
-        }
-        // VBlank budget: one cell is 4 DMA transfers and only ONE passes
-        // per screen frame (measured — see VIG_VB_MAX in
-        // engine/src/vignette.c). If K layers change cell on entering a
-        // frame, they need K screen frames to catch up: a shorter frame
-        // shows one layer late. We SAY so rather than forbid it — the
-        // author may want that flicker.
-        for i in 1..a.frames.len() {
-            let prev = a.frames[i - 1].posed();
-            let cur = a.frames[i].posed();
-            let changed = (0..nl)
-                .filter(|&l| {
-                    let p = prev.get(l).map(|c| c.0).unwrap_or(-1);
-                    let c = cur.get(l).map(|c| c.0).unwrap_or(-1);
-                    p != c
-                })
-                .count();
-            if changed > a.frames[i].dur as usize {
-                println!(
-                    "  attention : animation '{}', frame {} — {} cellules changent                      pour une duree de {} image(s) : une cellule aura du retard                      (allonger la duree, ou echelonner les changements)",
-                    a.name, i + 1, changed, a.frames[i].dur
-                );
-            }
-        }
-        anim_vig.push(vig as u8);
-        anim_flags.push(a.r#loop as u8);
-        anim_layers.push(nl as u8);
-        anim_nframes.push(a.frames.len() as u8);
-        anim_names.push(a.name.clone());
-    }
-    if anim_names.len() > 255 {
-        bail!("{} animations (max 255)", anim_names.len());
-    }
-    if !anim_names.is_empty() {
-        let frames: usize = anim_nframes.iter().map(|&n| n as usize).sum();
-        let maxl = anim_layers.iter().copied().max().unwrap_or(1);
-        println!(
-            "  animations : {} ({} frames, jusqu'a {} calque(s), {} octets de piste)",
-            anim_names.len(),
-            frames,
-            maxl,
-            anim_track.len()
-        );
-    }
+    // Frame-by-frame animations (A1): the frame track and its tables.
+    // The format and the checks live in anim.rs.
+    let vig_cells: Vec<usize> = vig_data.iter().map(|v| v.1).collect();
+    let anims = anim::compile(&project.animations, &vig_names, &vig_cells, &sound_ids)?;
+    anim::report(&anims);
     let music_names: Vec<String> = project
         .musics
         .iter()
@@ -537,7 +263,7 @@ fn main() -> Result<()> {
                 &sound_names,
                 &music_names,
                 &vig_names,
-                &anim_names,
+                &anims.names,
                 &screens,
                 &scene_ts,
                 &mut tile_blocks,
@@ -1138,24 +864,24 @@ fn main() -> Result<()> {
             if v.is_empty() { vec![0] } else { v.clone() }
         };
         s.push_str("#include <snes.h>\n\n");
-        s.push_str(&format!("const u8 anim_count = {};\n\n", anim_names.len()));
+        s.push_str(&format!("const u8 anim_count = {};\n\n", anims.len()));
         s.push_str("/* vignette servant de planche de cellules, par animation */\n");
-        s.push_str(&emit::u8_array("anim_vig", &one(&anim_vig), 16, false));
+        s.push_str(&emit::u8_array("anim_vig", &one(&anims.vig), 16, false));
         s.push_str("\n/* bit 0 = boucle */\n");
-        s.push_str(&emit::u8_array("anim_flags", &one(&anim_flags), 16, false));
+        s.push_str(&emit::u8_array("anim_flags", &one(&anims.flags), 16, false));
         s.push_str("\n/* cellules simultanees (calques) : pas de piste = 3L + 2 */\n");
-        s.push_str(&emit::u8_array("anim_layers", &one(&anim_layers), 16, false));
+        s.push_str(&emit::u8_array("anim_layers", &one(&anims.layers), 16, false));
         s.push_str("\n/* nombre de frames */\n");
-        s.push_str(&emit::u8_array("anim_nframes", &one(&anim_nframes), 16, false));
+        s.push_str(&emit::u8_array("anim_nframes", &one(&anims.nframes), 16, false));
         s.push_str("\n/* offset de la premiere frame dans anim_track */\n");
         s.push_str(&emit::u16_array(
             "anim_ofs",
-            &(if anim_ofs.is_empty() { vec![0] } else { anim_ofs.clone() }),
+            &(if anims.ofs.is_empty() { vec![0] } else { anims.ofs.clone() }),
         ));
         s.push_str(
             "\n/* piste aplatie, pas FIXE de 3L + 2 octets par frame :\n                L x [cellule (0xFF = calque vide)][dx signe][dy signe]\n                puis [duree][son, 0xFF = aucun] */\n",
         );
-        s.push_str(&emit::u8_array("anim_track", &one(&anim_track), 16, false));
+        s.push_str(&emit::u8_array("anim_track", &one(&anims.track), 16, false));
         write_out(&out_dir, "data_anims.c", s)?;
     }
     for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
@@ -1408,7 +1134,7 @@ fn main() -> Result<()> {
             println!("  tiles animees : {} sequence(s)", nseq);
         }
     }
-    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..], &ui_pics)?)?;
+    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_plan.skins, ui_plan.extra_fonts(), &ui_pics)?)?;
     // UI system: the theme plus the uigen layouts. The engine reads its
     // configuration through defines, always emitted (as for audio_cfg.h).
     {
@@ -1418,8 +1144,8 @@ fn main() -> Result<()> {
         };
         // The sheet and layout were loaded and validated upstream, when
         // the events resolved widget names; here we only emit.
-        let icon_count = ui_icon_count;
-        let icon_base = ui_icon_base;
+        let icon_count = ui_plan.icon_count;
+        let icon_base = ui_plan.icon_base;
         let (layout, prims) = (&ui_layout, &ui_prims);
         write_out(
             &out_dir,
@@ -1435,7 +1161,7 @@ fn main() -> Result<()> {
             ),
         )?;
         let ui_ov_font_bases: Vec<usize> =
-            prims.iter().map(|p| ui_font_base(&p.font)).collect();
+            prims.iter().map(|p| ui_plan.font_base(&p.font)).collect();
         write_out(
             &out_dir,
             "ui_overlays.c",
@@ -1846,7 +1572,7 @@ fn gen_font(
     }
     // "Image" widget images are placed LAST, in the order the layout
     // meets them — the same order as the char plan computed at the top of
-    // main (ui_pic_base).
+    // main (see ui::plan).
     for (_, chars, _, _) in ui_pics.iter() {
         gfx_bytes.extend_from_slice(chars);
     }

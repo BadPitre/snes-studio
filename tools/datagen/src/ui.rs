@@ -891,3 +891,140 @@ pub fn emit_overlays(
     s.push_str("};\n");
     s
 }
+
+/// BG3 VRAM char plan (budget 256 chars).
+///
+/// Layout: font 0 (97 chars — one transparent plus 96 glyphs) | skins
+/// (9 chars each) | icons (2 x N: the normal ones, then the
+/// panel-background variants) | extra fonts (96 chars each, based on ' ')
+/// | widget images.
+///
+/// Every base char the emitters need comes from here, so the plan and the
+/// data that depends on it cannot drift apart.
+pub struct Plan {
+    /// Fonts in char order; `fonts[0]` is the project font (base 1).
+    pub fonts: Vec<String>,
+    pub skins: Vec<String>,
+    pub icon_count: usize,
+    pub icon_base: usize,
+    /// Chars taken by the widget images, after the extra fonts.
+    pub pic_chars: usize,
+    pub total_chars: usize,
+    theme_skin: Option<String>,
+}
+
+impl Plan {
+    /// Base char of a skin (0 means a solid box); the theme's when absent.
+    pub fn skin_base(&self, path: &Option<String>) -> usize {
+        match path.as_ref().or(self.theme_skin.as_ref()) {
+            Some(p) => self.skins.iter().position(|k| k == p).map(|i| 97 + 9 * i).unwrap_or(0),
+            None => 0,
+        }
+    }
+
+    /// Base char of the ' ' glyph of a font; the project font when absent.
+    pub fn font_base(&self, path: &Option<String>) -> usize {
+        match path {
+            None => 1,
+            Some(p) => {
+                let i = self.fonts.iter().position(|f| f == p).unwrap_or(0);
+                if i == 0 {
+                    1
+                } else {
+                    self.icon_base + 2 * self.icon_count + 96 * (i - 1)
+                }
+            }
+        }
+    }
+
+    /// The fonts loaded IN ADDITION to the project font.
+    pub fn extra_fonts(&self) -> &[String] {
+        &self.fonts[1..]
+    }
+
+    /// Style table rows: style 0 (the theme) then the dialog_style entries,
+    /// each as (message window, choice window, font base, skin base).
+    pub fn style_rows(&self, layout: &Layout) -> Vec<(Win, Win, usize, usize)> {
+        let msg = layout.message.clone().unwrap();
+        let chc = layout.choice.clone().unwrap();
+        let mut rows = vec![(msg.clone(), chc, 1, self.skin_base(&None))];
+        for st in &layout.dialog_style {
+            let m = st.message.clone().unwrap_or_else(|| msg.clone());
+            let c = st.choice.clone().unwrap_or_else(|| m.clone());
+            rows.push((m, c, self.font_base(&st.font), self.skin_base(&st.windowskin)));
+        }
+        rows
+    }
+}
+
+/// Builds the char plan and finishes the primitives: a kind 8 (picture)
+/// primitive arrives carrying the image's INDEX, which only becomes a
+/// char once the fonts before it are placed.
+pub fn plan(
+    layout: &Layout,
+    prims: &mut [Prim],
+    pics: &[(String, Vec<u8>, u8, u8)],
+    project_font: &str,
+    theme_skin: Option<String>,
+    icon_count: usize,
+) -> Result<Plan> {
+    let mut fonts: Vec<String> = vec![project_font.to_string()];
+    let mut skins: Vec<String> = Vec::new();
+    if let Some(skn) = &theme_skin {
+        skins.push(skn.clone());
+    }
+    for st in &layout.dialog_style {
+        if let Some(f) = &st.font {
+            if !fonts.contains(f) {
+                fonts.push(f.clone());
+            }
+        }
+        if let Some(k) = &st.windowskin {
+            if !skins.contains(k) {
+                skins.push(k.clone());
+            }
+        }
+    }
+    // WIDGET fonts, deduplicated against the style fonts
+    for p in prims.iter() {
+        if let Some(f) = &p.font {
+            if !fonts.contains(f) {
+                fonts.push(f.clone());
+            }
+        }
+    }
+
+    let icon_base = 97 + 9 * skins.len();
+    let pic_base = icon_base + 2 * icon_count + 96 * (fonts.len() - 1);
+    let mut offsets: Vec<usize> = Vec::new();
+    let mut pic_chars = 0usize;
+    for (_, chars, _, _) in pics.iter() {
+        offsets.push(pic_chars);
+        pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
+    }
+    for p in prims.iter_mut() {
+        if p.kind == 8 {
+            p.icon = (pic_base + offsets[p.icon as usize]) as u8;
+        }
+    }
+
+    let total_chars = pic_base + pic_chars;
+    if total_chars > 256 {
+        bail!(
+            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
+             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
+             Retirer un style, une fonte, des icones, ou reduire une image.",
+            total_chars, fonts.len(), skins.len(), icon_count,
+            pics.len(), pic_chars
+        );
+    }
+    Ok(Plan {
+        fonts,
+        skins,
+        icon_count,
+        icon_base,
+        pic_chars,
+        total_chars,
+        theme_skin,
+    })
+}
