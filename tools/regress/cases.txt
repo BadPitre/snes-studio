@@ -12,6 +12,15 @@
 # et la comparaison octet à octet perd son sens. Le trajet ci-dessous
 # longe la plaine sans sortir de la scène de boot.
 
+# La plaine porte un bloc de PNJ « regr_ » qui exerce la boucle
+# d'affichage : un a cheval sur le bord gauche (9e bit de X), deux qui
+# marchent sur itineraire fixe (animation de pas), un qui change
+# d'apparence en route (Change Graphic), un en priorite au-dessus. Sans
+# eux, la demo n'avait que deux PNJ et la boucle n'etait quasiment pas
+# couverte. Leur nombre est VOLONTAIREMENT modeste : au-dela, le moteur
+# perd des frames et les PNJ marchent moins vite, ce qui rend deux
+# versions du moteur incomparables.
+
 # écran de boot stabilisé — attrape tout ce qui touche au chargement de
 # scène, aux palettes, au HUD permanent
 boot 200

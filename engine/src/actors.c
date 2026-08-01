@@ -266,6 +266,16 @@ void actors_init(void)
   u8 i;
   const ActorDef *a = scene_ctx.actors;
 
+  /* Graine de l'errance des PNJ. Le .bss n'est PAS remis a zero par
+     cette toolchain : sans cette ligne, mv_seed demarrait sur ce qui
+     trainait en WRAM. Deterministe pour un binaire donne — donc invisible
+     — mais il CHANGE des que le plan memoire bouge, si bien qu'un
+     changement de code sans rapport modifiait la promenade des PNJ. Deux
+     versions d'une scene peuplee devenaient incomparables : ca m'a coute
+     un faux diagnostic pendant P4. Une constante non nulle suffit
+     (xorshift reste bloque sur zero). */
+  mv_seed = 0x2A69;
+
   for (i = 0; i < ACTOR_SLOTS; i++)
   {
     oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
@@ -419,7 +429,16 @@ void actors_draw(void)
   /* Boucle CHAUDE : en assembleur (P4) — voir actorsfast.asm pour le
      detail de la mesure qui l'a justifiee. */
   actors_hot_n = ns;
+  /* RAZ ICI, pas dans l'assembleur : sa sortie anticipee (aucun slot a
+     traiter) sautait par-dessus sa propre remise a zero, et au tout
+     premier appel actors_hide_n valait le motif de .bss non initialise
+     (0x55 = 85). La boucle ci-dessous parcourait alors 85 entrees d'une
+     liste qui en compte 24, et ecrivait actor_shown/actor_x9 A DES
+     INDEX HORS TABLEAU — de la memoire moteur corrompue en silence. */
+  actors_hide_n = 0;
   actors_draw_hot();
+  if (actors_hide_n > ACTOR_SLOTS)
+    actors_hide_n = ACTOR_SLOTS; /* garde-fou : jamais hors du tableau */
   for (i = 0; i < actors_hide_n; i++)
   {
     u8 k = actors_hide_list[i];
