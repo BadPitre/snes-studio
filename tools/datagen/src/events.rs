@@ -161,8 +161,10 @@ impl<'a> EventCompiler<'a> {
                 ),
                 Some((n, _)) if val < 0 || val as usize >= n => bail!(
                     "{} : le paramètre n° {} est demandé, mais la fonction n'en \
-                     déclare que {} — un paramètre a probablement été retiré \
-                     alors que le corps s'en servait encore",
+                     déclare que {}. Rouvrir la commande et rechoisir le \
+                     paramètre dans la liste (un paramètre retiré, ou une \
+                     source changée sans rechoisir, laisse ce genre de \
+                     référence en l'air).",
                     who,
                     val + 1,
                     n

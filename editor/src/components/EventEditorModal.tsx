@@ -1665,70 +1665,20 @@ function CommandForm(props: {
               <option value="rand">hasard 0..N</option>
             </select>
           </label>
-          <label>
-            Source
-            <select
-              value={cmd.from ?? "const"}
-              onChange={(e) => {
-                const from = e.target.value as VarSource;
-                onChange({ ...cmd, from: from === "const" ? undefined : from });
-              }}
-            >
-              <option value="const">Constante</option>
-              <option value="var">Une variable</option>
-              <option value="hero_x">X du héros (tiles)</option>
-              <option value="hero_y">Y du héros (tiles)</option>
-              <option value="timer">Timer (secondes)</option>
-              <option value="scene">N° de la scène courante</option>
-              {(props.fnParams?.length ?? 0) > 0 && (
-                <option value="param">Un paramètre (F1)</option>
-              )}
-              <option value="ret">Résultat du dernier appel (F1)</option>
-            </select>
-          </label>
-          {cmd.from === "param" ? (
-            <label>
-              Paramètre
-              <select
-                value={cmd.value}
-                onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-              >
-                {(props.fnParams ?? []).map((pname, k) => (
-                  <option key={k} value={k}>
-                    {k + 1}. {pname || "sans nom"}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : cmd.from === "var" ? (
-            // même forme que la destination — champ, bouton « … » vers la
-            // liste, nom en dessous. Retenir un numéro de variable de
-            // tête est exactement ce que la liste nommée doit éviter, et
-            // il n'y avait aucune raison que la SOURCE y ait moins droit
-            // que la destination.
-            <label>
-              Variable source
-              <span className="row" style={{ gap: 4 }}>
-                <input
-                  type="number" min={0} max={255} value={cmd.value}
-                  onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-                />
-                <button className="browse" title="Choisir dans la liste"
-                  onClick={() =>
-                    props.onPickVar("var", cmd.value, (n) => onChange({ ...cmd, value: n }))
-                  }>…</button>
-              </span>
-              <span className="hint">{props.varNames[cmd.value] || ""}</span>
-            </label>
-          ) : (cmd.from ?? "const") === "const" ? (
-            <label>
-              Valeur
-              <input
-                type="number" min={-32768} max={65535} value={cmd.value}
-                onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-              />
-            </label>
-          ) : null}
+          {/* Le bloc « source + valeur » PARTAGE, et pas une copie locale.
+              La copie qui vivait ici changeait `from` sans remettre
+              `value` a zero : passer de « variable n° 1 » a « un
+              paramètre » laissait la valeur 1, donc la commande
+              demandait le 2e paramètre d'une fonction qui n'en a qu'un.
+              Le build echouait, et le formulaire ne montrait rien
+              d'anormal. Une seule implementation, un seul comportement. */}
+          <ValueSourceFields
+            v={{ from: cmd.from, value: cmd.value }}
+            fnParams={props.fnParams}
+            varNames={props.varNames}
+            onPickVar={props.onPickVar}
+            onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
+          />
         </div>
       );
       break;
