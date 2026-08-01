@@ -1,38 +1,38 @@
-//! events.rs — compilation des ÉVÉNEMENTS structurés (Event Editor, modèle
-//! RPG Maker 2003) vers le pipeline existant : chaque event devient un
-//! acteur (npc/trigger/auto) + des lignes d'assembleur VM ajoutées au
-//! script de la scène, et ses textes INLINE partent dans texts.json
-//! virtuellement (collectés et dédupliqués dans la bank de textes).
+//! Compiling structured EVENTS (Event Editor, RPG Maker 2003 model) onto
+//! the existing pipeline: each event becomes an actor (npc/trigger/auto)
+//! plus VM assembly lines appended to the scene's script, and its INLINE
+//! texts join texts.json virtually — collected and deduplicated into the
+//! text bank.
 //!
-//! Le format binaire (spec §1-2) ne change PAS : les events sont un sucre
-//! du format SOURCE, contractualisé dans docs/TOOLS.md.
+//! The binary format (spec §1-2) does NOT change: events are sugar over
+//! the SOURCE format, contractualised in docs/TOOLS.md.
 //!
-//! Commandes (JSON) :
+//! Commands (JSON):
 //!   {"c":"msg","text":"..."}
-//!   {"c":"choice","var":"v63"?,"options":[{"text":"Oui","do":[...]},...]}
+//!   {"c":"choice","var":"v63"?,"options":[{"text":"Yes","do":[...]},...]}
 //!   {"c":"set","var":"g1","value":1}   {"c":"add","var":"v0","value":1}
 //!   {"c":"if","var":"g1","op":"=="|"!="|">=","value":1,
 //!    "then":[...],"else":[...]}
 //!   {"c":"warp","to":"scene","x":1,"y":2}
 //!   {"c":"face","event":0,"dir":"down"}
-//!   v0.9 (switches + variables 16-bit, façon RM2003) :
+//!   Switches and 16-bit variables, RM2003 style:
 //!   {"c":"switch","n":0-511,"on":true|false}
 //!   {"c":"var","n":0-255,"op":"="|"+","value":-32768..65535}
 //!   {"c":"if_sw","n":..,"on":true|false,"then":[...],"else":[...]}
 //!   {"c":"if_var","left":{"from":..,"value":..},"op":"=="|"!="|">=",
 //!    "right":{"from":..,"value":..},"then":[...],"else":[...]}
-//!    — forme historique « n »/« value » toujours acceptee
-//!   v0.15 (boucles + commentaires) :
+//!    — the historical "n"/"value" form is still accepted
+//!   Loops and comments:
 //!   {"c":"loop","do":[...]}   {"c":"break"}   {"c":"rem","text":"..."}
-//!   v0.15 (positions scriptées) :
+//!   Scripted positions:
 //!   {"c":"hero_loc","vs":n,"vx":n,"vy":n}   {"c":"warp_var","vs","vx","vy"}
 //!   {"c":"setpos","event":-1|n,"from":"const"|"vars","x":..,"y":..}
 //!   {"c":"swappos","a":-1|n,"b":-1|n}
-//!   v0.15 (effets d'écran) :
+//!   Screen effects:
 //!   {"c":"scr_hide","speed":1-15}   {"c":"scr_show","speed":1-15}
-//!   {"c":"ui_show","widget":"nom","on":true|false}   (widget UI, Ph. 12)
-//!   {"c":"key_input","var":n,"wait":bool,"keys":[1-12]}  (Key Input RM2003)
-//!   {"c":"sysmenu"}   (menu Système — le mapping START en dur est retiré)
+//!   {"c":"ui_show","widget":"name","on":true|false}
+//!   {"c":"key_input","var":n,"wait":bool,"keys":[1-12]}
+//!   {"c":"sysmenu"}
 //!   {"c":"tint","mode":"off"|"add"|"sub","r":0-31,"g":..,"b":..}
 //!   {"c":"flash","r","g","b","frames":1-255}
 //!   {"c":"shake","power":0-8,"speed":1-8,"frames":0-255}
@@ -43,58 +43,58 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Variable par défaut des CHOICE générés (réservée, documentée TOOLS.md)
+/// Default variable of generated CHOICEs (reserved, documented in TOOLS.md).
 const CHOICE_VAR: &str = "v63";
 const MAX_DEPTH: usize = 6;
 
 pub struct EventCompiler<'a> {
     texts: &'a mut Vec<TextEntry>,
-    /// database du projet (commande db_read) — None si pas de schemas/
+    /// The project database (db_read); None when there is no schemas/.
     db: Option<&'a Db>,
-    /// widgets UI du layout (Phase 12) — noms résolus vers leurs index
+    /// UI widgets of the layout; names are resolved to their indices.
     ui_widgets: Vec<String>,
-    /// styles de dialogue (S1) — index 0 = défaut, 1.. = dialog_style
+    /// Dialogue styles; index 0 is the default, 1.. are dialog_style.
     ui_styles: Vec<String>,
-    /// pictures du projet (S3) — stems, résolus vers les pic_id
+    /// Project pictures (stems), resolved to pic_id.
     pictures: Vec<String>,
-    /// dimensions (w, h) en pixels de chaque picture (S5 : position)
+    /// Pixel dimensions (w, h) of each picture, for positioning.
     pic_dims: Vec<(usize, usize)>,
-    /// sons du projet (B1) — stems, résolus vers les sfx_id
+    /// Project sounds (stems), resolved to sfx_id.
     sounds: Vec<String>,
-    /// musiques du projet (B1) — stems, résolus vers les music_id
+    /// Project music (stems), resolved to music_id.
     musics: Vec<String>,
-    /// vignettes du projet (B5) — stems, résolus vers les vig_id
+    /// Project vignettes (stems), resolved to vig_id.
     vignettes: Vec<String>,
-    /// animations du projet (A1) — noms, résolus vers les anim_id
+    /// Project animations (names), resolved to anim_id.
     animations: Vec<String>,
-    /// écrans composés (B6bis) — déroulés par la commande "screen"
+    /// Composed screens, unrolled by the "screen" command.
     screens: Vec<ScreenDef>,
-    /// pile des écrans en cours de déroulage (screen_call — les noms de
-    /// scripts se résolvent dans l'écran COURANT)
+    /// Stack of screens currently being unrolled: screen_call resolves
+    /// script names inside the CURRENT screen.
     screen_stack: Vec<usize>,
-    /// contenu → nom (dédoublonnage des textes inline, projets entiers)
+    /// Content to name, deduplicating inline texts across whole projects.
     text_of: HashMap<String, String>,
     label_seq: usize,
-    /// blocs de personnage référencés par des pas gfx: (Move Route) — à
-    /// compter dans le sprite set de la scène en cours
+    /// Character blocks referenced by gfx: route steps, to be counted in
+    /// the current scene's sprite set.
     gfx_blocks: Vec<u8>,
-    /// pile des labels de fin de boucle (v0.15) — cible des « break »
+    /// Stack of loop-end labels; "break" targets the innermost.
     loop_ends: Vec<String>,
-    /// v0.16 — scène en cours (suffixe des labels de common events)
+    /// Current scene, used as the suffix of common event labels.
     cur_scene: String,
-    /// v0.16 — common events référencés par la scène en cours (calls +
-    /// déclencheurs auto) : leurs corps sont émis dans le bloc scripts
+    /// Common events referenced by the current scene (calls plus auto
+    /// triggers): their bodies are emitted into the script block.
     used_commons: Vec<bool>,
-    /// F1/F2b — signature de la FONCTION dont on compile le corps :
-    /// (paramètres, locales, rend une valeur). None hors d'une fonction,
-    /// et c'est ce qui permet de refuser un « param » ou un « local »
-    /// posé dans un event de carte, où il ne voudrait rien dire.
+    /// Signature of the FUNCTION whose body is being compiled:
+    /// (parameters, locals, returns a value). None outside a function,
+    /// and that is what lets us refuse a "param" or a "local" written in
+    /// a map event, where it would mean nothing.
     cur_fn: Option<(usize, usize, bool)>,
-    /// F1/F2b — signatures des FONCTIONS du projet : nombre d'arguments
-    /// attendus, taille du cadre à réserver, existence d'un résultat
+    /// Signatures of the project's FUNCTIONS: argument count, frame size
+    /// to reserve, whether there is a result.
     fn_sigs: Vec<(usize, usize, bool)>,
-    /// F1 — fonctions référencées par la scène en cours : leurs corps
-    /// sont émis dans le bloc scripts, transitivement
+    /// Functions referenced by the current scene; their bodies are
+    /// emitted into the script block, transitively.
     used_fns: Vec<bool>,
 }
 
@@ -129,12 +129,11 @@ impl<'a> EventCompiler<'a> {
         }
     }
 
-    /// F1 — source d'une valeur 16-bit : {"from": .., "value": ..}.
-    /// Une seule grammaire pour l'affectation de variable, les arguments
-    /// d'un appel de fonction et la valeur rendue — il n'y avait aucune
-    /// raison d'en inventer trois. Renvoie (mnémonique assembleur,
-    /// valeur), et refuse « param » hors d'une fonction : ailleurs, il
-    /// lirait un cadre qui n'existe pas.
+    /// Source of a 16-bit value: {"from": .., "value": ..}. One grammar
+    /// for variable assignment, function call arguments and the returned
+    /// value — there was no reason to invent three. Returns (assembler
+    /// mnemonic, value), and refuses "param" outside a function: anywhere
+    /// else it would read a frame that does not exist.
     fn value_source(&self, cmd: &Value, who: &str) -> Result<(&'static str, i64)> {
         let from = cmd["from"].as_str().unwrap_or("const");
         let st = match from {
@@ -145,9 +144,9 @@ impl<'a> EventCompiler<'a> {
             "timer" => "timer",
             "scene" => "scene",
             "param" => "param",
-            // F2b : une locale est un slot du cadre, APRÈS les
-            // paramètres. Le moteur ne fait pas la différence — c'est
-            // ici, où l'on connaît la signature, qu'un nom de locale
+            // A local is a slot of the frame, AFTER the parameters. The
+            // engine cannot tell the difference — it is here, where the
+            // signature is known, that a local's name becomes an index.
             // devient un index.
             "local" => "param",
             "ret" => "ret",
@@ -186,9 +185,8 @@ impl<'a> EventCompiler<'a> {
         Ok((st, val))
     }
 
-    /// Nom de texte pour un contenu inline (créé au besoin, dédupliqué)
-    /// S1 : résout le champ "style" d'un msg/choice vers l'index de
-    /// style (0 = défaut, absent ou "")
+    /// Resolves the "style" field of a msg/choice to a style index;
+    /// absent or "" means 0, the default.
     fn style_index(&self, cmd: &Value) -> Result<usize> {
         let name = cmd["style"].as_str().unwrap_or("");
         if name.is_empty() {
@@ -243,10 +241,10 @@ impl<'a> EventCompiler<'a> {
         Ok(s)
     }
 
-    /// S7 — position d'une commande picture : variables (x_var/y_var,
-    /// flags bit 1), constantes (validées si les dims sont connues), ou
-    /// absente = centrage (précalculé si dims connues — bytecode S5
-    /// inchangé — sinon flags bit 2 : le moteur centre avec les dims)
+    /// Position of a picture command: variables (x_var/y_var, flags bit
+    /// 1), constants (validated when the dimensions are known), or absent
+    /// for centring — precomputed when the dimensions are known, leaving
+    /// the bytecode unchanged, otherwise flags bit 2 lets the engine centre.
     fn pic_pos(
         cmd: &Value,
         flags: &mut u8,
@@ -294,8 +292,8 @@ impl<'a> EventCompiler<'a> {
         }
     }
 
-    /// S7 — durée de fondu/glissement en frames (0 = instantané, 60 =
-    /// 1 seconde). Héritage S5 : "fade": false => 0 ; défaut : 16.
+    /// Fade or slide duration in frames (0 instant, 60 one second).
+    /// Legacy: "fade": false means 0; the default is 16.
     fn pic_dur(cmd: &Value) -> Result<u8> {
         if cmd["fade"].as_bool() == Some(false) && cmd["dur"].is_null() {
             return Ok(0);
@@ -323,8 +321,8 @@ impl<'a> EventCompiler<'a> {
             .with_context(|| format!("champ « {} » invalide (0-255) : {}", key, cmd))
     }
 
-    /// Transition d'écran (S18) : "fade" (défaut) 0, "none" 1, "mosaic" 2,
-    /// balayages (S18b) : "wipe_down" 3, "wipe_up" 4, "wipe_center" 5
+    /// Screen transition: "fade" (default) 0, "none" 1, "mosaic" 2,
+    /// wipes: "wipe_down" 3, "wipe_up" 4, "wipe_center" 5.
     fn trans_field(cmd: &Value) -> Result<u8> {
         Ok(match cmd["trans"].as_str() {
             None | Some("") | Some("fade") => 0,
@@ -341,9 +339,9 @@ impl<'a> EventCompiler<'a> {
         })
     }
 
-    /// Pas d'itinéraire JSON → tokens assembleur (partagé entre la
-    /// commande route et les routes custom de page, v0.14). Les blocs des
-    /// pas gfx sont accumulés pour le budget charsets de la scène.
+    /// JSON route steps to assembler tokens, shared by the route command
+    /// and per-page custom routes. The blocks of gfx steps are collected
+    /// for the scene's charset budget.
     fn steps_tokens(steps: &[Value], gfx_blocks: &mut Vec<u8>) -> Result<Vec<String>> {
         if steps.is_empty() || steps.len() > 200 {
             bail!("route : 1 a 200 pas (recu {})", steps.len());
@@ -379,17 +377,17 @@ impl<'a> EventCompiler<'a> {
         Ok(toks)
     }
 
-    /// Un common event « parallel » tourne en tâche de fond : messages et
-    /// choix y sont interdits — transitivement, à travers les appels
-    /// (v0.16, pas d'UI hors du script principal).
+    /// A "parallel" common event runs in the background: messages and
+    /// choices are forbidden inside it — transitively, through calls.
+    /// No UI outside the main script.
     fn check_no_ui(
         commons: &[CommonEvent],
         functions: &[FunctionDef],
         root: usize,
     ) -> Result<()> {
-        // « seen » couvre les DEUX listes : les common events d'abord,
-        // les fonctions ensuite — un parallel process peut appeler l'un
-        // comme l'autre, et un message caché deux niveaux plus bas est
+        // "seen" covers BOTH lists — common events first, functions next.
+        // A parallel process can call either, and a message hidden two
+        // levels down is exactly what this check exists to find.
         // exactement ce que ce controle doit trouver.
         fn scan(
             cmds: &[Value],
@@ -451,7 +449,7 @@ impl<'a> EventCompiler<'a> {
         )
     }
 
-    /// Compile une liste de commandes en lignes d'assembleur (spec §2)
+    /// Compiles a command list into assembler lines (spec §2).
     fn compile_list(&mut self, cmds: &[Value], depth: usize, out: &mut Vec<String>) -> Result<()> {
         if depth > MAX_DEPTH {
             bail!("imbrication de commandes trop profonde (max {})", MAX_DEPTH);
@@ -460,20 +458,20 @@ impl<'a> EventCompiler<'a> {
             let c = cmd["c"].as_str().with_context(|| format!("commande sans champ c : {}", cmd))?;
             match c {
                 "msg" => {
-                    // S1 : chaque message choisit sa boîte (défaut = style
-                    // 0). SANS styles au projet, rien n'est émis — le
-                    // bytecode des projets existants reste byte-identique
-                    // (le +1 opcode décalait la machine à écrire d'une
-                    // frame). Avec styles, le reset à 0 est toujours émis.
+                    // Each message picks its box; style 0 is the default.
+                    // With NO styles in the project nothing is emitted, so
+                    // existing projects keep byte-identical bytecode — the
+                    // extra opcode shifted the typewriter by one frame.
+                    // With styles, the reset to 0 is always emitted.
                     if !self.ui_styles.is_empty() {
                         out.push(format!("  DLGSTYLE {}", self.style_index(cmd)?));
                     } else {
                         self.style_index(cmd)?; /* valide quand même le champ */
                     }
-                    // texte libre OU reference au catalogue (Tools >
-                    // Textes) : text_ref = nom d'une entree de texts.json,
-                    // partagee entre plusieurs commandes et editable au
-                    // catalogue sans toucher aux events
+                    // Free text OR a reference to the catalogue (Tools >
+                    // Texts): text_ref names an entry of texts.json, shared
+                    // between commands and editable in the catalogue
+                    // without touching the events.
                     let name = if let Some(r) = cmd["text_ref"].as_str() {
                         if !self.texts.iter().any(|t| t.name == r) {
                             bail!(
@@ -512,7 +510,7 @@ impl<'a> EventCompiler<'a> {
                     for (i, lbl) in branch.iter().enumerate() {
                         out.push(format!("  JEQ {} {} {}", var, i + 1, lbl));
                     }
-                    // option 0 en séquence
+                    // option 0 falls through in sequence
                     self.compile_list(
                         opts[0]["do"].as_array().map(|v| v.as_slice()).unwrap_or(&[]),
                         depth + 1,
@@ -574,11 +572,10 @@ impl<'a> EventCompiler<'a> {
                     out.push(format!("  SW {} {}", n, if on { 1 } else { 0 }));
                 }
                 "var" => {
-                    // v0.13 : arithmétique complète, aléatoire, sources
-                    // (constante, variable, X/Y héros, timer)
-                    // F2b : « dst » choisit l'espace de destination —
-                    // variable globale du projet, ou variable LOCALE de
-                    // la fonction en cours.
+                    // Full arithmetic, randomness, and sources (constant,
+                    // variable, hero X/Y, timer).
+                    // "dst" picks the destination space: a project global,
+                    // or a LOCAL of the function being compiled.
                     let op = cmd["op"].as_str().unwrap_or("=");
                     if !["=", "+", "-", "*", "/", "%", "rand"].contains(&op) {
                         bail!("var : operation inconnue « {} »", op);
@@ -599,7 +596,7 @@ impl<'a> EventCompiler<'a> {
                                 nl
                             );
                         }
-                        // les locales suivent les paramètres dans le cadre
+                        // locals follow the parameters in the frame
                         out.push(format!(
                             "  SETLOC {} {} {} {}",
                             np as u64 + k as u64,
@@ -609,7 +606,7 @@ impl<'a> EventCompiler<'a> {
                         ));
                     } else {
                         let n = Self::idx_field(cmd, "n", 256)?;
-                        // les vieux set/add 16-bit passent aussi par VAROP
+                        // the old 16-bit set/add also go through VAROP
                         out.push(format!("  VAROP {} {} {} {}", n, op, st, val));
                     }
                 }
@@ -640,11 +637,11 @@ impl<'a> EventCompiler<'a> {
                 "wait_cam" => {
                     out.push("  WAITCAM".to_string());
                 }
-                // v0.15 — effets d'écran
+                // screen effects
                 "scr_hide" | "scr_show" => {
-                    // durée en FRAMES (S18d) — héritage : l'ancien champ
-                    // speed (1-15 niveaux de luminosité par frame) est
-                    // converti en durée équivalente (~15/speed)
+                    // Duration in FRAMES. Legacy: the old "speed" field
+                    // (1-15 brightness steps per frame) is converted to
+                    // the equivalent duration, about 15/speed.
                     let dur = match cmd["frames"].as_u64().filter(|&v| (1..=255).contains(&v)) {
                         Some(v) => v,
                         None => {
@@ -662,7 +659,7 @@ impl<'a> EventCompiler<'a> {
                         Self::trans_field(cmd)?
                     ));
                 }
-                // Phase 12 — visibilité des widgets UI (SHOWUI)
+                // UI widget visibility (SHOWUI)
                 "ui_show" => {
                     let name = cmd["widget"].as_str().unwrap_or("");
                     let idx = self
@@ -683,8 +680,8 @@ impl<'a> EventCompiler<'a> {
                     let on = cmd["on"].as_bool().unwrap_or(true);
                     out.push(format!("  SHOWUI {} {}", idx, on as u8));
                 }
-                // B6 — menu à curseur : index choisi -> variable
-                // (255 si annulé par B et cancel autorisé)
+                // Cursor menu: the chosen index goes to a variable
+                // (255 when cancelled with B and cancelling is allowed).
                 "list_select" => {
                     let name = cmd["widget"].as_str().unwrap_or("");
                     let idx = self
@@ -707,18 +704,18 @@ impl<'a> EventCompiler<'a> {
                         .filter(|&v| v < 256)
                         .with_context(|| "list_select : var 0-255".to_string())?;
                     let cancel = cmd["cancel"].as_bool().unwrap_or(true);
-                    // bit 1 : le widget reste affiché à la fermeture
-                    // (multi-panneaux) ; bit 2 : Gauche/Droite sortent
-                    // (var = 254/253 — navigation entre listes voisines)
+                    // bit 1: the widget stays visible on close
+                    // (multi-panel); bit 2: Left/Right exit, returning
+                    // 254/253 — navigation between neighbouring lists
                     let keep = cmd["keep"].as_bool().unwrap_or(false);
                     let lr = cmd["lr"].as_bool().unwrap_or(false);
                     let flags = cancel as u8 | (keep as u8) << 1 | (lr as u8) << 2;
                     out.push(format!("  LISTSEL {} {} {}", idx, var, flags));
                 }
-                // S3 — pictures plein écran (façon RM2003) : nom résolu
-                // vers le pic_id de project.pictures
+                // Full-screen pictures, RM2003 style: the name is resolved
+                // to a pic_id of project.pictures.
                 "pic_show" => {
-                    // S7 : image de la liste OU numéro lu dans une variable
+                    // the image from the list, OR a number read in a variable
                     let mut flags: u8 = 0;
                     let (id, dims) = match cmd["pic_var"].as_u64() {
                         Some(v) => {
@@ -751,7 +748,7 @@ impl<'a> EventCompiler<'a> {
                         }
                     };
                     let (x, y) = Self::pic_pos(cmd, &mut flags, dims, "pic_show")?;
-                    // S8 : mélange color math avec le décor (flags bits 3-4)
+                    // colour math blending with the scenery (flags bits 3-4)
                     flags |= match cmd["blend"].as_str() {
                         None => 0,
                         Some("half") => 1 << 3,
@@ -768,16 +765,16 @@ impl<'a> EventCompiler<'a> {
                 "pic_hide" => {
                     out.push(format!("  HIDEPIC {}", Self::pic_dur(cmd)?));
                 }
-                // S7 — glisse l'image affichée (Move Picture RM2003) vers
-                // (x,y) en dur frames : NON-bloquant, le script continue
+                // Slides the displayed image (RM2003's Move Picture) to
+                // (x,y) over N frames. NON-blocking: the script continues.
                 "pic_move" => {
                     let mut flags: u8 = 0;
                     let (x, y) = Self::pic_pos(cmd, &mut flags, None, "pic_move")?;
                     let dur = Self::pic_dur(cmd)?;
                     out.push(format!("  MOVEPIC {} {} {} {}", x, y, flags, dur));
                 }
-                // Phase 12 — Key Input Processing (RM2003) : le code de la
-                // touche pressée dans une variable (0 = aucune)
+                // Key Input Processing (RM2003): the code of the pressed
+                // key lands in a variable, 0 meaning none.
                 "key_input" => {
                     let var = cmd["var"].as_u64().filter(|&v| v < 256).with_context(|| {
                         "key_input : var = 0-255 requis".to_string()
@@ -813,8 +810,8 @@ impl<'a> EventCompiler<'a> {
                     let comp = |key: &str| -> u64 {
                         cmd[key].as_u64().map(|v| v.min(31)).unwrap_or(0)
                     };
-                    // S12 : "dur" en frames = teinte GRADUELLE (TINTG) ;
-                    // absent ou 0 = TINT immédiat (bytecode inchangé)
+                    // "dur" in frames means a GRADUAL tint (TINTG);
+                    // absent or 0 is an immediate TINT, bytecode unchanged
                     match cmd["dur"].as_u64() {
                         Some(d) if d > 0 => {
                             if d > 255 {
@@ -831,12 +828,12 @@ impl<'a> EventCompiler<'a> {
                         )),
                     }
                 }
-                // B6bis — « Aller à l'écran » : la composition faite à
-                // la souris (screens/<nom>.json) est DÉROULÉE ici en
-                // commandes stage + le script de l'écran inline — le
-                // moteur ne voit rien de nouveau (sucre d'éditeur,
-                // comme les autotiles). MAX_DEPTH protège des écrans
-                // qui s'appellent en boucle.
+                // "Go to screen": the composition made with the mouse
+                // (screens/<name>.json) is UNROLLED here into stage
+                // commands plus the screen's inline script. The engine
+                // sees nothing new — editor sugar, like the autotiles.
+                // MAX_DEPTH guards against screens calling each other in
+                // a loop.
                 "screen" => {
                     let name = cmd["name"].as_str().unwrap_or("");
                     let idx = self
@@ -876,10 +873,10 @@ impl<'a> EventCompiler<'a> {
                             sl.slot - 1, pid, sl.x / 8, sl.y / 8
                         ));
                     }
-                    // les scripts AUTO sont joués à l'ouverture, dans
-                    // l'ordre ; une condition (switch/variable) devient
-                    // un if autour du corps — les "call" attendent
-                    // screen_call (contexte empilé)
+                    // AUTO scripts play on open, in order; a condition
+                    // (switch or variable) becomes an `if` around the
+                    // body. "call" scripts wait for screen_call, with the
+                    // context stacked.
                     self.screen_stack.push(idx);
                     for scr in &sc.scripts {
                         if scr.trigger != "auto" {
@@ -908,8 +905,8 @@ impl<'a> EventCompiler<'a> {
                     }
                     self.screen_stack.pop();
                 }
-                // B6bis-2 — appelle un AUTRE script de l'écran courant,
-                // déroulé inline (MAX_DEPTH protège des boucles d'appels)
+                // Calls ANOTHER script of the current screen, unrolled
+                // inline; MAX_DEPTH guards against call loops.
                 "screen_call" => {
                     let sname = cmd["script"].as_str().unwrap_or("");
                     let sidx = *self.screen_stack.last().with_context(|| {
@@ -931,7 +928,7 @@ impl<'a> EventCompiler<'a> {
                         })?;
                     self.compile_list(&body, depth + 1, out)?;
                 }
-                // B3 — écran composé : fond + images posées multi-slots
+                // Composed screen: a background plus posed images in slots
                 "stage_open" => {
                     let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
                     let pic = cmd["pic"].as_str().unwrap_or("");
@@ -972,8 +969,8 @@ impl<'a> EventCompiler<'a> {
                                 pic
                             )
                         })?;
-                    // position en PIXELS côté auteur, en TILES (x8) au
-                    // format binaire — arrondie à la tile
+                    // Position is in PIXELS for the author and in TILES
+                    // (x8) in the binary format, rounded to the tile.
                     let tx = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(0) / 8;
                     let ty = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(0) / 8;
                     out.push(format!(
@@ -988,7 +985,7 @@ impl<'a> EventCompiler<'a> {
                         .with_context(|| "stage_clear : slot 1-5".to_string())?;
                     out.push(format!("  STAGECLEAR {}", slot - 1));
                 }
-                // B5 — vignettes animées (sprites 32x32, 2 slots)
+                // Animated vignettes (32x32 sprites, 2 slots)
                 "vig_show" => {
                     let slot = cmd["slot"]
                         .as_u64()
@@ -1030,7 +1027,7 @@ impl<'a> EventCompiler<'a> {
                     let spd = cmd["speed"].as_u64().filter(|&v| (1..=60).contains(&v)).unwrap_or(8);
                     out.push(format!("  VIGPLAY {} {} {}", slot - 1, mode, spd));
                 }
-                // A1 — animations image par image (planche = vignette)
+                // Frame-by-frame animations; the cell sheet is a vignette
                 "anim_play" => {
                     let name = cmd["anim"].as_str().unwrap_or("");
                     let id = self
@@ -1044,8 +1041,8 @@ impl<'a> EventCompiler<'a> {
                                 name
                             )
                         })?;
-                    // ancrage : écran (décalages autour du centre de
-                    // l'écran), héros, ou event de la scène
+                    // anchor: the screen (offsets around its centre), the
+                    // hero, or an event of the scene
                     let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
                         "hero" => 1u8,
                         "event" => 2,
@@ -1095,7 +1092,7 @@ impl<'a> EventCompiler<'a> {
                         Self::trans_field(cmd)?
                     ));
                 }
-                // B1 — jouer un son (effet BRR, non bloquant)
+                // Play a BRR sound effect; non-blocking
                 "sfx" => {
                     let name = cmd["sound"].as_str().unwrap_or("");
                     let id = self
@@ -1111,8 +1108,8 @@ impl<'a> EventCompiler<'a> {
                         })?;
                     out.push(format!("  PLAYSFX {}", id));
                 }
-                // B1 — changer la musique ("" = silence), non bloquant,
-                // la musique de la scène reprend au prochain warp
+                // Change the music ("" is silence); non-blocking, and the
+                // scene's own music resumes at the next warp
                 "bgm" => {
                     let name = cmd["music"].as_str().unwrap_or("");
                     if name.is_empty() {
@@ -1132,7 +1129,7 @@ impl<'a> EventCompiler<'a> {
                         out.push(format!("  PLAYBGM {}", id));
                     }
                 }
-                // S16 — spotlight : cercle de lumiere autour du heros
+                // Spotlight: a circle of light around the hero
                 "spotlight" => {
                     let rad = cmd["radius"]
                         .as_u64()
@@ -1141,7 +1138,7 @@ impl<'a> EventCompiler<'a> {
                     let dark = cmd["dark"].as_u64().filter(|&v| (1..=31).contains(&v)).unwrap_or(31);
                     out.push(format!("  SPOTLIGHT {} {}", rad, dark));
                 }
-                // S15 — degrade de ciel : teinte verticale haut -> bas
+                // Sky gradient: a vertical tint, top to bottom
                 "skygrad" => {
                     let mode = match cmd["mode"].as_str().unwrap_or("off") {
                         "add" => "add",
@@ -1154,14 +1151,14 @@ impl<'a> EventCompiler<'a> {
                         mode, ch("r"), ch("g"), ch("b"), ch("r2"), ch("g2"), ch("b2")
                     ));
                 }
-                // S14 — ondulation de l'écran (HDMA) : power 0 = stop
+                // Screen ripple (HDMA); power 0 stops it
                 "wave" => {
                     let pow = cmd["power"].as_u64().filter(|&v| v <= 7).unwrap_or(0);
                     let spd = cmd["speed"].as_u64().filter(|&v| (1..=8).contains(&v)).unwrap_or(2);
                     out.push(format!("  WAVE {} {}", pow, spd));
                 }
-                // S13 — météo en particules (Weather Effects RM2003) :
-                // persiste entre les scènes jusqu'au prochain changement
+                // Particle weather (RM2003 Weather Effects): persists
+                // across scenes until the next change
                 "weather" => {
                     let kind = match cmd["kind"].as_str().unwrap_or("off") {
                         "off" => 0u8,
@@ -1202,12 +1199,11 @@ impl<'a> EventCompiler<'a> {
                             ">=" => ">=",
                             o => bail!("if_var : operateur inconnu « {} » (==, !=, >=)", o),
                         };
-                        // F2 : les deux membres sont des sources generales.
-                        // Forme HISTORIQUE encore acceptee — « n » a gauche,
-                        // « value » constante a droite — pour ne pas casser
-                        // les projets qui ne connaissent pas « left »/
-                        // « right » ; l'editeur, lui, ecrit toujours la
-                        // forme complete.
+                        // Both sides are general sources. The HISTORICAL
+                        // form is still accepted — "n" on the left, a
+                        // constant "value" on the right — so projects that
+                        // predate "left"/"right" keep working. The editor
+                        // always writes the full form.
                         let (la, lv) = match cmd.get("left") {
                             Some(l) if l.is_object() => self.value_source(l, "if_var")?,
                             _ => ("var", Self::idx_field(cmd, "n", 256)? as i64),
@@ -1247,10 +1243,10 @@ impl<'a> EventCompiler<'a> {
                     let n = Self::u8_field(cmd, "frames")?;
                     out.push(format!("  WAIT {}", n));
                 }
-                // v0.15 — boucle RM2003 : label de tête, corps, saut de
-                // reprise ; « break » saute au label de fin de la boucle
-                // la plus proche. Une boucle sans commande bloquante tourne
-                // 32 ops/frame (la VM rend la main, spec §2).
+                // RM2003 loop: head label, body, jump back. "break" jumps
+                // to the end label of the innermost loop. A loop with no
+                // blocking command runs 32 ops per frame — the VM yields
+                // (spec §2).
                 "loop" => {
                     let start = self.label("boucle");
                     let end = self.label("finboucle");
@@ -1273,12 +1269,11 @@ impl<'a> EventCompiler<'a> {
                         .context("« Sortir de la boucle » hors d'une boucle")?;
                     out.push(format!("  JMP {}", end));
                 }
-                // v0.15 — commentaire : décoratif dans l'éditeur, aucun
-                // bytecode émis
+                // Comment: decorative in the editor, no bytecode emitted
                 "rem" => {}
-                // v0.17 — lire un champ de la database dans une variable :
+                // Read a database field into a variable:
                 // {"c":"db_read","table":"stats","from":"const"|"var",
-                //  "entry":"slime"|<n° de variable>,"field":"attack","dst":n}
+                //  "entry":"slime"|<variable number>,"field":"attack","dst":n}
                 "db_read" => {
                     let dbr = self.db.with_context(|| {
                         "db_read : le projet n'a pas de database (schemas/)".to_string()
@@ -1318,7 +1313,7 @@ impl<'a> EventCompiler<'a> {
                         ti, esrc, entry, ofs, size, dst
                     ));
                 }
-                // v0.16 — appel d'un common event (CALL/RET, pile de 8)
+                // Call a common event (CALL/RET, stack of 8)
                 "call" => {
                     let n = cmd["n"]
                         .as_u64()
@@ -1333,8 +1328,8 @@ impl<'a> EventCompiler<'a> {
                     self.used_commons[n] = true;
                     out.push(format!("  CALL __ce{}_{}", n, self.cur_scene));
                 }
-                // F1 — appel d'une FONCTION : arguments evalues chez
-                // l'appelant, valeur de retour rangee au besoin
+                // Call a FUNCTION: arguments are evaluated in the
+                // CALLER's frame, the return value stored if wanted
                 "call_fn" => {
                     let n = cmd["n"]
                         .as_u64()
@@ -1357,9 +1352,9 @@ impl<'a> EventCompiler<'a> {
                             args.len()
                         );
                     }
-                    // nslots = arguments + locales de l'APPELÉE : c'est
-                    // le cadre qu'elle va occuper, et les slots au-delà
-                    // des arguments sont mis à zéro par le moteur.
+                    // nslots is arguments plus locals of the CALLEE: the
+                    // frame it will occupy. The engine zeroes the slots
+                    // past the arguments.
                     let mut line = format!(
                         "  CALLF __fn{}_{} {}",
                         n,
@@ -1372,9 +1367,9 @@ impl<'a> EventCompiler<'a> {
                     }
                     self.used_fns[n] = true;
                     out.push(line);
-                    // « ranger le resultat » : sucre pour CALLF + VAROP,
-                    // le cas courant et celui qu'on ne veut pas faire
-                    // ecrire a la main dans l'editeur
+                    // "store the result" is sugar for CALLF + VAROP — the
+                    // common case, and the one we do not want anyone
+                    // writing by hand in the editor
                     if let Some(dst) = cmd["dst"].as_u64() {
                         if !returns {
                             bail!(
@@ -1389,7 +1384,7 @@ impl<'a> EventCompiler<'a> {
                         out.push(format!("  VAROP {} = ret 0", dst));
                     }
                 }
-                // F1 — rendre une valeur et sortir de la fonction
+                // Return a value and leave the function
                 "ret_fn" => {
                     match self.cur_fn {
                         None => bail!(
@@ -1412,8 +1407,8 @@ impl<'a> EventCompiler<'a> {
                 "route" => {
                     // {"c":"route","event":-1|n,"repeat":b,"skip":b,
                     //  "steps":[{"s":"up"}|{"s":"wait","n":2}...]}
-                    // event -1 = « cet event » — résolu par compile_scene
-                    // via self_actor (index d'entrée de la page en cours).
+                    // event -1 means "this event", resolved by
+                    // compile_scene through self_actor — the entry index
                     let target = match cmd["event"].as_i64() {
                         None | Some(-1) => "self".to_string(),
                         Some(n) if (0..24).contains(&n) => n.to_string(),
@@ -1434,9 +1429,9 @@ impl<'a> EventCompiler<'a> {
                         toks.join(" ")
                     ));
                 }
-                // v0.15 — positions scriptées (mémoriser/rappeler RM2003)
+                // Scripted positions (RM2003 memorise/recall)
                 "hero_loc" => {
-                    // écrit scène/X/Y du héros dans trois variables 16-bit
+                    // writes the hero's scene/X/Y into three 16-bit variables
                     let vs = Self::idx_field(cmd, "vs", 256)?;
                     let vx = Self::idx_field(cmd, "vx", 256)?;
                     let vy = Self::idx_field(cmd, "vy", 256)?;
@@ -1503,15 +1498,15 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
-    /// Compile les events d'une scène : lignes d'asm à AJOUTER au script et
-    /// acteurs à AJOUTER à la table (le binaire reste le format v0.10).
-    /// v0.10 : un event = 1..N PAGES — chaque page devient une entrée acteur
-    /// consécutive (flag CONT sur les pages 2+) avec sa condition, son
-    /// apparence, son déclencheur et son bytecode. Un event sans "pages"
-    /// = une page implicite formée de ses champs directs.
-    /// v0.16 : renvoie AUSSI la ligne CETAB (table des common events auto)
-    /// que l'appelant doit placer en PREMIÈRE ligne du script assemblé —
-    /// le moteur lit cette table à l'offset 0 du bloc scripts.
+    /// Compiles a scene's events: assembly lines to APPEND to the script
+    /// and actors to APPEND to the table. The binary stays the v0.10
+    /// format. An event is 1..N PAGES; each page becomes a consecutive
+    /// actor entry (CONT flag on pages 2+) with its condition,
+    /// appearance, trigger and bytecode. An event with no "pages" is
+    /// one implicit page made of its direct fields.
+    /// ALSO returns the CETAB line (the auto common event table) that
+    /// the caller must place FIRST in the assembled script — the engine
+    /// reads it at offset 0 of the script block.
     pub fn compile_scene(
         &mut self,
         scene_name: &str,
@@ -1539,16 +1534,15 @@ impl<'a> EventCompiler<'a> {
         self.cur_scene = scene_name.to_string();
         self.used_commons = vec![false; commons.len()];
         self.used_fns = vec![false; functions.len()];
-        // F1 : les signatures d'abord — un event de carte peut appeler
-        // une fonction definie plus loin dans la liste, et la
-        // verification du nombre d'arguments ne peut pas attendre
+        // Signatures first: a map event may call a function defined later
+        // in the list, and the argument-count check cannot wait.
         self.fn_sigs = functions
             .iter()
             .map(|f| (f.params.len(), f.locals.len(), f.returns))
             .collect();
-        // F1-c : un projet du format precedent porte encore ses
-        // parametres sur un common event. Le refuser franchement plutot
-        // que de compiler une fonction amputee de ses entrees.
+        // A project in the previous format still carries its parameters
+        // on a common event. Refuse it plainly rather than compile a
+        // function stripped of its inputs.
         for (k, ce) in commons.iter().enumerate() {
             if !ce.params.is_empty() {
                 bail!(
@@ -1571,8 +1565,8 @@ impl<'a> EventCompiler<'a> {
         self.animations = animations.to_vec();
         self.screens = screens.to_vec();
         for (i, ev) in events.iter().enumerate() {
-            // Vue « pages » uniforme : (condition, trigger, sprite, dir,
-            // entry, commands) par page
+            // Uniform "pages" view: (condition, trigger, sprite, dir,
+            // entry, commands) per page
             #[allow(clippy::type_complexity)]
             let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8, Option<u16>)> =
                 if ev.pages.is_empty() {
@@ -1610,7 +1604,7 @@ impl<'a> EventCompiler<'a> {
                         scene_name, ev.name, k + 1
                     );
                 }
-                // Condition de page (spec §1.3 v0.10)
+                // Page condition (spec §1.3 v0.10)
                 let (cond_type, cond_idx, cond_val) = match cond {
                     None | Some(Value::Null) => (0u8, 0u16, 0u16),
                     Some(c) => {
@@ -1644,10 +1638,10 @@ impl<'a> EventCompiler<'a> {
                         format!("event « {} » page {} de la scene '{}'",
                                 ev.name, k + 1, scene_name)
                     })?;
-                    // « self » -> index d'entrée de CETTE page (le n° de
-                    // slot acteur, pas le n° d'event : les pages comptent).
-                    // ROUTE/SETPOS/SWAPPOS peuvent viser « cet event » ;
-                    // aucun autre token de ces lignes ne vaut « self ».
+                    // "self" is the entry index of THIS page — the actor
+                    // slot number, not the event number, since pages
+                    // count. ROUTE/SETPOS/SWAPPOS may target "this
+                    // event"; no other token on those lines can be self.
                     let self_idx = format!(" {}", actors.len());
                     for line in asm.iter_mut().skip(first) {
                         if line.starts_with("  ROUTE self ")
@@ -1674,8 +1668,8 @@ impl<'a> EventCompiler<'a> {
                         ev.name, k + 1, other
                     ),
                 };
-                // Route custom (v0.14) : blob [flags][freq][len][pas...]
-                // émis en QUEUE d'asm (jamais exécuté comme du code)
+                // Custom route: a [flags][freq][len][steps...] blob
+                // emitted at the TAIL of the asm, never executed as code
                 let route_label = if move_type == 4 {
                     let mr = mroute.as_ref().filter(|v| !v.is_null()).with_context(|| {
                         format!(
@@ -1725,10 +1719,10 @@ impl<'a> EventCompiler<'a> {
                     kind: kind.to_string(),
                     x: ev.x,
                     y: ev.y,
-                    // 255 = invisible (spec §1.3 v0.8) — une apparence est
-                    // permise sur TOUT declencheur (coffre visible au contact).
-                    // T4 : apparence TILE -> bloc de sprite VIRTUEL (compose
-                    // par datagen depuis la couche haute du tileset)
+                    // 255 is invisible (spec §1.3 v0.8). An appearance is
+                    // allowed on ANY trigger — a chest visible on contact.
+                    // A TILE appearance becomes a VIRTUAL sprite block,
+                    // composed by datagen from the tileset's upper layer.
                     sprite: match tile {
                         Some(t) => {
                             let key = (scene_tileset.to_string(), *t);
@@ -1767,18 +1761,18 @@ impl<'a> EventCompiler<'a> {
         }
         asm.extend(tail);
 
-        // Common events (v0.16) : les AUTO sont toujours inclus (entrée de
-        // table CETAB), puis les corps référencés — transitivement, un
-        // common peut en appeler un autre — sont émis une fois chacun.
+        // AUTO common events are always included (a CETAB entry), then
+        // the referenced bodies — transitively, since one common event
+        // may call another — are emitted once each.
         let mut cetab = "CETAB".to_string();
         for (k, ce) in commons.iter().enumerate() {
             match ce.trigger.as_str() {
                 "none" => {}
                 "auto" | "parallel" => {
-                    // switch optionnel (case decochee = toujours actif,
-                    // comme RM2003) — un autorun sans switch gele le jeu
-                    // pour toujours : c'est un choix d'auteur (cinematique
-                    // finale), pas une erreur
+                    // The switch is optional (box unchecked means always
+                    // active, as in RM2003). An autorun with no switch
+                    // freezes the game forever: that is an author's
+                    // choice — a final cutscene — not an error.
                     let sw = match ce.switch {
                         None => "-".to_string(),
                         Some(s) if s < 512 => s.to_string(),
@@ -1789,7 +1783,7 @@ impl<'a> EventCompiler<'a> {
                             s
                         ),
                     };
-                    // un parallel tourne en tache de fond : pas d'UI dedans
+                    // a parallel runs in the background: no UI inside it
                     if ce.trigger == "parallel" {
                         Self::check_no_ui(commons, functions, k)?;
                     }
@@ -1811,10 +1805,10 @@ impl<'a> EventCompiler<'a> {
                 ),
             }
         }
-        // Les corps referencés sont émis une fois chacun, et la boucle
-        // alterne entre les deux listes : un common event peut appeler
-        // une fonction, une fonction peut appeler un common event, et
-        // chacun peut en marquer un nouveau au moment où on le compile.
+        // Referenced bodies are emitted once each, and the loop alternates
+        // between the two lists: a common event may call a function, a
+        // function may call a common event, and either can mark a new one
+        // while it is being compiled.
         let mut em_ce = vec![false; commons.len()];
         let mut em_fn = vec![false; functions.len()];
         loop {
@@ -1834,7 +1828,7 @@ impl<'a> EventCompiler<'a> {
             {
                 em_fn[k] = true;
                 asm.push(format!("__fn{}_{}:", k, scene_name));
-                // F1 : c'est ici, et seulement ici, que « param » a un sens
+                // This is where, and only where, "param" means something
                 self.cur_fn = Some((
                 functions[k].params.len(),
                 functions[k].locals.len(),
@@ -1845,9 +1839,9 @@ impl<'a> EventCompiler<'a> {
                 r.with_context(|| {
                     format!("fonction {} « {} »", k + 1, functions[k].name)
                 })?;
-                // RET depile aussi le cadre : une fonction qui tombe en
-                // bout de corps sans « Retourner » ne rend rien, mais
-                // rend bien ses slots
+                // RET also pops the frame: a function that falls off the
+                // end of its body without a "return" yields nothing, but
+                // does give its slots back
                 asm.push("  RET".to_string());
                 continue;
             }
