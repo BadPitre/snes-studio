@@ -1,25 +1,25 @@
-// Fenêtre « Apparence » de l'Event Editor — calquée sur le dialogue
-// Graphic de RPG Maker 2003 : liste des charsets à gauche, aperçu du
-// bloc sélectionné à droite (les 4 directions, clic = choisir), radios
-// Direction. « (invisible) » en tête de liste pour les events sans
-// sprite (déclencheurs purs).
+// The Event Editor's "Apparence" window — modelled on RPG Maker 2003's
+// Graphic dialogue: the charset list on the left, a preview of the
+// selected block on the right (the 4 directions, click to choose),
+// Direction radios. "(invisible)" heads the list for events with no
+// sprite (pure triggers).
 
 import { useEffect, useRef, useState } from "react";
 import type { Direction } from "../types";
 import { DIRECTIONS } from "../types";
 
 interface Props {
-  sprites: ImageBitmap | null; // feuille du projet (bande 16x24)
+  sprites: ImageBitmap | null; // the project's sheet (16x24 strip)
   blockCount: number;
   blockNames: string[];
-  usedBlocks: number[]; // blocs déjà affichés par la scène (budget 5)
-  sprite: number; // sélection initiale (-1 = invisible)
+  usedBlocks: number[]; // blocks already shown by the scene (budget 5)
+  sprite: number; // initial selection (-1 = invisible)
   dir: Direction;
-  // T4 — apparence TILE : chipset de la scène + ids de la section
-  // couche haute (upper_start du sidecar) ; absent = pas d'entrée Tileset
+  // T4 — TILE appearance: the scene's chipset + the ids of the upper
+  // layer section (upper_start in the sidecar); absent = no Tileset entry
   tileset?: ImageBitmap | null;
   upperCells?: number[];
-  tile?: number; // sélection initiale (exclusif avec sprite)
+  tile?: number; // initial selection (exclusive with sprite)
   onOk: (sprite: number, dir: Direction, tile?: number) => void;
   onClose: () => void;
 }
@@ -34,16 +34,16 @@ const DIR_LABELS: Record<Direction, string> = {
 export default function GraphicPickerModal(props: Props) {
   const [sprite, setSprite] = useState(props.sprite);
   const [dir, setDir] = useState<Direction>(props.dir);
-  // undefined = mode charset ; sinon id de la tile choisie (mode tileset)
+  // undefined = charset mode; otherwise the chosen tile id (tileset mode)
   const [tile, setTile] = useState<number | undefined>(props.tile);
   const [tsMode, setTsMode] = useState(props.tile !== undefined);
   const cells = props.upperCells ?? [];
   const ref = useRef<HTMLCanvasElement>(null);
   const tsRef = useRef<HTMLCanvasElement>(null);
   const TCOLS = 8;
-  const TCELL = 36; // tile 16x16 x2 + marge
+  const TCELL = 36; // a 16x16 tile x2 + margin
 
-  // grille des tiles de la couche haute (mode tileset)
+  // grid of the upper layer's tiles (tileset mode)
   useEffect(() => {
     const cv = tsRef.current;
     if (!cv || !tsMode || !props.tileset) return;
@@ -67,7 +67,7 @@ export default function GraphicPickerModal(props: Props) {
     });
   }, [tsMode, tile, props.tileset, cells]);
 
-  const CELL_W = 72; // case d'une direction (frame 16x24 à l'échelle 3)
+  const CELL_W = 72; // cell of one direction (a 16x24 frame at scale 3)
   const CELL_H = 92;
 
   useEffect(() => {
@@ -75,7 +75,7 @@ export default function GraphicPickerModal(props: Props) {
     if (!cv || tsMode) return;
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = "#3a7d44"; // fond herbe, comme la preview RM2003
+    ctx.fillStyle = "#3a7d44"; // grass background, like the RM2003 preview
     ctx.fillRect(0, 0, cv.width, cv.height);
     if (!props.sprites || sprite < 0) {
       ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -87,7 +87,7 @@ export default function GraphicPickerModal(props: Props) {
       return;
     }
     DIRECTIONS.forEach((d, i) => {
-      const f = sprite * 12 + i * 3; // frame de repos de la direction
+      const f = sprite * 12 + i * 3; // idle frame of the direction
       const x = i * CELL_W;
       ctx.drawImage(props.sprites!, f * 16, 0, 16, 24, x + 12, 10, 48, 72);
       if (d === dir) {

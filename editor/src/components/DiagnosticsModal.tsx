@@ -1,7 +1,7 @@
-// Fenêtre de diagnostic du projet (Tools → Vérifier le projet) : état des
-// données du jeu et de la ROM — statistiques, problèmes bloquants,
-// avertissements, et le verdict réel de datagen (tailles des banks,
-// compression, warnings de génération).
+// Project diagnostics window (Tools > Vérifier le projet): the state of
+// the game data and of the ROM — statistics, blocking problems,
+// warnings, and datagen's real verdict (bank sizes, compression,
+// generation warnings).
 
 import type { Diag } from "../diagnostics";
 import type { ProjectData } from "../types";
@@ -11,19 +11,19 @@ export interface DatagenReport {
   running: boolean;
   ok?: boolean;
   scenesBytes?: number;
-  scenesCap?: number; // capacité du pool multi-bank (M1)
+  scenesCap?: number; // capacity of the multi-bank pool (M1)
   textsBytes?: number;
   textsCap?: number;
-  compression: string[]; // lignes « grilles : … » / « textes : … »
-  warnings: string[]; // lignes « attention : … »
-  errorTail?: string; // sortie en cas d'échec
-  romBytes?: number; // taille du dernier ROM compilé, si présent
+  compression: string[]; // "grilles : …" / "textes : …" lines
+  warnings: string[]; // "attention : …" lines
+  errorTail?: string; // output on failure
+  romBytes?: number; // size of the last compiled ROM, when present
 }
 
 interface Props {
   data: ProjectData;
   diags: Diag[];
-  report: DatagenReport | null; // null = datagen indisponible (navigateur)
+  report: DatagenReport | null; // null = datagen unavailable (browser)
   onClose: () => void;
 }
 

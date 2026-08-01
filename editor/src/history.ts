@@ -1,5 +1,5 @@
-// Undo/redo : pile de snapshots du projet (structures immuables → les
-// snapshots ne coûtent que des références partagées).
+// Undo/redo: a stack of project snapshots (immutable structures -> the
+// snapshots only cost shared references).
 
 import { useCallback, useRef } from "react";
 import type { ProjectData } from "./types";
@@ -10,7 +10,7 @@ export function useHistory() {
   const past = useRef<ProjectData[]>([]);
   const future = useRef<ProjectData[]>([]);
 
-  // à appeler AVANT chaque mutation, avec l'état courant
+  // to be called BEFORE every mutation, with the current state
   const record = useCallback((current: ProjectData) => {
     past.current.push(current);
     if (past.current.length > MAX_HISTORY) past.current.shift();

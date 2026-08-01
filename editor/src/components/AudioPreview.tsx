@@ -1,19 +1,19 @@
-// AudioPreview (B7) — bouton play/pause pour écouter un son WAV ou une
-// musique IT depuis l'éditeur (Database, Gestionnaire de ressources).
-// Un seul aperçu à la fois : lancer un nouveau son coupe le précédent.
+// AudioPreview (B7) — a play/pause button to listen to a WAV sound or an
+// IT module from the editor (Database, resource manager).
+// One preview at a time: starting a new sound cuts the previous one.
 //
-// WAV : HTMLAudioElement sur un blob. IT : worklet libopenmpt (fichiers
-// VENDORISÉS dans public/worklets/, projet chiptune3 — MIT, voir
-// LICENSE-chiptune3) piloté en direct par messages : l'aperçu donne le
-// rendu libopenmpt, fidèle au module source (le rendu SNES passe par
-// snesmod et diffère un peu).
+// WAV: an HTMLAudioElement on a blob. IT: a libopenmpt worklet (files
+// VENDORED in public/worklets/, from the chiptune3 project — MIT, see
+// LICENSE-chiptune3) driven directly by messages: the preview gives the
+// libopenmpt rendering, faithful to the source module (the SNES
+// rendering goes through snesmod and differs a little).
 
 import { useEffect, useState } from "react";
 import { readBinaryFile } from "../io";
 
 type State = "off" | "loading" | "playing" | "paused";
 
-// ---- singleton : un seul lecteur, partagé par tous les boutons --------
+// ---- singleton: a single player, shared by every button --------------
 let wav: HTMLAudioElement | null = null;
 let itCtx: AudioContext | null = null;
 let itNode: AudioWorkletNode | null = null;
@@ -67,7 +67,7 @@ async function start(key: string, path: string, root: string) {
   stopPreview();
   setState(key, "loading");
   const bytes = await readBinaryFile(`${root}/${path}`);
-  if (curKey !== key) return; // un autre aperçu a pris la main
+  if (curKey !== key) return; // another preview took over
   if (path.toLowerCase().endsWith(".wav")) {
     const url = URL.createObjectURL(
       new Blob([bytes.buffer as ArrayBuffer], { type: "audio/wav" })
@@ -87,8 +87,8 @@ async function start(key: string, path: string, root: string) {
   }
 }
 
-// Joue un son une fois, sans bouton — la LECTURE d'une animation (A1-c)
-// déclenche les sons de ses frames au fil du playhead.
+// Plays a sound once, without a button — PLAYING an animation (A1-c)
+// triggers its frames' sounds as the playhead goes.
 export function previewSound(path: string, root: string) {
   void start(path, path, root).catch(() => setState(null, "off"));
 }
@@ -98,7 +98,7 @@ function toggle(key: string, path: string, root: string) {
     void start(key, path, root).catch(() => setState(null, "off"));
     return;
   }
-  // même ressource : play/pause
+  // same resource: play/pause
   if (curState === "playing") {
     if (wav) wav.pause();
     else if (itNode) itNode.port.postMessage({ cmd: "pause" });
@@ -110,10 +110,10 @@ function toggle(key: string, path: string, root: string) {
   }
 }
 
-// ---- le bouton -------------------------------------------------------
+// ---- the button ------------------------------------------------------
 interface Props {
-  path: string; // chemin projet ("assets/sounds/x.wav" | "assets/music/x.it")
-  root: string; // racine du projet
+  path: string; // project path ("assets/sounds/x.wav" | "assets/music/x.it")
+  root: string; // the project root
   title?: string;
 }
 
@@ -135,7 +135,7 @@ export default function AudioPreviewButton(props: Props) {
       className="browse"
       title={props.title ?? (mine && curState === "playing" ? "Pause" : "Écouter")}
       onClick={(e) => {
-        e.stopPropagation(); // ne pas sélectionner la ligne derrière
+        e.stopPropagation(); // do not select the row behind
         toggle(key, props.path, props.root);
       }}
     >

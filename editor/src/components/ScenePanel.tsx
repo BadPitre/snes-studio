@@ -1,6 +1,6 @@
-// Onglet « Scène » : paramètres de la scène courante — tileset (choix,
-// passabilité) et redimensionnement. Les imports vivent dans
-// Tools → Tilesets… (T1) et le Gestionnaire de ressources.
+// "Scène" tab: settings of the current scene — tileset (choice,
+// passability) and resizing. The imports live in Tools > Tilesets… (T1)
+// and in the resource manager.
 
 import { useEffect, useState } from "react";
 import type { Scene } from "../types";
@@ -8,9 +8,9 @@ import { MIN_H, MIN_W } from "../types";
 
 interface Props {
   scene: Scene;
-  tilesetNames: string[]; // stems, ordre = tileset_id
-  current: string; // stem du tileset de la scène
-  musicNames: string[]; // stems des modules du projet
+  tilesetNames: string[]; // stems, order = tileset_id
+  current: string; // stem of the scene's tileset
+  musicNames: string[]; // stems of the project's modules
   passMode: boolean;
   onSelectTileset: (stem: string) => void;
   onSelectMusic: (stem: string | undefined) => void;
@@ -23,13 +23,13 @@ export default function ScenePanel(props: Props) {
   const [width, setWidth] = useState(scene.width);
   const [height, setHeight] = useState(scene.height);
 
-  // resynchronise les champs quand on change de scène (ou après un resize)
+  // resyncs the fields when the scene changes (or after a resize)
   useEffect(() => {
     setWidth(scene.width);
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
 
-  // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
+  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
   const cellsOk = width * height <= 8192;
   const sizeOk =
     width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 && cellsOk;

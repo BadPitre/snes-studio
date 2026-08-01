@@ -1,7 +1,7 @@
-// Vérifications statiques du projet (fenêtre de diagnostic) : tout ce que
-// datagen refusera ou qui cassera à la génération, détecté côté éditeur
-// avec des messages localisés. La vérité finale reste datagen (lancé par
-// la fenêtre) — ces contrôles donnent le « où » lisible.
+// Static checks on the project (the diagnostics window): everything
+// datagen will refuse or that will break at generation time, caught on
+// the editor side with localised messages. datagen stays the final
+// truth (the window runs it) — these checks give the readable "where".
 
 import type { ProjectData, Scene } from "./types";
 import { MIN_H, MIN_W, SCENE_SPRITE_BLOCKS_MAX, animFrameCells, sceneSpriteBlocks } from "./types";
@@ -9,11 +9,11 @@ import { scriptLabels } from "./state";
 
 export interface Diag {
   level: "error" | "warn";
-  where: string; // scène ou domaine
+  where: string; // scene or domain
   msg: string;
 }
 
-const MAX_CELLS = 8192; // budget WRAM de décompression (spec §1.6)
+const MAX_CELLS = 8192; // WRAM decompression budget (spec §1.6)
 
 function checkScene(
   name: string,
@@ -51,7 +51,7 @@ function checkScene(
       err(`${who} : label « ${e.entry} » absent du script`);
     if (e.trigger === "action" && !e.commands.length && !e.entry)
       warn(`${who} sans commandes (il ne dira rien)`);
-    // textes des commandes : non-ASCII refuse par datagen
+    // command texts: non-ASCII is refused by datagen
     const scan = (cmds: import("./types").Command[]) => {
       for (const cmd of cmds) {
         if (cmd.c === "msg" && cmd.text_ref !== undefined) {
@@ -60,7 +60,7 @@ function checkScene(
         } else if (cmd.c === "msg") {
           if (![...cmd.text].every((ch) => ch >= " " && ch <= "~"))
             err(`${who} : message « ${cmd.text.slice(0, 24)}… » avec accents (non supportes en v0)`);
-          // codes speciaux (T2) : memes regles que datagen
+          // special codes (T2): the same rules as datagen
           const bad = cmd.text.match(/\\(?!v\[\d+\]|s\[\d+\]|[.|!^><\\])/);
           if (bad)
             err(`${who} : code « \\${cmd.text[(bad.index ?? 0) + 1] ?? ""} » inconnu (codes : \\v[n] \\s[n] \\. \\| \\! \\^ \\> \\< \\\\)`);
@@ -86,7 +86,7 @@ function checkScene(
       err(`warp #${i} : arrivée (${w.tx},${w.ty}) hors de « ${w.to} »`);
   });
 
-  // Références des scripts : textes (MSG/CHOICE) et scènes (WARP)
+  // Script references: texts (MSG/CHOICE) and scenes (WARP)
   for (const raw of sc.script) {
     const line = raw.split(";")[0].trim();
     if (!line || line.endsWith(":")) continue;
@@ -116,7 +116,7 @@ export function checkProject(data: ProjectData, blockCount: number): Diag[] {
       });
   }
 
-  // Animations (A1) : ce que datagen refusera, avec le « où » lisible
+  // Animations (A1): what datagen will refuse, with the readable "where"
   const vigStems = new Set(
     (data.project.vignettes ?? []).map((p) => (p.split(/[\\/]/).pop() ?? p).replace(/\.[^.]+$/, ""))
   );

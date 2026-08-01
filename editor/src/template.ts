@@ -1,6 +1,6 @@
-// Gabarit de nouveau projet : assets de démarrage embarqués (tileset 6
-// tiles, héros + villageois 16x24, fonte de la textbox — repris de demo/)
-// et construction du projet minimal sur disque.
+// New-project template: starter assets embedded (a 6-tile tileset, a
+// hero and a villager in 16x24, the textbox font — taken from demo/) and
+// the construction of the minimal project on disk.
 
 import { mkdir } from "@tauri-apps/plugin-fs";
 import type { ProjectData } from "./types";
@@ -18,9 +18,9 @@ function bytes(b64: string): Uint8Array {
   return out;
 }
 
-// Crée un projet minimal dans `root` (dossier vide) : une scène 30x20 avec
-// bordure d'eau, le tileset/les personnages/la fonte de démarrage. Le nom
-// du projet est le nom du dossier.
+// Creates a minimal project in `root` (an empty folder): a 30x20 scene
+// with a water border, the starter tileset/characters/font. The project's
+// name is the folder's name.
 export async function scaffoldProject(root: string): Promise<void> {
   const name = root.split(/[\\/]/).pop() || "projet";
   await mkdir(`${root}/scenes`, { recursive: true });

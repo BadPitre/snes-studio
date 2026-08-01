@@ -1,14 +1,14 @@
-// Import d'un charset RPG Maker 2003 : aperçu de la feuille (288x256 =
-// 8 personnages, ou 72x128 = un seul), choix du personnage au clic, du
-// bloc de destination (existant ou nouveau) et du nom du personnage.
+// RPG Maker 2003 charset import: a preview of the sheet (288x256 = 8
+// characters, or 72x128 = a single one), the character chosen by click,
+// the destination block (existing or new) and the character's name.
 
 import { useEffect, useRef, useState } from "react";
 import { PROJECT_SPRITE_BLOCKS_MAX } from "../types";
 
 interface Props {
-  bitmap: ImageBitmap; // 288x256 ou 72x128 (déjà validé)
-  blockCount: number; // blocs existants dans la feuille de sprites
-  blockNames: string[]; // noms affichés (index = bloc)
+  bitmap: ImageBitmap; // 288x256 or 72x128 (already validated)
+  blockCount: number; // existing blocks in the sprite sheet
+  blockNames: string[]; // displayed names (index = block)
   defaultBloc: number;
   onImport: (perso: number, bloc: number, name: string) => void;
   onClose: () => void;
@@ -16,12 +16,12 @@ interface Props {
 
 export default function CharsetImportModal(props: Props) {
   const { bitmap, blockCount, blockNames, onImport, onClose } = props;
-  const full = bitmap.width === 288; // sinon : un personnage seul
+  const full = bitmap.width === 288; // otherwise: a single character
   const [perso, setPerso] = useState(0);
   const [bloc, setBloc] = useState(props.defaultBloc);
   const [name, setName] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // destinations : blocs existants + « nouveau bloc » en fin de feuille
+  // destinations: existing blocks + "a new block" at the end of the sheet
   const choices = Math.min(blockCount + 1, PROJECT_SPRITE_BLOCKS_MAX);
 
   useEffect(() => {

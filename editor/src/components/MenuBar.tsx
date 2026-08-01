@@ -1,17 +1,17 @@
-// Barre de menus façon RPG Maker 2003 : menus déroulants (clic pour
-// ouvrir, survol pour passer de l'un à l'autre), items avec raccourci
-// affiché, séparateurs.
+// RPG Maker 2003 style menu bar: dropdowns (click to open, hover to move
+// from one to the next), items with their shortcut displayed,
+// separators.
 
 import { useState } from "react";
 
 export interface MenuItem {
   label?: string;
-  hint?: string; // raccourci affiché à droite (ex. « Ctrl+Z »)
-  tip?: string; // tooltip (title) décrivant ce que fait l'item
+  hint?: string; // shortcut shown on the right (e.g. "Ctrl+Z")
+  tip?: string; // tooltip (title) describing what the item does
   action?: () => void;
   disabled?: boolean;
   sep?: boolean;
-  sub?: MenuItem[]; // sous-menu (flyout au survol, ex. Tools → UI)
+  sub?: MenuItem[]; // submenu (flyout on hover, e.g. Tools > UI)
 }
 
 export interface Menu {
@@ -21,7 +21,7 @@ export interface Menu {
 
 export default function MenuBar({ menus }: { menus: Menu[] }) {
   const [open, setOpen] = useState<number | null>(null);
-  const [sub, setSub] = useState<number | null>(null); // item au flyout ouvert
+  const [sub, setSub] = useState<number | null>(null); // item whose flyout is open
 
   return (
     <div className="menubar">

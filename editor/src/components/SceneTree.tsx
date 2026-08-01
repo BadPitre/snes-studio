@@ -1,6 +1,6 @@
-// Arborescence des scènes façon RPG Maker 2003 : racine = projet,
-// scènes imbricables (champ parent, purement organisationnel), création
-// sous la ligne sélectionnée, boot ★, réorganisation par glisser-déposer.
+// RPG Maker 2003 style scene tree: the root is the project, scenes can
+// nest (a parent field, purely organisational), creation happens under
+// the selected row, boot ★, reordering by drag and drop.
 
 import { useState } from "react";
 import type { Project, Scene } from "../types";
@@ -19,11 +19,11 @@ interface Props {
 export default function SceneTree(props: Props) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [rootSel, setRootSel] = useState(false);
-  // menu contextuel (clic droit) : target = scène visée, null = racine
+  // context menu (right click): target = the scene aimed at, null = root
   const [ctx, setCtx] = useState<{ x: number; y: number; target: string | null } | null>(
     null
   );
-  // nœuds pliés ("" = racine du projet)
+  // folded nodes ("" = the project's root)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleFold = (n: string) =>
     setCollapsed((s) => {
@@ -34,7 +34,7 @@ export default function SceneTree(props: Props) {
     });
   const names = props.project.scenes;
 
-  // parent effectif : ignoré s'il est inconnu ou auto-référent
+  // effective parent: ignored when unknown or self-referencing
   const parentOf = (n: string): string | null => {
     const p = props.scenes[n]?.parent;
     return p && p !== n && names.includes(p) ? p : null;

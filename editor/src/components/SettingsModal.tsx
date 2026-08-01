@@ -1,5 +1,5 @@
-// Réglages locaux de la machine (stockés en localStorage, pas dans le
-// projet) : bash MSYS2 pour make, émulateur pour le bouton Jouer.
+// Machine-local settings (stored in localStorage, not in the project):
+// the MSYS2 bash for make, the emulator for the Play button.
 
 import { useState } from "react";
 import { pickFile } from "../io";
@@ -7,8 +7,8 @@ import { pickFile } from "../io";
 export interface PlayConfig {
   bash: string;
   emulator: string;
-  /* S6 : « Jouer » compile une ROM de test avec le menu de debug
-     (Start+Select+R en jeu) — jamais appliqué au build cartouche */
+  /* S6: "Jouer" compiles a test ROM with the debug menu (Start+Select+R
+     in game) — never applied to the cartridge build */
   debug: boolean;
 }
 

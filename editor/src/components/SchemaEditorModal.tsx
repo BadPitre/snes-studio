@@ -1,20 +1,20 @@
-// Éditeur de STRUCTURE d'une table de la Database (Phase 10) : la liste
-// des champs et leurs types — l'utilisateur crée ses propres tables sans
-// toucher au TOML. Le résultat est sauvegardé en schemas/<table>.toml,
-// identique à un schéma écrit à la main (dbgen ne voit pas la différence).
+// STRUCTURE editor for a Database table (Phase 10): the list of fields
+// and their types — the user creates their own tables without touching
+// the TOML. The result is saved to schemas/<table>.toml, identical to a
+// hand-written schema (dbgen sees no difference).
 
 import { useState } from "react";
 import type { DbField, DbSchema } from "../db";
 import { fieldSize, isSnake } from "../db";
 
-// les types du SYSTÈME (docs/PLANNING_SYSTEME_DATABASE.md) — pas des
-// tables : la liste des tables cibles des ref: vient des props
+// the SYSTEM's types (docs/PLANNING_SYSTEME_DATABASE.md) — not tables:
+// the list of tables a ref: can target comes from the props
 const NUM_TYPES = ["u8", "u16", "s8", "s16"] as const;
 
 interface Props {
   schema: DbSchema;
-  tableNames: string[]; // cibles possibles des ref: (toutes les tables)
-  // renames : [ancien nom de champ, nouveau] — pour migrer les données
+  tableNames: string[]; // possible targets of the ref: (every table)
+  // renames: [old field name, new] — to migrate the data
   onOk: (schema: DbSchema, renames: [string, string][]) => void;
   onClose: () => void;
 }
@@ -22,7 +22,7 @@ interface Props {
 export default function SchemaEditorModal(props: Props) {
   const [draft, setDraft] = useState<DbSchema>(() => structuredClone(props.schema));
   const [sel, setSel] = useState(0);
-  // suit les renommages de champs (index d'origine → nom d'origine)
+  // follows the field renames (original index -> original name)
   const [origNames] = useState<string[]>(() => props.schema.fields.map((f) => f.name));
   const [origOf, setOrigOf] = useState<(number | null)[]>(() =>
     props.schema.fields.map((_, i) => i)
@@ -64,7 +64,7 @@ export default function SchemaEditorModal(props: Props) {
     commit();
   }
 
-  // changer de type : purge les options qui n'ont plus de sens
+  // changing type: purges the options that no longer make sense
   function setType(ty: string) {
     const f = cur!;
     f.type = ty;
