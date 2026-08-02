@@ -252,6 +252,15 @@ pub struct Scene {
     /// every existing project, so nothing changes for them.
     #[serde(default)]
     pub kind: Option<String>,
+    /// World map CAMERA ANGLE: the screen line the ground vanishes into,
+    /// and the one drawn 1:1 where the hero stands. Their difference is
+    /// the whole tilt — a large gap gives a gentle, almost top-down view,
+    /// a small one a low raking one. Absent means the engine's default
+    /// (56 / 176). Ignored on an ordinary scene.
+    #[serde(default)]
+    pub m7_horizon: Option<u8>,
+    #[serde(default)]
+    pub m7_anchor: Option<u8>,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
@@ -490,6 +499,47 @@ impl Scene {
     /// True for a Mode 7 world map.
     pub fn is_worldmap(&self) -> bool {
         self.kind.as_deref() == Some("worldmap")
+    }
+
+    /// The world map's camera angle, validated. REFUSED here rather than
+    /// clamped: the engine clamps because a script can reach it at run
+    /// time, but a number written in a project file is something the
+    /// author can still fix, so say so instead of silently drawing
+    /// something else.
+    ///
+    /// The 16-line floor on the gap is where the vertical scale leaves
+    /// its 8.8 register — below it the whole screen is sky.
+    pub fn m7_view(&self) -> anyhow::Result<(u8, u8)> {
+        use anyhow::bail;
+        let horizon = self.m7_horizon.unwrap_or(56);
+        let anchor = self.m7_anchor.unwrap_or(176);
+        if horizon > 180 {
+            bail!(
+                "carte du monde '{}' : horizon {} — la ligne d'horizon doit \
+                 rester entre 0 et 180 (l'ecran fait 224 lignes)",
+                self.name,
+                horizon
+            );
+        }
+        if anchor > 216 {
+            bail!(
+                "carte du monde '{}' : ancrage {} — la ligne d'ancrage doit \
+                 rester entre 0 et 216 (le heros y tient debout)",
+                self.name,
+                anchor
+            );
+        }
+        if anchor < horizon + 16 {
+            bail!(
+                "carte du monde '{}' : ancrage {} pour un horizon {} — il faut \
+                 au moins 16 lignes d'ecart, sinon la perspective sort du \
+                 registre et tout l'ecran devient ciel",
+                self.name,
+                anchor,
+                horizon
+            );
+        }
+        Ok((horizon, anchor))
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {

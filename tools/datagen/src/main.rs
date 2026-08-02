@@ -619,7 +619,7 @@ fn main() -> Result<()> {
     // would desynchronise `set_ids` from `scenes`, and every table
     // downstream is indexed by scene position. A world map uses few
     // metatiles, so the waste is small and the alignment is free.
-    let mut worlds: Vec<(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)> = Vec::new();
+    let mut worlds: Vec<WorldMap> = Vec::new();
     for (sci, sc) in scenes.iter().enumerate() {
         if !sc.is_worldmap() {
             continue;
@@ -641,7 +641,16 @@ fn main() -> Result<()> {
              {} motifs 8x8, {} couleurs",
             sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
-        worlds.push((sci, t, blocks.map, sc.width, sc.height));
+        let (horizon, anchor) = sc.m7_view()?;
+        worlds.push(WorldMap {
+            scene: sci,
+            tiles: t,
+            plane: blocks.map,
+            w: sc.width,
+            h: sc.height,
+            horizon,
+            anchor,
+        });
     }
 
     // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
@@ -1584,11 +1593,25 @@ fn project_json_roots(dir: &Path) -> Result<Vec<serde_json::Value>> {
 /// engine expands it through `meta` into the 128x128 tile plane at open.
 /// Storing the expanded plane would be 16 KB per map for nothing, and
 /// the expansion happens once, under force blank, where there is time.
-fn gen_worldmap_files(
-    worlds: &[(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)],
-) -> Vec<(String, String)> {
+/// One compiled world map. A struct rather than a tuple since the camera
+/// angle joined it: five anonymous fields were already one too many.
+struct WorldMap {
+    /// Index in `scenes` — a world map stays an ordinary scene elsewhere.
+    scene: usize,
+    tiles: mode7::Mode7Tileset,
+    plane: Vec<u8>,
+    w: u8,
+    h: u8,
+    /// Camera angle: the screen line the ground vanishes into, and the
+    /// one drawn 1:1 where the hero stands.
+    horizon: u8,
+    anchor: u8,
+}
+
+fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    for (i, (_sci, t, plane, w, h)) in worlds.iter().enumerate() {
+    for (i, wm) in worlds.iter().enumerate() {
+        let (t, plane, w, h) = (&wm.tiles, &wm.plane, wm.w, wm.h);
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str("/* world map: 8bpp patterns, pattern 0 reserved blank */\n");
@@ -1634,14 +1657,18 @@ fn gen_worldmap_files(
     // Which SCENE each map belongs to: the engine looks a scene up here
     // when it loads one, so a world map stays an ordinary scene
     // everywhere else (warps, events, the boot scene).
-    table("const u8 m7w_scene", &|i| worlds[i].0.to_string());
+    table("const u8 m7w_scene", &|i| worlds[i].scene.to_string());
     table("const u8 *const m7w_chars", &|i| format!("m7w{}_chars", i));
     table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
     table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
     table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
     table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
-    table("const u8 m7w_w", &|i| worlds[i].3.to_string());
-    table("const u8 m7w_h", &|i| worlds[i].4.to_string());
+    table("const u8 m7w_w", &|i| worlds[i].w.to_string());
+    table("const u8 m7w_h", &|i| worlds[i].h.to_string());
+    // Camera angle per map — the engine rebuilds its two perspective
+    // tables from these when it opens the plane.
+    table("const u8 m7w_horizon", &|i| worlds[i].horizon.to_string());
+    table("const u8 m7w_anchor", &|i| worlds[i].anchor.to_string());
     files.push(("data_m7world.c".to_string(), s));
     files
 }

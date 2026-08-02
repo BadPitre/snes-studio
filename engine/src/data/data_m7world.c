@@ -15,3 +15,5 @@ const u8 *const m7w_maps[1] = { 0, };
 const u16 *const m7w_pals[1] = { 0, };
 const u8 m7w_w[1] = { 0, };
 const u8 m7w_h[1] = { 0, };
+const u8 m7w_horizon[1] = { 0, };
+const u8 m7w_anchor[1] = { 0, };

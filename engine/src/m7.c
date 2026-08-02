@@ -55,6 +55,8 @@ extern const u8 *const m7w_maps[];
 extern const u16 *const m7w_pals[];
 extern const u8 m7w_w[];
 extern const u8 m7w_h[];
+extern const u8 m7w_horizon[];
+extern const u8 m7w_anchor[];
 
 extern const u8 m7_ramp_count;
 extern const u16 *const m7_ramps[];
@@ -97,9 +99,6 @@ extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
  * double-write registers). Channels 3-6 belong to hdmafx, but its three
  * effects are map ambience and the Mode 7 VBlank branch suspends them.
  */
-#define M7P_HORIZON 56 /* screen line the plane vanishes into */
-#define M7P_ANCHOR 176 /* screen line drawn 1:1 — the hero stands here */
-#define M7P_DA (M7P_ANCHOR - M7P_HORIZON)
 #define M7P_FAR 0x3FFF /* above the horizon: sample far outside the
                           plane so M7SEL's "repeat character 0" gives a
                           clean sky rather than a stretched first row */
@@ -108,12 +107,24 @@ extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 #define M7P_HALF 112
 #define M7P_TAB (2 + M7P_HALF * 4 + 1)
 
+/* THE CAMERA ANGLE, in the only two numbers that describe it: the screen
+   line the ground vanishes into, and the screen line drawn 1:1 — where
+   the hero stands. Their DIFFERENCE is the whole tilt: a large gap makes
+   a gentle, almost top-down view, a small one a low raking one. They are
+   scene data (datagen writes them) and a script can change them, which
+   is what "several camera angles" means here.
+   Not #defines any more: the tables are rebuilt when they change. */
+#define M7P_HORIZON_DEF 56
+#define M7P_ANCHOR_DEF 176
+static u8 pv_horizon = M7P_HORIZON_DEF;
+static u8 pv_anchor = M7P_ANCHOR_DEF;
+static u8 pv_da = M7P_ANCHOR_DEF - M7P_HORIZON_DEF;
 /* First line the plane is allowed to show. Above it the sampled point is
    still INSIDE the plane for the few screen columns near x = 128 — the
    near-horizon lines compress so hard that no finite A pushes them all
    out — and a floating rectangle of map hangs in the sky. Windowing BG1
    off up there settles it for good, and the sky becomes CGRAM 0. */
-#define M7P_SKY (M7P_HORIZON + M7P_DA / 8 + 1)
+static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
 
 /* channels 3, 5 and 6 (7 belongs to the NMI's OAM DMA — see hdmafx.c) */
 #define DMAP3 (*(vuint8 *)0x4330)
@@ -230,6 +241,27 @@ static void m7_place(void)
   REG_M7VOFS = (u8)(vofs >> 8);
 }
 
+/* Sets the camera angle and derives everything that follows from it.
+   CLAMPED rather than refused: a script can reach this, and a world map
+   that stops rendering because a variable held a silly number is worse
+   than one drawn at the nearest sane angle. datagen refuses bad values
+   at build time, where the author can still see them.
+   The 16-line floor on the gap is where D leaves its 8.8 register —
+   below it the whole screen would be sky. */
+static void m7_persp_set(u8 horizon, u8 anchor)
+{
+  if (horizon > 180)
+    horizon = 180;
+  if (anchor > 216)
+    anchor = 216;
+  if (anchor < horizon + 16)
+    anchor = horizon + 16;
+  pv_horizon = horizon;
+  pv_anchor = anchor;
+  pv_da = anchor - horizon;
+  pv_sky = horizon + pv_da / 8 + 1;
+}
+
 /* Builds the two per-scanline tables. Called once, screen off — 224
    divisions here buy zero arithmetic per frame afterwards.
    Everything stays in 16 bits on purpose: tcc-816 has no 32-bit divide
@@ -250,24 +282,24 @@ static void m7_persp_build(void)
   {
     /* two headers to step over, one before each half */
     i = y < M7P_HALF ? 1 + y * 2 : 2 + y * 2;
-    d = y > M7P_HORIZON ? y - M7P_HORIZON : 0;
+    d = y > pv_horizon ? y - pv_horizon : 0;
     /* D = (dA/d)^2 leaves the 8.8 register below d = dA/8. Rather than
        CLAMP those lines — which flattens them into a smeared wedge at the
        join, plainly visible on a capture — treat them as sky: they are
        past the render distance anyway. The horizon then reads as a clean
        edge instead of a crease. */
-    if (y < M7P_SKY)
+    if (y < pv_sky)
     {
       a = M7P_FAR;
       t = M7P_FAR;
     }
     else
     {
-      a = (u16)(((u16)M7P_DA << 8) / d); /* dA/d in 8.8 */
+      a = (u16)(((u16)pv_da << 8) / d); /* dA/d in 8.8 */
       /* (dA/d)^2 = a*dA/d, split so the product never leaves 16 bits */
       q = a / d;
       r = a - q * d;
-      t = q * M7P_DA + (r * M7P_DA) / d;
+      t = q * pv_da + (r * pv_da) / d;
       t = (u16)(0 - t); /* NEGATIVE: far away is UP the map */
     }
     pa_tab[i] = (u8)a;
@@ -278,13 +310,13 @@ static void m7_persp_build(void)
 
   /* Sky band: window 1 covers the whole line, so BG1 is masked and only
      the backdrop shows. Below: an EMPTY window (left > right). */
-  pw_tab[0] = M7P_SKY;
+  pw_tab[0] = pv_sky;
   pw_tab[1] = 0x00; /* WH0 left */
   pw_tab[2] = 0xFF; /* WH1 right */
   pw_tab[3] = 127;  /* a repeat block caps at 127 lines */
   pw_tab[4] = 0x01;
   pw_tab[5] = 0x00;
-  pw_tab[6] = (u8)(224 - M7P_SKY - 127);
+  pw_tab[6] = (u8)(224 - pv_sky - 127);
   pw_tab[7] = 0x01;
   pw_tab[8] = 0x00;
   pw_tab[9] = 0;
@@ -326,9 +358,9 @@ static void m7_persp_hdma(void)
 static void m7_persp_place(void)
 {
   u16 x0 = m7_cx;
-  u16 y0 = m7_cy + M7P_DA;
+  u16 y0 = m7_cy + pv_da;
   u16 hofs = x0 - 128;
-  u16 vofs = y0 - M7P_HORIZON;
+  u16 vofs = y0 - pv_horizon;
 
   REG_M7X = (u8)(x0 & 0xFF);
   REG_M7X = (u8)(x0 >> 8);
@@ -357,7 +389,7 @@ void m7_world_track(void)
   m7_cx = player.x + 8; /* the hero's centre, in plane pixels */
   m7_cy = player.y + 8;
   camera.x = player.x - 120;
-  camera.y = player.y - (M7P_ANCHOR - 16);
+  camera.y = player.y - (u16)(pv_anchor - 16);
 }
 
 static void m7_fade_out(u8 dur)
@@ -528,6 +560,7 @@ u8 m7_world_open(u8 scene_id, u8 dur)
      A and D are the HDMA's from here on — these writes only give the
      first frame something sane before the transfer starts. */
   m7_matrix(M7_SCALE_ONE);
+  m7_persp_set(m7w_horizon[i], m7w_anchor[i]); /* the scene's camera angle */
   REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
   REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
   player_draw_reset(); /* the hide loop above moved the hero's OAM */
@@ -592,6 +625,19 @@ void m7_reset(void)
   vig_hide(1);
   vig_hide(2);
   vig_hide(3);
+}
+
+void m7_view(u8 horizon, u8 anchor)
+{
+  if (!m7_on || !m7_world)
+    return; /* an image screen has no ground to tilt */
+  m7_persp_set(horizon, anchor);
+  m7_persp_build();
+  /* The rebuild runs in the MAIN LOOP, so the HDMA may read the tables
+     while they are half rewritten: the change costs one torn frame. That
+     is deliberate — building them in the VBlank is 224 divisions in a
+     window that measures 37 lines, and a camera angle changes on a
+     dramatic beat, not every frame. */
 }
 
 void m7_update(void)

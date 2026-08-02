@@ -99,6 +99,7 @@ const OP_SETLOC: u8 = 0x3F;
 const OP_M7OPEN: u8 = 0x40;
 const OP_M7ZOOM: u8 = 0x41;
 const OP_M7CLOSE: u8 = 0x42;
+const OP_M7VIEW: u8 = 0x43;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -286,6 +287,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7ZOOM" => 3,
         // M7CLOSE <dur> — close it (internal warp back to the scene)
         "M7CLOSE" => 2,
+        // M7VIEW <horizon> <ancrage> — the world map camera angle
+        "M7VIEW" => 3,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -956,6 +959,22 @@ pub fn assemble(
                 if argc != 1 { bail!("M7CLOSE <duree>"); }
                 code.push(OP_M7CLOSE);
                 code.push(parse_u8(args[0])?);
+            }
+            // M7VIEW <horizon> <ancrage> — the world map's camera angle.
+            // Bounds are the engine's; it clamps rather than refuses, so
+            // this only catches what a human can still fix.
+            "M7VIEW" => {
+                if argc != 2 { bail!("M7VIEW <horizon> <ancrage>"); }
+                let hz = parse_u8(args[0])?;
+                let an = parse_u8(args[1])?;
+                if hz > 180 { bail!("M7VIEW : horizon {} > 180", hz); }
+                if an > 216 { bail!("M7VIEW : ancrage {} > 216", an); }
+                if an < hz + 16 {
+                    bail!("M7VIEW : ancrage {} pour un horizon {} — au moins 16 lignes d'ecart", an, hz);
+                }
+                code.push(OP_M7VIEW);
+                code.push(hz);
+                code.push(an);
             }
             // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
             // menu on a "list" widget of the UI layout; blocking

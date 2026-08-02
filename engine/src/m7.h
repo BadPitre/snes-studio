@@ -53,6 +53,14 @@ u8 m7_world_active(void);
    mode-1 map. */
 void m7_world_track(void);
 
+/* CAMERA ANGLE of the world map, in the only two numbers that describe
+   it: the screen line the ground vanishes into, and the one drawn 1:1
+   where the hero stands. Their difference is the tilt — a large gap is a
+   gentle, almost top-down view, a small one a low raking one. The scene
+   carries its own; this changes it mid-game (opcode M7VIEW). Inert on an
+   image screen, which has no ground to tilt. */
+void m7_view(u8 horizon, u8 anchor);
+
 /* Plays a compiled zoom ramp (datagen turns "from 100% to 150% in 90
    frames" into one 8.8 value per frame). flags bit 0 = loop. A looping
    ramp NEVER blocks a script — as with animations, waiting on it would

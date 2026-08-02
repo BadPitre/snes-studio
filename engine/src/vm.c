@@ -759,6 +759,13 @@ static void vm_step(void)
       vm.wait_timer = 1;
       break;
 
+    case VM_OP_M7VIEW: /* world map camera angle — immediate, no pause:
+                          it rewrites tables, it does not queue a request */
+      var = fetch8(); /* horizon */
+      val = fetch8(); /* anchor */
+      m7_view(var, val);
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
