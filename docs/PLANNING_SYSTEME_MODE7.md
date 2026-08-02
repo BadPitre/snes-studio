@@ -455,10 +455,13 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    declares Mode 7 content, so `gate-datagen.sh` stays byte-identical on
    demo and showcase — the registry becomes unconditional in M7-A2, when
    the engine actually needs to link against it.
-3. **M7-A2** — 🟡 the `m7.c` module (§6) and the three opcodes (§9),
-   plus the composite "Zoom cinematique" command (§8.4) on the datagen
-   side. **Opening and zooming are proved on the emulator; CLOSING is
-   NOT.** See "The close defect" below.
+3. **M7-A2** — ✅ the `m7.c` module (§6) and the three opcodes (§9), plus
+   the composite "Zoom cinematique" command (§8.4) on the datagen side.
+   The full cycle runs on the emulator from a real game project: the
+   screen opens, the ramp scales the image from a quarter of the screen
+   to all of it, the screen closes and the map comes back. Two bugs found
+   on the way are recorded in §11b — both are conventions of this engine
+   that no amount of reading the hardware would have surfaced.
 4. **M7-A3** — the editor: the "Zoom cinématique" command, the presets,
    the auto-fit preview (§8.3-8.5).
 5. **M7-B1** — the Mode 7 tileset resource (§5.1) and the `worldmap`
@@ -471,41 +474,43 @@ Everything here was checked on the emulator. Nothing has run on hardware.
 Each step is deliverable on its own. A is worth having without B; B is
 not worth starting before A has run on hardware.
 
-## 11b. The close defect (M7-A2, open)
+## 11b. The two bugs the close cost, and why they matter
 
-What works, run on a demo project through the snes9x core: the screen
-opens, the image lands centred on the plane framed in black, and the
-compiled ramp scales it — 25 % of the screen lit at 1:1, 77 % at 2x.
-`M7OPEN` and `M7ZOOM` are done.
+Both were found by running the ROM, and both are ENGINE CONVENTIONS
+rather than hardware facts — which is exactly the class of thing a spike
+cannot teach you, because a spike has no engine around it.
 
-What does not: after `M7CLOSE` the screen stays black for ever. The game
-never comes back.
+**1. A deferred opcode must pause the VM for one frame.** `M7OPEN` only
+records a request; the main loop applies it at the end of the iteration.
+Without a pause the VM runs straight on: `M7ZOOM` finds `m7_on` still 0
+and silently drops the ramp, and `M7CLOSE` overwrites `m7_req` before the
+screen has ever opened. Every other deferred opcode in the engine already
+does this — `SHOWPIC`, `STAGEOPEN`, `STAGECLOSE` all set
+`VM_WAIT_TIMER` with `wait_timer = 1`. M7OPEN and M7CLOSE now do too.
 
-What has been ruled out, each by an experiment rather than by reading:
+**2. The internal warp must be told the screen is ALREADY black.**
+`m7_apply` fades to black and forces blank before handing over, so the
+warp's own fade-out has nothing to do — but `warp_close(0)` calls
+`setFadeEffect(FADE_OUT)`, which turns the screen back ON to fade it out.
+For one frame that displays the Mode 7 VRAM read as mode-1 tilemaps:
+garbage, plainly visible on a captured frame. Passing `tr_out = 1`
+(instant) fixes it. The composed screen never hits this because it never
+leaves mode 1, so its stale VRAM still forms a coherent picture.
 
-- **Not the close path failing to run.** A WRAM breadcrumb shows all four
-  stages firing — request, apply, take_close, reset.
-- **Not lost data.** A VRAM dump 120 frames after the close shows every
-  region repopulated: both tilemaps, the shared charset, the OBJ chars
-  and the BG3 font. `scene_load` did its work.
-- **Not the VRAM clear** in `m7_open`. Removing it changes nothing.
-- **Not anything in `m7_open` at all.** With the whole PPU setup skipped,
-  so that opening does nothing whatsoever, the close still ends black.
-- **Not the test project.** The same two-page auto event driving the
-  proven `stage` command instead renders correctly at the same frames.
+The debugging that got there is worth keeping as method. The decisive
+step was not inspection but a CONTROL: driving the same two-page auto
+event with the proven `stage` command instead of `m7`. It rendered
+correctly, which proved the test harness was sound and moved the search
+into the engine. Before that, a bisect had already shown the fault was
+not in `m7_open` at all — with the entire PPU setup skipped, the close
+still ended black — which is what pointed at the opcode sequence rather
+than at Mode 7.
 
-So the fault is in the close-and-internal-warp path itself, and the data
-being intact while the screen is black points at a PPU REGISTER left in a
-state nothing restores. `setMode` versus a raw `BGMODE` write has been
-tried; neither fixes it.
-
-The next things to try, in order: capture the PPU register state from the
-emulator rather than inferring it (the harness dumps VRAM and WRAM only —
-it needs extending), and compare `$2100` frame by frame against the
-`stage` control, which is the closest working path.
-
-Until this is fixed, the Mode 7 screen is a one-way door: usable for an
-intro that leads somewhere else, not for a screen you come back from.
+One caveat that is not a bug: an `auto` event whose script closes a Mode 7
+screen re-fires after the internal warp, because the warp reloads the
+scene and re-runs its triggers. That is the documented behaviour of the
+composed screen too. Guard it with a switch and a second page, as any
+real project would.
 
 ## 12. Gates
 

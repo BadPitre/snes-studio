@@ -733,9 +733,16 @@ static void vm_step(void)
       anim_stop();
       break;
 
-    case VM_OP_M7OPEN: /* Mode 7 screen (M7-A) — deferred to the loop */
+    case VM_OP_M7OPEN: /* Mode 7 screen (M7-A) — deferred to the loop,
+                          1 frame of pause (the SHOWPIC/STAGEOPEN recipe).
+                          WITHOUT the pause the next opcode runs before
+                          m7_apply ever sees the request: M7ZOOM finds
+                          m7_on still 0 and drops the ramp, and M7CLOSE
+                          overwrites m7_req before the screen has opened. */
       var = fetch8();
       m7_request_open(var, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
       break;
 
     case VM_OP_M7ZOOM:
@@ -746,8 +753,10 @@ static void vm_step(void)
         vm.wait_mode = VM_WAIT_M7; /* m7_busy ignores loops */
       break;
 
-    case VM_OP_M7CLOSE:
+    case VM_OP_M7CLOSE: /* closes the screen (internal warp) — 1 frame */
       m7_request_close(fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
       break;
 
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */

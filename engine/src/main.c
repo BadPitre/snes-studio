@@ -290,8 +290,14 @@ int main(void)
          to the current scene. Mode 7 took the whole low half of VRAM, so
          there is nothing to salvage — scene_load rebuilds it all. */
       m7_reset();
+      /* tr_out = 1 (INSTANT): m7_apply has already faded to black and
+         forced blank. A fading tr_out would make warp_close call
+         setFadeEffect, which turns the screen back ON to fade it out —
+         one frame of the Mode 7 VRAM read as mode-1 tilemaps, i.e.
+         garbage, seen on the emulator. The composed screen never hits
+         this because it never leaves mode 1. */
       do_warp(scene_ctx.scene_id, (u8)((player.x + 8) >> 4),
-              (u8)((player.y + 8) >> 4), 0, 0);
+              (u8)((player.y + 8) >> 4), 1, 0);
     }
 
     if (!sysmenu_active())
