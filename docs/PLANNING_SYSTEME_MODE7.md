@@ -649,6 +649,46 @@ value survived exactly one frame and the sky came back black. Anything
 this module asserts over screenfx's registers has to be asserted per
 frame, not once.
 
+### 7.2f An IMAGE sky — the mode switch spike
+
+A picture above the horizon needs a second background layer, and Mode 7
+has none. The way period games did it (Super Mario Kart, Contra III) is
+to **switch the video mode mid-frame**: mode 1 above the horizon, mode 7
+below, through an HDMA on `$2105`.
+
+**A throwaway spike proved it holds in this engine.** Mode 1 with a test
+tilemap on BG2 renders in the top band, the Mode 7 plane below is
+untouched, and the transition line is clean. What the spike settled:
+
+- The HDMA on `$2105` holds the switch. That was the whole unknown.
+- **The channel count does not move.** The BGMODE channel REPLACES the
+  sky window's: above the horizon we are no longer in mode 7, so the
+  plane cannot leak there and there is nothing to mask. Five channels
+  with rotation, as before.
+- **BG1 must be silenced, and transparency is cheaper than a channel.**
+  In mode 1 BG1 draws too, and its scroll registers `$210D`/`$210E` ARE
+  `M7HOFS`/`M7VOFS` — rewritten every frame with plane coordinates, so
+  BG1 would show a wildly shifted copy. Pointing its mode-1 tilemap at a
+  ZEROED region makes it render char 0 everywhere, i.e. nothing. An HDMA
+  on `TM` would also work and would cost the channel we do not have.
+- **VRAM is free where it is needed.** `$6000-$7FFF` (16 KB) holds the
+  BG2 map and the picture map, both meaningless while Mode 7 is up: sky
+  chars at `$6000`, sky tilemap at `$7000`, BG1's blank map at `$7800`.
+- **BG2's scroll registers are free** in Mode 7 (`$210F`/`$2110`), so the
+  sky can pan with the camera — a parallax horizon comes for free.
+
+**The one cost the spike surfaced.** Mode 1's BG2 is 4bpp and indexes
+CGRAM 0-127 — exactly the half the Mode 7 plane uses (§3.4). A sky image
+therefore takes 16 of the plane's colours, not colours of its own. The
+trade is: reserve palette 7 (CGRAM 112-127) for the sky and cap the
+plane at 112 colours when a map has one. Measured for scale: the test
+world map uses 14 colours in total, so 112 is not a real constraint —
+but it IS a format change to the plane converter, and it only applies to
+maps that ask for an image sky.
+
+An image sky and a gradient sky are mutually exclusive by construction:
+the gradient colours the BACKDROP, and BG2 covers it.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
