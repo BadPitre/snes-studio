@@ -221,6 +221,12 @@ int main(void)
 
   setScreenOn();
 
+  /* Booting INTO a world map: the same call do_warp makes, so a project
+     whose START scene is a world map comes up on the plane instead of on
+     the mode-1 scene the lines above have just built. Returns 0 and
+     changes nothing for every ordinary scene. */
+  m7_world_open(scene_ctx.scene_id, 0);
+
   while (1)
   {
     if (vm_active())
