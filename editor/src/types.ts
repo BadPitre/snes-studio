@@ -379,6 +379,10 @@ export type Command =
       horizon?: number;
       anchor?: number;
     }
+  // M7-B4 — turns the world map's plane around the hero. 16 steps of
+  // 22.5 degrees, because the tables are compiled per angle and the
+  // count must be a multiple of 4 (see PLANNING_SYSTEME_MODE7 §7.2d).
+  | { c: "m7_rot"; step: number }
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
@@ -667,6 +671,9 @@ export interface Scene {
    *  Ignored on an ordinary scene. */
   m7_horizon?: number;
   m7_anchor?: number;
+  /** World map ROTATION: opt-in, ~14 KB of ROM for the compiled tables.
+   *  A map that never turns pays nothing. */
+  m7_rotate?: boolean;
   width: number;
   height: number;
   player_start: [number, number];

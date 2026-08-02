@@ -395,6 +395,11 @@
                              perspective tables, so the change is
                              INSTANT and costs one torn frame. Inert on
                              an image screen and outside Mode 7. */
+#define VM_OP_M7ROT 0x44 /* angle (u8, 0-15) — turns the WORLD MAP's
+                            plane around the hero, 22.5 degrees per step.
+                            Four pointer writes: the tables are compiled
+                            and live in ROM. Inert unless the scene opted
+                            into rotation, and after M7VIEW. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

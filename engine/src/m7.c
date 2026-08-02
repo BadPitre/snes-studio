@@ -57,6 +57,19 @@ extern const u8 m7w_w[];
 extern const u8 m7w_h[];
 extern const u8 m7w_horizon[];
 extern const u8 m7w_anchor[];
+/* ROTATION, opt-in per map (data_m7wrot*.c). FLAT tables indexed
+   map*M7_ROT + angle: one indirection, and a map that never turns costs
+   16 null entries. */
+extern const u8 m7w_rot[];
+extern const u8 *const m7w_rotp[];
+extern const u8 *const m7w_rotr[];
+extern const u16 m7w_rotox[];
+extern const u16 m7w_rotoy[];
+
+/* Arms one HDMA channel from a FAR pointer — vramfast.asm, because C
+   cannot hand over a pointer's bank. This is what lets the rotation
+   tables stay in ROM instead of being copied into WRAM. */
+void m7_arm(u16 chan, u16 dmap_bbad, const u8 *tab);
 
 extern const u8 m7_ramp_count;
 extern const u16 *const m7_ramps[];
@@ -142,6 +155,16 @@ static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
 #define A1T6L (*(vuint8 *)0x4362)
 #define A1T6H (*(vuint8 *)0x4363)
 #define A1B6 (*(vuint8 *)0x4364)
+
+/* Rotation state. rot_ok says the OPEN MAP carries tables built for its
+   own pitch — m7_view changes the pitch, which invalidates them, so it
+   clears this and snaps back to angle 0. Stated rather than hidden: a
+   script that re-pitches a rotating map loses the rotation until the
+   scene reloads. */
+#define M7_ROT 16
+static u8 rot_ok = 0;
+static u8 rot_ang = 0;
+static u16 rot_base = 0; /* the open map's slice of the flat tables */
 
 static u8 pa_tab[M7P_TAB];
 static u8 pd_tab[M7P_TAB];
@@ -327,6 +350,27 @@ static void m7_persp_build(void)
 static void m7_persp_hdma(void)
 {
   u16 a;
+  u8 m;
+
+  if (rot_ok)
+  {
+    /* ROTATION: four coefficients instead of two, so four channels
+       instead of one pair. A = s*cos(t), C = s*sin(t) = s*cos(t-90) and
+       D = -s^2*cos(t), B = s^2*sin(t) = -s^2*cos(t+90) — which is why
+       ONE family of tables serves two registers, a quarter turn apart,
+       and why there are 16 steps and not 15.
+       Channels 1, 4, 5 and 6, plus 3 for the sky window: exactly the
+       five free while a world map is up (0 is the general DMA's, 2 the
+       scripted wipe's, 7 the NMI's OAM). */
+    m = rot_ang;
+    m7_arm(6, 0x1B02, m7w_rotp[rot_base + m]);              /* M7A */
+    m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m + 12) & 15)]); /* M7C */
+    m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);              /* M7D */
+    m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + 4) & 15)]); /* M7B */
+    m7_arm(3, 0x2601, (const u8 *)pw_tab);
+    REG_HDMAEN = screenfx_wipe_active() ? 0x7E : 0x7A;
+    return;
+  }
 
   DMAP6 = 0x02; /* one register, written twice */
   BBAD6 = 0x1B; /* M7A $211B */
@@ -357,8 +401,11 @@ static void m7_persp_hdma(void)
    four registers — see the header comment. */
 static void m7_persp_place(void)
 {
-  u16 x0 = m7_cx;
-  u16 y0 = m7_cy + pv_da;
+  /* The rotation centre is the hero pushed dA units BEHIND the camera,
+     and "behind" turns with it — hence a table rather than (0, +dA). */
+  u16 x0 = rot_ok ? (u16)(m7_cx + m7w_rotox[rot_base + rot_ang]) : m7_cx;
+  u16 y0 = rot_ok ? (u16)(m7_cy + m7w_rotoy[rot_base + rot_ang])
+                  : (u16)(m7_cy + pv_da);
   u16 hofs = x0 - 128;
   u16 vofs = y0 - pv_horizon;
 
@@ -561,6 +608,9 @@ u8 m7_world_open(u8 scene_id, u8 dur)
      first frame something sane before the transfer starts. */
   m7_matrix(M7_SCALE_ONE);
   m7_persp_set(m7w_horizon[i], m7w_anchor[i]); /* the scene's camera angle */
+  rot_ok = m7w_rot[i];
+  rot_ang = 0;
+  rot_base = (u16)i * M7_ROT;
   REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
   REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
   player_draw_reset(); /* the hide loop above moved the hero's OAM */
@@ -612,6 +662,7 @@ void m7_reset(void)
   {
     REG_HDMAEN = 0; /* the perspective must not survive into mode 1 —
                        hdmafx reasserts its own mask at the next VBlank */
+    rot_ok = 0;
     REG_W12SEL = 0; /* nor the sky window: a scene with no spotlight has
                        no window at all, which is what we go back to */
     REG_TMW = 0;
@@ -633,11 +684,28 @@ void m7_view(u8 horizon, u8 anchor)
     return; /* an image screen has no ground to tilt */
   m7_persp_set(horizon, anchor);
   m7_persp_build();
+  /* The ROM tables were compiled for the map's own pitch, so a new pitch
+     makes them wrong. Rotation stops here rather than shearing the
+     plane; the scene's own angle comes back when it reloads. */
+  rot_ok = 0;
+  rot_ang = 0;
   /* The rebuild runs in the MAIN LOOP, so the HDMA may read the tables
      while they are half rewritten: the change costs one torn frame. That
      is deliberate — building them in the VBlank is 224 divisions in a
      window that measures 37 lines, and a camera angle changes on a
      dramatic beat, not every frame. */
+}
+
+void m7_rotate(u8 angle)
+{
+  if (!m7_on || !m7_world || !rot_ok)
+    return;
+  rot_ang = angle & (M7_ROT - 1);
+}
+
+u8 m7_rot_ready(void)
+{
+  return rot_ok;
 }
 
 void m7_update(void)

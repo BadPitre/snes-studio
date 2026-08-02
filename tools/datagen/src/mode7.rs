@@ -1006,3 +1006,154 @@ mod tests {
         assert!(Curve::parse("bounce").is_err());
     }
 }
+
+// ---------------------------------------------------------------------
+// Rotation (M7-B4)
+// ---------------------------------------------------------------------
+
+/// Rotation steps. 16 x 22.5 degrees, and 16 because the angle set must
+/// be CLOSED under +/-90 degrees: `C` is `A` a quarter turn back and `B`
+/// is `D` a quarter turn on, so one family of tables serves two matrix
+/// coefficients. A count not divisible by 4 would double the ROM.
+pub const ROT_STEPS: usize = 16;
+
+/// One HDMA table: two continuous blocks of 112 lines plus a terminator.
+/// MUST match the engine's own layout (`engine/src/m7.c`), which builds
+/// the same thing at run time for the no-rotation case.
+const TAB_HALF: usize = 112;
+pub const TAB_LEN: usize = 2 + TAB_HALF * 4 + 1;
+
+/// A world map's rotation data: 2 x ROT_STEPS scanline tables plus the
+/// camera offsets that keep the hero on the anchor line.
+pub struct Mode7Rotation {
+    /// `p[k]` = s(d)*cos(k) — feeds M7A at angle k, M7C at angle k-4.
+    pub p: Vec<Vec<u8>>,
+    /// `r[k]` = -s(d)^2*cos(k) — feeds M7D at angle k, M7B at angle k+4.
+    pub r: Vec<Vec<u8>>,
+    /// Per angle, what to add to the hero's plane position to get the
+    /// rotation centre: (-dA*sin, +dA*cos).
+    pub ox: Vec<i16>,
+    pub oy: Vec<i16>,
+}
+
+fn clamp14(v: f64) -> i16 {
+    /* the 8.8 registers are signed 16-bit; 0x3FFF is the largest value
+       the near-horizon lines can take before wrapping, and those lines
+       are masked as sky anyway */
+    v.round().clamp(-16383.0, 16383.0) as i16
+}
+
+/// Compiles the rotation tables for one camera angle setting.
+///
+/// The PPU's four coefficients at rotation theta are
+///   A = s*cos, B = s^2*sin, C = s*sin, D = -s^2*cos
+/// with s(d) = dA/d the horizontal scale of the line d below the horizon.
+/// Writing `sin(t) = cos(t - 90)` and `s^2*sin(t) = -(-s^2*cos(t + 90))`
+/// turns four families into two, indexed a quarter turn apart — which is
+/// why ROT_STEPS is a multiple of 4 and why this costs 14 KB per map and
+/// not 29.
+///
+/// The tables are read by the HDMA STRAIGHT FROM ROM (see `m7_arm` in
+/// `engine/src/vramfast.asm`), so they cost no WRAM and no load time.
+pub fn compile_rotation(horizon: u8, anchor: u8) -> Result<Mode7Rotation> {
+    let (hz, an) = (horizon as usize, anchor as usize);
+    if an < hz + 16 {
+        bail!("rotation mode7 : ancrage {} pour un horizon {} — 16 lignes minimum", an, hz);
+    }
+    let da = (an - hz) as f64;
+    let sky = hz + (an - hz) / 8 + 1;
+
+    let mut p = Vec::with_capacity(ROT_STEPS);
+    let mut r = Vec::with_capacity(ROT_STEPS);
+    let mut ox = Vec::with_capacity(ROT_STEPS);
+    let mut oy = Vec::with_capacity(ROT_STEPS);
+
+    for k in 0..ROT_STEPS {
+        let th = (k as f64) * std::f64::consts::TAU / ROT_STEPS as f64;
+        let (sin, cos) = (th.sin(), th.cos());
+        let mut tp = vec![0u8; TAB_LEN];
+        let mut tr = vec![0u8; TAB_LEN];
+        for t in [&mut tp, &mut tr] {
+            t[0] = 0x80 | TAB_HALF as u8;
+            t[1 + TAB_HALF * 2] = 0x80 | TAB_HALF as u8;
+            t[TAB_LEN - 1] = 0;
+        }
+        for y in 0..224usize {
+            let i = if y < TAB_HALF { 1 + y * 2 } else { 2 + y * 2 };
+            let (pv, rv) = if y < sky {
+                /* masked by the sky window — the value only has to be
+                   outside the plane, not meaningful */
+                (0x3FFFi16, 0x3FFFi16)
+            } else {
+                let d = (y - hz) as f64;
+                let s = da * 256.0 / d;
+                let s2 = da * da * 256.0 / (d * d);
+                (clamp14(s * cos), clamp14(-s2 * cos))
+            };
+            tp[i] = pv as u8;
+            tp[i + 1] = (pv >> 8) as u8;
+            tr[i] = rv as u8;
+            tr[i + 1] = (rv >> 8) as u8;
+        }
+        p.push(tp);
+        r.push(tr);
+        /* the hero must stay on the anchor line whatever the angle: the
+           rotation centre is his position pushed dA units "behind" the
+           camera, and behind turns with the camera */
+        ox.push((-da * sin).round() as i16);
+        oy.push((da * cos).round() as i16);
+    }
+    Ok(Mode7Rotation { p, r, ox, oy })
+}
+
+#[cfg(test)]
+mod rot_tests {
+    use super::*;
+
+    fn word(t: &[u8], y: usize) -> i16 {
+        let i = if y < TAB_HALF { 1 + y * 2 } else { 2 + y * 2 };
+        i16::from_le_bytes([t[i], t[i + 1]])
+    }
+
+    #[test]
+    fn angle_zero_is_the_engines_own_no_rotation_case() {
+        let rot = compile_rotation(56, 176).unwrap();
+        // A = s, D = -s^2 at the anchor line, which is drawn 1:1
+        assert_eq!(word(&rot.p[0], 176), 256);
+        assert_eq!(word(&rot.r[0], 176), -256);
+        // and the camera offset is the flat one: (0, +dA)
+        assert_eq!((rot.ox[0], rot.oy[0]), (0, 120));
+    }
+
+    #[test]
+    fn a_quarter_turn_back_gives_the_sine_family() {
+        let rot = compile_rotation(56, 176).unwrap();
+        // C at angle 0 IS P at angle 12 — and sin(0) = 0
+        assert_eq!(word(&rot.p[12], 176), 0);
+        // at a quarter turn, C = s
+        assert_eq!(word(&rot.p[(4 + 12) % ROT_STEPS], 176), 256);
+    }
+
+    #[test]
+    fn half_a_turn_negates_the_scale() {
+        let rot = compile_rotation(56, 176).unwrap();
+        assert_eq!(word(&rot.p[8], 176), -256);
+        assert_eq!(rot.oy[8], -120);
+    }
+
+    #[test]
+    fn every_table_is_the_layout_the_engine_expects() {
+        let rot = compile_rotation(88, 168).unwrap();
+        for t in rot.p.iter().chain(rot.r.iter()) {
+            assert_eq!(t.len(), TAB_LEN);
+            assert_eq!(t[0], 0x80 | TAB_HALF as u8);
+            assert_eq!(t[1 + TAB_HALF * 2], 0x80 | TAB_HALF as u8);
+            assert_eq!(t[TAB_LEN - 1], 0, "terminator");
+        }
+    }
+
+    #[test]
+    fn an_angle_too_flat_to_render_is_refused() {
+        assert!(compile_rotation(100, 110).is_err());
+    }
+}

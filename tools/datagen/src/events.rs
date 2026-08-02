@@ -495,6 +495,7 @@ impl<'a> EventCompiler<'a> {
                 "stage_close" => self.cmd_stage_close(cmd, out)?,
                 "m7" => self.cmd_m7(cmd, out)?,
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
+                "m7_rot" => self.cmd_m7_rot(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
                 "spotlight" => self.cmd_spotlight(cmd, out)?,
@@ -1618,6 +1619,19 @@ impl<'a> EventCompiler<'a> {
     fn cmd_m7_view(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let (horizon, anchor) = m7_view_preset(cmd)?;
         out.push(format!("  M7VIEW {} {}", horizon, anchor));
+        Ok(())
+    }
+
+    /// `m7_rot` — turns the world map's plane around the hero.
+    fn cmd_m7_rot(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let step = cmd["step"].as_u64().unwrap_or(0);
+        if step > 15 {
+            bail!(
+                "m7_rot : cran {} — la rotation a 16 crans de 22.5 degres (0-15)",
+                step
+            );
+        }
+        out.push(format!("  M7ROT {}", step));
         Ok(())
     }
 

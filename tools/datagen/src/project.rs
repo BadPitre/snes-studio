@@ -261,6 +261,11 @@ pub struct Scene {
     pub m7_horizon: Option<u8>,
     #[serde(default)]
     pub m7_anchor: Option<u8>,
+    /// World map ROTATION: the plane can be turned around the hero, in
+    /// 16 steps of 22.5 degrees. OPT-IN because it costs ~14 KB of ROM
+    /// per map — a map that never turns pays nothing.
+    #[serde(default)]
+    pub m7_rotate: bool,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],

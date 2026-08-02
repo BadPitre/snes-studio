@@ -100,6 +100,7 @@ const OP_M7OPEN: u8 = 0x40;
 const OP_M7ZOOM: u8 = 0x41;
 const OP_M7CLOSE: u8 = 0x42;
 const OP_M7VIEW: u8 = 0x43;
+const OP_M7ROT: u8 = 0x44;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -289,6 +290,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7CLOSE" => 2,
         // M7VIEW <horizon> <ancrage> — the world map camera angle
         "M7VIEW" => 3,
+        // M7ROT <cran 0-15> — world map rotation
+        "M7ROT" => 2,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -975,6 +978,16 @@ pub fn assemble(
                 code.push(OP_M7VIEW);
                 code.push(hz);
                 code.push(an);
+            }
+            // M7ROT <cran> — 16 steps of 22.5 degrees. Refused above 15
+            // rather than masked: a script asking for step 20 means
+            // something the author did not intend.
+            "M7ROT" => {
+                if argc != 1 { bail!("M7ROT <cran 0-15>"); }
+                let a = parse_u8(args[0])?;
+                if a > 15 { bail!("M7ROT : cran {} — 16 crans de 22.5 deg (0-15)", a); }
+                code.push(OP_M7ROT);
+                code.push(a);
             }
             // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
             // menu on a "list" widget of the UI layout; blocking

@@ -18,6 +18,8 @@ interface Props {
   onResize: (width: number, height: number) => void;
   /** World map camera angle, in screen lines. */
   onView: (horizon: number, anchor: number) => void;
+  /** World map rotation (opt-in: it costs ROM). */
+  onRotate: (on: boolean) => void;
 }
 
 /** Which preset a scene's two lines correspond to — "custom" when they
@@ -127,6 +129,19 @@ export default function ScenePanel(props: Props) {
             >
               Appliquer l'angle
             </button>
+            <label>
+              <input
+                type="checkbox"
+                checked={!!scene.m7_rotate}
+                onChange={(e) => props.onRotate(e.target.checked)}
+              />
+              Rotation (16 crans de 22,5°)
+            </label>
+            <p className="hint">
+              {scene.m7_rotate
+                ? "La vue peut pivoter autour du héros avec la commande « Tourner la vue ». Coût : ~14 Ko de ROM de tables compilées pour CET angle — changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
+                : "Sans rotation, le nord reste en haut et la carte ne coûte rien de plus."}
+            </p>
             <p className="hint">
               L'écart horizon/ancrage est l'inclinaison : {anchor - horizon} lignes
               {anchor - horizon >= 150

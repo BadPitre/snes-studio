@@ -61,6 +61,17 @@ void m7_world_track(void);
    image screen, which has no ground to tilt. */
 void m7_view(u8 horizon, u8 anchor);
 
+/* ROTATION of the world map, 16 steps of 22.5 degrees around the hero.
+   Costs nothing per frame: the four per-scanline coefficients are
+   compiled by datagen and read by the HDMA straight from ROM, so turning
+   the view is four pointer writes. Inert when the scene did not ask for
+   rotation (opt-in, ~14 KB of ROM per map) and after m7_view, whose new
+   pitch makes the compiled tables wrong. */
+void m7_rotate(u8 angle);
+
+/* The open map carries rotation tables and they are still valid. */
+u8 m7_rot_ready(void);
+
 /* Plays a compiled zoom ramp (datagen turns "from 100% to 150% in 90
    frames" into one 8.8 value per frame). flags bit 0 = loop. A looping
    ramp NEVER blocks a script — as with animations, waiting on it would

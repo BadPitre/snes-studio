@@ -52,6 +52,7 @@ import {
   formStageClose,
   formM7,
   formM7View,
+  formM7Rot,
   formStageOpen,
   formStagePose,
   formSwappos,
@@ -340,6 +341,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       return `Zoom cinematique : ${c.image || "(image ?)"} — ${c.from}% a ${
         c.to
       }% en ${c.frames} frames`;
+    case "m7_rot":
+      return `Tourner la vue Mode 7 : cran ${c.step} (${Math.round(c.step * 22.5)} deg)`;
     case "m7_view":
       return `Angle de camera Mode 7 : ${M7_VIEW_LABELS[c.preset].split(" —")[0]}${
         c.preset === "custom" ? ` (${c.horizon ?? 56}/${c.anchor ?? 176})` : ""
@@ -760,6 +763,8 @@ export function CommandListEditor(props: {
         };
       case "m7_view":
         return { c: "m7_view", preset: "standard", horizon: 56, anchor: 176 };
+      case "m7_rot":
+        return { c: "m7_rot", step: 0 };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -1703,6 +1708,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "m7_view":
       ({ body, valid } = formM7View(cmd, x));
+      break;
+    case "m7_rot":
+      ({ body, valid } = formM7Rot(cmd, x));
       break;
     case "vig_show":
       ({ body, valid } = formVigShow(cmd, x));

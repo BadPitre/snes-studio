@@ -1778,6 +1778,43 @@ export function formM7View(
   return { body, valid };
 }
 
+/** `m7_rot` — turns the world map's plane around the hero. */
+export function formM7Rot(
+  cmd: Extract<Command, { c: "m7_rot" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const deg = Math.round(cmd.step * 22.5);
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Cran (0-15)
+          <input
+            type="number" min={0} max={15} value={cmd.step}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                step: Math.max(0, Math.min(15, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          Angle
+          <input type="text" readOnly value={`${deg}°`} />
+        </label>
+      </div>
+      <p className="hint">
+        16 crans de 22,5° autour du héros. La scène doit avoir la rotation
+        activée dans son onglet Scène — sinon la commande ne fait rien, et
+        c'est volontaire : les tables sont compilées par carte.
+      </p>
+    </>
+  );
+  return { body, valid: cmd.step >= 0 && cmd.step <= 15 };
+}
+
 export function formM7(cmd: Extract<Command, { c: "m7" }>, x: FormCtx): FormBody {
   let valid = true;
   const onChange = x.p.onChange;

@@ -1759,6 +1759,7 @@ export default function App() {
                 onView={(m7_horizon, m7_anchor) =>
                   setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
                 }
+                onRotate={(m7_rotate) => setScene((sc) => ({ ...sc, m7_rotate }))}
               />
             )}
             {tab === "effect" && (

@@ -642,6 +642,19 @@ fn main() -> Result<()> {
             sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
         let (horizon, anchor) = sc.m7_view()?;
+        let rot = if sc.m7_rotate {
+            let r = mode7::compile_rotation(horizon, anchor)
+                .with_context(|| format!("carte du monde '{}'", sc.name))?;
+            println!(
+                "  mode7 : rotation de {} — {} crans de 22.5 deg, {} octets de tables",
+                sc.name,
+                mode7::ROT_STEPS,
+                mode7::ROT_STEPS * 2 * mode7::TAB_LEN
+            );
+            Some(r)
+        } else {
+            None
+        };
         worlds.push(WorldMap {
             scene: sci,
             tiles: t,
@@ -650,6 +663,7 @@ fn main() -> Result<()> {
             h: sc.height,
             horizon,
             anchor,
+            rot,
         });
     }
 
@@ -1606,6 +1620,8 @@ struct WorldMap {
     /// one drawn 1:1 where the hero stands.
     horizon: u8,
     anchor: u8,
+    /// Rotation tables, when the scene asked for them (opt-in: ~14 KB).
+    rot: Option<mode7::Mode7Rotation>,
 }
 
 fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
@@ -1633,6 +1649,27 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
         s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
         files.push((format!("data_m7wmap{}.c", i), s));
+
+        // ROTATION (opt-in, ~14 KB): 2 x 16 per-scanline tables, read by
+        // the HDMA STRAIGHT FROM ROM. Each table is its own array so the
+        // linker keeps it whole inside one bank — HDMA does not carry the
+        // bank across a boundary, it wraps within it.
+        if let Some(rot) = &wm.rot {
+            let mut s = String::from(emit::HEADER);
+            s.push_str("#include <snes.h>\n\n");
+            s.push_str(
+                "/* Mode 7 rotation, 16 steps of 22.5 deg. p = s*cos feeds\n\
+                 \x20  M7A at angle k and M7C at k-4; r = -s^2*cos feeds M7D at\n\
+                 \x20  k and M7B at k+4. See mode7.rs::compile_rotation. */\n",
+            );
+            for (k, t) in rot.p.iter().enumerate() {
+                s.push_str(&emit::u8_array(&format!("m7w{}_rotp{}", i, k), t, 16, false));
+            }
+            for (k, t) in rot.r.iter().enumerate() {
+                s.push_str(&emit::u8_array(&format!("m7w{}_rotr{}", i, k), t, 16, false));
+            }
+            files.push((format!("data_m7wrot{}.c", i), s));
+        }
     }
 
     let mut s = String::from(emit::HEADER);
@@ -1669,6 +1706,42 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     // tables from these when it opens the plane.
     table("const u8 m7w_horizon", &|i| worlds[i].horizon.to_string());
     table("const u8 m7w_anchor", &|i| worlds[i].anchor.to_string());
+    table("const u8 m7w_rot", &|i| u8::from(worlds[i].rot.is_some()).to_string());
+    // ROTATION tables, FLAT: index i*16 + k rather than a table of
+    // tables. One indirection instead of two — tcc-816 is fragile on
+    // array-of-array symbols, and a map that does not rotate costs 16
+    // null entries, which is nothing.
+    for i in 0..worlds.len() {
+        if worlds[i].rot.is_some() {
+            for k in 0..mode7::ROT_STEPS {
+                s.push_str(&format!(
+                    "extern const u8 m7w{i}_rotp{k}[];\nextern const u8 m7w{i}_rotr{k}[];\n",
+                    i = i,
+                    k = k
+                ));
+            }
+        }
+    }
+    let mut rot_table = |decl: &str, f: &dyn Fn(usize, usize) -> String| {
+        s.push_str(&format!("{}[{}] = {{ ", decl, n * mode7::ROT_STEPS));
+        for i in 0..n {
+            for k in 0..mode7::ROT_STEPS {
+                let has = i < worlds.len() && worlds[i].rot.is_some();
+                s.push_str(&format!("{}, ", if has { f(i, k) } else { "0".into() }));
+            }
+        }
+        s.push_str("};\n");
+    };
+    rot_table("const u8 *const m7w_rotp", &|i, k| format!("m7w{}_rotp{}", i, k));
+    rot_table("const u8 *const m7w_rotr", &|i, k| format!("m7w{}_rotr{}", i, k));
+    // Camera offsets: what to add to the hero's plane position to get the
+    // rotation centre, so he stays on the anchor line at any angle.
+    rot_table("const u16 m7w_rotox", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().ox[k] as u16).to_string()
+    });
+    rot_table("const u16 m7w_rotoy", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().oy[k] as u16).to_string()
+    });
     files.push(("data_m7world.c".to_string(), s));
     files
 }

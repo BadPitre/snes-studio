@@ -548,6 +548,69 @@ a camera angle changes on a dramatic beat, not every frame. A SMOOTH
 transition between two angles would mean rebuilding every frame, which is
 why it is not offered rather than offered badly.
 
+### 7.2d Rotation — 16 steps, compiled, in ROM
+
+Turning the view around the hero needs `B` and `C` as well as `A` and
+`D`. At rotation `t`:
+
+```
+A = s*cos(t)       B = s^2*sin(t)
+C = s*sin(t)       D = -s^2*cos(t)
+```
+
+Four per-scanline coefficients, so **four HDMA channels** instead of one
+pair, plus the sky window: five. That is exactly what a world map has
+free — 0 is the general DMA's, 2 the scripted wipe's, 7 the NMI's OAM —
+and there is no sixth.
+
+**Why they cannot be built at run time.** 224 lines x 4 values is ~900
+multiplications for one angle change. §7.2 measured SIXTY-FOUR
+multiplications in C at ~41 screen lines against a 37-line VBlank. Not a
+matter of optimising: a factor of fourteen over a budget already
+overrun. So the tables are **compiled by datagen** and live in ROM, the
+same answer the zoom ramps got in §6 for the same reason.
+
+**Why 16 steps and not 15 or 20.** Write `sin(t) = cos(t - 90)` and
+`s^2*sin(t) = -s^2*cos(t + 90)`: one family of tables serves TWO matrix
+coefficients, indexed a quarter turn apart. That only works if the angle
+set is closed under +/-90 degrees — a multiple of 4. So:
+
+```
+A = p[k]     C = p[k-4]     D = r[k]     B = r[k+4]
+```
+
+with `p = s*cos` and `r = -s^2*cos`. 32 tables of 451 bytes = **14 KB
+per map** instead of 29, and turning the view is FOUR POINTER WRITES per
+frame. Opt-in per scene (`m7_rotate`), so a map that never turns pays
+nothing.
+
+**The tables stay in ROM and are never copied.** HDMA reads its source
+from any bank, but a DMA needs the source's BANK and C cannot give it —
+tcc-816 passes a four-byte pointer, `(u32)p` keeps the low 16 bits and
+sign extends (`ENGINE_CONSTRAINTS` §1.3). `m7_arm` in
+`engine/src/vramfast.asm` reads the four bytes off the stack, exactly as
+`vj_set` does. That is the whole reason there is no 14 KB WRAM buffer
+and no load-time copy. Each table is emitted as its OWN array so the
+linker keeps it inside one bank: HDMA does not carry the bank across a
+boundary, it wraps within it.
+
+**The camera centre turns too.** The rotation centre is the hero pushed
+`dA` units behind the camera, and "behind" turns with the camera — hence
+`(-dA*sin, +dA*cos)` per angle, a 16-entry table, rather than the flat
+case's `(0, +dA)`. Without it the hero drifts off the anchor line as the
+view turns.
+
+**Two limits, stated rather than hidden.**
+
+- **`m7_view` kills the rotation.** The tables were compiled for the
+  map's own pitch; a new pitch makes them wrong. The engine clears the
+  rotation and snaps back to angle 0 rather than shearing the plane. The
+  scene's angle comes back when it reloads.
+- **North stops being up.** Movement and collision stay world-absolute
+  while the view turns, so pressing up walks north whatever the screen
+  shows. Making input follow the view is a design decision about the
+  GAME, not about Mode 7, and it is not made here.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
@@ -648,6 +711,7 @@ Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
 | `M7ZOOM` | `ramp u8, flags u8` | Plays a ramp; flags bit 0 = loop, bit 1 = wait |
 | `M7CLOSE` | `dur u8` | Closes it — internal warp back to the scene |
 | `M7VIEW` | `horizon u8, anchor u8` | World map CAMERA ANGLE (§7.2c) |
+| `M7ROT` | `step u8 (0-15)` | World map ROTATION, 22.5 deg a step (§7.2d) |
 
 The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does

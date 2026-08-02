@@ -766,6 +766,10 @@ static void vm_step(void)
       m7_view(var, val);
       break;
 
+    case VM_OP_M7ROT: /* world map rotation — four pointer writes */
+      m7_rotate(fetch8());
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */

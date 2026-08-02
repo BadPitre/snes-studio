@@ -329,11 +329,13 @@ function sceneToJson(sc: Scene): string {
     sc.kind === "worldmap" && (sc.m7_horizon !== undefined || sc.m7_anchor !== undefined)
       ? `\n  "m7_horizon": ${sc.m7_horizon ?? 56},\n  "m7_anchor": ${sc.m7_anchor ?? 176},`
       : "";
+  const rotate =
+    sc.kind === "worldmap" && sc.m7_rotate ? `\n  "m7_rotate": true,` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${view}${music}${tileset}${parent}${effect}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${view}${rotate}${music}${tileset}${parent}${effect}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "events": ${events},
