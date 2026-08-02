@@ -79,6 +79,42 @@ npm run tauri dev # the real desktop app, reads and writes a project folder
 In browser mode "Ouvrir un projet…" loads whatever `editor/public/project`
 points at, so the UI can be worked on without Tauri.
 
+### Packaging it
+
+```bash
+cd editor
+npm run tauri:build
+```
+
+That produces the installers **for the machine you run it on**, under
+`editor/src-tauri/target/release/bundle/` — Tauri does not cross-compile,
+so a Windows `.msi`/`.exe` only comes out of Windows and a `.dmg` only out
+of macOS. Per platform you get:
+
+| Platform | Output |
+|---|---|
+| Windows | `.msi` (WiX) and a `.exe` setup (NSIS, French and English) |
+| macOS | `.app` and `.dmg` |
+| Linux | `.deb`, `.rpm` and an `.AppImage` |
+
+Linux needs the WebKitGTK development packages first:
+
+```bash
+sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+  patchelf libayatana-appindicator3-dev
+```
+
+For all three at once, push a version tag: `.github/workflows/release.yml`
+builds the matrix on GitHub runners and attaches the installers to a draft
+release. The Actions tab can also run it by hand, which builds the bundles
+as artefacts without publishing anything.
+
+**What the installer contains:** the editor, and only the editor. Opening,
+editing and saving a project works out of the box; *building a ROM* still
+shells out to `make` and `datagen`, so it needs a checkout of this
+repository (the editor derives it from the parent folder of the open
+project), plus PVSnesLib and Rust as above.
+
 ---
 
 ## Before you push: three gates

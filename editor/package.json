@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build": "tauri build",
     "smoke": "node tools/smoke.mjs",
     "smoke:commands": "node tools/smoke-commands.mjs",
     "smoke:resources": "node tools/smoke-resources.mjs"

@@ -1,0 +1,103 @@
+# Builds the editor's installers for the three desktop platforms and
+# attaches them to a GitHub release.
+#
+# WHY A WORKFLOW AND NOT A SCRIPT: Tauri bundles are not cross-compiled.
+# A Windows .msi/.exe can only be produced on Windows, a .dmg only on
+# macOS — so "make me an installer" is a matrix of three runners, not a
+# command. Locally, `npm run tauri:build` gives you your OWN platform's
+# installers and nothing else.
+#
+# Triggered by pushing a version tag:
+#     git tag v0.6.0 && git push origin v0.6.0
+# or by hand from the Actions tab (workflow_dispatch), which builds the
+# installers without publishing them — useful to check a packaging change
+# before cutting a release.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple silicon and Intel are separate bundles: a universal
+          # binary doubles the download for no gain here.
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          # 22.04 rather than latest: the AppImage and the .deb link
+          # against the runner's glibc, and building on the newest Ubuntu
+          # makes them refuse to start on anything older.
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            librsvg2-dev patchelf libayatana-appindicator3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: editor/src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+
+      - run: npm ci
+        working-directory: editor
+
+      # The editor gate's cheap half: a bundle of code that does not
+      # typecheck has no business being signed and shipped.
+      - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: editor
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: editor
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: "SNES Studio ${{ github.ref_name }}"
+          releaseBody: |
+            Installers for the SNES Studio editor.
+
+            The installer ships the EDITOR only. Building a ROM from a
+            project still needs the repository (engine/ and tools/), the
+            Rust toolchain and PVSnesLib — see the README.
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+      # workflow_dispatch runs publish nothing; keep the bundles so a
+      # packaging change can be downloaded and checked.
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type != 'tag'
+        with:
+          name: bundle-${{ matrix.platform }}${{ matrix.args }}
+          path: |
+            editor/src-tauri/target/release/bundle/**/*
+            editor/src-tauri/target/*/release/bundle/**/*
+          if-no-files-found: warn

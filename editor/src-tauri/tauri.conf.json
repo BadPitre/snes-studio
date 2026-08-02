@@ -14,7 +14,9 @@
       {
         "title": "SNES Studio",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 700
       }
     ],
     "security": {
@@ -24,6 +26,29 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.png"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "BertrandLu",
+    "copyright": "Copyright © 2026 BertrandLu",
+    "category": "DeveloperTool",
+    "licenseFile": "../../LICENSE",
+    "shortDescription": "Créateur de jeux SNES sans code",
+    "longDescription": "SNES Studio est un créateur de jeux pour Super Nintendo dans l'esprit de RPG Maker 2003 : cartes, événements, dialogues, base de données et interface s'éditent sans écrire de code, et le studio produit une ROM .sfc jouable sur émulateur ou sur console.",
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["French", "English"]
+      }
+    }
   }
 }
