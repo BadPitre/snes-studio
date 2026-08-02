@@ -295,6 +295,13 @@ void m7_zoom(u8 ramp, u8 flags)
 {
   if (!m7_on)
     return;
+  /* INERT ON A WORLD MAP, and it cannot be otherwise: the perspective
+     rewrites M7A and M7D every scanline through HDMA, so a matrix scale
+     is overwritten before the first line is drawn. A world map's zoom is
+     its CAMERA ANGLE (m7_view) — the gap between horizon and anchor —
+     and that is what the editor points at. */
+  if (m7_world)
+    return;
   if (ramp == M7_ZOOM_STOP || ramp >= m7_ramp_count || !m7_ramp_lens[ramp])
   {
     rp_id = 0xFF; /* stop where we are — the scale is kept */

@@ -1768,8 +1768,11 @@ export function formM7View(
         </div>
       )}
       <p className="hint">
-        Inclinaison : {a - h} lignes d'écart. Sans effet hors d'une carte du
-        monde — un écran Mode 7 image n'a pas de sol à incliner. Le changement
+        Inclinaison : {a - h} lignes d'écart. C'est aussi le ZOOM d'une carte
+        du monde : rapprocher l'horizon de l'ancrage resserre la vue. La
+        commande « Zoom cinématique » ne s'applique qu'à un écran Mode 7
+        image, dont le plan n'est pas incliné. Sans effet hors d'une carte du
+        monde — un écran image n'a pas de sol à incliner. Le changement
         est instantané et coûte une frame déchirée : les tables de perspective
         sont reconstruites.
       </p>

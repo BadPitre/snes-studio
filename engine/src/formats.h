@@ -384,7 +384,11 @@
                              A LOOPING ramp never blocks, as with
                              animations. Stopping HOLDS the current
                              scale, which is what lets a script zoom,
-                             hold, then close. */
+                             hold, then close.
+                             INERT on a WORLD MAP: the perspective
+                             rewrites M7A/M7D per scanline, so a matrix
+                             scale never reaches the screen. A world
+                             map's zoom is its camera angle (M7VIEW). */
 #define VM_OP_M7CLOSE 0x42 /* dur (u8) — closes the Mode 7 screen: an
                               INTERNAL WARP to the current scene, the
                               stage_close recipe. */

@@ -171,38 +171,44 @@ pub fn load_source(proj_dir: &Path, png_rel: &str) -> Result<SourceTileset> {
         }
     }
 
-    // Warn once per tileset about tiles whose 8x8 block exceeds 15
-    // colours: they will be quantised by merging the closest pair.
-    let mut over: BTreeSet<u16> = BTreeSet::new();
-    let cols_grid = src.img.width / 16;
-    for by in 0..src.img.height / 8 {
-        for bx in 0..src.img.width / 8 {
-            let mut cols: BTreeSet<u16> = BTreeSet::new();
-            for y in 0..8 {
-                for x in 0..8 {
-                    let i = src.img.pixels[(by * 8 + y) * src.img.width + bx * 8 + x];
-                    if i != 0 {
-                        cols.insert(src.img.palette[i as usize]);
-                    }
-                }
-            }
-            if cols.len() > 15 {
-                over.insert(((by / 2) * cols_grid + bx / 2) as u16);
-            }
-        }
-    }
-    if !over.is_empty() {
-        println!(
-            "  attention : {} — tiles {:?} ont un bloc 8x8 a plus de 15 \
-             couleurs (limite SNES), fusion automatique des plus proches",
-            png_rel,
-            over.iter().collect::<Vec<_>>()
-        );
-    }
     Ok(src)
 }
 
 impl SourceTileset {
+    /// Does this grid tile hold an 8x8 block over 15 colours?
+    ///
+    /// Asked PER SCENE, about the tiles a scene actually PAINTS, and not
+    /// once over the whole sheet — a chipset's unused corners are not the
+    /// author's problem, and a warning nobody can act on trains them to
+    /// ignore the ones that matter. The demo's bourg.png fired this on
+    /// tile 92, which no scene has ever placed.
+    pub fn over_15_colours(&self, tile: u16) -> bool {
+        let cols = self.img.width / 16;
+        let (ox, oy) = ((tile as usize % cols) * 16, (tile as usize / cols) * 16);
+        for qy in 0..2 {
+            for qx in 0..2 {
+                let mut set: BTreeSet<u16> = BTreeSet::new();
+                for y in 0..8 {
+                    for x in 0..8 {
+                        let px = ox + qx * 8 + x;
+                        let py = oy + qy * 8 + y;
+                        if px >= self.img.width || py >= self.img.height {
+                            continue;
+                        }
+                        let i = self.img.pixels[py * self.img.width + px];
+                        if i != 0 {
+                            set.insert(self.img.palette[i as usize]);
+                        }
+                    }
+                }
+                if set.len() > 15 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub fn valid_id(&self, id: i32) -> bool {
         (0..self.count as i32).contains(&id)
             || (AUTO_BASE..AUTO_BASE + self.autos.len() as i32).contains(&id)
@@ -717,6 +723,22 @@ impl SourceTileset {
                     }
                 }
             }
+        }
+        // Over-15-colour blocks, among the tiles this scene PAINTS.
+        let over: Vec<u16> = used
+            .iter()
+            .filter_map(|k| match k {
+                TileKey::Grid(t) if self.over_15_colours(*t) => Some(*t),
+                _ => None,
+            })
+            .collect();
+        if !over.is_empty() {
+            println!(
+                "  attention : scene '{}' — tiles {:?} ont un bloc 8x8 a plus \
+                 de 15 couleurs (limite SNES), fusion automatique des plus \
+                 proches",
+                name, over
+            );
         }
         let locals: Vec<TileKey> = used.iter().copied().collect();
         if locals.len() > 254 {

@@ -901,6 +901,13 @@ The SKY (§7.2e) has no opcode: it is scene data only, because it belongs
 to the place rather than to a moment. A script that wants a sunset uses
 the ordinary screen tint.
 
+`M7ZOOM` is INERT on a world map, and cannot be otherwise: the
+perspective rewrites `M7A`/`M7D` every scanline through HDMA, so a matrix
+scale never reaches the screen. A world map's zoom is its CAMERA ANGLE
+(§7.2c) — closing the gap between horizon and anchor tightens the view —
+and the engine, the opcode table and the editor's form all say so rather
+than letting the command fail silently.
+
 The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does
 not. `M7VIEW` waits for nothing: it rewrites tables rather than queueing
