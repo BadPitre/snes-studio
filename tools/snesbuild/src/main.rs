@@ -66,7 +66,7 @@ fn main() -> Result<()> {
     // editor passes the flag (it carries its own copy); a checkout falls
     // back to the environment, so the repo keeps working as before.
     let toolchain = match get("--toolchain").or_else(|| std::env::var("PVSNESLIB_HOME").ok()) {
-        Some(t) => PathBuf::from(t),
+        Some(t) => native_path(&t),
         None => bail!(
             "no toolchain: pass --toolchain <PVSnesLib root> or set PVSNESLIB_HOME"
         ),
@@ -78,6 +78,25 @@ fn main() -> Result<()> {
         cart(&cfg)?;
     }
     Ok(())
+}
+
+/// PVSnesLib's own Makefile demands a Unix-style PVSNESLIB_HOME, on Windows
+/// too (/c/snesdev/pvsneslib) — a form Windows itself cannot open. A
+/// checkout falls back to that variable, so accept the shape it has rather
+/// than ask the author to keep a second one in step.
+fn native_path(p: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let b = p.as_bytes();
+        if b.len() > 3 && b[0] == b'/' && b[2] == b'/' && b[1].is_ascii_alphabetic() {
+            return PathBuf::from(format!(
+                "{}:\\{}",
+                (b[1] as char).to_ascii_uppercase(),
+                p[3..].replace('/', "\\")
+            ));
+        }
+    }
+    PathBuf::from(p)
 }
 
 // ---- toolchain layout -------------------------------------------------

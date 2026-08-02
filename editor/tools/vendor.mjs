@@ -28,9 +28,19 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
 const VENDOR = join(REPO, "editor", "src-tauri", "vendor");
 
+// PVSnesLib's own Makefile demands a Unix-style PVSNESLIB_HOME, on Windows
+// too (/c/snesdev/pvsneslib) — a form Windows itself cannot open. Accept it
+// rather than ask the author to keep two variables in step.
+function nativePath(p) {
+  if (process.platform !== "win32") return p;
+  const m = /^\/([a-zA-Z])\/(.*)$/.exec(p);
+  return m ? `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, "\\")}` : p;
+}
+
 const argFrom = process.argv.indexOf("--from");
-const PVS =
-  (argFrom > -1 ? process.argv[argFrom + 1] : null) || process.env.PVSNESLIB_HOME;
+const PVS = nativePath(
+  (argFrom > -1 ? process.argv[argFrom + 1] : null) || process.env.PVSNESLIB_HOME || ""
+) || null;
 if (!PVS) {
   console.error("vendor: no PVSnesLib — pass --from <root> or set PVSNESLIB_HOME");
   process.exit(1);

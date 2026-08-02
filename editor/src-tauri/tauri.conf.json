@@ -4,7 +4,7 @@
   "version": "0.6.0",
   "identifier": "dev.badpitre.snes-studio",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run sidecars && npm run vendor && npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run sidecars && npm run vendor && npm run build",
     "frontendDist": "../dist"
