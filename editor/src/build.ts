@@ -5,11 +5,24 @@
 // on the author's machine. `Command.sidecar` resolves them next to the
 // executable, whatever the platform named them.
 //
-// Repo layout convention: <root>/demo, <root>/tools, <root>/engine — the
-// root is the parent folder of the open project. That is still how the
-// ENGINE SOURCES are found; only the tools stopped being looked up there.
+// The engine sources are found in one of two places, and which one is in
+// play changes nothing else:
+//
+//   a CHECKOUT — <project>/../engine exists, so that is the engine, and it
+//     is built in place exactly as it always was. A contributor editing
+//     engine code sees their edits in the next build.
+//
+//   an INSTALL — no sibling engine, so the bundled copy is staged into
+//     <project>/.build/engine and built there. The bundle itself lives in
+//     a read-only folder (Program Files, /usr/lib) and a build writes .obj
+//     and the ROM next to the sources, so it cannot happen in place.
+//
+// The author never chooses: a project inside a checkout keeps the
+// contributor flow, a project anywhere else gets its own engine.
 
 import { Command } from "@tauri-apps/plugin-shell";
+import { resolveResource } from "@tauri-apps/api/path";
+import { exists } from "@tauri-apps/plugin-fs";
 
 const hasTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -43,10 +56,40 @@ async function sidecar(name: string, args: string[]): Promise<BuildResult> {
   return { ok: out.code === 0, output };
 }
 
-// The PVSnesLib root snesbuild compiles against. Empty means "fall back to
-// PVSNESLIB_HOME", which is what a checkout does.
-function toolchainArgs(toolchain: string): string[] {
-  return toolchain ? ["--toolchain", toolchain] : [];
+// Where the build happens and what it compiles against.
+interface Workspace {
+  engine: string;
+  args: string[]; // --toolchain, when we know which one
+}
+
+async function workspace(projectRoot: string, toolchain: string): Promise<Workspace> {
+  const sibling = `${parentDir(projectRoot)}/engine`;
+  const inCheckout = await exists(sibling).catch(() => false);
+  // A setting always wins: an author who names a PVSnesLib means it.
+  // Otherwise a checkout falls back to PVSNESLIB_HOME (snesbuild reads it)
+  // and an install uses the copy it carries.
+  let tc = toolchain;
+  if (!tc && !inCheckout) tc = await resolveResource("vendor/pvsneslib");
+  const args = tc ? ["--toolchain", tc] : [];
+
+  if (inCheckout) return { engine: sibling, args };
+
+  const engine = `${projectRoot}/.build/engine`;
+  const src = await resolveResource("vendor/engine");
+  // Cheap (87 files) and always run: it is also how an editor UPDATE
+  // reaches a project built with the previous version's engine.
+  const sync = await sidecar("snesbuild", ["sync", "--from", src, "--to", engine]);
+  if (!sync.ok) throw new Error(sync.output);
+  return { engine, args };
+}
+
+// Where the ROM lands, for the emulator and for the author to find.
+export async function romPath(projectRoot: string): Promise<string> {
+  const sibling = `${parentDir(projectRoot)}/engine`;
+  const dir = (await exists(sibling).catch(() => false))
+    ? sibling
+    : `${projectRoot}/.build/engine`;
+  return `${dir}/snesstudio.sfc`;
 }
 
 // Compiles the ROM. This used to be `make` through a shell — MSYS2 on
@@ -59,12 +102,12 @@ export async function runMake(
   clean = false
 ): Promise<BuildResult> {
   if (!hasTauri) return noTauri("la compilation");
-  const engine = `${parentDir(projectRoot)}/engine`;
+  const w = await workspace(projectRoot, toolchain);
   if (clean) {
-    const c = await sidecar("snesbuild", ["clean", "--engine", engine]);
+    const c = await sidecar("snesbuild", ["clean", "--engine", w.engine]);
     if (!c.ok) return c;
   }
-  return sidecar("snesbuild", ["build", "--engine", engine, ...toolchainArgs(toolchain)]);
+  return sidecar("snesbuild", ["build", "--engine", w.engine, ...w.args]);
 }
 
 // "Cartridge" build -> engine/snesstudio.smc (512 KB minimum, mirrored +
@@ -74,8 +117,8 @@ export async function runMakeCart(
   toolchain: string
 ): Promise<BuildResult> {
   if (!hasTauri) return noTauri("la compilation");
-  const engine = `${parentDir(projectRoot)}/engine`;
-  return sidecar("snesbuild", ["cart", "--engine", engine, ...toolchainArgs(toolchain)]);
+  const w = await workspace(projectRoot, toolchain);
+  return sidecar("snesbuild", ["cart", "--engine", w.engine, ...w.args]);
 }
 
 // Launches the emulator (configurable — settings ⚙) on the compiled ROM,
@@ -85,8 +128,7 @@ export async function launchEmulator(
   emulator: string
 ): Promise<BuildResult> {
   if (!hasTauri) return noTauri("l'émulateur");
-  const repo = parentDir(projectRoot);
-  const rom = `${repo}/engine/snesstudio.sfc`;
+  const rom = await romPath(projectRoot);
   if (isWindows()) {
     const out = await Command.create("cmd", ["/C", "start", "", emulator, rom]).execute();
     const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
@@ -138,7 +180,10 @@ export async function runImportCharset(
 // cartridge build always passes debug=false
 export async function runDatagen(projectRoot: string, debug = false): Promise<BuildResult> {
   if (!hasTauri) return noTauri("datagen");
-  const args = [projectRoot, `${parentDir(projectRoot)}/engine`];
+  // Generated data goes where the build will look for it, which is the
+  // staged engine when there is no checkout around.
+  const w = await workspace(projectRoot, "");
+  const args = [projectRoot, w.engine];
   if (debug) args.push("--debug");
   return sidecar("datagen", args);
 }

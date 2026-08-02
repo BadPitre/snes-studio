@@ -74,6 +74,18 @@ jobs:
       - run: npm ci
         working-directory: editor
 
+      # The installer carries the PVSnesLib subset it builds with, so the
+      # runner needs a copy to vendor from. PVSnesLib is MIT; its licence
+      # travels into the bundle with the binaries.
+      - name: Fetch PVSnesLib
+        working-directory: editor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node tools/fetch-pvsneslib.mjs --to "$RUNNER_TEMP/pvsneslib" | tail -1 > .pvs-root
+          echo "PVSNESLIB_HOME=$(cat .pvs-root)" >> "$GITHUB_ENV"
+        shell: bash
+
       # The editor gate's cheap half: a bundle of code that does not
       # typecheck has no business being signed and shipped.
       - run: npx tsc --noEmit -p tsconfig.json
@@ -89,9 +101,12 @@ jobs:
           releaseBody: |
             Installers for the SNES Studio editor.
 
-            datagen and snesbuild ship inside, so no Rust toolchain is
-            needed. Building a ROM still needs a checkout of the repository
-            (for engine/) and PVSnesLib — see the README.
+            Self-contained: the editor carries datagen, snesbuild, the
+            engine sources and the PVSnesLib subset it builds with. Install
+            it, create a project anywhere, and build a ROM — no Rust, no
+            MSYS2, no repository checkout.
+
+            PVSnesLib is redistributed under the MIT licence.
           releaseDraft: true
           args: ${{ matrix.args }}
 

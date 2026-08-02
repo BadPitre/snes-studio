@@ -118,12 +118,23 @@ builds the matrix on GitHub runners and attaches the installers to a draft
 release. The Actions tab can also run it by hand, which builds the bundles
 as artefacts without publishing anything.
 
-**What the installer contains:** the editor plus `datagen` and
-`snesbuild`, shipped as Tauri sidecars — so **no Rust toolchain and no
-MSYS2 are needed** to generate data or compile a ROM. What is still
-external: a checkout of this repository (the editor finds `engine/` from
-the parent folder of the open project) and PVSnesLib, whose folder is set
-in the editor's settings ⚙ or through `PVSNESLIB_HOME`.
+**The installer is self-contained.** It carries `datagen` and `snesbuild`
+as sidecars, the engine sources, and the PVSnesLib subset the build calls
+(MIT, redistributed with its licence). Install it, create a project
+anywhere on disk, press Build: **no Rust, no MSYS2, no checkout of this
+repository.**
+
+Where the engine comes from depends on where the project sits, and the
+author never has to choose:
+
+| The project is… | The engine is… |
+|---|---|
+| inside a checkout (`<project>/../engine` exists) | that folder, built in place — engine edits show up in the next build |
+| anywhere else | the bundled copy, staged into `<project>/.build/engine` |
+
+The second case exists because a bundle resource lives in a read-only
+folder (Program Files, `/usr/lib`) while a build writes objects and the
+ROM next to the sources. The ROM lands in `<project>/.build/engine/`.
 
 ---
 

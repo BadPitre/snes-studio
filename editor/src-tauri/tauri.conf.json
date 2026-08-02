@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run sidecars && npm run build",
+    "beforeBuildCommand": "npm run sidecars && npm run vendor && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -56,6 +56,10 @@
     "externalBin": [
       "binaries/datagen",
       "binaries/snesbuild"
-    ]
+    ],
+    "resources": {
+      "vendor/engine": "vendor/engine",
+      "vendor/pvsneslib": "vendor/pvsneslib"
+    }
   }
 }

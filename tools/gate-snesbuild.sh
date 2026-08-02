@@ -30,7 +30,6 @@ bash "$ROOT/tools/mkcart.sh" "$ROOT/engine/$ROM.sfc" "$ROOT/engine/$ROM.smc" >/d
 cp "$ROOT/engine/$ROM.sfc" "$REF/"
 cp "$ROOT/engine/$ROM.smc" "$REF/"
 cp "$ROOT/engine/$ROM.sym" "$REF/"
-cp "$ROOT/engine/linkfile" "$REF/"
 
 echo "— snesbuild"
 cargo build --quiet --release --manifest-path "$ROOT/tools/Cargo.toml" -p snesbuild
@@ -38,7 +37,11 @@ cargo build --quiet --release --manifest-path "$ROOT/tools/Cargo.toml" -p snesbu
 "$ROOT/tools/target/release/snesbuild" cart --engine "$ROOT/engine" >/dev/null
 
 rc=0
-for f in "$ROM.sfc" "$ROM.smc" "$ROM.sym" linkfile; do
+# linkfile is deliberately NOT compared: make writes the runtime libraries
+# as absolute paths, snesbuild copies them in and writes them relative,
+# because wlalink splits that file on whitespace and an installed toolchain
+# lives under "SNES Studio". Different text, same objects, same ROM.
+for f in "$ROM.sfc" "$ROM.smc" "$ROM.sym"; do
   if cmp -s "$REF/$f" "$ROOT/engine/$f"; then
     echo "  ✓ $f — identical"
   else
@@ -50,7 +53,7 @@ done
 
 echo
 if [ $rc -eq 0 ]; then
-  echo "snesbuild: output identical to make on 4 files."
+  echo "snesbuild: output identical to make on 3 files."
 else
   echo "snesbuild DIVERGES from make — do not ship this build."
 fi

@@ -22,6 +22,7 @@
 //!     snesbuild build --engine <dir> --toolchain <PVSnesLib root>
 //!     snesbuild cart  --engine <dir> --toolchain <dir>   (adds the .smc)
 //!     snesbuild clean --engine <dir>
+//!     snesbuild sync  --from <read-only sources> --to <work dir>
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeSet;
@@ -49,9 +50,14 @@ fn main() -> Result<()> {
     if cmd == "clean" {
         return clean(&engine, &rom);
     }
+    if cmd == "sync" {
+        let from = get("--from").context("sync needs --from")?;
+        let to = get("--to").context("sync needs --to")?;
+        return sync(Path::new(&from), Path::new(&to));
+    }
     if !matches!(cmd, "build" | "cart") {
         eprintln!(
-            "usage: snesbuild build|cart|clean --engine <dir> --toolchain <dir> [--rom <name>]"
+            "usage: snesbuild build|cart|clean|sync --engine <dir> --toolchain <dir> [--rom <name>]"
         );
         std::process::exit(2);
     }
@@ -302,13 +308,26 @@ fn build(cfg: &Cfg) -> Result<()> {
 
     // linkfile: our objects first, then the runtime libraries. The order
     // is what places the sections, so both lists are sorted.
+    //
+    // The libraries are COPIED next to the objects and listed relatively.
+    // wlalink reads this file with whitespace-separated parsing, so an
+    // absolute path containing a space is truncated at the space — which
+    // is not hypothetical: the installed toolchain lives under "SNES
+    // Studio", and an author's project may well sit in "Mes Jeux". Every
+    // path in here is therefore relative to the engine folder, and nothing
+    // we write can contain a space.
+    let libdst = engine.join("lib");
+    fs::create_dir_all(&libdst)?;
     let mut libs: Vec<String> = Vec::new();
     for e in fs::read_dir(cfg.libdir())
         .with_context(|| format!("reading {}", cfg.libdir().display()))?
     {
         let p = e?.path();
         if p.is_file() {
-            libs.push(p.to_string_lossy().replace('\\', "/"));
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            fs::copy(&p, libdst.join(&name))
+                .with_context(|| format!("copying {}", p.display()))?;
+            libs.push(format!("lib/{}", name));
         }
     }
     libs.sort();
@@ -466,6 +485,8 @@ fn clean(engine: &Path, rom: &str) -> Result<()> {
     for a in sources(engine, "asm")? {
         let _ = fs::remove_file(with_ext(&a, "obj"));
     }
+    // the runtime libraries copied in beside the objects (see build())
+    let _ = fs::remove_dir_all(engine.join("lib"));
     for f in [
         format!("{}.sfc", rom),
         format!("{}.smc", rom),
@@ -479,4 +500,60 @@ fn clean(engine: &Path, rom: &str) -> Result<()> {
     }
     println!("cleaned");
     Ok(())
+}
+
+// ---- staging ----------------------------------------------------------
+
+/// Copies the engine SOURCES into a writable folder.
+///
+/// An installed editor carries the engine as a read-only bundle resource
+/// (Program Files, /usr/lib), and the build writes .obj, .asm and the ROM
+/// right next to the sources — so it cannot happen there. The author's
+/// project gets its own copy instead, and this is what fills it.
+///
+/// src/data is SKIPPED: it belongs to datagen, and copying the bundled
+/// (empty or stale) version over freshly generated data would build the
+/// wrong game. Build leftovers are skipped for the same reason.
+fn sync(from: &Path, to: &Path) -> Result<()> {
+    if !from.is_dir() {
+        bail!("no engine sources at {}", from.display());
+    }
+    let n = sync_dir(from, to, &mut 0)?;
+    println!("synced {} file(s) to {}", n, to.display());
+    Ok(())
+}
+
+fn skipped(name: &str) -> bool {
+    matches!(
+        Path::new(name).extension().and_then(|e| e.to_str()),
+        Some("obj" | "ps" | "asp" | "sfc" | "smc" | "sym" | "bnk")
+    ) || name == "linkfile"
+}
+
+fn sync_dir(from: &Path, to: &Path, count: &mut usize) -> Result<usize> {
+    fs::create_dir_all(to)?;
+    let mut entries: Vec<PathBuf> = fs::read_dir(from)?.map(|e| e.map(|e| e.path())).collect::<std::result::Result<_, _>>()?;
+    entries.sort();
+    for p in entries {
+        let name = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if p.is_dir() {
+            // datagen owns src/data; never overwrite generated data with
+            // whatever the bundle happened to carry.
+            if p.parent().and_then(|d| d.file_name()).and_then(|n| n.to_str()) == Some("src")
+                && name == "data"
+            {
+                fs::create_dir_all(to.join(&name))?;
+                continue;
+            }
+            sync_dir(&p, &to.join(&name), count)?;
+        } else if !skipped(&name) {
+            fs::copy(&p, to.join(&name))
+                .with_context(|| format!("copying {}", p.display()))?;
+            *count += 1;
+        }
+    }
+    Ok(*count)
 }

@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "tauri:build": "tauri build",
     "sidecars": "node tools/sidecars.mjs",
+    "vendor": "node tools/vendor.mjs",
     "smoke": "node tools/smoke.mjs",
     "smoke:commands": "node tools/smoke-commands.mjs",
     "smoke:resources": "node tools/smoke-resources.mjs"
