@@ -246,6 +246,12 @@ pub struct Assets {
 #[derive(Deserialize)]
 pub struct Scene {
     pub name: String,
+    /// Absent or "map" = an ordinary scene. "worldmap" = a Mode 7 plane
+    /// (docs/PLANNING_SYSTEME_MODE7.md §5.4): the same tileset library
+    /// and the same painting, rendered on the affine plane. Absent in
+    /// every existing project, so nothing changes for them.
+    #[serde(default)]
+    pub kind: Option<String>,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
@@ -481,8 +487,47 @@ fn minus_one() -> i16 {
 
 impl Scene {
     /// Consistency checks against the spec (§1.2, §1.4, the >= 32 rule).
+    /// True for a Mode 7 world map.
+    pub fn is_worldmap(&self) -> bool {
+        self.kind.as_deref() == Some("worldmap")
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
+        if let Some(k) = &self.kind {
+            if k != "map" && k != "worldmap" {
+                bail!("scene '{}' : kind '{}' inconnu (map, worldmap)", self.name, k);
+            }
+        }
+        if self.is_worldmap() {
+            // The plane is 128x128 tiles of 8x8, so 64x64 metatiles. Not
+            // a choice: past that the map has nowhere to go.
+            if self.width > 64 || self.height > 64 {
+                bail!(
+                    "carte du monde '{}' : {}x{} — maximum 64x64 blocs (le plan \
+                     Mode 7 fait 128x128 tuiles de 8x8)",
+                    self.name,
+                    self.width,
+                    self.height
+                );
+            }
+            // One plane, so no upper layer and no effect layer: both would
+            // need a second BG that Mode 7 does not have.
+            if self.upper.as_ref().map_or(false, |u| !u.is_empty()) {
+                bail!(
+                    "carte du monde '{}' : la couche superieure n'existe pas en \
+                     Mode 7 (un seul plan) — la vider avant de convertir",
+                    self.name
+                );
+            }
+            if self.effect.is_some() {
+                bail!(
+                    "carte du monde '{}' : la couche d'effet demande un second \
+                     plan, que le Mode 7 n'a pas",
+                    self.name
+                );
+            }
+        }
         if self.width < 20 || self.height < 15 {
             bail!(
                 "scene '{}' : map {}x{} — minimum 20x15 (un ecran, comme RM2003)",

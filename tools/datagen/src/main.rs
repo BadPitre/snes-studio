@@ -609,6 +609,55 @@ fn main() -> Result<()> {
     }
     println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
+    // Mode 7 WORLD MAPS (M7-B1). A world map is an ordinary scene with
+    // kind "worldmap": same tileset library, same painting, same events
+    // and warps — only the RENDERING changes. It therefore keeps its
+    // place in every table above; this pass only adds the plane's data.
+    //
+    // It is compiled by the ordinary path as well, which costs one gfx
+    // set it will never display. That is deliberate: skipping it here
+    // would desynchronise `set_ids` from `scenes`, and every table
+    // downstream is indexed by scene position. A world map uses few
+    // metatiles, so the waste is small and the alignment is free.
+    let mut worlds: Vec<(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)> = Vec::new();
+    for (sci, sc) in scenes.iter().enumerate() {
+        if !sc.is_worldmap() {
+            continue;
+        }
+        let ts = scene_ts(sc)?;
+        let png = &tileset_paths[ts];
+        let img = gfx::load_indexed_png(&proj_dir.join(png))
+            .with_context(|| format!("carte du monde '{}' : tileset {}", sc.name, png))?;
+        let t = mode7::convert_tileset(&img)
+            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
+        // Every painted block must exist in the sheet. Caught here rather
+        // than shown as garbage on the plane.
+        let mut plane = Vec::with_capacity(sc.width as usize * sc.height as usize);
+        for (y, row) in sc.tilemap.iter().enumerate() {
+            for (x, &id) in row.iter().enumerate() {
+                let id = if id < 0 { 0 } else { id as usize };
+                if id >= t.count {
+                    bail!(
+                        "carte du monde '{}' : bloc {} en ({}, {}) — le tileset \
+                         '{}' n'en a que {}",
+                        sc.name,
+                        id,
+                        x,
+                        y,
+                        png,
+                        t.count
+                    );
+                }
+                plane.push(id as u8);
+            }
+        }
+        println!(
+            "  mode7 : carte du monde {} — {}x{} blocs, {} motifs, {} couleurs",
+            sc.name, sc.width, sc.height, t.patterns, t.colours
+        );
+        worlds.push((sci, t, plane, sc.width, sc.height));
+    }
+
     // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
     // model); an actor's sprite is a block index.
     // Sets are compiled PER SCENE, like the tilesets: a scene only
@@ -961,6 +1010,9 @@ fn main() -> Result<()> {
         let empty = project::Mode7Config::default();
         let cfg = project.mode7.as_ref().unwrap_or(&empty);
         for (name, content) in gen_mode7_files(cfg, &m7_ramps, &proj_dir)? {
+            write_out(&out_dir, &name, content)?;
+        }
+        for (name, content) in gen_worldmap_files(&worlds) {
             write_out(&out_dir, &name, content)?;
         }
     }
@@ -1538,6 +1590,74 @@ fn project_json_roots(dir: &Path) -> Result<Vec<serde_json::Value>> {
         }
     }
     Ok(out)
+}
+
+/// Mode 7 world maps (M7-B1): one file per map plus the registry.
+///
+/// The plane map is stored in METATILES (at most 64x64 = 4 KB) and the
+/// engine expands it through `meta` into the 128x128 tile plane at open.
+/// Storing the expanded plane would be 16 KB per map for nothing, and
+/// the expansion happens once, under force blank, where there is time.
+fn gen_worldmap_files(
+    worlds: &[(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)],
+) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    for (i, (_sci, t, plane, w, h)) in worlds.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str("/* world map: 8bpp patterns, pattern 0 reserved blank */\n");
+        s.push_str(&emit::u8_array(&format!("m7w{}_chars", i), &t.chars, 16, false));
+        s.push_str(&format!(
+            "const u16 m7w{}_chars_size = sizeof(m7w{}_chars);\n",
+            i, i
+        ));
+        files.push((format!("data_m7wchars{}.c", i), s));
+
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(
+            "/* four pattern indices per 16x16 block, in reading order\n                (top-left, top-right, bottom-left, bottom-right) */\n",
+        );
+        s.push_str(&emit::u8_array(&format!("m7w{}_meta", i), &t.meta, 16, false));
+        s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
+        s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
+        s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
+        files.push((format!("data_m7wmap{}.c", i), s));
+    }
+
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..worlds.len() {
+        s.push_str(&format!(
+            "extern const u8 m7w{i}_chars[];\nextern const u16 m7w{i}_chars_size;\n\
+             extern const u8 m7w{i}_meta[];\nextern const u8 m7w{i}_map[];\n\
+             extern const u16 m7w{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push_str(&format!("\nconst u8 m7w_count = {};\n\n", worlds.len()));
+    let n = worlds.len().max(1);
+    let mut table = |decl: &str, f: &dyn Fn(usize) -> String| {
+        s.push_str(&format!("{}[{}] = {{ ", decl, n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", if i < worlds.len() { f(i) } else { "0".into() }));
+        }
+        s.push_str("};\n");
+    };
+    // Which SCENE each map belongs to: the engine looks a scene up here
+    // when it loads one, so a world map stays an ordinary scene
+    // everywhere else (warps, events, the boot scene).
+    table("const u8 m7w_scene", &|i| worlds[i].0.to_string());
+    table("const u8 *const m7w_chars", &|i| format!("m7w{}_chars", i));
+    table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
+    table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
+    table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
+    table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
+    table("const u8 m7w_w", &|i| worlds[i].3.to_string());
+    table("const u8 m7w_h", &|i| worlds[i].4.to_string());
+    files.push(("data_m7world.c".to_string(), s));
+    files
 }
 
 fn gen_mode7_files(

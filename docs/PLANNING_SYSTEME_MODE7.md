@@ -538,9 +538,24 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    areas fits UNTOUCHED at 92 patterns and 30 colours. It also gives the
    editor gate a real entry to walk instead of an empty category.
 
-5. **M7-B1** — 🟡 the Mode 7 tileset resource (§5.1) and the `worldmap`
-   scene type in datagen (§5.4). **The tileset converter is done and
-   tested; the scene type is not.**
+5. **M7-B1** — ✅ the world map's tileset compilation (§5.1) and the
+   `worldmap` scene type in datagen (§5.4).
+
+   A world map is an ORDINARY SCENE carrying `kind: "worldmap"`: the same
+   tileset library, the same painting, the same events and warps. Only
+   the rendering changes, so it keeps its place in every table datagen
+   already builds, and the Mode 7 pass only adds the plane's data.
+
+   It is compiled by the ordinary path as well, which costs one gfx set
+   it will never display. That is deliberate: skipping it would
+   desynchronise `set_ids` from `scenes`, and every table downstream is
+   indexed by scene position. A world map uses few metatiles, so the
+   waste is small and the alignment is free.
+
+   The plane map is stored in METATILES — at most 64x64, so 4 KB — and
+   the engine expands it through the quadrant table at open. Storing the
+   expanded 128x128 plane would be 16 KB per map for nothing, and the
+   expansion happens once, under force blank, where there is time.
 
    One format decision was taken and is worth recording. A Mode 7 tileset
    is authored as a grid of **16x16 metatiles**, exactly like an ordinary
