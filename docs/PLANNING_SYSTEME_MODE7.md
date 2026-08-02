@@ -473,16 +473,26 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    to all of it, the screen closes and the map comes back. Two bugs found
    on the way are recorded in §11b — both are conventions of this engine
    that no amount of reading the hardware would have surfaced.
-4. **M7-A3** — 🟡 the editor. Done: the "Zoom cinematique" command with
-   its four presets and the zoom stated in percentages, the "Image
-   zoomable" resource category (import, export, rename, delete), and the
-   rule of §8.1 held — the words "Mode 7" appear nowhere in the editor.
-   **Not done: the auto-fit preview of §8.3/§8.5.** It needs a datagen
-   subcommand that converts one PNG and hands back the result, so that
-   the preview calls the SAME code the build uses; a second
-   implementation in TypeScript would drift and start lying about what
-   the game shows. Until it exists the author sees the fitted size in the
-   build log, not before.
+4. **M7-A3** — ✅ the editor. The "Zoom cinematique" command with four
+   presets and the zoom stated in percentages and seconds; the "Image
+   zoomable" resource category with the full import/export/rename/delete
+   flow; and the before/after preview, which shows the REAL converted
+   image next to the source plus the fitted size. The rule of §8.1 holds:
+   the words "Mode 7" appear nowhere in the editor.
+
+   The preview calls `datagen m7-preview <in.png> <out.png>` through the
+   sidecar rather than converting in TypeScript (§8.5). That costs one
+   subprocess per selection and is worth it: a second implementation
+   would drift from the build and start lying about what the game shows,
+   which is the one failure this feature cannot afford. It fails silently
+   when there is no sidecar — browser mode has none, and the panel must
+   still open.
+
+   `demo/assets/mode7/titre_plaine.png` is the worked example, and it
+   makes the §1 table concrete once more: a title card of broad flat
+   areas fits UNTOUCHED at 92 patterns and 30 colours. It also gives the
+   editor gate a real entry to walk instead of an empty category.
+
 5. **M7-B1** — the Mode 7 tileset resource (§5.1) and the `worldmap`
    scene type in datagen (§5.4).
 6. **M7-B2** — the camera and the second sprite loop (§7.1, §7.2). The

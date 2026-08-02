@@ -38,6 +38,12 @@ fn main() -> Result<()> {
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
     }
+    if args.len() >= 2 && args[1] == "m7-preview" {
+        if args.len() != 4 {
+            bail!("usage : datagen m7-preview <image.png> <apercu.png>");
+        }
+        return mode7::preview_command(Path::new(&args[2]), Path::new(&args[3]));
+    }
     if args.len() >= 2 && args[1] == "tidy" {
         if args.len() < 3 {
             bail!("usage : datagen tidy <dossier_projet> [--dry-run]");

@@ -24,7 +24,7 @@
 
 use crate::gfx::IndexedImage;
 use crate::tileset::dist555;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 /// Distinct 8x8 patterns the hardware can hold, INCLUDING the reserved
@@ -342,6 +342,64 @@ fn palette_used(palette: &[u16]) -> usize {
         n -= 1;
     }
     n
+}
+
+/// Renders a converted image back to RGB, exactly as the PPU would read
+/// it: pattern per map cell, colour per palette index, BGR555 widened to
+/// 8 bits per channel.
+///
+/// This exists so the editor can show the author what the GAME will
+/// display rather than what they imported — the two differ by the
+/// auto-fit and by the 5-bit colour, and an author who tunes a zoom on a
+/// crisp image and gets something else in game is the worst outcome this
+/// feature has (section 8.5). It is deliberately the same `convert`
+/// output the build uses: a preview computed by a second implementation
+/// would drift and start lying.
+pub fn preview_rgb(m: &Mode7Image) -> Vec<u8> {
+    let (w, h) = (m.wt * 8, m.ht * 8);
+    let mut out = vec![0u8; w * h * 3];
+    let widen = |c: u16, shift: u32| -> u8 {
+        let v = ((c >> shift) & 31) as u8;
+        (v << 3) | (v >> 2)
+    };
+    for ty in 0..m.ht {
+        for tx in 0..m.wt {
+            let t = m.map[ty * m.wt + tx] as usize;
+            for row in 0..8 {
+                for col in 0..8 {
+                    let idx = m.chars[t * 64 + row * 8 + col] as usize;
+                    let c = *m.palette.get(idx).unwrap_or(&0);
+                    let o = ((ty * 8 + row) * w + tx * 8 + col) * 3;
+                    out[o] = widen(c, 0);
+                    out[o + 1] = widen(c, 5);
+                    out[o + 2] = widen(c, 10);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `datagen m7-preview <in.png> <out.png>`: converts one image and writes
+/// what the game will show, printing the author-facing summary.
+pub fn preview_command(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    let img = crate::gfx::load_indexed_png(src)
+        .with_context(|| format!("lecture de {}", src.display()))?;
+    let m = convert(&img)?;
+    let rgb = preview_rgb(&m);
+    let file = std::fs::File::create(dst)
+        .with_context(|| format!("ecriture de {}", dst.display()))?;
+    let mut enc = png::Encoder::new(
+        std::io::BufWriter::new(file),
+        (m.wt * 8) as u32,
+        (m.ht * 8) as u32,
+    );
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header()?.write_image_data(&rgb)?;
+    // The editor reads this line and shows it under the before/after.
+    println!("{}", m.report.summary());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------

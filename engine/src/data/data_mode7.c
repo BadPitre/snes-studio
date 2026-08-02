@@ -4,16 +4,20 @@
  */
 #include <snes.h>
 
+extern const u8 m7img0_chars[];
+extern const u16 m7img0_chars_size;
+extern const u8 m7img0_map[];
+extern const u16 m7img0_pal[];
 
-const u8 m7_img_count = 0;
+const u8 m7_img_count = 1;
 const u8 m7_ramp_count = 0;
 
-const u8 *const m7_img_chars[1] = { 0, };
-const u16 *const m7_img_chars_sizes[1] = { 0, };
-const u8 *const m7_img_maps[1] = { 0, };
-const u16 *const m7_img_pals[1] = { 0, };
-const u8 m7_img_wt[1] = { 0, };
-const u8 m7_img_ht[1] = { 0, };
+const u8 *const m7_img_chars[1] = { m7img0_chars, };
+const u16 *const m7_img_chars_sizes[1] = { &m7img0_chars_size, };
+const u8 *const m7_img_maps[1] = { m7img0_map, };
+const u16 *const m7_img_pals[1] = { m7img0_pal, };
+const u8 m7_img_wt[1] = { 32, };
+const u8 m7_img_ht[1] = { 28, };
 
 const u16 *const m7_ramps[1] = { 0, };
 const u8 m7_ramp_lens[1] = { 0, };
