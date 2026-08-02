@@ -144,21 +144,49 @@ and B is not an option ticked on an existing scene — see §8.2.
 
 ## 5. Data formats
 
-### 5.1 The Mode 7 tileset (a resource)
+### 5.1 The tileset of a world map — the PROJECT's tilesets
 
-A Mode 7 tileset is a resource of its OWN, never a reinterpreted chipset.
-Otherwise the author paints with a tileset used elsewhere and discovers
-that the flips and the per-tile palettes are gone.
+**A world map uses the project's ordinary tilesets.** It names one the way
+any scene does, and datagen compiles its Mode 7 form. There is no Mode 7
+tileset resource and no new category in the Resource Manager: one
+library, painted with one window.
 
-- at most **256 unique 8x8 patterns** after deduplication;
-- at most **128 colours**, mapped to CGRAM 0-127 (§3.4);
-- no star, no directional passability bits per corner: passability is a
-  flat table of 256 bytes indexed by tile — simpler than the metatile
-  model because there are no metatiles.
+This CORRECTS the first answer in this document, which said a Mode 7
+tileset had to be a resource of its own so that an author would not paint
+with a sheet used elsewhere and lose its flips and palettes. That worry
+was right; the conclusion was not. The losses are real, but they are
+losses in the RENDERING of a map the author deliberately made a world
+map — the editor can say so plainly — and they do not justify a second
+tileset library to keep in step with the first.
 
-datagen validates at generation time and never at runtime: the pattern
-count, the colour count, a duplicate name, a tile referenced by a map but
-absent from the tileset.
+What made the correction possible is a fact about the existing format
+rather than an opinion: a project chipset is already a grid of 16x16
+metatiles carrying up to 256 colours, and the engine already loads the
+full BG CGRAM, colours 0-127, per scene (`SPEC_FORMATS.md` §0.3). That is
+EXACTLY the half of CGRAM Mode 7 needs (§3.4). The Mode 7 image had to
+become its own asset because a picture is 4bpp and capped at 16 colours;
+a tileset has no such cap, so the same reasoning does not carry over.
+
+What the plane cannot carry, and the editor must say when a scene is
+turned into a world map:
+
+| Lost | Why |
+| --- | --- |
+| Flips | No flip bit in a one-byte map entry — a mirrored tile becomes a distinct pattern and costs budget |
+| The 8 palettes of 15 | One global palette; datagen merges into 127 colours plus the reserved black |
+| The star (upper layer) | One plane, so no priority bit |
+| Half the patterns | 256 rather than 512 chars |
+
+Compilation is the metatile path of any chipset: each 16x16 block is cut
+into its four 8x8 quadrants and the quadrants are deduplicated globally,
+so a flat block costs ONE pattern and not four — reuse pays here as it
+does everywhere else in Mode 7. Over 255 patterns the tileset is REFUSED
+rather than auto-fitted, unlike an image (§8.3): shrinking a picture
+loses detail an author can live with, shrinking a tileset would break
+every map already painted with it.
+
+Passability comes from the tileset's existing sidecar. It needs no
+metatile indirection here, so it flattens to one byte per pattern.
 
 ### 5.2 The Mode 7 image (M7-A)
 
