@@ -403,6 +403,105 @@ pub fn preview_command(src: &std::path::Path, dst: &std::path::Path) -> Result<(
 }
 
 // ---------------------------------------------------------------------
+// Mode 7 tileset (M7-B1)
+// ---------------------------------------------------------------------
+
+/// The author paints a world map in 16x16 metatiles, exactly as they
+/// paint an ordinary scene — that is the promise of section 8.2, and it
+/// is why a Mode 7 tileset is authored as a grid of 16x16 blocks rather
+/// than as raw 8x8 patterns. A 128x128-tile plane is 64x64 metatiles;
+/// datagen expands each block into its four quadrants.
+pub const METATILE_PX: usize = 16;
+/// The plane in metatiles — what the editor bounds a world map to.
+pub const PLANE_METATILES: usize = PLANE_TILES / 2;
+
+pub struct Mode7Tileset {
+    /// 8bpp patterns, 64 bytes each. Pattern 0 is the reserved blank.
+    pub chars: Vec<u8>,
+    /// Four pattern indices per metatile, in reading order
+    /// (top-left, top-right, bottom-left, bottom-right).
+    pub meta: Vec<u8>,
+    pub palette: Vec<u16>,
+    /// Metatiles in the sheet.
+    pub count: usize,
+    pub patterns: usize,
+    pub colours: usize,
+}
+
+/// Compiles a 16x16 metatile sheet into Mode 7 patterns.
+///
+/// Unlike an image (§8.3), a tileset that does not fit is REFUSED rather
+/// than auto-fitted. Shrinking an image loses detail the author can live
+/// with; shrinking a tileset would break every map painted with it, so
+/// the honest move is to say what is over budget and by how much.
+pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
+    if img.width % METATILE_PX != 0 || img.height % METATILE_PX != 0 {
+        bail!(
+            "planche de {}x{} : attendu des multiples de {} (grille de blocs {0}x{0})",
+            img.width,
+            img.height,
+            METATILE_PX
+        );
+    }
+    let (mw, mh) = (img.width / METATILE_PX, img.height / METATILE_PX);
+    if mw == 0 || mh == 0 {
+        bail!("planche vide");
+    }
+
+    // One quantisation for the WHOLE sheet: the plane has a single
+    // palette, so two blocks cannot each keep their own colours.
+    let rgb = resample(img, img.width, img.height);
+    let (indices, palette) = quantise(&rgb, MAX_COLOURS);
+
+    let mut chars: Vec<u8> = vec![0u8; 64]; /* pattern 0 blank, as in convert */
+    let mut seen: BTreeMap<[u8; 64], usize> = BTreeMap::new();
+    seen.insert([0u8; 64], 0);
+    let mut meta: Vec<u8> = Vec::with_capacity(mw * mh * 4);
+
+    for my in 0..mh {
+        for mx in 0..mw {
+            for q in 0..4 {
+                let ox = mx * METATILE_PX + (q & 1) * 8;
+                let oy = my * METATILE_PX + (q >> 1) * 8;
+                let mut tile = [0u8; 64];
+                for row in 0..8 {
+                    for col in 0..8 {
+                        tile[row * 8 + col] = indices[(oy + row) * img.width + ox + col];
+                    }
+                }
+                let next = seen.len();
+                let id = *seen.entry(tile).or_insert(next);
+                if id == next {
+                    chars.extend_from_slice(&tile);
+                }
+                meta.push(id.min(255) as u8);
+            }
+        }
+    }
+
+    let patterns = seen.len();
+    if patterns > MAX_TILES {
+        bail!(
+            "tileset mode7 : {} motifs 8x8 uniques pour {} bloc(s) — maximum {} \
+             (motif 0 reserve vide). Simplifier les blocs, ou en reutiliser \
+             davantage : c'est le REEMPLOI qui paie ici, pas la taille",
+            patterns,
+            mw * mh,
+            MAX_TILES
+        );
+    }
+    let colours = palette_used(&palette);
+    Ok(Mode7Tileset {
+        chars,
+        meta,
+        palette,
+        count: mw * mh,
+        patterns,
+        colours,
+    })
+}
+
+// ---------------------------------------------------------------------
 // Zoom ramps
 // ---------------------------------------------------------------------
 
@@ -682,6 +781,95 @@ mod tests {
         assert_eq!(a.chars, b.chars);
         assert_eq!(a.map, b.map);
         assert_eq!(a.palette, b.palette);
+    }
+
+    /// A metatile sheet whose blocks are each a flat, distinct colour:
+    /// every block collapses to ONE pattern, shared by its four
+    /// quadrants. That is the reuse the format is built on.
+    fn sheet(mw: usize, mh: usize, colours: usize) -> IndexedImage {
+        img(
+            mw * 16,
+            mh * 16,
+            move |x, y| (((y / 16) * mw + (x / 16)) % (colours - 1) + 1) as u8,
+            colours,
+        )
+    }
+
+    #[test]
+    fn a_flat_block_costs_one_pattern_not_four() {
+        let t = convert_tileset(&sheet(4, 4, 17)).unwrap();
+        assert_eq!(t.count, 16);
+        // 16 distinct flat blocks + the reserved blank.
+        assert_eq!(t.patterns, 17);
+        assert_eq!(t.chars.len(), 17 * 64);
+        assert_eq!(t.meta.len(), 16 * 4);
+        // Each block's four quadrants name the SAME pattern.
+        for b in 0..16 {
+            let q = &t.meta[b * 4..b * 4 + 4];
+            assert!(q.iter().all(|&v| v == q[0]), "block {} split into {:?}", b, q);
+        }
+        assert!(!t.meta.contains(&0), "no block may claim the reserved blank");
+    }
+
+    #[test]
+    fn the_quadrants_are_in_reading_order() {
+        // Each 16x16 block carries a different index in each quadrant, so
+        // the four patterns must differ and follow TL, TR, BL, BR.
+        let t = convert_tileset(&img(
+            16,
+            16,
+            |x, y| (1 + (y / 8) * 2 + (x / 8)) as u8,
+            8,
+        ))
+        .unwrap();
+        assert_eq!(t.count, 1);
+        assert_eq!(t.patterns, 5); /* four quadrants + the blank */
+        let q = &t.meta[0..4];
+        assert_eq!(q.len(), 4);
+        assert!(q[0] != q[1] && q[1] != q[2] && q[2] != q[3]);
+        // The pattern of quadrant k is filled with the colour of index k+1.
+        for (k, &pat) in q.iter().enumerate() {
+            let first = t.chars[pat as usize * 64];
+            assert!(t.chars[pat as usize * 64..pat as usize * 64 + 64]
+                .iter()
+                .all(|&b| b == first));
+            assert_eq!(
+                t.palette[first as usize],
+                sheet_colour(k + 1),
+                "quadrant {} out of order",
+                k
+            );
+        }
+    }
+
+    fn sheet_colour(i: usize) -> u16 {
+        // Mirrors the palette `img` builds: index i is (i * 7) & 0x7FFF.
+        (i as u16 * 7) & 0x7FFF
+    }
+
+    #[test]
+    fn an_oversized_tileset_is_refused_not_shrunk() {
+        // Every 8x8 distinct: 8x8 blocks = 256 quadrants, past the budget.
+        // A tileset cannot be auto-fitted — shrinking it would break every
+        // map painted with it — so the author must be told plainly.
+        let t = convert_tileset(&stamped(128, 128));
+        let e = t.err().expect("must refuse").to_string();
+        assert!(e.contains("motifs"), "unhelpful message: {}", e);
+        assert!(e.contains("reutiliser") || e.contains("REEMPLOI"), "no advice: {}", e);
+    }
+
+    #[test]
+    fn a_sheet_off_the_block_grid_is_refused() {
+        let e = convert_tileset(&img(20, 16, |_, _| 1, 4)).err().unwrap().to_string();
+        assert!(e.contains("multiples de 16"), "unhelpful message: {}", e);
+    }
+
+    #[test]
+    fn the_tileset_palette_leaves_the_sprites_their_half() {
+        let t = convert_tileset(&sheet(8, 8, 120)).unwrap();
+        assert_eq!(t.palette.len(), MAX_COLOURS);
+        assert_eq!(t.palette[0], 0, "colour 0 stays black");
+        assert!(t.colours <= MAX_COLOURS);
     }
 
     #[test]

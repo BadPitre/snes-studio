@@ -493,8 +493,22 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    areas fits UNTOUCHED at 92 patterns and 30 colours. It also gives the
    editor gate a real entry to walk instead of an empty category.
 
-5. **M7-B1** — the Mode 7 tileset resource (§5.1) and the `worldmap`
-   scene type in datagen (§5.4).
+5. **M7-B1** — 🟡 the Mode 7 tileset resource (§5.1) and the `worldmap`
+   scene type in datagen (§5.4). **The tileset converter is done and
+   tested; the scene type is not.**
+
+   One format decision was taken and is worth recording. A Mode 7 tileset
+   is authored as a grid of **16x16 metatiles**, exactly like an ordinary
+   chipset, and datagen expands each block into its four 8x8 quadrants.
+   That is what keeps the promise of §8.2 — the author paints a world map
+   with the same canvas and the same gestures — and it is why the plane
+   is bounded to 64x64 metatiles rather than 128x128 raw tiles.
+
+   The dedup happens at the QUADRANT level, so a flat block costs one
+   pattern and not four: reuse is what pays here, not size. A tileset
+   over the 255-pattern budget is REFUSED rather than auto-fitted, unlike
+   an image (§8.3) — shrinking an image loses detail the author can live
+   with, shrinking a tileset would break every map painted with it.
 6. **M7-B2** — the camera and the second sprite loop (§7.1, §7.2). The
    measurement of §10.4 gates the scope here.
 7. **M7-B3** — the editor: the scene type at creation and the restricted
