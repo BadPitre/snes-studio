@@ -330,7 +330,9 @@ function sceneToJson(sc: Scene): string {
       ? `\n  "m7_horizon": ${sc.m7_horizon ?? 56},\n  "m7_anchor": ${sc.m7_anchor ?? 176},`
       : "";
   const rotate =
-    sc.kind === "worldmap" && sc.m7_rotate ? `\n  "m7_rotate": true,` : "";
+    sc.kind === "worldmap" && sc.m7_rotate
+      ? `\n  "m7_rotate": ${sc.m7_rotate},`
+      : "";
   // Sky: a flat colour OR a gradient's two ends, never both — the engine
   // keeps CGRAM 0 black under a gradient so the fixed colour is exact.
   const skyImg =

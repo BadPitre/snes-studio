@@ -1026,6 +1026,12 @@ mod tests {
 /// coefficients. A count not divisible by 4 would double the ROM.
 pub const ROT_STEPS: usize = 16;
 
+/// Step counts an author may pick. The set must be closed under +/-90
+/// degrees for the two-family trick to hold, so every value is a
+/// multiple of 4; and a power of two lets the engine wrap an angle with
+/// a mask instead of a modulo.
+pub const ROT_CHOICES: [u8; 3] = [16, 32, 64];
+
 /// One HDMA table: two continuous blocks of 112 lines plus a terminator.
 /// MUST match the engine's own layout (`engine/src/m7.c`), which builds
 /// the same thing at run time for the no-rotation case.
@@ -1035,6 +1041,8 @@ pub const TAB_LEN: usize = 2 + TAB_HALF * 4 + 1;
 /// A world map's rotation data: 2 x ROT_STEPS scanline tables plus the
 /// camera offsets that keep the hero on the anchor line.
 pub struct Mode7Rotation {
+    /// How many steps this map compiled — 16, 32 or 64.
+    pub steps: usize,
     /// `p[k]` = s(d)*cos(k) — feeds M7A at angle k, M7C at angle k-4.
     pub p: Vec<Vec<u8>>,
     /// `r[k]` = -s(d)^2*cos(k) — feeds M7D at angle k, M7B at angle k+4.
@@ -1064,21 +1072,29 @@ fn clamp14(v: f64) -> i16 {
 ///
 /// The tables are read by the HDMA STRAIGHT FROM ROM (see `m7_arm` in
 /// `engine/src/vramfast.asm`), so they cost no WRAM and no load time.
-pub fn compile_rotation(horizon: u8, anchor: u8) -> Result<Mode7Rotation> {
+pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Rotation> {
     let (hz, an) = (horizon as usize, anchor as usize);
+    if !ROT_CHOICES.contains(&(steps as u8)) {
+        bail!(
+            "rotation mode7 : {} crans — attendu 16, 32 ou 64 (multiple de 4 \
+             pour que C soit A a un quart de tour, puissance de 2 pour que le \
+             moteur boucle l'angle par masque)",
+            steps
+        );
+    }
     if an < hz + 16 {
         bail!("rotation mode7 : ancrage {} pour un horizon {} — 16 lignes minimum", an, hz);
     }
     let da = (an - hz) as f64;
     let sky = hz + (an - hz) / 8 + 1;
 
-    let mut p = Vec::with_capacity(ROT_STEPS);
-    let mut r = Vec::with_capacity(ROT_STEPS);
-    let mut ox = Vec::with_capacity(ROT_STEPS);
-    let mut oy = Vec::with_capacity(ROT_STEPS);
+    let mut p = Vec::with_capacity(steps);
+    let mut r = Vec::with_capacity(steps);
+    let mut ox = Vec::with_capacity(steps);
+    let mut oy = Vec::with_capacity(steps);
 
-    for k in 0..ROT_STEPS {
-        let th = (k as f64) * std::f64::consts::TAU / ROT_STEPS as f64;
+    for k in 0..steps {
+        let th = (k as f64) * std::f64::consts::TAU / steps as f64;
         let (sin, cos) = (th.sin(), th.cos());
         let mut tp = vec![0u8; TAB_LEN];
         let mut tr = vec![0u8; TAB_LEN];
@@ -1112,7 +1128,7 @@ pub fn compile_rotation(horizon: u8, anchor: u8) -> Result<Mode7Rotation> {
         ox.push((-da * sin).round() as i16);
         oy.push((da * cos).round() as i16);
     }
-    Ok(Mode7Rotation { p, r, ox, oy })
+    Ok(Mode7Rotation { steps, p, r, ox, oy })
 }
 
 #[cfg(test)]
@@ -1126,7 +1142,7 @@ mod rot_tests {
 
     #[test]
     fn angle_zero_is_the_engines_own_no_rotation_case() {
-        let rot = compile_rotation(56, 176).unwrap();
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
         // A = s, D = -s^2 at the anchor line, which is drawn 1:1
         assert_eq!(word(&rot.p[0], 176), 256);
         assert_eq!(word(&rot.r[0], 176), -256);
@@ -1136,7 +1152,7 @@ mod rot_tests {
 
     #[test]
     fn a_quarter_turn_back_gives_the_sine_family() {
-        let rot = compile_rotation(56, 176).unwrap();
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
         // C at angle 0 IS P at angle 12 — and sin(0) = 0
         assert_eq!(word(&rot.p[12], 176), 0);
         // at a quarter turn, C = s
@@ -1144,15 +1160,34 @@ mod rot_tests {
     }
 
     #[test]
+    fn a_finer_step_count_keeps_the_quarter_turn_identity() {
+        // The whole two-family trick rests on it, and it is the reason
+        // only multiples of 4 are offered.
+        for &n in &ROT_CHOICES {
+            let n = n as usize;
+            let rot = compile_rotation(56, 176, n).unwrap();
+            assert_eq!(rot.p.len(), n);
+            assert_eq!(word(&rot.p[0], 176), 256, "{} steps: cos(0) = 1", n);
+            assert_eq!(word(&rot.p[n / 4], 176), 0, "{} steps: cos(90) = 0", n);
+            assert_eq!(word(&rot.p[n / 2], 176), -256, "{} steps: cos(180) = -1", n);
+        }
+    }
+
+    #[test]
+    fn an_unsupported_step_count_is_refused() {
+        assert!(compile_rotation(56, 176, 24).is_err());
+    }
+
+    #[test]
     fn half_a_turn_negates_the_scale() {
-        let rot = compile_rotation(56, 176).unwrap();
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
         assert_eq!(word(&rot.p[8], 176), -256);
         assert_eq!(rot.oy[8], -120);
     }
 
     #[test]
     fn every_table_is_the_layout_the_engine_expects() {
-        let rot = compile_rotation(88, 168).unwrap();
+        let rot = compile_rotation(88, 168, ROT_STEPS).unwrap();
         for t in rot.p.iter().chain(rot.r.iter()) {
             assert_eq!(t.len(), TAB_LEN);
             assert_eq!(t[0], 0x80 | TAB_HALF as u8);
@@ -1163,6 +1198,6 @@ mod rot_tests {
 
     #[test]
     fn an_angle_too_flat_to_render_is_refused() {
-        assert!(compile_rotation(100, 110).is_err());
+        assert!(compile_rotation(100, 110, ROT_STEPS).is_err());
     }
 }

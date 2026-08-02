@@ -1815,6 +1815,59 @@ export function formM7Rot(
   return { body, valid: cmd.step >= 0 && cmd.step <= 15 };
 }
 
+/** `m7_turn` — an ANIMATED turn of the world map's view. */
+export function formM7Turn(
+  cmd: Extract<Command, { c: "m7_turn" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Cran d'arrivée
+          <input
+            type="number" min={0} max={63} value={cmd.step}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                step: Math.max(0, Math.min(63, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          Durée (frames)
+          <input
+            type="number" min={0} max={255} value={cmd.frames}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                frames: Math.max(0, Math.min(255, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={cmd.wait}
+            onChange={(e) => onChange({ ...cmd, wait: e.target.checked })}
+          />
+          Attendre la fin
+        </label>
+      </div>
+      <p className="hint">
+        Le moteur parcourt les crans lui-même, par le plus court chemin — il
+        ne tournera jamais de 350° pour en gagner 10. Le cran est ramené au
+        nombre de crans de la SCÈNE : viser 40 sur une carte à 16 crans donne
+        le cran 8. Durée 0 = aussi vite que les crans le permettent.
+      </p>
+    </>
+  );
+  return { body, valid: true };
+}
+
 export function formM7(cmd: Extract<Command, { c: "m7" }>, x: FormCtx): FormBody {
   let valid = true;
   const onChange = x.p.onChange;

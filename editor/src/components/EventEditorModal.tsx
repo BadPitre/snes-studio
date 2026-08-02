@@ -53,6 +53,7 @@ import {
   formM7,
   formM7View,
   formM7Rot,
+  formM7Turn,
   formStageOpen,
   formStagePose,
   formSwappos,
@@ -342,7 +343,11 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
         c.to
       }% en ${c.frames} frames`;
     case "m7_rot":
-      return `Tourner la vue Mode 7 : cran ${c.step} (${Math.round(c.step * 22.5)} deg)`;
+      return `Orienter la vue Mode 7 : cran ${c.step}`;
+    case "m7_turn":
+      return `Tourner la vue Mode 7 vers le cran ${c.step} en ${c.frames}f${
+        c.wait ? " (attendre)" : ""
+      }`;
     case "m7_view":
       return `Angle de camera Mode 7 : ${M7_VIEW_LABELS[c.preset].split(" —")[0]}${
         c.preset === "custom" ? ` (${c.horizon ?? 56}/${c.anchor ?? 176})` : ""
@@ -765,6 +770,8 @@ export function CommandListEditor(props: {
         return { c: "m7_view", preset: "standard", horizon: 56, anchor: 176 };
       case "m7_rot":
         return { c: "m7_rot", step: 0 };
+      case "m7_turn":
+        return { c: "m7_turn", step: 0, frames: 30, wait: true };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -1711,6 +1718,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "m7_rot":
       ({ body, valid } = formM7Rot(cmd, x));
+      break;
+    case "m7_turn":
+      ({ body, valid } = formM7Turn(cmd, x));
       break;
     case "vig_show":
       ({ body, valid } = formVigShow(cmd, x));

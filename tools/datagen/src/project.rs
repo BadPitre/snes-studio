@@ -17,6 +17,30 @@ fn parse_rgb(s: &str) -> anyhow::Result<u16> {
     Ok(((r >> 3) as u16) | (((g >> 3) as u16) << 5) | (((b >> 3) as u16) << 10))
 }
 
+/// `m7_rotate`: a step count, or the historical boolean.
+fn rot_steps<'de, D>(d: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Null => Ok(0),
+        serde_json::Value::Bool(b) => Ok(if b { 16 } else { 0 }),
+        serde_json::Value::Number(n) => {
+            let v = n.as_u64().unwrap_or(0);
+            if v == 0 || crate::mode7::ROT_CHOICES.contains(&(v as u8)) {
+                Ok(v as u8)
+            } else {
+                Err(D::Error::custom(format!(
+                    "m7_rotate {} : attendu 0, 16, 32 ou 64",
+                    v
+                )))
+            }
+        }
+        other => Err(D::Error::custom(format!("m7_rotate : {} inattendu", other))),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct Project {
     #[allow(dead_code)]
@@ -275,11 +299,13 @@ pub struct Scene {
     pub m7_horizon: Option<u8>,
     #[serde(default)]
     pub m7_anchor: Option<u8>,
-    /// World map ROTATION: the plane can be turned around the hero, in
-    /// 16 steps of 22.5 degrees. OPT-IN because it costs ~14 KB of ROM
-    /// per map — a map that never turns pays nothing.
-    #[serde(default)]
-    pub m7_rotate: bool,
+    /// World map ROTATION, as a STEP COUNT: 0 off, or 16 / 32 / 64.
+    /// Opt-in because it costs ROM — about 14 KB at 16 steps and 58 KB at
+    /// 64 — and a map that never turns pays nothing. `true` is still
+    /// accepted and means 16, so projects written before the count
+    /// existed keep working.
+    #[serde(default, deserialize_with = "rot_steps")]
+    pub m7_rotate: u8,
     /// World map SKY, the band above the horizon. Absent means black.
     /// `m7_sky` is a flat colour "#RRGGBB"; giving `m7_sky_top` AND
     /// `m7_sky_bottom` instead paints a vertical gradient.
@@ -563,7 +589,7 @@ impl Scene {
         }
         let grad = match (&self.m7_sky_top, &self.m7_sky_bottom) {
             (Some(t), Some(b)) => {
-                if self.m7_rotate {
+                if self.m7_rotate != 0 {
                     bail!(
                         "carte du monde '{}' : un ciel en degrade et la rotation                          demandent chacun un canal HDMA, et la rotation prend les                          cinq disponibles — choisir l'un ou l'autre (un ciel de                          couleur unie reste possible avec la rotation)",
                         self.name

@@ -383,6 +383,9 @@ export type Command =
   // 22.5 degrees, because the tables are compiled per angle and the
   // count must be a multiple of 4 (see PLANNING_SYSTEME_MODE7 §7.2d).
   | { c: "m7_rot"; step: number }
+  // M7-B4 — an ANIMATED turn: the engine walks the steps itself, the
+  // short way round. The step count buys resolution, this buys motion.
+  | { c: "m7_turn"; step: number; frames: number; wait: boolean }
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
@@ -671,9 +674,10 @@ export interface Scene {
    *  Ignored on an ordinary scene. */
   m7_horizon?: number;
   m7_anchor?: number;
-  /** World map ROTATION: opt-in, ~14 KB of ROM for the compiled tables.
-   *  A map that never turns pays nothing. */
-  m7_rotate?: boolean;
+  /** World map ROTATION, as a STEP COUNT: 0/absent off, or 16 / 32 / 64.
+   *  Finer steps buy smoothness with ROM — about 14 KB at 16 and 56 KB
+   *  at 64 — so a map that only faces four ways should not pay for 64. */
+  m7_rotate?: number;
   /** World map SKY, the band above the horizon — black when absent.
    *  A flat colour costs no HDMA channel and works with rotation; the
    *  gradient needs one, and rotation takes all five. */

@@ -207,13 +207,54 @@ fn rel(engine: &Path, p: &Path) -> String {
 // ---- running a tool ---------------------------------------------------
 
 fn run(what: &str, cmd: &mut Command) -> Result<()> {
+    run_capturing(what, cmd).map(|_| ())
+}
+
+/// Same, but hands the tool's stdout back. wlalink already computes the
+/// ROM occupancy under `-v` and we were throwing it away.
+fn run_capturing(what: &str, cmd: &mut Command) -> Result<String> {
     let out = cmd.output().with_context(|| format!("running {}", what))?;
     if !out.status.success() {
         let mut msg = String::from_utf8_lossy(&out.stdout).into_owned();
         msg.push_str(&String::from_utf8_lossy(&out.stderr));
         bail!("{} failed:\n{}", what, msg.trim());
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// ROM occupancy, from wlalink's own per-bank report.
+///
+/// Worth surfacing rather than computing: the .sfc is PADDED to the size
+/// declared in the header, so its length says nothing at all about how
+/// much of it is used. Before this, "how much ROM is left" was a question
+/// nobody in the project could answer — and it gates every decision about
+/// precompiled tables (Mode 7 rotation, PLANNING_SYSTEME_MODE7 §7.2d).
+fn report_rom(link_out: &str) {
+    let (mut banks, mut free, mut empty) = (0usize, 0usize, 0usize);
+    for line in link_out.lines() {
+        let Some(rest) = line.strip_prefix("ROM bank ") else { continue };
+        let Some((_, tail)) = rest.split_once(" (") else { continue };
+        let Some((n, _)) = tail.split_once(" bytes") else { continue };
+        let Ok(n) = n.parse::<usize>() else { continue };
+        banks += 1;
+        free += n;
+        if n == 32768 {
+            empty += 1;
+        }
+    }
+    if banks == 0 {
+        return; /* an older wlalink, or -v dropped: say nothing rather
+                   than print a wrong number */
+    }
+    let total = banks * 32768;
+    println!(
+        "  ROM {} Ko utilises sur {} Ko ({} % libre, {} banques vides sur {})",
+        (total - free) / 1024,
+        total / 1024,
+        100 * free / total,
+        empty,
+        banks
+    );
 }
 
 /// 816-opt writes the optimised assembly to STDOUT; make redirected it to
@@ -366,7 +407,7 @@ fn build(cfg: &Cfg) -> Result<()> {
     let sym = format!("{}.sym", cfg.rom);
     let _ = fs::remove_file(engine.join(&sym));
     println!("  link {}", sfc);
-    run(
+    let link_out = run_capturing(
         "wlalink",
         Command::new(cfg.link())
             .current_dir(engine)
@@ -376,6 +417,7 @@ fn build(cfg: &Cfg) -> Result<()> {
             .arg("linkfile")
             .arg(&sfc),
     )?;
+    report_rom(&link_out);
 
     clean_sym(&engine.join(&sym))?;
     check_wram(cfg, &engine.join(&sym), &engine.join(&sfc))?;

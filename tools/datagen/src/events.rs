@@ -496,6 +496,7 @@ impl<'a> EventCompiler<'a> {
                 "m7" => self.cmd_m7(cmd, out)?,
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
                 "m7_rot" => self.cmd_m7_rot(cmd, out)?,
+                "m7_turn" => self.cmd_m7_turn(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
                 "spotlight" => self.cmd_spotlight(cmd, out)?,
@@ -1632,6 +1633,18 @@ impl<'a> EventCompiler<'a> {
             );
         }
         out.push(format!("  M7ROT {}", step));
+        Ok(())
+    }
+
+    /// `m7_turn` — an ANIMATED rotation: the engine walks the steps.
+    fn cmd_m7_turn(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let step = cmd["step"].as_u64().unwrap_or(0);
+        if step > 63 {
+            bail!("m7_turn : cran {} — 64 crans au maximum (0-63)", step);
+        }
+        let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
+        let wait = if cmd["wait"].as_bool().unwrap_or(true) { 2 } else { 0 };
+        out.push(format!("  M7TURN {} {} {}", step, frames, wait));
         Ok(())
     }
 

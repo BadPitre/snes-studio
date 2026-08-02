@@ -671,14 +671,15 @@ fn main() -> Result<()> {
             sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
         let (horizon, anchor) = sc.m7_view()?;
-        let rot = if sc.m7_rotate {
-            let r = mode7::compile_rotation(horizon, anchor)
+        let rot = if sc.m7_rotate != 0 {
+            let r = mode7::compile_rotation(horizon, anchor, sc.m7_rotate as usize)
                 .with_context(|| format!("carte du monde '{}'", sc.name))?;
             println!(
-                "  mode7 : rotation de {} — {} crans de 22.5 deg, {} octets de tables",
+                "  mode7 : rotation de {} — {} crans de {:.1} deg, {} Ko de tables",
                 sc.name,
-                mode7::ROT_STEPS,
-                mode7::ROT_STEPS * 2 * mode7::TAB_LEN
+                r.steps,
+                360.0 / r.steps as f64,
+                r.steps * 2 * mode7::TAB_LEN / 1024
             );
             Some(r)
         } else {
@@ -1700,20 +1701,32 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         // linker keeps it whole inside one bank — HDMA does not carry the
         // bank across a boundary, it wraps within it.
         if let Some(rot) = &wm.rot {
-            let mut s = String::from(emit::HEADER);
-            s.push_str("#include <snes.h>\n\n");
-            s.push_str(
-                "/* Mode 7 rotation, 16 steps of 22.5 deg. p = s*cos feeds\n\
-                 \x20  M7A at angle k and M7C at k-4; r = -s^2*cos feeds M7D at\n\
-                 \x20  k and M7B at k+4. See mode7.rs::compile_rotation. */\n",
-            );
+            // SPLIT ACROSS FILES, and not for tidiness: tcc-816 puts a
+            // file's arrays in ONE section, WLA places a section wholly
+            // inside ONE bank, and 64 steps is 57 KB against a 32 KB
+            // bank. Sixteen tables a file keeps every section at ~7 KB
+            // and lets the linker pack them where it likes.
+            const PER_FILE: usize = 16;
+            let mut all: Vec<(String, &Vec<u8>)> = Vec::new();
             for (k, t) in rot.p.iter().enumerate() {
-                s.push_str(&emit::u8_array(&format!("m7w{}_rotp{}", i, k), t, 16, false));
+                all.push((format!("m7w{}_rotp{}", i, k), t));
             }
             for (k, t) in rot.r.iter().enumerate() {
-                s.push_str(&emit::u8_array(&format!("m7w{}_rotr{}", i, k), t, 16, false));
+                all.push((format!("m7w{}_rotr{}", i, k), t));
             }
-            files.push((format!("data_m7wrot{}.c", i), s));
+            for (part, chunk) in all.chunks(PER_FILE).enumerate() {
+                let mut s = String::from(emit::HEADER);
+                s.push_str("#include <snes.h>\n\n");
+                s.push_str(
+                    "/* Mode 7 rotation. p = s*cos feeds M7A at angle k and M7C\n\
+                     \x20  a quarter turn back; r = -s^2*cos feeds M7D at k and M7B\n\
+                     \x20  a quarter turn on. See mode7.rs::compile_rotation. */\n",
+                );
+                for (name, t) in chunk {
+                    s.push_str(&emit::u8_array(name, t, 16, false));
+                }
+                files.push((format!("data_m7wrot{}_{}.c", i, part), s));
+            }
         }
 
         // SKY IMAGE: 4bpp chars for $6000, a 32x32 tilemap for $7000.
@@ -1752,7 +1765,16 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
             ));
         }
     }
-    s.push_str(&format!("\nconst u8 m7w_count = {};\n\n", worlds.len()));
+    // The tables are FLAT and every map gets the same slice width, so a
+    // map with fewer steps pads with nulls. Simpler than a per-map stride
+    // the engine would have to carry, and the waste is 16 pointers.
+    let stride = worlds
+        .iter()
+        .filter_map(|w| w.rot.as_ref().map(|r| r.steps))
+        .max()
+        .unwrap_or(mode7::ROT_STEPS);
+    s.push_str(&format!("\nconst u8 m7w_count = {};\n", worlds.len()));
+    s.push_str(&format!("const u8 m7w_rot_stride = {};\n\n", stride));
     let n = worlds.len().max(1);
     let mut table = |decl: &str, f: &dyn Fn(usize) -> String| {
         s.push_str(&format!("{}[{}] = {{ ", decl, n));
@@ -1776,7 +1798,12 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     // tables from these when it opens the plane.
     table("const u8 m7w_horizon", &|i| worlds[i].horizon.to_string());
     table("const u8 m7w_anchor", &|i| worlds[i].anchor.to_string());
-    table("const u8 m7w_rot", &|i| u8::from(worlds[i].rot.is_some()).to_string());
+    // The map's STEP COUNT, 0 when it does not rotate: the engine wraps
+    // an angle with (count - 1) as a mask, which is why the choices are
+    // powers of two.
+    table("const u8 m7w_rot", &|i| {
+        worlds[i].rot.as_ref().map_or(0, |r| r.steps).to_string()
+    });
     // SKY above the horizon. m7w_sky is CGRAM 0 (the backdrop); the
     // gradient's two ends drive a COLDATA table built by the engine.
     table("const u16 m7w_sky", &|i| worlds[i].sky.to_string());
@@ -1811,7 +1838,7 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     // null entries, which is nothing.
     for i in 0..worlds.len() {
         if worlds[i].rot.is_some() {
-            for k in 0..mode7::ROT_STEPS {
+            for k in 0..worlds[i].rot.as_ref().unwrap().steps {
                 s.push_str(&format!(
                     "extern const u8 m7w{i}_rotp{k}[];\nextern const u8 m7w{i}_rotr{k}[];\n",
                     i = i,
@@ -1821,10 +1848,11 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         }
     }
     let mut rot_table = |decl: &str, f: &dyn Fn(usize, usize) -> String| {
-        s.push_str(&format!("{}[{}] = {{ ", decl, n * mode7::ROT_STEPS));
+        s.push_str(&format!("{}[{}] = {{ ", decl, n * stride));
         for i in 0..n {
-            for k in 0..mode7::ROT_STEPS {
-                let has = i < worlds.len() && worlds[i].rot.is_some();
+            for k in 0..stride {
+                let has = i < worlds.len()
+                    && worlds[i].rot.as_ref().map_or(false, |r| k < r.steps);
                 s.push_str(&format!("{}, ", if has { f(i, k) } else { "0".into() }));
             }
         }

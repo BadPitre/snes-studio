@@ -69,6 +69,16 @@ void m7_view(u8 horizon, u8 anchor);
    pitch makes the compiled tables wrong. */
 void m7_rotate(u8 angle);
 
+/* TURNS to an angle over `frames`, walking the steps itself and taking
+   the SHORT way round. This is what makes a rotation read as smooth: the
+   step count buys resolution, this buys motion, and neither costs
+   anything per frame. frames = 0 turns as fast as the steps allow.
+   A plain m7_rotate cancels a turn in progress. */
+void m7_rotate_to(u8 angle, u8 frames);
+
+/* A turn is under way — the VM waits on it. */
+u8 m7_rot_busy(void);
+
 /* The open map carries rotation tables and they are still valid. */
 u8 m7_rot_ready(void);
 

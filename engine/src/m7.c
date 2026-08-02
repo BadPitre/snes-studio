@@ -58,9 +58,12 @@ extern const u8 m7w_h[];
 extern const u8 m7w_horizon[];
 extern const u8 m7w_anchor[];
 /* ROTATION, opt-in per map (data_m7wrot*.c). FLAT tables indexed
-   map*M7_ROT + angle: one indirection, and a map that never turns costs
-   16 null entries. */
-extern const u8 m7w_rot[];
+   map*m7w_rot_stride + angle: one indirection, and a map that never
+   turns costs a slice of null entries. The step count is PER MAP — 16,
+   32 or 64 — because finer steps buy smoothness with ROM (§7.2d) and a
+   map that only ever faces four ways should not pay for 64. */
+extern const u8 m7w_rot[];      /* step count, 0 = the map never turns */
+extern const u8 m7w_rot_stride; /* slice width of the flat tables */
 extern const u8 *const m7w_rotp[];
 extern const u8 *const m7w_rotr[];
 extern const u16 m7w_rotox[];
@@ -181,10 +184,18 @@ static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
    clears this and snaps back to angle 0. Stated rather than hidden: a
    script that re-pitches a rotating map loses the rotation until the
    scene reloads. */
-#define M7_ROT 16
-static u8 rot_ok = 0;
+static u8 rot_ok = 0;    /* the open map carries valid tables */
+static u8 rot_n = 0;     /* its step count: 16, 32 or 64 */
 static u8 rot_ang = 0;
 static u16 rot_base = 0; /* the open map's slice of the flat tables */
+/* A TURN IN PROGRESS. Snapping to an angle is what m7_rotate does; what
+   makes a turn read as smooth is the engine walking the steps itself,
+   the same shape as the zoom ramp. Costs nothing: an angle change is
+   four pointer writes, so this is a counter and a comparison. */
+static u8 rt_target = 0;
+static u8 rt_dir = 0;   /* 0 idle, 1 forward, 2 backward */
+static u8 rt_every = 0; /* frames per step */
+static u8 rt_wait = 0;
 
 /* ---- SKY -----------------------------------------------------------
  * A flat sky is CGRAM 0: the plane is windowed off above the horizon, so
@@ -505,7 +516,7 @@ static void m7_persp_build(void)
 static void m7_persp_hdma(void)
 {
   u16 a;
-  u8 m;
+  u8 m, q;
 
   if (rot_ok)
   {
@@ -518,10 +529,11 @@ static void m7_persp_hdma(void)
        five free while a world map is up (0 is the general DMA's, 2 the
        scripted wipe's, 7 the NMI's OAM). */
     m = rot_ang;
-    m7_arm(6, 0x1B02, m7w_rotp[rot_base + m]);              /* M7A */
-    m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m + 12) & 15)]); /* M7C */
-    m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);              /* M7D */
-    m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + 4) & 15)]); /* M7B */
+    q = (u8)(rot_n >> 2); /* a quarter turn, in steps */
+    m7_arm(6, 0x1B02, m7w_rotp[rot_base + m]);                        /* M7A */
+    m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m - q) & (rot_n - 1))]);  /* M7C */
+    m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);                        /* M7D */
+    m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + q) & (rot_n - 1))]);  /* M7B */
     if (img_on)
       m7_arm(3, 0x0500, (const u8 *)md_tab); /* $2105 BGMODE */
     else
@@ -810,9 +822,11 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   {
     m7_cgram0(m7w_sky[i]);
   }
-  rot_ok = m7w_rot[i];
+  rot_n = m7w_rot[i];
+  rot_ok = rot_n != 0;
   rot_ang = 0;
-  rot_base = (u16)i * M7_ROT;
+  rt_dir = 0;
+  rot_base = (u16)i * m7w_rot_stride;
   img_on = m7w_skyimg[i];
   if (img_on)
   {
@@ -915,6 +929,7 @@ void m7_view(u8 horizon, u8 anchor)
      plane; the scene's own angle comes back when it reloads. */
   rot_ok = 0;
   rot_ang = 0;
+  rt_dir = 0;
   /* The rebuild runs in the MAIN LOOP, so the HDMA may read the tables
      while they are half rewritten: the change costs one torn frame. That
      is deliberate — building them in the VBlank is 224 divisions in a
@@ -926,7 +941,42 @@ void m7_rotate(u8 angle)
 {
   if (!m7_on || !m7_world || !rot_ok)
     return;
-  rot_ang = angle & (M7_ROT - 1);
+  rot_ang = angle & (rot_n - 1); /* a power of two, so a mask */
+  rt_dir = 0;                    /* a snap cancels a turn in progress */
+}
+
+void m7_rotate_to(u8 angle, u8 frames)
+{
+  u8 fwd, back;
+
+  if (!m7_on || !m7_world || !rot_ok)
+    return;
+  rt_target = angle & (rot_n - 1);
+  if (rt_target == rot_ang)
+  {
+    rt_dir = 0;
+    return;
+  }
+  /* THE SHORT WAY ROUND. Turning 350 degrees to face 10 is what a naive
+     "count up to the target" does, and it looks like a mistake because
+     it is one. */
+  fwd = (u8)((rt_target - rot_ang) & (rot_n - 1));
+  back = (u8)(rot_n - fwd);
+  rt_dir = fwd <= back ? 1 : 2;
+  /* `frames` is the WHOLE turn, so the author thinks in duration rather
+     than in steps per frame. 0 means "as fast as the steps allow". */
+  {
+    u8 steps = fwd <= back ? fwd : back;
+    rt_every = frames / steps;
+    if (!rt_every)
+      rt_every = 1;
+  }
+  rt_wait = rt_every;
+}
+
+u8 m7_rot_busy(void)
+{
+  return rt_dir != 0;
 }
 
 u8 m7_rot_ready(void)
@@ -937,6 +987,17 @@ u8 m7_rot_ready(void)
 void m7_update(void)
 {
   const u16 *t;
+
+  if (rt_dir && m7_on && m7_world && rot_ok)
+  {
+    if (--rt_wait == 0)
+    {
+      rt_wait = rt_every;
+      rot_ang = (u8)((rot_ang + (rt_dir == 1 ? 1 : rot_n - 1)) & (rot_n - 1));
+      if (rot_ang == rt_target)
+        rt_dir = 0;
+    }
+  }
 
   if (!m7_on || rp_id == 0xFF)
     return;

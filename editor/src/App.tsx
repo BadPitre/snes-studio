@@ -1759,7 +1759,9 @@ export default function App() {
                 onView={(m7_horizon, m7_anchor) =>
                   setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
                 }
-                onRotate={(m7_rotate) => setScene((sc) => ({ ...sc, m7_rotate }))}
+                onRotate={(m7_rotate) =>
+                  setScene((sc) => ({ ...sc, m7_rotate: m7_rotate || undefined }))
+                }
                 pictures={projectPictures(data.project).map(
                   (e) => [assetStem(picPath(e)), picPath(e)] as [string, string]
                 )}

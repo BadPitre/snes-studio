@@ -600,6 +600,42 @@ boundary, it wraps within it.
 case's `(0, +dA)`. Without it the hero drifts off the anchor line as the
 view turns.
 
+**Smooth turning, and what it costs.** Two different things hide behind
+"smooth", and only one of them costs anything.
+
+- **The MOTION is free.** `m7_rotate_to(angle, frames)` walks the steps
+  itself, the short way round — turning 350 degrees to face 10 is what a
+  naive count-up does, and it looks like a mistake because it is one.
+  Changing angle is four pointer writes, so this is a counter and a
+  comparison, and it is what actually makes a turn read as smooth.
+  Opcode `M7TURN`, and it can block the script like the zoom ramp.
+- **The RESOLUTION costs ROM**, and it is a PER-MAP choice — 16, 32 or 64
+  steps. Per-frame recomputation is not an option and can be shown so:
+  one angle change is 224 lines x 4 coefficients = ~900 multiplications,
+  against a spike that measured SIXTY-FOUR of them at ~41 screen lines in
+  a smaller window. Fourteen times over, and P4's measured 2.7x
+  C-to-assembly ratio still leaves a factor of five.
+
+| Steps | Angle | ROM per map |
+| --- | --- | --- |
+| 16 | 22.5 deg | 14 KB |
+| 32 | 11.25 deg | 28 KB |
+| 64 | 5.6 deg | 56 KB |
+
+64 is the sweet spot: at one step a frame a full turn takes about a
+second and 5.6 degrees no longer reads as a jump. And the budget is now
+a measured number rather than a worry — `snesbuild` prints ROM occupancy
+from wlalink's own per-bank report, and the world map test project sits
+at **274 KB of 1024 with 23 empty banks**. The .sfc's SIZE says nothing:
+it is padded to the size declared in the header.
+
+**One thing 64 steps broke, worth keeping.** tcc-816 puts a file's arrays
+in ONE section and WLA places a section wholly inside ONE bank, so 128
+tables in one generated file is a 57 KB section against a 32 KB bank —
+`No room for section ".rodata"`. datagen now splits them sixteen tables
+to a file. The rule generalises: a generated file must stay well under a
+bank, however small its individual arrays are.
+
 **Two limits, stated rather than hidden.**
 
 - **`m7_view` kills the rotation.** The tables were compiled for the
@@ -814,7 +850,8 @@ Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
 | `M7ZOOM` | `ramp u8, flags u8` | Plays a ramp; flags bit 0 = loop, bit 1 = wait |
 | `M7CLOSE` | `dur u8` | Closes it — internal warp back to the scene |
 | `M7VIEW` | `horizon u8, anchor u8` | World map CAMERA ANGLE (§7.2c) |
-| `M7ROT` | `step u8 (0-15)` | World map ROTATION, 22.5 deg a step (§7.2d) |
+| `M7ROT` | `step u8` | World map rotation, SNAPS to a step (§7.2d) |
+| `M7TURN` | `step u8, frames u8, flags u8` | TURNS to a step, short way round; bit 1 waits |
 
 The SKY (§7.2e) has no opcode: it is scene data only, because it belongs
 to the place rather than to a moment. A script that wants a sunset uses

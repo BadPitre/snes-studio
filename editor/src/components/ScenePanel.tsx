@@ -18,8 +18,8 @@ interface Props {
   onResize: (width: number, height: number) => void;
   /** World map camera angle, in screen lines. */
   onView: (horizon: number, anchor: number) => void;
-  /** World map rotation (opt-in: it costs ROM). */
-  onRotate: (on: boolean) => void;
+  /** World map rotation, as a step count (0 = off). */
+  onRotate: (steps: number) => void;
   /** World map sky: flat colour, a gradient's two ends, or an image. */
   onSky: (flat?: string, top?: string, bottom?: string, image?: string) => void;
   /** Project pictures, as [label, path] — a sky image is an ordinary
@@ -143,18 +143,20 @@ export default function ScenePanel(props: Props) {
             >
               Appliquer l'angle
             </button>
-            <label>
-              <input
-                type="checkbox"
-                checked={!!scene.m7_rotate}
-                onChange={(e) => props.onRotate(e.target.checked)}
-              />
-              Rotation (16 crans de 22,5°)
-            </label>
+            <div className="palette-title">Rotation</div>
+            <select
+              value={scene.m7_rotate ?? 0}
+              onChange={(e) => props.onRotate(Number(e.target.value))}
+            >
+              <option value={0}>Aucune — le nord reste en haut</option>
+              <option value={16}>16 crans (22,5°) — ~14 Ko</option>
+              <option value={32}>32 crans (11,25°) — ~28 Ko</option>
+              <option value={64}>64 crans (5,6°) — ~56 Ko</option>
+            </select>
             <p className="hint">
               {scene.m7_rotate
-                ? "La vue peut pivoter autour du héros avec la commande « Tourner la vue ». Coût : ~14 Ko de ROM de tables compilées pour CET angle — changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
-                : "Sans rotation, le nord reste en haut et la carte ne coûte rien de plus."}
+                ? "La commande « Tourner la vue » parcourt les crans elle-même, par le plus court chemin. Les crans achètent la finesse, la durée achète le mouvement — ni l'un ni l'autre ne coûte quoi que ce soit par frame. Changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
+                : "Sans rotation, la carte ne coûte rien de plus et le nord reste en haut."}
             </p>
             <div className="palette-title">Ciel</div>
             <select

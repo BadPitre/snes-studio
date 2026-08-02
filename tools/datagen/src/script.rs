@@ -101,6 +101,7 @@ const OP_M7ZOOM: u8 = 0x41;
 const OP_M7CLOSE: u8 = 0x42;
 const OP_M7VIEW: u8 = 0x43;
 const OP_M7ROT: u8 = 0x44;
+const OP_M7TURN: u8 = 0x45;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -292,6 +293,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7VIEW" => 3,
         // M7ROT <cran 0-15> — world map rotation
         "M7ROT" => 2,
+        // M7TURN <cran> <frames> <flags> — animated world map rotation
+        "M7TURN" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -988,6 +991,18 @@ pub fn assemble(
                 if a > 15 { bail!("M7ROT : cran {} — 16 crans de 22.5 deg (0-15)", a); }
                 code.push(OP_M7ROT);
                 code.push(a);
+            }
+            // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
+            // is masked by the map's OWN step count at run time, so the
+            // bound here is the widest choice (64).
+            "M7TURN" => {
+                if argc != 3 { bail!("M7TURN <cran> <frames> <flags>"); }
+                let a = parse_u8(args[0])?;
+                if a > 63 { bail!("M7TURN : cran {} — 64 crans au maximum (0-63)", a); }
+                code.push(OP_M7TURN);
+                code.push(a);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
             }
             // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
             // menu on a "list" widget of the UI layout; blocking

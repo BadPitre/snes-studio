@@ -6,6 +6,7 @@
 
 
 const u8 m7w_count = 0;
+const u8 m7w_rot_stride = 16;
 
 const u8 m7w_scene[1] = { 0, };
 const u8 *const m7w_chars[1] = { 0, };
