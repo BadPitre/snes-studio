@@ -750,6 +750,50 @@ region, which renders char 0 everywhere — and if char 0 is the picture's
 top-left tile, BG1 papers the sky with it, scrolled by M7HOFS/M7VOFS.
 Same reservation, and the same reason, as pattern 0 of the plane (§5.1).
 
+### 7.2g An upper layer through EXTBG — the spike says STOP
+
+**Question.** Can a world map have the scene's upper layer, the tiles
+that pass IN FRONT of the hero?
+
+**The hardware answer is yes, and it fits unusually well.** Mode 7 EXTBG
+(`SETINI $2133` bit 6) renders the SAME plane twice: pixels whose bit 7
+is set go to BG2 at high priority, the rest to BG1. The colour index
+drops to seven bits — 0-127, which is ALREADY our rule (§3.4), so the
+feature costs no colours at all. datagen would composite each (lower,
+upper) pair into one block, bit 7 set on the pixels that came from the
+upper tile, and the plane would carry both. The block compositor written
+for autotiles (§5.1) is the same machinery.
+
+**But it cannot be verified with the tooling this project has.** Three
+builds — bit 7 on NO pixel, on HALF of each pattern, on EVERY pixel —
+produce three different VRAM contents and **the same image, byte for
+byte** (identical MD5). The hero is never occluded. Colours are also
+unchanged, so the emulator does mask the index to seven bits: it knows
+about EXTBG and simply does not apply the priority.
+
+The emulator is snes9x libretro, the only core in the repository, and
+there is no second one to cross-check against.
+
+**So this is not built.** Not because the SNES cannot do it — it can —
+but because shipping it would mean shipping a rendering path nobody can
+look at, in a system where NOTHING has yet run on hardware (§12). A
+feature that is invisible to every gate is a feature that breaks
+silently. If a core that implements EXTBG priority (or real hardware)
+becomes available, the design above is ready and the work is small.
+
+**What IS verifiable today, and does the same job.** The OBJ region is
+untouched in Mode 7 (§3.1), and the engine already turns a TILE into a
+sprite block: "tile appearance" for events (T4). A tree top in front of
+the hero is an event with a tile appearance, and it works on the plane
+right now. It costs sprite budget rather than pattern budget, and it is
+placed per event rather than painted — which suits landmarks, not
+forests.
+
+**Two spikes, two outcomes.** §7.2f proved a technique and it shipped;
+this one refuted the ability to VERIFY a technique, and it did not. That
+is what the spikes are for, and the negative one is worth as much as the
+positive.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
