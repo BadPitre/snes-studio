@@ -16,6 +16,9 @@
     "fs:allow-rename",
     "fs:allow-remove",
     "fs:allow-mkdir",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "shell:allow-spawn",
     {
       "identifier": "fs:scope",
       "allow": [

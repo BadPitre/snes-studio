@@ -2,12 +2,17 @@
 #
 # gate-editor.sh — the safety net for any editor rework.
 #
-# Five checks, from the cheapest to the most telling:
-#   1. tsc --noEmit           the types hold
-#   2. vite build             the bundle builds
-#   3. npm run smoke           every window opens and renders
-#   4. npm run smoke:commands  every command form renders
-#   5. npm run smoke:resources every resource category lists and previews
+# Six checks, from the cheapest to the most telling:
+#   1. tsc --noEmit            the types hold
+#   2. npm run check:caps      every Tauri call is granted a permission
+#   3. vite build              the bundle builds
+#   4. npm run smoke           every window opens and renders
+#   5. npm run smoke:commands  every command form renders
+#   6. npm run smoke:resources every resource category lists and previews
+#
+# Check 2 exists because nothing else can see that class of bug: the smoke
+# tests run in BROWSER mode, where no Tauri call executes at all, so an
+# ungranted permission only shows up in the installed app.
 #
 # The last three are the ones that matter. A React rework almost never
 # breaks the compile — it breaks a RENDER, and that only shows when the
@@ -32,6 +37,8 @@ FAST=0
 cd "$ED"
 echo "— types"
 npx tsc --noEmit -p tsconfig.json
+echo "— capabilities"
+npm run --silent check:caps
 echo "— bundle"
 npm run build >/dev/null
 [ $FAST -eq 1 ] && { echo ""; echo "editor: types and bundle OK (smoke tests skipped)."; exit 0; }
