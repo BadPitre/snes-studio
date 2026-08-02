@@ -121,6 +121,27 @@ export async function runMakeCart(
   return sidecar("snesbuild", ["cart", "--engine", w.engine, ...w.args]);
 }
 
+// Is the configured emulator actually there? The editor does not ship one
+// — the author downloads Mesen2, bsnes or whatever they prefer — so
+// "missing" is an ORDINARY state, not an edge case, and it has to be said.
+// Neither launch path can report it on its own: `start` returns 0 whether
+// or not it found the program, and the POSIX path is spawned and never
+// waited on.
+async function emulatorFound(emulator: string): Promise<boolean> {
+  if (!emulator.trim()) return false;
+  // A path is checked as a file; a bare name has to be resolved the way
+  // the shell would resolve it against PATH.
+  if (/[\\/]/.test(emulator)) return await exists(emulator).catch(() => false);
+  try {
+    const probe = isWindows()
+      ? Command.create("cmd", ["/C", "where", emulator])
+      : Command.create("sh", ["-c", `command -v '${emulator}'`]);
+    return (await probe.execute()).code === 0;
+  } catch {
+    return false;
+  }
+}
+
 // Launches the emulator (configurable — settings ⚙) on the compiled ROM,
 // without waiting for it to close.
 export async function launchEmulator(
@@ -128,6 +149,12 @@ export async function launchEmulator(
   emulator: string
 ): Promise<BuildResult> {
   if (!hasTauri) return noTauri("l'émulateur");
+  if (!(await emulatorFound(emulator))) {
+    return {
+      ok: false,
+      output: `émulateur introuvable : « ${emulator || "(aucun)" } » — indiquez son chemin dans Réglages ⚙ (Mesen2, bsnes, Snes9x…)`,
+    };
+  }
   const rom = await romPath(projectRoot);
   if (isWindows()) {
     const out = await Command.create("cmd", ["/C", "start", "", emulator, rom]).execute();

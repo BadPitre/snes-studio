@@ -979,7 +979,7 @@ export default function App() {
       const res = await runDatagen(data.root, playCfg.debug);
       setStatus(
         res.ok
-          ? "Données moteur regénérées — reste « make » dans engine/."
+          ? "Données moteur regénérées — reste à compiler la ROM."
           : `datagen a échoué : ${res.output.slice(-400)}`
       );
     } catch (e) {
@@ -1037,7 +1037,7 @@ export default function App() {
     setTool({ kind: "tile", tiles });
   }
 
-  // Play: save -> datagen -> make (MSYS2) -> emulator
+  // Play: save -> datagen -> snesbuild -> emulator
   async function play() {
     if (!data || playing) return;
     setPlaying(true);
@@ -1049,10 +1049,10 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Compilation du ROM (make)…");
+      setStatus("Compilation du ROM…");
       const mk = await runMake(data.root, playCfg.toolchain);
       if (!mk.ok) {
-        setStatus(`make a échoué : ${mk.output.slice(-400)}`);
+        setStatus(`La compilation a échoué : ${mk.output.slice(-400)}`);
         return;
       }
       setStatus("Lancement de l'émulateur…");
@@ -1078,12 +1078,12 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Build cartouche (make cart)…");
+      setStatus("Build cartouche…");
       const mk = await runMakeCart(data.root, playCfg.toolchain);
       setStatus(
         mk.ok
           ? "Cartouche prête : engine/snesstudio.smc (512 Ko, à copier sur la flashcart)."
-          : `make cart a échoué : ${mk.output.slice(-400)}`
+          : `Le build cartouche a échoué : ${mk.output.slice(-400)}`
       );
     } catch (e) {
       setStatus(`Build cartouche : ${e}`);
@@ -1092,7 +1092,7 @@ export default function App() {
     }
   }
 
-  // Full rebuild: make clean + make (to be used after an engine update —
+  // Full rebuild: clean + build (to be used after an engine update —
   // avoids any mix of stale compiled objects)
   async function rebuildAll() {
     if (!data || building || playing) return;
@@ -1105,9 +1105,9 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Recompilation complète du ROM (make clean + make)…");
+      setStatus("Recompilation complète du ROM…");
       const mk = await runMake(data.root, playCfg.toolchain, true);
-      setStatus(mk.ok ? "ROM recompilé de zéro." : `make a échoué : ${mk.output.slice(-400)}`);
+      setStatus(mk.ok ? "ROM recompilé de zéro." : `La compilation a échoué : ${mk.output.slice(-400)}`);
     } catch (e) {
       setStatus(`Recompilation : ${e}`);
     } finally {
@@ -1345,7 +1345,7 @@ export default function App() {
         { sep: true },
         {
           label: "Réglages du projet…",
-          tip: "Réglages de cette machine : bash MSYS2, émulateur, menu de debug",
+          tip: "Réglages de cette machine : dossier PVSnesLib, émulateur, menu de debug",
           action: () => setShowSettings(true),
           disabled: !canBuild(),
         },
@@ -1472,7 +1472,7 @@ export default function App() {
       items: [
         {
           label: "▶ Lancer le jeu",
-          tip: "Compiler le projet (datagen + make) et lancer la ROM de test dans l'émulateur",
+          tip: "Compiler le projet et lancer la ROM de test dans l'émulateur",
           action: play,
           disabled: !data || !canBuild() || playing || building,
         },
@@ -1498,7 +1498,7 @@ export default function App() {
         {
           label: "Recompiler tout (clean)",
           hint: "après mise à jour",
-          tip: "make clean puis rebuild complet du moteur — utile après une mise à jour de SNES Studio",
+          tip: "Rebuild complet du moteur, intermédiaires jetés — utile après une mise à jour de SNES Studio",
           action: () => void rebuildAll(),
           disabled: !data || !canBuild() || playing || building,
         },

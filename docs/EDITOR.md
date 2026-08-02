@@ -28,8 +28,9 @@ in French — the product is French-facing, the code and the docs are not.
   >= 20x15, a wall border by default), choosing the **boot scene** (★),
   deletion (the boot scene is protected)
 - **"Générer les données"**: saves, then runs `datagen` straight from the
-  editor (cargo must be on the Windows PATH). `make` in engine/ (MSYS2)
-  still produces the .sfc afterwards.
+  editor. datagen travels with the editor as a sidecar, so no Rust
+  toolchain is needed; compiling the .sfc is a separate step (▶ Jouer, or
+  the cartridge build).
 
 - **Warps** (Phase 4): the "+ Warp" tool (a purple W tile), a dedicated
   tab (target scene plus arrival position)
@@ -84,10 +85,15 @@ in French — the product is French-facing, the code and the docs are not.
 
 ## Features (5e) — the creation loop
 
-- **▶ Jouer**: save → datagen → `make` (through the MSYS2 bash) → launch
-  the emulator on the compiled ROM. The bash and emulator paths live in
-  the ⚙ settings (stored on the machine, not in the project).
-  PVSNESLIB_HOME must be set in the MSYS2 profile.
+- **▶ Jouer**: save → datagen → `snesbuild` → launch the emulator on the
+  compiled ROM. Both tools ship inside the editor: no Rust, and no MSYS2
+  — snesbuild drives the PVSnesLib toolchain natively (see
+  tools/snesbuild). The PVSnesLib folder and the emulator live in the ⚙
+  settings (stored on the machine, not in the project); an installed copy
+  carries its own PVSnesLib and the field can stay empty.
+  The editor ships NO emulator: Mesen2, bsnes or Snes9x are downloaded
+  separately, and Jouer says so plainly when it cannot find the one
+  configured.
   **Debug menu (S6)**: the "Menu de debug dans la ROM de test" box in the
   ⚙ settings passes `--debug` to datagen for the test ROMs (Jouer and
   "Générer les données") — NEVER for the cartridge build. In game,
@@ -565,7 +571,8 @@ npm install
 npm run tauri dev      # the desktop application
 ```
 
-Workflow: edit → save → `make data && make` in `engine/` → test the ROM.
+Workflow: edit → save → ▶ Jouer. From a checkout you can equally run
+`make data && make` in `engine/`, or `snesbuild cart --engine engine`.
 
 ## Browser mode (UI development)
 
