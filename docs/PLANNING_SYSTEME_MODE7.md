@@ -683,6 +683,30 @@ scene and re-runs its triggers. That is the documented behaviour of the
 composed screen too. Guard it with a switch and a second page, as any
 real project would.
 
+## 11c. Two ways a world map came out looking classic
+
+Both were reported from the editor, and both come from the same place:
+the scene TYPE never survived the trip to the engine.
+
+**1. `kind` was dropped by the save.** `editor/src/io.ts` writes the scene
+JSON field by field, by hand, so a new optional field is invisible to the
+type checker and simply never reaches disk. The file carries a comment
+three lines above the scene block warning about exactly this — the S9
+effect layer shipped broken the same way. A scene saved without `kind`
+compiles as an ordinary map, `m7w_count` stays 0, `m7_world_open` returns
+0 and the engine renders it in mode 1: identical to a classic scene, no
+error anywhere. **A field added to `Scene` is not added until it is in the
+serialiser.**
+
+**2. The upper-layer validation asked the wrong question.** It refused a
+world map when `scene.upper` EXISTED. But the editor always writes an
+upper layer, filled with `EMPTY` — so once `kind` did survive the save,
+every world map the editor could produce was refused by datagen. The
+check now asks whether anything is PAINTED on it (any tile != `EMPTY`).
+The two states an editor can be in — "the array is absent" and "the array
+is there and blank" — are not the same question, and a validation written
+against the format rather than against the tool tests the wrong one.
+
 ## 12. Gates
 
 - `gate-datagen.sh` stays green at EVERY step: adding a resource kind

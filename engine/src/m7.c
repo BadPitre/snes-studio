@@ -254,10 +254,9 @@ static void m7_open(void)
    full plane width, so a row is one DMA whatever the map's size. */
 static u8 wrow[M7_PLANE];
 
-/* NOT WORKING YET — see PLANNING_SYSTEME_MODE7 §7.2. Written, links, and
-   comes up BLACK on a 64x64 map painted with visibly coloured blocks. It
-   is deliberately called from NOWHERE so that no project boots into it;
-   the next session wires it back after finding out why. */
+/* Opens a world map scene on the plane. Returns 1 when it took over, so
+   the caller skips the ordinary scene path. The camera is still fixed at
+   the map's centre — see PLANNING_SYSTEME_MODE7 §7.2 for what follows. */
 u8 m7_world_open(u8 scene_id, u8 dur)
 {
   u8 i, w, h, bx, by, half;

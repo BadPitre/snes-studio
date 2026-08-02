@@ -513,10 +513,18 @@ impl Scene {
             }
             // One plane, so no upper layer and no effect layer: both would
             // need a second BG that Mode 7 does not have.
-            if self.upper.as_ref().map_or(false, |u| !u.is_empty()) {
+            // The editor ALWAYS writes an upper layer, filled with EMPTY.
+            // So the question is not "is there an array" but "is anything
+            // painted on it" — the first version asked the former and
+            // refused every world map the editor could produce.
+            let painted = self.upper.as_ref().map_or(false, |u| {
+                u.iter().any(|row| row.iter().any(|&t| t != crate::tileset::EMPTY))
+            });
+            if painted {
                 bail!(
-                    "carte du monde '{}' : la couche superieure n'existe pas en \
-                     Mode 7 (un seul plan) — la vider avant de convertir",
+                    "carte du monde '{}' : la couche superieure porte des tuiles, \
+                     et le Mode 7 n'a qu'un seul plan — les effacer (ou repasser \
+                     la scene en type classique)",
                     self.name
                 );
             }
