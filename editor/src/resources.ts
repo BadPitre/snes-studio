@@ -66,7 +66,11 @@ export interface ResCtx {
 
 export interface Resource {
   kind: ResKind;
-  dir: string; // "assets" | "assets/sounds" | …
+  // Where an import lands, and therefore where a rename moves a file to.
+  // One folder per resource type: an author browsing assets/ on disk sees
+  // the same categories as the resource manager (`datagen tidy` files an
+  // older project the same way).
+  dir: string; // "assets/pictures" | "assets/sounds" | …
   ext: string; // "png" | "wav" | "it"
   // Lowercase and scrub the imported filename. The PNG registers keep the
   // author's filename; the ones datagen indexes by name do not.
@@ -159,7 +163,7 @@ function uiRegister(
 
 const windowskin: Resource = {
   kind: "windowskin",
-  dir: "assets",
+  dir: "assets/windowskins",
   ext: "png",
   slug: false,
   refuseDuplicate: false,
@@ -182,7 +186,7 @@ const windowskin: Resource = {
 
 const iconset: Resource = {
   kind: "iconset",
-  dir: "assets",
+  dir: "assets/iconsets",
   ext: "png",
   slug: false,
   refuseDuplicate: false,
@@ -211,7 +215,7 @@ const iconset: Resource = {
 // apart here.
 const font: Resource = {
   kind: "font",
-  dir: "assets",
+  dir: "assets/fonts",
   ext: "png",
   slug: false,
   refuseDuplicate: false,
@@ -243,7 +247,7 @@ const font: Resource = {
 // list of OBJECTS as often as of strings — renaming has to keep the shape.
 const picture: Resource = {
   kind: "picture",
-  dir: "assets",
+  dir: "assets/pictures",
   ext: "png",
   slug: false,
   refuseDuplicate: false,

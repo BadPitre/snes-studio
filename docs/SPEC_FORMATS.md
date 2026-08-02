@@ -51,7 +51,7 @@ Remaining divergences and conventions, accepted in v0:
    gfx assets stay generated C arrays — the spec does not (yet) define a
    binary format for them.
 4. **Per-tile passability (Phase 5c, RM2003 model)**: the sidecar
-   `assets/<tileset>.json` declares `autotiles` (48x64 PNG), `solid` (X ids)
+   `assets/tilesets/<tileset>.json` declares `autotiles` (48x64 PNG), `solid` (X ids)
    and `above` (☆ ids, drawn above the hero, passable). The binary collision
    layer (§1.4) is **derived** by datagen: an upper tile present and not ☆ →
    its passability wins (bridges over water), otherwise the lower tile's.

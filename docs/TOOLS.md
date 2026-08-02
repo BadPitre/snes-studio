@@ -59,11 +59,15 @@ demo/
   project.json          # name, boot_scene, scenes, assets, musics, tilesets
   texts.json            # [{name, text}] — the order gives the text_ids
   scenes/<name>.json    # one scene per file
-  assets/*.png          # tilesets: a grid of 16x16 tiles, a 16-colour indexed PNG
-  assets/<tileset>.json # sidecar: autotiles + passability (solid/above)
-  assets/sprites.png    # a strip of 16x24 frames in character blocks of 12
-                        # (64 blocks max per project, 5 per scene), indexed PNG or RGBA
-  assets/font.png       # 96 8x8 glyphs (ASCII 32-127), a 768x8 strip, indexed PNG
+  assets/                 # one folder per resource type — `datagen tidy`
+    tilesets/             #   a grid of 16x16 tiles, 16-colour indexed PNG,
+                          #   plus <tileset>.json (autotiles, passability)
+                          #   and the autotile strips
+    charsets/sprites.png  #   a strip of 16x24 frames in character blocks of
+                          #   12 (64 per project, 5 per scene)
+    fonts/font.png        #   96 8x8 glyphs (ASCII 32-127), a 768x8 strip
+    pictures/  iconsets/  windowskins/
+    sounds/    music/     vignettes/
 ```
 
 **Indexed or truecolor PNGs**: in an indexed PNG, each pixel's palette
@@ -271,13 +275,13 @@ maintains for its browser mode — ignored by dbgen (the folder is
 authoritative).
 
 **T2 (tileset entries)**: `project.tileset_defs` =
-`[{"name": "…", "file": "assets/xxx.png"}]` — the NAMED tilesets of the
+`[{"name": "…", "file": "assets/tilesets/xxx.png"}]` — the NAMED tilesets of the
 Tools > Tilesets window (an empty file means the entry is not assigned
 yet). Purely an editor concern: datagen ignores it, and the scenes still
 reference the file by stem. Existing projects are migrated on opening (one
 entry per file, the name being the stem).
 
-**T1 (tilesets — the assets/<stem>.json sidecar)**: besides
+**T1 (tilesets — the <tileset>.json sidecar beside its PNG)**: besides
 `solid`/`above`/`autotiles`, two keys:
 `"dirs": {"<id>": mask}` — the CLOSED sides of a grid tile (bits: 1 down,
 2 up, 4 left, 8 right) → the high nibble of the collision (directional
@@ -612,7 +616,7 @@ Tiles meant for the upper layer must have an **index 0 background**
 
 ## Tileset sidecar (Phase 5c — the RPG Maker 2003 model)
 
-`assets/<tileset>.json`, optional (absent = everything walkable, no
+`assets/tilesets/<tileset>.json`, optional (absent = everything walkable, no
 autotiles):
 
 ```json
@@ -644,7 +648,7 @@ cargo run --release --manifest-path tools/Cargo.toml -p datagen -- \
 ```
 
 Slices an RM2003 chipset (an indexed 480x256 PNG, the LCF layout) into
-project assets: `assets/<name>.png` (a 6-column grid: 144 lower tiles then
+project assets: `assets/tilesets/<name>.png` (a 6-column grid: 144 lower tiles then
 144 upper ones — the sidecar records `upper_start: 144` so the editor can
 filter the palette by layer), the **12 ground autotiles** (a direct copy,
 native format), **water A** converted into a static autotile (an

@@ -22,6 +22,7 @@ import {
 } from "./types";
 import {
   canWriteFiles,
+  ensureProjectDir,
   importTilesetPng,
   loadAssetPng,
   loadAutotiles,
@@ -941,7 +942,10 @@ export default function App() {
         // charset: datagen import-charset reads a FILE — a temporary copy
         // with the transparency punched, consumed by the import window
         // (replaced on every import)
-        const tmp = `${data.root}/assets/_charset_import.png`;
+        // A scratch file, not an asset: kept under assets/charsets so the
+        // assets/ root stays one folder per resource type.
+        await ensureProjectDir(data.root, "assets/charsets");
+        const tmp = `${data.root}/assets/charsets/_charset_import.png`;
         await writeBinaryFile(tmp, bytes);
         const bmp2 = color ? await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" })) : t.bmp;
         setCharsetImport({ path: tmp, bmp: bmp2 });

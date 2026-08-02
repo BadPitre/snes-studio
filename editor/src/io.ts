@@ -397,8 +397,10 @@ export async function importTilesetPng(root: string): Promise<string | null> {
   if (typeof file !== "string") return null;
   const name = file.split(/[\\/]/).pop()!;
   const bytes = await tauriRead(file);
-  await tauriWrite(`${root}/assets/${name}`, bytes);
-  return `assets/${name}`;
+  // one folder per resource type (see resources.ts, and `datagen tidy`)
+  await ensureProjectDir(root, "assets/tilesets");
+  await tauriWrite(`${root}/assets/tilesets/${name}`, bytes);
+  return `assets/tilesets/${name}`;
 }
 
 export async function saveProject(data: ProjectData): Promise<void> {

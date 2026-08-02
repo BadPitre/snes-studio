@@ -1,8 +1,8 @@
 {
   "assets": {
-    "font": "assets/font.png",
-    "sprites": "assets/sprites.png",
-    "tileset": "assets/tileset.png"
+    "font": "assets/fonts/font.png",
+    "sprites": "assets/charsets/sprites.png",
+    "tileset": "assets/tilesets/tileset.png"
   },
   "boot_scene": "titre",
   "name": "Legende de la Plaine",
@@ -12,12 +12,12 @@
     "plaine"
   ],
   "tilesets": [
-    "assets/tileset.png"
+    "assets/tilesets/tileset.png"
   ],
   "tileset_defs": [
     {
       "name": "tileset",
-      "file": "assets/tileset.png"
+      "file": "assets/tilesets/tileset.png"
     }
   ],
   "musics": [
@@ -31,10 +31,10 @@
     "assets/sounds/attaque.wav"
   ],
   "pictures": [
-    "assets/titre.png",
-    "assets/fond_prairie.png",
-    "assets/gobelin.png",
-    "assets/dragon.png"
+    "assets/pictures/titre.png",
+    "assets/pictures/fond_prairie.png",
+    "assets/pictures/gobelin.png",
+    "assets/pictures/dragon.png"
   ],
   "vignettes": [
     "assets/vignettes/exclam.png",
@@ -49,9 +49,9 @@
     "Villageois"
   ],
   "ui": {
-    "windowskin": "assets/windowskin.png",
+    "windowskin": "assets/windowskins/windowskin.png",
     "text_speed": 2,
-    "icons": "assets/icons.png"
+    "icons": "assets/iconsets/icons.png"
   },
   "common_events": [
     {

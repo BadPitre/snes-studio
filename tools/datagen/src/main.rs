@@ -21,6 +21,7 @@ mod project;
 mod screens;
 mod script;
 mod sfx;
+mod tidy;
 mod tileset;
 mod ui;
 
@@ -35,6 +36,13 @@ fn main() -> Result<()> {
             bail!("usage : datagen import-chipset <chipset.png> <dossier_projet> <nom>");
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
+    }
+    if args.len() >= 2 && args[1] == "tidy" {
+        if args.len() < 3 {
+            bail!("usage : datagen tidy <dossier_projet> [--dry-run]");
+        }
+        let dry = args.iter().any(|a| a == "--dry-run");
+        return tidy::run(Path::new(&args[2]), dry);
     }
     if args.len() >= 2 && args[1] == "import-charset" {
         if args.len() != 6 {
@@ -56,7 +64,8 @@ fn main() -> Result<()> {
         bail!(
             "usage : datagen <dossier_projet> <dossier_engine> [--debug]\n\
              \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
-             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
+             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>\n\
+             \x20       datagen tidy <dossier_projet> [--dry-run]"
         );
     }
     let proj_dir = PathBuf::from(&args[1]);

@@ -49,7 +49,7 @@ in French — the product is French-facing, the code and the docs are not.
   `project.tilesets`) — changing a scene's tileset switches both the
   palette and the map's rendering.
 - **Tileset import**: "Importer…" copies a PNG (indexed, a 16x16 tile
-  grid, max 256 tiles) into `assets/` and adds it to `project.tilesets`.
+  grid, max 256 tiles) into `assets/tilesets/` and adds it to `project.tilesets`.
 - **Scene resizing** ("Redim."): extension with grass or cropping, the
   wall border rebuilt, out-of-bounds actors and warps removed (with a
   warning shown).
@@ -197,7 +197,7 @@ Not yet: autotile animation (water), gfx editing.
   and updates the scenes; deleting is blocked while the resource is used
   by a scene (and block 0 = the hero is protected). Deleting a character
   shifts the following blocks (the actors are updated). Windowskins: the
-  import validates the 24x24 PNG (copied into `assets/`, the `windowskins`
+  import validates the 24x24 PNG (copied into `assets/windowskins/`, the `windowskins`
   register in project.json — editor only, ignored by datagen), the preview
   shows the sheet plus a sample 9-slice window, and ★ marks the active
   theme (deletion blocked — the active theme is chosen in Tools > UI /

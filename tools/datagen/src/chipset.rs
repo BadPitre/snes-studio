@@ -9,7 +9,7 @@
 //!   x 288-383 y 128+  upper layer tiles, set 1 (6x8 = 48)
 //!   x 384-479         upper layer tiles, set 2 (6x16 = 96)
 //!
-//! Written to <project>/assets/:
+//! Written to <project>/assets/tilesets/:
 //!   <name>.png         6-column grid: 144 lower tiles, then 144 upper
 //!   <name>_water.png   water autotile A, flattened to frame 0
 //!   <name>_a{k}.png    the 12 ground autotiles, copied verbatim
@@ -84,7 +84,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         .collect();
     let sheet = Sheet { px, pal };
 
-    let assets = proj_dir.join("assets");
+    let assets = proj_dir.join("assets/tilesets");
     std::fs::create_dir_all(&assets)?;
 
     // --- 6-column grid: 144 lower tiles, then 144 upper ------------------
@@ -203,13 +203,13 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
                 }
             }
         }
-        let rel = format!("assets/{}_water.png", name);
+        let rel = format!("assets/tilesets/{}_water.png", name);
         write_indexed_png(&assets.join(format!("{}_water.png", name)), 48, 64, &out, &sheet.pal)?;
         auto_paths.push(rel);
     }
 
     for (k, &(bx, by)) in ground.iter().enumerate() {
-        let rel = format!("assets/{}_a{}.png", name, k);
+        let rel = format!("assets/tilesets/{}_a{}.png", name, k);
         write_indexed_png(
             &assets.join(format!("{}_a{}.png", name, k)),
             48,
@@ -244,7 +244,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
     } else {
         list
     };
-    let rel = format!("assets/{}.png", name);
+    let rel = format!("assets/tilesets/{}.png", name);
     if !list.iter().any(|v| v.as_str() == Some(rel.as_str())) {
         list.push(serde_json::Value::String(rel));
     }

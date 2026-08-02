@@ -1,6 +1,0 @@
-{
-  "autotiles": ["assets/bourg_water.png", "assets/bourg_a0.png", "assets/bourg_a1.png", "assets/bourg_a2.png", "assets/bourg_a3.png", "assets/bourg_a4.png", "assets/bourg_a5.png", "assets/bourg_a6.png", "assets/bourg_a7.png", "assets/bourg_a8.png", "assets/bourg_a9.png", "assets/bourg_a10.png", "assets/bourg_a11.png"],
-  "solid": [133, 153, 168, 169, 186, 1000],
-  "above": [147, 162, 163, 199, 222, 223, 265],
-  "upper_start": 144
-}
