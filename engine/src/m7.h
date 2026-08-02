@@ -82,6 +82,19 @@ u8 m7_rot_busy(void);
 /* The open map carries rotation tables and they are still valid. */
 u8 m7_rot_ready(void);
 
+/* INVERSE PROJECTION — where on screen the plane point (px, py) is being
+   drawn right now, pitch and rotation included. This is what an NPC
+   needs and the hero does not: the camera is placed under the hero, so
+   he always lands on the anchor. Returns 0 when the point is behind the
+   camera or off screen; on 1 the CENTRE of the sprite is in m7_pjx and
+   m7_pjy — globals rather than out-parameters, which under tcc-816 would
+   cost more than the arithmetic itself.
+   Two divisions and four multiplications: see actors_draw_m7 for why
+   only a few NPCs get one per frame. */
+u8 m7_project(u16 px, u16 py);
+extern u16 m7_pjx;
+extern u16 m7_pjy;
+
 /* Plays a compiled zoom ramp (datagen turns "from 100% to 150% in 90
    frames" into one 8.8 value per frame). flags bit 0 = loop. A looping
    ramp NEVER blocks a script — as with animations, waiting on it would

@@ -794,6 +794,88 @@ this one refuted the ability to VERIFY a technique, and it did not. That
 is what the spikes are for, and the negative one is worth as much as the
 positive.
 
+### 7.2h The NPCs — the inverse projection, and the cap it forced
+
+Until this step a world map showed the hero and nothing else. Every other
+sprite stayed hidden, because "position minus camera" is simply wrong on
+a pitched plane: the ground is a perspective, so an NPC two tiles north
+of the hero belongs HIGHER on the screen and NEARER the middle, not 32
+pixels up.
+
+**The maths.** The PPU goes screen -> plane. With `u = x - 128` and
+`d = y - horizon`, the transform §7.2b sets up is
+
+```
+px - X0 = m*cos + n*sin        m = dA*u/d
+py - Y0 = m*sin - n*cos        n = dA^2/d
+```
+
+and §7.2d puts the rotation centre at `(X0, Y0) = camera + (-dA*sin, +dA*cos)`.
+Substituting the centre and inverting the rotation gives the other
+direction, which is what a sprite needs — for `(ux, uy)` = the NPC minus
+the camera:
+
+```
+L  = ux*cos + uy*sin
+D0 = ux*sin - uy*cos + dA          D0 <= 0: behind the camera, cull
+d  = dA^2 / D0                     y = horizon + d
+u  = L*dA / D0                     x = 128 + u
+```
+
+Two divisions and four multiplications per NPC, all in 16 bits. They stay
+there because `(ux, uy)` is shifted down by the SAME amount on both axes
+(so the rotation stays a rotation) and because the second division is
+split into a near case and a far one. `m7_project` in `m7.c`; the cosines
+and sines come compiled in 8.8 alongside the rotation tables, since the
+per-scanline tables go the other way and cannot serve.
+
+Five checks pinned the sign conventions, read out of WRAM in the emulator
+rather than judged from a screenshot:
+
+| case | expected | measured |
+|---|---|---|
+| NPC on the hero's tile, rotation step 3 | (128, anchor) | (128, 176) |
+| NPC 4 tiles east, step 0 | 64 px right, on the anchor | (192, 176) |
+| NPC 4 tiles east, step 4 (90°) | straight ahead, far | (128, 134) |
+| NPC 4 tiles east, step 8 (180°) | mirrored | (64, 176) |
+| NPC 4 tiles east, step 12 (270°) | behind the camera: culled | culled |
+
+**The cost, and the cap §7.2 promised.** Measured with the V counter on a
+world map carrying 24 NPCs all visible around the hero — the worst case —
+sweeping the per-frame budget:
+
+| NPCs projected per frame | loop turns in 900 frames | cost |
+|---|---|---|
+| 0 | 498 (60 fps) | 2 lines |
+| 1 | 498 (60 fps) | 34 lines |
+| **3** | **498 (60 fps)** | **98 lines** |
+| 4 | 272 (30 fps) | 131 lines |
+| 5 | 249 (30 fps) | 162 lines |
+| 6 | 249 (30 fps) | 194 lines |
+
+**~32 screen lines per projected NPC**, and the frame holds three. With
+the projection stubbed out the same loop costs ~13 lines per NPC, so ~19
+of the 32 are the arithmetic itself: the two divisions are the price, and
+only assembly would move them.
+
+So `actors_draw_m7` takes the fallback §7.2 decided in advance: three
+NPCs per frame, round robin over the rest, and the OAM of the ones not
+reached is left untouched so nothing flickers. An INACTIVE slot costs a
+byte read and does NOT spend budget, so the cap only bites when a crowd
+is really on screen; a character then lags by up to `ceil(live/3)` frames,
+which at half a pixel per frame is a few pixels of stagger in the
+distance.
+
+**Two limits stated rather than hidden**, both structural:
+
+- **No scaling.** The SNES cannot scale a sprite. A distant NPC is a
+  full-size character standing on the horizon. Mode 7 games solved this
+  with several hand-drawn sizes of the same sprite — that is art, not
+  code, and it belongs to a later step if the author wants it.
+- **No depth order.** OBJ priority is the OAM index; reordering the OAM
+  every frame costs more than the projection. A far NPC can be drawn over
+  a near one.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.

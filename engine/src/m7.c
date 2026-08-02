@@ -35,6 +35,7 @@
 #include "screenfx.h"
 #include "vignette.h"
 #include "player.h" /* the world map's camera IS the hero */
+#include "actors.h"
 #include "camera.h"
 
 /* mode 7 register (data_mode7.c — always emitted) */
@@ -68,6 +69,8 @@ extern const u8 *const m7w_rotp[];
 extern const u8 *const m7w_rotr[];
 extern const u16 m7w_rotox[];
 extern const u16 m7w_rotoy[];
+extern const u16 m7w_rotcos[]; /* cos, sin in 8.8 — the INVERSE projection */
+extern const u16 m7w_rotsin[];
 /* SKY: the band above the horizon, where BG1 is windowed off and the
    BACKDROP shows. m7w_sky is CGRAM 0 itself; the gradient's two ends
    drive a COLDATA table built below. */
@@ -150,6 +153,11 @@ extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 static u8 pv_horizon = M7P_HORIZON_DEF;
 static u8 pv_anchor = M7P_ANCHOR_DEF;
 static u8 pv_da = M7P_ANCHOR_DEF - M7P_HORIZON_DEF;
+/* dA squared: the numerator of the inverse projection, recomputed with
+   the pitch rather than once per NPC per frame. Fits 16 bits because the
+   pitch clamps dA to 216. */
+static u16 pv_da2 = (u16)(M7P_ANCHOR_DEF - M7P_HORIZON_DEF)
+                    * (M7P_ANCHOR_DEF - M7P_HORIZON_DEF);
 /* First line the plane is allowed to show. Above it the sampled point is
    still INSIDE the plane for the few screen columns near x = 128 — the
    near-horizon lines compress so hard that no finite A pushes them all
@@ -455,6 +463,7 @@ static void m7_persp_set(u8 horizon, u8 anchor)
   pv_horizon = horizon;
   pv_anchor = anchor;
   pv_da = anchor - horizon;
+  pv_da2 = (u16)pv_da * pv_da;
   pv_sky = horizon + pv_da / 8 + 1;
 }
 
@@ -641,6 +650,147 @@ void m7_world_track(void)
   m7_cy = player.y + 8;
   camera.x = player.x - 120;
   camera.y = player.y - (u16)(pv_anchor - 16);
+}
+
+/* ---- INVERSE PROJECTION: a plane position -> a screen position -------
+ *
+ * The hero needs none of this (the camera is placed under him so he
+ * lands on the anchor), but every OTHER sprite does: an NPC standing at
+ * plane (px, py) has to be drawn where the PPU is currently sampling
+ * that point. The PPU goes the other way — screen to plane — so this
+ * inverts it.
+ *
+ * With u = x - 128 the screen column and d = y - horizon the screen line
+ * below the horizon, the forward transform this module sets up is
+ *     px - X0 = m*cos + n*sin
+ *     py - Y0 = m*sin - n*cos       with m = dA*u/d and n = dA^2/d
+ * and the rotation centre is (X0, Y0) = camera + (-dA*sin, +dA*cos).
+ * Substituting the centre and inverting the rotation gives, for
+ * (ux, uy) = the NPC minus the camera:
+ *     L  = ux*cos + uy*sin
+ *     D0 = ux*sin - uy*cos + dA          (<= 0: behind the camera)
+ *     d  = dA^2 / D0                     -> y = horizon + d
+ *     u  = L*dA / D0                     -> x = 128 + u
+ * Two divisions and four multiplications per NPC, all in 16 bits.
+ *
+ * The result lands in m7_pjx / m7_pjy rather than through pointers:
+ * under tcc-816 an out-parameter costs more than the arithmetic.
+ * Returns 0 when the point is not on screen at all. */
+u16 m7_pjx;
+u16 m7_pjy;
+
+/* Beyond this many plane pixels from the camera an NPC is a speck one
+   scanline tall — culling there also keeps the shift below to two
+   steps, which is what keeps the products inside 16 bits. */
+#define M7_PJ_FAR 511
+
+u8 m7_project(u16 px, u16 py)
+{
+  u16 aux, auy, co, si, t, acc, al, d0, d, prod;
+  u8 nx, ny, cn, sn, sh, nl;
+
+  if (!m7_on || !m7_world)
+    return 0;
+
+  /* (ux, uy) = the point minus the camera, as magnitude plus sign: the
+     products below stay unsigned, and tcc-816 never has to shift a
+     negative number right (implementation-defined, and it does get it
+     wrong on 8-bit intermediates). */
+  nx = 0;
+  ny = 0;
+  if (px >= m7_cx)
+    aux = px - m7_cx;
+  else
+  {
+    aux = m7_cx - px;
+    nx = 1;
+  }
+  if (py >= m7_cy)
+    auy = py - m7_cy;
+  else
+  {
+    auy = m7_cy - py;
+    ny = 1;
+  }
+  if (aux > M7_PJ_FAR || auy > M7_PJ_FAR)
+    return 0;
+
+  /* One shift for both axes, so the rotation stays a rotation. At most
+     two steps: 511 >> 2 = 127, and 127 * 256 fits. The lost bits are
+     4 plane pixels at 32 tiles out — under one screen pixel there. */
+  sh = 0;
+  t = aux > auy ? aux : auy;
+  while (t > 127)
+  {
+    t >>= 1;
+    sh++;
+  }
+  aux >>= sh;
+  auy >>= sh;
+
+  if (rot_ok)
+  {
+    t = m7w_rotcos[rot_base + rot_ang];
+    cn = (t & 0x8000) != 0;
+    co = cn ? (u16)(0 - t) : t;
+    t = m7w_rotsin[rot_base + rot_ang];
+    sn = (t & 0x8000) != 0;
+    si = sn ? (u16)(0 - t) : t;
+  }
+  else
+  {
+    co = 256; /* 1.0 in 8.8 */
+    cn = 0;
+    si = 0;
+    sn = 0;
+  }
+
+  /* L = ux*cos + uy*sin, accumulated in two's complement. */
+  acc = 0;
+  t = (u16)((aux * co) >> 8);
+  acc = (nx ^ cn) ? (u16)(acc - t) : (u16)(acc + t);
+  t = (u16)((auy * si) >> 8);
+  acc = (ny ^ sn) ? (u16)(acc - t) : (u16)(acc + t);
+  acc = (u16)(acc << sh);
+  nl = (acc & 0x8000) != 0;
+  al = nl ? (u16)(0 - acc) : acc;
+
+  /* D0 = ux*sin - uy*cos + dA. Zero or negative means the point is at or
+     behind the camera plane: there is no screen line for it. */
+  acc = 0;
+  t = (u16)((aux * si) >> 8);
+  acc = (nx ^ sn) ? (u16)(acc - t) : (u16)(acc + t);
+  t = (u16)((auy * co) >> 8);
+  acc = (ny ^ cn) ? (u16)(acc + t) : (u16)(acc - t); /* MINUS uy*cos */
+  acc = (u16)((u16)(acc << sh) + pv_da);
+  if (acc == 0 || (acc & 0x8000))
+    return 0;
+  d0 = acc;
+
+  /* The screen line. d < 2 is the horizon itself — a sprite there is a
+     speck standing in the sky; past the bottom it is off screen. */
+  d = pv_da2 / d0;
+  if (d < 2 || d > (u16)(232 - pv_horizon))
+    return 0;
+  m7_pjy = (u16)pv_horizon + d;
+
+  /* The screen column: u = L*dA/D0. Split so the product always fits in
+     16 bits — near the camera |L| is small, far from it D0 is large.
+     The third case (a large L with a tiny D0) is off screen by
+     construction: |L| > 128 and D0 < 8 give u > 256. */
+  if (al <= 128)
+    prod = (u16)(al * pv_da) / d0;
+  else if (d0 >= 8)
+    prod = (u16)((al >> 3) * pv_da) / (u16)(d0 >> 3);
+  else
+    return 0;
+  /* 135 and not 128: a sprite half off the side is still worth drawing,
+     but past that the 9-bit OAM X wraps to the OTHER edge and the NPC
+     teleports across the screen. */
+  if (prod > 135)
+    return 0;
+  m7_pjx = nl ? (u16)(128 - prod) : (u16)(128 + prod);
+  return 1;
 }
 
 static void m7_fade_out(u8 dur)
@@ -849,6 +999,7 @@ u8 m7_world_open(u8 scene_id, u8 dur)
     REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
   }
   player_draw_reset(); /* the hide loop above moved the hero's OAM */
+  actors_draw_reset(); /* and every NPC's */
   m7_persp_build();
   m7_world_track(); /* the camera is the hero, from the very first frame */
   m7_persp_place();

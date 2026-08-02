@@ -1051,6 +1051,12 @@ pub struct Mode7Rotation {
     /// rotation centre: (-dA*sin, +dA*cos).
     pub ox: Vec<i16>,
     pub oy: Vec<i16>,
+    /// cos and sin of the angle in 8.8, for the INVERSE projection: the
+    /// engine needs them to place an NPC's plane position on screen (see
+    /// `m7_project`). The HDMA tables above go the other way and cannot
+    /// serve — they are indexed by scanline, not by plane position.
+    pub co: Vec<i16>,
+    pub si: Vec<i16>,
 }
 
 fn clamp14(v: f64) -> i16 {
@@ -1092,6 +1098,8 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
     let mut r = Vec::with_capacity(steps);
     let mut ox = Vec::with_capacity(steps);
     let mut oy = Vec::with_capacity(steps);
+    let mut co = Vec::with_capacity(steps);
+    let mut si = Vec::with_capacity(steps);
 
     for k in 0..steps {
         let th = (k as f64) * std::f64::consts::TAU / steps as f64;
@@ -1127,8 +1135,10 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
            camera, and behind turns with the camera */
         ox.push((-da * sin).round() as i16);
         oy.push((da * cos).round() as i16);
+        co.push((cos * 256.0).round() as i16);
+        si.push((sin * 256.0).round() as i16);
     }
-    Ok(Mode7Rotation { steps, p, r, ox, oy })
+    Ok(Mode7Rotation { steps, p, r, ox, oy, co, si })
 }
 
 #[cfg(test)]

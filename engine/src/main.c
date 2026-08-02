@@ -345,11 +345,13 @@ int main(void)
     {
       /* A world map is a SCENE, not a cutscene: the hero stays. The
          camera is placed under him first, so player_draw needs no case
-         of its own (M7-B). NPCs do not follow yet — a sprite anywhere
-         but the anchor needs the matrix applied to it, and §7.2 measured
-         that loop as too slow in C. */
+         of its own (M7-B). The NPCs DO need one: on a pitched plane
+         their screen position is the inverse of the PPU's transform, not
+         a subtraction — actors_draw_m7 pays for that a few slots per
+         frame. */
       m7_world_track();
       player_draw();
+      actors_draw_m7();
     }
     anim_update(); /* frame-by-frame animations (A1) — BEFORE vig_update:
                       the player sets cell and position, the vignette

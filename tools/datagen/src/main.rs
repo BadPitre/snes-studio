@@ -1868,6 +1868,14 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     rot_table("const u16 m7w_rotoy", &|i, k| {
         (worlds[i].rot.as_ref().unwrap().oy[k] as u16).to_string()
     });
+    // cos and sin in 8.8, for the inverse projection (plane -> screen)
+    // the engine runs on every NPC of a rotating world map.
+    rot_table("const u16 m7w_rotcos", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().co[k] as u16).to_string()
+    });
+    rot_table("const u16 m7w_rotsin", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().si[k] as u16).to_string()
+    });
     files.push(("data_m7world.c".to_string(), s));
     files
 }
