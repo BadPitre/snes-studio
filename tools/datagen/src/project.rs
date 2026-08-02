@@ -54,6 +54,41 @@ pub struct Project {
     /// command into STAGEOPEN/STAGEPOSE plus the inline script.
     #[serde(default)]
     pub screens: Vec<String>,
+    /// Mode 7 (docs/PLANNING_SYSTEME_MODE7.md). Absent in every project
+    /// that does not use it, and datagen then emits NOTHING extra — which
+    /// is what keeps gate-datagen.sh byte-identical while M7 lands.
+    #[serde(default)]
+    pub mode7: Option<Mode7Config>,
+}
+
+/// The project's Mode 7 content.
+///
+/// Images are named by the STEM of an ordinary picture: a Mode 7 image is
+/// not a separate resource the author has to manage, it is a second form
+/// datagen compiles of a picture they already have (§5.2). Listing them
+/// here is the M7-A1 shape; once the commands exist datagen will add the
+/// pictures they reference to the same list.
+#[derive(Deserialize, Clone, Default)]
+pub struct Mode7Config {
+    #[serde(default)]
+    pub images: Vec<String>,
+    #[serde(default)]
+    pub ramps: Vec<RampDef>,
+}
+
+/// A zoom, as the author states it: from a percentage to a percentage,
+/// over a number of frames, along a curve. datagen turns that into the
+/// 8.8 table the engine feeds to setMode7Scale — the author never sees a
+/// fixed-point number, and the runtime never divides.
+#[derive(Deserialize, Clone)]
+pub struct RampDef {
+    pub name: String,
+    pub from: u32,
+    pub to: u32,
+    pub frames: u32,
+    /// linear, ease_in, ease_out, ease_in_out (the default).
+    #[serde(default)]
+    pub curve: String,
 }
 
 /// A composed screen (screens/<name>.json). Editor sugar: the engine only

@@ -162,14 +162,36 @@ absent from the tileset.
 
 ### 5.2 The Mode 7 image (M7-A)
 
-Not a new resource: the author picks an ordinary **picture**. datagen
-produces the Mode 7 form of it on demand — quantise to 128 colours,
-deduplicate into patterns, and if it still does not fit in 256, downscale
-until it does.
+A Mode 7 image is its **own asset**, living in `assets/mode7/`, and
+`mode7.images` names PNG paths exactly as `pictures` and `vignettes` do.
 
-**Auto-fit, never an error.** The count is computed in the editor at
-selection time and the RESULT is previewed (§8.3). The author never reads
-the word "tile".
+That corrects this document's first answer, which was "not a new
+resource, the author picks an ordinary picture". Implementing it showed
+why that cannot work: a project **picture is a 4bpp resource, validated
+at 16 colours**. Sourcing a Mode 7 image from one caps it at 16 and
+throws away the exact thing 8bpp is for. The two are genuinely different
+assets and pretending otherwise costs the feature its point.
+
+Nothing is lost for the author: pointing at an ordinary picture's PNG
+still works — it is just a path — and the editor still shows one "pick an
+image" control (§8.3). The distinction lives in the resource kind, which
+the R2 model makes cheap, not in what the author has to think about.
+
+datagen then produces the Mode 7 form: quantise to 128 colours (median
+cut, deterministic), deduplicate into patterns, and if it still does not
+fit in 256, downscale in eighths until it does.
+
+**Auto-fit, never an error.** Measured on real images: a 256x224 title
+screen fits UNTOUCHED at 134 patterns, because a title screen reuses
+tiles heavily; a 256x224 image of fine detail comes back at 128x112 with
+224 patterns and 123 colours — the "quarter of the screen, shown at 2x"
+of §1, arrived at by measurement rather than by arithmetic. The result is
+previewed (§8.3); the author never reads the word "tile".
+
+Fidelity, checked by rebuilding the image from the emitted C: on an image
+that is not downscaled the error is at most **one 5-bit step (7/255) on
+every pixel** and no more — the unavoidable 8-to-5-bit quantisation, and
+nothing structural on top of it.
 
 ### 5.3 The zoom ramp
 
@@ -428,8 +450,11 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    image, Mode 7, a zoom. Answered all four unknowns of §10, including
    the cost measurement that was meant to wait. Deleted afterwards — the
    findings are §10, the code was worth nothing once read.
-2. **M7-A1** — datagen: the Mode 7 image conversion (§5.2) and the ramp
-   compiler (§5.3). Byte-identical output on existing projects.
+2. **M7-A1** — ✅ datagen: the Mode 7 image conversion (§5.2) and the ramp
+   compiler (§5.3), with unit tests. Nothing is emitted unless the project
+   declares Mode 7 content, so `gate-datagen.sh` stays byte-identical on
+   demo and showcase — the registry becomes unconditional in M7-A2, when
+   the engine actually needs to link against it.
 3. **M7-A2** — the `m7.c` module (§6) and the three opcodes (§9).
    Testable from a hand-written project, with no editor — the way A1-a
    validated the animation player.
