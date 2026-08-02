@@ -316,11 +316,17 @@ function sceneToJson(sc: Scene): string {
   // Scene field must be added here or it is silently lost on save (the
   // bug in the first S9 delivery: the effect invisible in game)
   const effect = sc.effect ? `\n  "effect": ${JSON.stringify(sc.effect)},` : "";
+  // Scene TYPE (M7): only written when it is not the default, so an
+  // ordinary scene's JSON is unchanged. The comment above is not
+  // decoration — this field was lost on save exactly as `effect` once
+  // was, and the symptom was the same: a world map that came back
+  // rendered like any other scene.
+  const kind = sc.kind && sc.kind !== "map" ? `\n  "kind": ${JSON.stringify(sc.kind)},` : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${music}${tileset}${parent}${effect}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${music}${tileset}${parent}${effect}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "events": ${events},
