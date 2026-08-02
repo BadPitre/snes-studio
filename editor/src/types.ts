@@ -617,8 +617,15 @@ export const TRANS_OPTIONS: { value: ScreenTrans; label: string }[] = [
   { value: "wipe_center", label: "Balayage vers le centre" },
 ];
 
+// A scene's TYPE. Absent or "map" is an ordinary scene; "worldmap" is
+// projected on the Mode 7 plane (docs/PLANNING_SYSTEME_MODE7.md §8.2).
+// Chosen at creation, never ticked afterwards: it changes what the scene
+// may contain, not merely how it is drawn.
+export type SceneKind = "map" | "worldmap";
+
 export interface Scene {
   name: string;
+  kind?: SceneKind;
   width: number;
   height: number;
   player_start: [number, number];

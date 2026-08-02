@@ -5,7 +5,7 @@
 // generation of the engine data.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta } from "./types";
+import type { GameEvent, Layer, ProjectData, Scene, SceneKind, TilesetMeta } from "./types";
 import {
   assetStem,
   charsetName,
@@ -1140,12 +1140,33 @@ export default function App() {
     }));
   }
 
-  function createScene(name: string, width: number, height: number) {
+  // A world map is projected on ONE plane: the upper layer and the
+  // effect layer both want a second BG that Mode 7 does not have, and
+  // datagen refuses them outright. Removing the controls is how the
+  // author finds out while editing rather than at build time (§8.2).
+  const isWorldmap = scene?.kind === "worldmap";
+
+  function createScene(
+    name: string,
+    width: number,
+    height: number,
+    kind: SceneKind = "map"
+  ) {
     const parent = newSceneParent ?? undefined;
     mutate((d) => ({
       ...d,
       project: { ...d.project, scenes: [...d.project.scenes, name] },
-      scenes: { ...d.scenes, [name]: { ...newScene(name, width, height), parent } },
+      scenes: {
+        ...d.scenes,
+        [name]: {
+          ...newScene(name, width, height),
+          parent,
+          // "map" is the default everywhere, so it is not written out —
+          // an ordinary scene's JSON stays byte-identical to what every
+          // existing project already has.
+          ...(kind === "worldmap" ? { kind } : {}),
+        },
+      },
     }));
     setSceneName(name);
     setSelEvent(null);
@@ -1544,10 +1565,12 @@ export default function App() {
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
-              onClick={() => !scene.effect && setLayer("upper")}
-              disabled={!!scene.effect}
+              onClick={() => !scene.effect && !isWorldmap && setLayer("upper")}
+              disabled={!!scene.effect || isWorldmap}
               title={
-                scene.effect
+                isWorldmap
+                  ? "Carte du monde : un seul plan en Mode 7, pas de couche supérieure"
+                  : scene.effect
                   ? "Couche supérieure désactivée : la couche d'effet de la scène occupe ce plan (onglet Scène)"
                   : "Couche supérieure"
               }
@@ -1710,9 +1733,11 @@ export default function App() {
               <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
                 Scène
               </button>
-              <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
-                Couche d'effet
-              </button>
+              {!isWorldmap && (
+                <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
+                  Couche d'effet
+                </button>
+              )}
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
               </button>
