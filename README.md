@@ -57,6 +57,15 @@ make clean      # when in doubt about stale artefacts
 make cart       # a .smc padded and checksummed for a flashcart
 ```
 
+`make` needs a POSIX shell, which on Windows means MSYS2. `snesbuild`
+drives the same toolchain natively instead, and produces a byte-identical
+ROM (that is what `tools/gate-snesbuild.sh` checks):
+
+```bash
+cargo run --release --manifest-path tools/Cargo.toml -p snesbuild -- \
+  cart --engine engine
+```
+
 `engine/src/data/*.c` is **generated**. Editing it by hand is wasted work
 — the next `make data` overwrites it. Edit the JSON/PNG sources under
 `demo/` instead, or use the editor.
@@ -117,7 +126,7 @@ project), plus PVSnesLib and Rust as above.
 
 ---
 
-## Before you push: three gates
+## Before you push: four gates
 
 Each one exists because something got through without it. They are cheap
 to run and they are the reason a refactor here is safe.
@@ -125,7 +134,8 @@ to run and they are the reason a refactor here is safe.
 ```bash
 ./tools/regress.sh --build    # engine: pixel regression, 3 cases
 ./tools/gate-datagen.sh check # datagen: output identical byte for byte
-./tools/gate-editor.sh        # editor: tsc + build + 11 windows + 56 command forms
+./tools/gate-editor.sh        # editor: tsc + build + windows, forms, resources
+./tools/gate-snesbuild.sh     # build driver: same ROM as make, byte for byte
 ```
 
 - **`regress.sh`** runs the demo ROM in a libretro snes9x core for a fixed
@@ -137,8 +147,14 @@ to run and they are the reason a refactor here is safe.
   A translator that changes one byte has changed the game, even if it
   compiles. Take the snapshot *before* touching the code.
 - **`gate-editor.sh`** type-checks, builds, then drives a real browser:
-  it opens every Tools window and every event command's options form. A
-  broken render compiles fine — only opening the window catches it.
+  it opens every Tools window, every event command's options form and
+  every resource category. A broken render compiles fine — only opening
+  the window catches it.
+- **`gate-snesbuild.sh`** builds the ROM twice, once with `make` and once
+  with `snesbuild`, and compares the `.sfc`, the `.smc` and the symbol
+  file. `snesbuild` exists so the editor can build without MSYS2; a driver
+  that is only *nearly* right would change the game silently and the pixel
+  regression would blame the wrong commit.
 
 Validation emulators: **Mesen2** for daily work, **bsnes accuracy** as the
 tie-breaker. Rendering correctly in Mesen2 alone is not enough.
