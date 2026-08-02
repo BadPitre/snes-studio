@@ -9,7 +9,7 @@
 // Each function takes its NARROWED command plus the shared context and
 // returns the fields to show and whether OK may be pressed.
 
-import type { Command, Direction, ValueSrc, VarOp } from "../types";
+import type { Command, Direction, M7Curve, ValueSrc, VarOp } from "../types";
 import { DIRECTIONS } from "../types";
 import MoveRouteModal from "./MoveRouteModal";
 import {
@@ -1691,6 +1691,145 @@ export function formSlotFx(cmd: Extract<Command, { c: "slot_fx" }>, x: FormCtx):
         poison, pierre (cumulable) ; restaurer = fin d'état. Non
         bloquant — enchaîner avec « Attendre ».
       </span>
+    </>
+  );
+  return { body, valid };
+}
+
+// "Zoom cinematique" (M7-A3). The words "Mode 7" never appear: it is an
+// implementation detail that belongs to the engine and to docs/, not to
+// an author who has never heard of it (PLANNING_SYSTEME_MODE7 section
+// 8.1). Nor does a ramp resource — the zoom is four fields here, and
+// datagen derives one shared table per distinct zoom.
+const M7_PRESETS: {
+  label: string;
+  from: number;
+  to: number;
+  frames: number;
+  curve: M7Curve;
+}[] = [
+  { label: "Zoom avant lent", from: 100, to: 150, frames: 90, curve: "ease_in_out" },
+  { label: "Impact", from: 100, to: 130, frames: 10, curve: "ease_out" },
+  { label: "Zoom arriere", from: 160, to: 100, frames: 75, curve: "ease_in_out" },
+  { label: "Revelation", from: 100, to: 200, frames: 120, curve: "ease_in" },
+];
+
+export function formM7(cmd: Extract<Command, { c: "m7" }>, x: FormCtx): FormBody {
+  let valid = true;
+  const onChange = x.p.onChange;
+  const imgs = x.p.mode7Images;
+  const pct = (v: number) => Math.max(25, Math.min(400, v || 0));
+  valid = !!cmd.image && imgs.includes(cmd.image);
+  const secs = (cmd.frames / 60).toFixed(1);
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Image
+          <select
+            value={cmd.image}
+            onChange={(e) => onChange({ ...cmd, image: e.target.value })}
+          >
+            <option value="">(choisir une image…)</option>
+            {imgs.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Prereglage
+          <select
+            value=""
+            onChange={(e) => {
+              const p = M7_PRESETS[Number(e.target.value)];
+              if (p)
+                onChange({
+                  ...cmd,
+                  from: p.from,
+                  to: p.to,
+                  frames: p.frames,
+                  curve: p.curve,
+                });
+            }}
+          >
+            <option value="">(appliquer un prereglage…)</option>
+            {M7_PRESETS.map((p, i) => (
+              <option key={p.label} value={i}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="row">
+        <label>
+          De (%)
+          <input
+            type="number" min={25} max={400} step={5} value={cmd.from}
+            onChange={(e) => onChange({ ...cmd, from: pct(Number(e.target.value)) })}
+          />
+        </label>
+        <label>
+          a (%)
+          <input
+            type="number" min={25} max={400} step={5} value={cmd.to}
+            onChange={(e) => onChange({ ...cmd, to: pct(Number(e.target.value)) })}
+          />
+        </label>
+        <label>
+          Duree (frames)
+          <input
+            type="number" min={1} max={255} value={cmd.frames}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                frames: Math.max(1, Math.min(255, Number(e.target.value) || 1)),
+              })
+            }
+          />
+        </label>
+      </div>
+      <div className="row">
+        <label>
+          Courbe
+          <select
+            value={cmd.curve}
+            onChange={(e) => onChange({ ...cmd, curve: e.target.value as M7Curve })}
+          >
+            <option value="ease_in_out">Doux aux deux bouts</option>
+            <option value="linear">Lineaire</option>
+            <option value="ease_in">Doux au depart</option>
+            <option value="ease_out">Doux a l'arrivee</option>
+          </select>
+        </label>
+        <label>
+          Fondu d'entree et de sortie (frames)
+          <input
+            type="number" min={0} max={255} value={cmd.dur ?? 20}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                dur: Math.max(0, Math.min(255, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+      </div>
+      <span className="hint">
+        Le zoom dure <b>{secs} s</b>. La commande ouvre l'ecran, joue le
+        zoom jusqu'au bout, puis le referme et rend la main au jeu — une
+        seule ligne, impossible de rester bloque dessus.
+      </span>
+      <span className="hint">
+        ⓘ Pendant le zoom, les <b>dialogues et le HUD sont masques</b> :
+        l'ecran n'a qu'une seule couche (limite materielle). Les sprites
+        restent affiches mais <b>ne changent pas de taille</b> — garder
+        une plage de zoom modeste s'il y a des personnages a l'ecran.
+      </span>
+      {imgs.length === 0 && (
+        <span className="hint">
+          Aucune image Mode 7 dans le projet : en importer une dans le
+          Gestionnaire de ressources, categorie « Image zoomable ».
+        </span>
+      )}
     </>
   );
   return { body, valid };

@@ -10,6 +10,7 @@
 // along, so both keep their own callbacks.
 
 import { useEffect, useRef, useState } from "react";
+import { mode7Preview } from "../build";
 import { loadAssetPng } from "../io";
 import { assetStem } from "../types";
 import type { ResKind } from "../resources";
@@ -17,7 +18,7 @@ import AudioPreviewButton, { stopPreview } from "./AudioPreview";
 
 type Cat =
   | "charset" | "chipset" | "windowskin" | "iconset" | "fontset"
-  | "picture" | "sound" | "music" | "vignette";
+  | "picture" | "sound" | "music" | "vignette" | "mode7";
 
 export type ResAct = "import" | "export" | "rename" | "delete";
 
@@ -38,11 +39,12 @@ interface Props {
   sounds: string[]; // WAV sounds (B1) — assets/sounds/*.wav paths
   musics: string[]; // IT music — assets/music/*.it paths
   vignettes: string[]; // strips of 32x32 frames (B5)
+  mode7Images: string[]; // Mode 7 images (M7) — assets/mode7/*.png
   // resource -> the scenes using it (to block deletion)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
   canWrite: boolean;
-  // the seven register-backed categories, in one call
+  // the eight register-backed categories, in one call
   onRes: (kind: ResKind, act: ResAct, rel?: string, name?: string) => void;
   onImportCharset: () => void;
   onImportChipset: () => void;
@@ -145,6 +147,15 @@ const CATS: CatDef[] = [
     deleteTitle: () =>
       "Supprimer la vignette et son fichier (le build signale les « Afficher une vignette » orphelins)",
   },
+  {
+    cat: "mode7",
+    kind: "mode7",
+    label: "Image zoomable",
+    bullet: "▦",
+    items: (p) => p.mode7Images,
+    deleteTitle: () =>
+      "Supprimer l'image zoomable et son fichier (le build signale les « Zoom cinématique » orphelins)",
+  },
 ];
 
 export default function ResourceManagerModal(p: Props) {
@@ -155,6 +166,9 @@ export default function ResourceManagerModal(p: Props) {
   // but the others are remembered while the window stays open
   const [sel, setSel] = useState<Record<string, string>>({});
   const [bmp, setBmp] = useState<ImageBitmap | null>(null);
+  // What the GAME will show for a Mode 7 image, converted by datagen —
+  // never recomputed here (see build.ts mode7Preview).
+  const [m7, setM7] = useState<{ bmp: ImageBitmap; summary: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
@@ -187,6 +201,24 @@ export default function ResourceManagerModal(p: Props) {
       dead = true;
     };
   }, [def, cur, p.root]);
+
+  // The Mode 7 preview. Silent on failure: in browser mode there is no
+  // sidecar at all, and the panel must still open — the smoke test walks
+  // every category.
+  useEffect(() => {
+    setM7(null);
+    if (cat !== "mode7" || !cur) return;
+    let dead = false;
+    void mode7Preview(p.root, cur)
+      .then(async (r) => {
+        const b = await loadAssetPng(p.root, r.rel);
+        if (!dead) setM7({ bmp: b, summary: r.summary });
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [cat, cur, p.root]);
 
   // preview: charset = the block's 4 idle frames; chipset = the top of
   // the tile grid
@@ -246,6 +278,24 @@ export default function ResourceManagerModal(p: Props) {
         260, 14);
       ctx.fillText("≤ 16 couleurs (PNG indexé),", 260, 32);
       ctx.fillText("≤ 512 tiles 8x8 uniques (build)", 260, 46);
+    } else if (cat === "mode7" && bmp) {
+      // Before and after, side by side. The author is shown the real
+      // result rather than told a tile count (section 8.3).
+      const half = 116;
+      const fit = (b: ImageBitmap) => Math.min(1, 84 / b.height, half / b.width);
+      const s1 = fit(bmp);
+      ctx.drawImage(bmp, 8, 14, bmp.width * s1, bmp.height * s1);
+      ctx.fillStyle = "#9aa0a8";
+      ctx.fillText("source", 8, 10);
+      if (m7) {
+        const s2 = fit(m7.bmp);
+        ctx.drawImage(m7.bmp, 8 + half + 12, 14, m7.bmp.width * s2, m7.bmp.height * s2);
+        ctx.fillStyle = "#9aa0a8";
+        ctx.fillText("en jeu", 8 + half + 12, 10);
+        ctx.fillText(m7.summary, 8, 108);
+      } else {
+        ctx.fillText("aperçu en cours…", 8 + half + 12, 24);
+      }
     } else if (cat === "vignette" && bmp) {
       const n = bmp.width / 32;
       ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer la vignette »`, 8, 12);

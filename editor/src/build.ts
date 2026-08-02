@@ -214,3 +214,34 @@ export async function runDatagen(projectRoot: string, debug = false): Promise<Bu
   if (debug) args.push("--debug");
   return sidecar("datagen", args);
 }
+
+// ---------------------------------------------------------------------
+// Mode 7 preview (M7-A3)
+// ---------------------------------------------------------------------
+
+// Converts one image to its Mode 7 form and returns where the preview
+// landed plus the sentence the author reads.
+//
+// The conversion runs in DATAGEN, never here. That is the whole point:
+// the preview has to show what the BUILD produces — the auto-fit, the
+// 5-bit colours, the reserved blank pattern — and a TypeScript
+// reimplementation would drift and quietly start lying about what the
+// game shows. It costs a sidecar call per selection; that is cheap next
+// to being wrong.
+//
+// The result is cached under the project's .build/, which already holds
+// the synced engine and is not part of the author's sources.
+export async function mode7Preview(
+  projectRoot: string,
+  rel: string
+): Promise<{ rel: string; summary: string }> {
+  const stem = rel.split("/").pop()?.replace(/\.png$/i, "") ?? "image";
+  const out = `.build/m7preview/${stem}.png`;
+  const r = await sidecar("datagen", [
+    "m7-preview",
+    `${projectRoot}/${rel}`,
+    `${projectRoot}/${out}`,
+  ]);
+  if (!r.ok) throw new Error(r.output);
+  return { rel: out, summary: r.output.trim().split("\n").pop() ?? "" };
+}

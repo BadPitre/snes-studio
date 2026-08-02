@@ -122,7 +122,35 @@ Two honest notes:
 
 ---
 
-## 6. What is still not measured
+## 6. Mode 7 sprite transform (M7-0 spike)
+
+On a Mode 7 plane a sprite's screen position is no longer a subtraction:
+the plane rotates and scales under it, so the matrix has to be applied
+per sprite. The SNES's signed 16x8 multiplier is available for that — but
+its operands ARE `M7A`/`M7B`, the scale matrix the PPU reads while
+rendering, so the maths can only run inside the VBlank.
+
+Sixteen sprites, four multiplies each (the full matrix, rotation
+included), written in C, measured at frame 210 of the spike ROM:
+
+| | Lines |
+|---|---|
+| Raw delta, 232 → 15 (mod 262) | 45 |
+| Less the two C-written V-counter reads (§1) | ~41 |
+| **VBlank window available** | **37** |
+
+The C loop **overruns the VBlank**. That is the finding: for a Mode 7
+world map, an assembly sprite loop is not an optimisation to schedule
+later, it is the precondition. Applying §5's measured 2.7× C-to-assembly
+ratio would put it near 15 lines, which fits — but that is an
+extrapolation from a different loop, not a measurement, and §7 lists it
+as such.
+
+Design consequences are in `PLANNING_SYSTEME_MODE7.md` §7.2 and §10.
+
+---
+
+## 7. What is still not measured
 
 Stated so nobody mistakes silence for zero:
 
@@ -133,3 +161,6 @@ Stated so nobody mistakes silence for zero:
   They run before the budget opens.
 - The register block costs 7 lines for a handful of register writes. Not
   investigated; it is the largest unexplained item left in the window.
+- The Mode 7 sprite transform **in assembly** (§6). Only the C figure is
+  measured; the 15-line estimate is an extrapolation from §5's ratio.
+- Nothing in §6 has run on hardware — emulator (snes9x libretro) only.

@@ -67,6 +67,11 @@ pub struct EventCompiler<'a> {
     vignettes: Vec<String>,
     /// Project animations (names), resolved to anim_id.
     animations: Vec<String>,
+    /// Mode 7 images (stems), resolved to ids, and the DISTINCT zoom
+    /// ramps of the whole project — a command resolves its own four
+    /// fields to the index of the table datagen will emit.
+    m7_images: Vec<String>,
+    m7_ramps: Vec<crate::mode7::Ramp>,
     /// Composed screens, unrolled by the "screen" command.
     screens: Vec<ScreenDef>,
     /// Stack of screens currently being unrolled: screen_call resolves
@@ -115,6 +120,8 @@ impl<'a> EventCompiler<'a> {
             musics: Vec::new(),
             vignettes: Vec::new(),
             animations: Vec::new(),
+            m7_images: Vec::new(),
+            m7_ramps: Vec::new(),
             screens: Vec::new(),
             screen_stack: Vec::new(),
             text_of,
@@ -486,6 +493,7 @@ impl<'a> EventCompiler<'a> {
                 "vig_hide" => self.cmd_vig_hide(cmd, out)?,
                 "slot_fx" => self.cmd_slot_fx(cmd, out)?,
                 "stage_close" => self.cmd_stage_close(cmd, out)?,
+                "m7" => self.cmd_m7(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
                 "spotlight" => self.cmd_spotlight(cmd, out)?,
@@ -526,6 +534,14 @@ impl<'a> EventCompiler<'a> {
     /// one implicit page made of its direct fields.
     /// ALSO returns the CETAB line (the auto common event table) that
     /// the caller must place FIRST in the assembled script — the engine
+    /// Mode 7 resources. A setter rather than two more parameters on
+    /// compile_scene, which already takes seventeen — and unlike the
+    /// tileset these do not vary per scene, so they are set once.
+    pub fn set_mode7(&mut self, images: &[String], ramps: &[crate::mode7::Ramp]) {
+        self.m7_images = images.to_vec();
+        self.m7_ramps = ramps.to_vec();
+    }
+
     /// reads it at offset 0 of the script block.
     pub fn compile_scene(
         &mut self,
@@ -1555,6 +1571,45 @@ impl<'a> EventCompiler<'a> {
         };
         let dur = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(0);
         out.push(format!("  SLOTFX {} {} {}", slot - 1, fx, dur));
+        Ok(())
+    }
+
+    /// "Zoom cinematique" (M7-A): ONE author-facing command that chains
+    /// the three engine primitives — open, play the ramp to its end,
+    /// close. One line in the event list and no way to leave the screen
+    /// open by mistake (PLANNING_SYSTEME_MODE7 section 8.4). The
+    /// primitives stay available in the assembler for whoever needs them.
+    fn cmd_m7(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let img = cmd["image"].as_str().unwrap_or("");
+        let id = self.m7_images.iter().position(|a| a == img).with_context(|| {
+            format!(
+                "m7 : image '{}' introuvable (images mode7 du projet : {})",
+                img,
+                if self.m7_images.is_empty() {
+                    "aucune".to_string()
+                } else {
+                    self.m7_images.join(", ")
+                }
+            )
+        })?;
+        // The zoom lives ON the command; datagen has already collected
+        // the distinct ones project-wide, so this is a lookup that cannot
+        // miss — unless someone hand-writes a command the scan never saw.
+        let want = crate::mode7::Ramp::from_command(cmd)
+            .context("m7 : commande mal formee")?;
+        let ramp = self
+            .m7_ramps
+            .iter()
+            .position(|r| *r == want)
+            .context("m7 : rampe non collectee (bug datagen, pas un probleme de projet)")?;
+        let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
+        out.push(format!("  M7OPEN {} {}", id, dur));
+        // flags bit 1 = wait for the end. The composite command ALWAYS
+        // waits: closing before the zoom finished would show nothing, and
+        // a looping ramp would never let the close happen — which is why
+        // loop is only reachable through the primitives.
+        out.push(format!("  M7ZOOM {} 2", ramp));
+        out.push(format!("  M7CLOSE {}", dur));
         Ok(())
     }
 

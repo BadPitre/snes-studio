@@ -371,6 +371,23 @@
                             the VARSRC_RET source) then returns like RET.
                             A function with no return value ends on a
                             plain RET: both pop the frame. */
+#define VM_OP_M7OPEN 0x40 /* img (u8), dur (u8) — opens the MODE 7 SCREEN
+                             (M7-A): the plane replaces the whole view,
+                             one layer, no BG3 and therefore no dialogue.
+                             Applied from the main loop under force blank
+                             (32 KB of upload), 1 frame of VM pause. An
+                             image out of range is ignored and the scene
+                             is left alone. */
+#define VM_OP_M7ZOOM 0x41 /* ramp (u8, 0xFF stops), flags (u8) — plays a
+                             ramp compiled by datagen, one 8.8 scale per
+                             frame. bit 0 loops, bit 1 waits for the end.
+                             A LOOPING ramp never blocks, as with
+                             animations. Stopping HOLDS the current
+                             scale, which is what lets a script zoom,
+                             hold, then close. */
+#define VM_OP_M7CLOSE 0x42 /* dur (u8) — closes the Mode 7 screen: an
+                              INTERNAL WARP to the current scene, the
+                              stage_close recipe. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

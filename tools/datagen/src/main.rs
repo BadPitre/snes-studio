@@ -17,6 +17,7 @@ mod db;
 mod emit;
 mod events;
 mod gfx;
+mod mode7;
 mod project;
 mod screens;
 mod script;
@@ -36,6 +37,18 @@ fn main() -> Result<()> {
             bail!("usage : datagen import-chipset <chipset.png> <dossier_projet> <nom>");
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
+    }
+    if args.len() >= 2 && args[1] == "m7-preview" {
+        if args.len() != 4 {
+            bail!("usage : datagen m7-preview <image.png> <apercu.png>");
+        }
+        return mode7::preview_command(Path::new(&args[2]), Path::new(&args[3]));
+    }
+    if args.len() >= 2 && args[1] == "m7-tileset" {
+        if args.len() != 3 {
+            bail!("usage : datagen m7-tileset <chipset.png>");
+        }
+        return mode7::tileset_check_command(Path::new(&args[2]));
     }
     if args.len() >= 2 && args[1] == "tidy" {
         if args.len() < 3 {
@@ -133,6 +146,7 @@ fn main() -> Result<()> {
     // deduplicated 4bpp chars plus a tilemap and a palette. pic_show
     // commands reference them by stem; loaded BEFORE the scenes.
     let mut pic_names: Vec<String> = Vec::new();
+    let mut pic_rels: Vec<String> = Vec::new();
     let mut pic_dims: Vec<(usize, usize)> = Vec::new();
     let mut pic_trans: Vec<bool> = Vec::new();
     let mut pic_data: Vec<(Vec<u8>, Vec<u16>, Vec<u16>)> = Vec::new();
@@ -152,10 +166,42 @@ fn main() -> Result<()> {
         pic_data
             .push(img.to_picture(entry.trans()).with_context(|| format!("picture '{}'", rel))?);
         pic_names.push(stem);
+        pic_rels.push(rel.to_string());
         pic_trans.push(entry.trans());
     }
     if pic_names.len() > 32 {
         bail!("{} pictures (max 32)", pic_names.len());
+    }
+
+    // Mode 7 names, needed BEFORE the scenes compile: the "m7" command
+    // resolves them to ids. The images themselves are converted later,
+    // with the rest of the graphics.
+    let m7_img_names: Vec<String> = project
+        .mode7
+        .as_ref()
+        .map(|c| {
+            c.images
+                .iter()
+                .map(|rel| {
+                    Path::new(rel)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // The zoom ramps are DERIVED from the commands that use them, by
+    // walking every JSON file of the project. Re-parsing costs nothing
+    // next to the graphics, and it means a command hidden inside a
+    // condition, a loop or a screen script is found without anyone
+    // maintaining a list of the places to look.
+    let m7_ramps = mode7::collect_ramps(
+        &project_json_roots(&proj_dir)?.iter().collect::<Vec<_>>(),
+    );
+    if !m7_ramps.is_empty() {
+        println!("  mode7 : {} rampe(s) de zoom distincte(s)", m7_ramps.len());
     }
 
     // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
@@ -259,6 +305,7 @@ fn main() -> Result<()> {
                 None => default_ts_stem.clone(),
             };
             let mut ec = events::EventCompiler::new(&mut texts);
+            ec.set_mode7(&m7_img_names, &m7_ramps);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -562,6 +609,55 @@ fn main() -> Result<()> {
     }
     println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
+    // Mode 7 WORLD MAPS (M7-B1). A world map is an ordinary scene with
+    // kind "worldmap": same tileset library, same painting, same events
+    // and warps — only the RENDERING changes. It therefore keeps its
+    // place in every table above; this pass only adds the plane's data.
+    //
+    // It is compiled by the ordinary path as well, which costs one gfx
+    // set it will never display. That is deliberate: skipping it here
+    // would desynchronise `set_ids` from `scenes`, and every table
+    // downstream is indexed by scene position. A world map uses few
+    // metatiles, so the waste is small and the alignment is free.
+    let mut worlds: Vec<(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)> = Vec::new();
+    for (sci, sc) in scenes.iter().enumerate() {
+        if !sc.is_worldmap() {
+            continue;
+        }
+        let ts = scene_ts(sc)?;
+        let png = &tileset_paths[ts];
+        let img = gfx::load_indexed_png(&proj_dir.join(png))
+            .with_context(|| format!("carte du monde '{}' : tileset {}", sc.name, png))?;
+        let t = mode7::convert_tileset(&img)
+            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
+        // Every painted block must exist in the sheet. Caught here rather
+        // than shown as garbage on the plane.
+        let mut plane = Vec::with_capacity(sc.width as usize * sc.height as usize);
+        for (y, row) in sc.tilemap.iter().enumerate() {
+            for (x, &id) in row.iter().enumerate() {
+                let id = if id < 0 { 0 } else { id as usize };
+                if id >= t.count {
+                    bail!(
+                        "carte du monde '{}' : bloc {} en ({}, {}) — le tileset \
+                         '{}' n'en a que {}",
+                        sc.name,
+                        id,
+                        x,
+                        y,
+                        png,
+                        t.count
+                    );
+                }
+                plane.push(id as u8);
+            }
+        }
+        println!(
+            "  mode7 : carte du monde {} — {}x{} blocs, {} motifs, {} couleurs",
+            sc.name, sc.width, sc.height, t.patterns, t.colours
+        );
+        worlds.push((sci, t, plane, sc.width, sc.height));
+    }
+
     // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
     // model); an actor's sprite is a block index.
     // Sets are compiled PER SCENE, like the tilesets: a scene only
@@ -832,7 +928,14 @@ fn main() -> Result<()> {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if (name.starts_with("data_gfx")
             || name.starts_with("data_sprites")
-            || name.starts_with("data_pic"))
+            || name.starts_with("data_pic")
+            // Both spellings: the per-image files are data_m7chars*/
+            // data_m7map*, the registry is data_mode7.c — which does NOT
+            // start with "data_m7", so it needs its own prefix or a
+            // project that drops its Mode 7 block keeps linking a stale
+            // registry.
+            || name.starts_with("data_m7")
+            || name.starts_with("data_mode7"))
             && !path.is_dir()
         {
             std::fs::remove_file(&path)
@@ -898,6 +1001,20 @@ fn main() -> Result<()> {
     }
     if !pic_names.is_empty() {
         println!("  pictures : {} image(s) plein ecran", pic_names.len());
+    }
+    // Mode 7 (M7). data_mode7.c is ALWAYS emitted — the engine compiles
+    // m7.c unconditionally and needs the registry to link, with dummy
+    // tables when the project has none. Same recipe as the pictures, the
+    // vignettes and the animations.
+    {
+        let empty = project::Mode7Config::default();
+        let cfg = project.mode7.as_ref().unwrap_or(&empty);
+        for (name, content) in gen_mode7_files(cfg, &m7_ramps, &proj_dir)? {
+            write_out(&out_dir, &name, content)?;
+        }
+        for (name, content) in gen_worldmap_files(&worlds) {
+            write_out(&out_dir, &name, content)?;
+        }
     }
     // Per-scene effect layer: data_effects.c is ALWAYS emitted (the
     // engine includes effectlayer.c unconditionally); 0xFF means none.
@@ -1439,6 +1556,227 @@ fn gen_vignette_files(
     s.push_str("};\n");
     files.push(("data_vignettes.c".to_string(), s));
     files
+}
+
+/// Mode 7 data (M7-A1): one file of chars and one of map+palette per
+/// image, plus the data_mode7.c registry with the compiled zoom ramps.
+///
+/// Chars and map are SEPARATE files because a ROM section cannot be split
+/// across a 32 KB bank, and an image at full budget is 16 KB of chars on
+/// its own — the same reason the gfx sets get one file each.
+/// Every .json under the project, parsed. Used to derive the Mode 7 zoom
+/// ramps from the commands that carry them.
+fn project_json_roots(dir: &Path) -> Result<Vec<serde_json::Value>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let rd = match std::fs::read_dir(&d) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort(); /* a stable walk: the ramp order must not depend
+                           on the filesystem */
+        for p in entries {
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Mode 7 world maps (M7-B1): one file per map plus the registry.
+///
+/// The plane map is stored in METATILES (at most 64x64 = 4 KB) and the
+/// engine expands it through `meta` into the 128x128 tile plane at open.
+/// Storing the expanded plane would be 16 KB per map for nothing, and
+/// the expansion happens once, under force blank, where there is time.
+fn gen_worldmap_files(
+    worlds: &[(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)],
+) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    for (i, (_sci, t, plane, w, h)) in worlds.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str("/* world map: 8bpp patterns, pattern 0 reserved blank */\n");
+        s.push_str(&emit::u8_array(&format!("m7w{}_chars", i), &t.chars, 16, false));
+        s.push_str(&format!(
+            "const u16 m7w{}_chars_size = sizeof(m7w{}_chars);\n",
+            i, i
+        ));
+        files.push((format!("data_m7wchars{}.c", i), s));
+
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(
+            "/* four pattern indices per 16x16 block, in reading order\n                (top-left, top-right, bottom-left, bottom-right) */\n",
+        );
+        s.push_str(&emit::u8_array(&format!("m7w{}_meta", i), &t.meta, 16, false));
+        s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
+        s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
+        s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
+        files.push((format!("data_m7wmap{}.c", i), s));
+    }
+
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..worlds.len() {
+        s.push_str(&format!(
+            "extern const u8 m7w{i}_chars[];\nextern const u16 m7w{i}_chars_size;\n\
+             extern const u8 m7w{i}_meta[];\nextern const u8 m7w{i}_map[];\n\
+             extern const u16 m7w{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push_str(&format!("\nconst u8 m7w_count = {};\n\n", worlds.len()));
+    let n = worlds.len().max(1);
+    let mut table = |decl: &str, f: &dyn Fn(usize) -> String| {
+        s.push_str(&format!("{}[{}] = {{ ", decl, n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", if i < worlds.len() { f(i) } else { "0".into() }));
+        }
+        s.push_str("};\n");
+    };
+    // Which SCENE each map belongs to: the engine looks a scene up here
+    // when it loads one, so a world map stays an ordinary scene
+    // everywhere else (warps, events, the boot scene).
+    table("const u8 m7w_scene", &|i| worlds[i].0.to_string());
+    table("const u8 *const m7w_chars", &|i| format!("m7w{}_chars", i));
+    table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
+    table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
+    table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
+    table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
+    table("const u8 m7w_w", &|i| worlds[i].3.to_string());
+    table("const u8 m7w_h", &|i| worlds[i].4.to_string());
+    files.push(("data_m7world.c".to_string(), s));
+    files
+}
+
+fn gen_mode7_files(
+    cfg: &project::Mode7Config,
+    ramps_in: &[mode7::Ramp],
+    proj_dir: &Path,
+) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
+    let mut imgs: Vec<mode7::Mode7Image> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+
+    // Paths, not picture stems. A project PICTURE is a 4bpp resource
+    // validated at 16 colours; sourcing a Mode 7 image from one would cap
+    // it at 16 and throw away the very thing 8bpp is for. Pointing at an
+    // ordinary picture's PNG still works — it is just a path — but a
+    // Mode 7 image is its own asset, and datagen says so.
+    for rel in &cfg.images {
+        let stem = Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .with_context(|| format!("image mode7 '{}' : nom illisible", rel))?
+            .to_string();
+        if names.contains(&stem) {
+            bail!("image mode7 '{}' : stem en double", stem);
+        }
+        let src = gfx::load_indexed_png(&proj_dir.join(rel))
+            .with_context(|| format!("image mode7 '{}'", rel))?;
+        let m = mode7::convert(&src).with_context(|| format!("image mode7 '{}'", rel))?;
+        println!("  mode7 : {} — {}", stem, m.report.summary());
+        imgs.push(m);
+        names.push(stem);
+    }
+    if imgs.len() > 32 {
+        bail!("{} images mode7 (max 32)", imgs.len());
+    }
+
+    for (i, m) in imgs.iter().enumerate() {
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!("/* mode7 image \u{ab} {} \u{bb} — 8bpp patterns */\n", names[i]));
+        s.push_str(&emit::u8_array(&format!("m7img{}_chars", i), &m.chars, 16, false));
+        s.push_str(&format!(
+            "const u16 m7img{}_chars_size = sizeof(m7img{}_chars);\n",
+            i, i
+        ));
+        files.push((format!("data_m7chars{}.c", i), s));
+
+        let mut s = String::from(emit::HEADER);
+        s.push_str("#include <snes.h>\n\n");
+        s.push_str(&format!(
+            "/* mode7 image \u{ab} {} \u{bb} — COMPACT map ({}x{} tiles): the engine\n   fills the 128x128 plane with tile 0, then writes these rows into\n   it. Storing the whole plane would be 16 KB of zeroes per image. */\n",
+            names[i], m.wt, m.ht
+        ));
+        s.push_str(&emit::u8_array(&format!("m7img{}_map", i), &m.map, 16, false));
+        s.push_str("\n/* 128 colours, CGRAM 0-127 — 128-255 stays the sprites\u{2019} */\n");
+        s.push_str(&emit::u16_array(&format!("m7img{}_pal", i), &m.palette));
+        files.push((format!("data_m7map{}.c", i), s));
+    }
+
+    // Ramps: one 8.8 value per frame, read straight into setMode7Scale.
+    let mut ramps: Vec<(String, Vec<u16>)> = Vec::new();
+    for r in ramps_in {
+        let label = format!("{}% a {}% en {} frames", r.from, r.to, r.frames);
+        let table = mode7::compile_ramp(r.from, r.to, r.frames, r.curve)
+            .with_context(|| format!("zoom cinematique {}", label))?;
+        ramps.push((label, table));
+    }
+    if ramps.len() > 64 {
+        bail!("{} zooms cinematiques distincts (max 64)", ramps.len());
+    }
+
+    let mut s = String::from(emit::HEADER);
+    s.push_str("#include <snes.h>\n\n");
+    for i in 0..imgs.len() {
+        s.push_str(&format!(
+            "extern const u8 m7img{i}_chars[];\nextern const u16 m7img{i}_chars_size;\n\
+             extern const u8 m7img{i}_map[];\nextern const u16 m7img{i}_pal[];\n",
+            i = i
+        ));
+    }
+    s.push('\n');
+    for (j, (name, table)) in ramps.iter().enumerate() {
+        s.push_str(&format!("/* zoom ramp \u{ab} {} \u{bb} — 8.8 scale, one per frame */\n", name));
+        s.push_str(&emit::u16_array(&format!("m7ramp{}", j), table));
+        s.push('\n');
+    }
+    s.push_str(&format!("const u8 m7_img_count = {};\n", imgs.len()));
+    s.push_str(&format!("const u8 m7_ramp_count = {};\n\n", ramps.len()));
+
+    let n = imgs.len().max(1);
+    let table = |s: &mut String, decl: &str, f: &dyn Fn(usize) -> String| {
+        s.push_str(&format!("{}[{}] = {{ ", decl, n));
+        for i in 0..n {
+            s.push_str(&format!("{}, ", if i < imgs.len() { f(i) } else { "0".into() }));
+        }
+        s.push_str("};\n");
+    };
+    table(&mut s, "const u8 *const m7_img_chars", &|i| format!("m7img{}_chars", i));
+    table(&mut s, "const u16 *const m7_img_chars_sizes", &|i| {
+        format!("&m7img{}_chars_size", i)
+    });
+    table(&mut s, "const u8 *const m7_img_maps", &|i| format!("m7img{}_map", i));
+    table(&mut s, "const u16 *const m7_img_pals", &|i| format!("m7img{}_pal", i));
+    table(&mut s, "const u8 m7_img_wt", &|i| imgs[i].wt.to_string());
+    table(&mut s, "const u8 m7_img_ht", &|i| imgs[i].ht.to_string());
+
+    let m = ramps.len().max(1);
+    s.push_str(&format!("\nconst u16 *const m7_ramps[{}] = {{ ", m));
+    for j in 0..m {
+        s.push_str(&format!("{}, ", if j < ramps.len() { format!("m7ramp{}", j) } else { "0".into() }));
+    }
+    s.push_str("};\n");
+    s.push_str(&format!("const u8 m7_ramp_lens[{}] = {{ ", m));
+    for j in 0..m {
+        s.push_str(&format!("{}, ", ramps.get(j).map(|r| r.1.len()).unwrap_or(0)));
+    }
+    s.push_str("};\n");
+    files.push(("data_mode7.c".to_string(), s));
+    Ok(files)
 }
 
 fn gen_picture_files(

@@ -40,7 +40,8 @@ export type ResKind =
   | "picture"
   | "sound"
   | "music"
-  | "vignette";
+  | "vignette"
+  | "mode7";
 
 // Everything the four flows need from the App: the loaded project and the
 // three ways it can change (a recorded mutation, a save + reload, a status
@@ -363,6 +364,54 @@ const vignette: Resource = {
   deleted: (s) => `Vignette supprimée : ${s}`,
 };
 
+// A Mode 7 image is its OWN asset, never a reinterpreted picture: a
+// picture is 4bpp and validated at 16 colours, and sourcing from one
+// would cap the plane at 16 too — throwing away the whole point of 8bpp.
+// The author still just picks an image; the distinction lives here.
+//
+// No size check on import. Anything is accepted and datagen AUTO-FITS it
+// (quantise to 128 colours, deduplicate patterns, shrink until it fits
+// 255 of them). Refusing an image would push a tile budget onto someone
+// who never asked to hear about tiles.
+const mode7: Resource = {
+  kind: "mode7",
+  dir: "assets/mode7",
+  ext: "png",
+  slug: true,
+  refuseDuplicate: true,
+  list: (p) => p.mode7?.images ?? [],
+  add: (p, rel) => ({
+    ...p,
+    mode7: { ...(p.mode7 ?? {}), images: [...(p.mode7?.images ?? []), rel] },
+  }),
+  remove: (p, rel) => {
+    const next = (p.mode7?.images ?? []).filter((e) => e !== rel);
+    return { ...p, mode7: next.length ? { ...p.mode7, images: next } : undefined };
+  },
+  rename: (p, oldRel, newRel) => ({
+    ...p,
+    mode7: {
+      ...(p.mode7 ?? {}),
+      images: (p.mode7?.images ?? []).map((e) => (e === oldRel ? newRel : e)),
+    },
+  }),
+  pickImport: () => pickPngFile("Importer une image zoomable (PNG)"),
+  imported: (s, b) =>
+    `Image zoomable importée : ${s}.png (${
+      b ? `${b.width}x${b.height}` : "?"
+    }) — le build indique la taille réelle après ajustement`,
+  importFailed: (e) => `Import image zoomable : ${e}`,
+  pickExport: "Exporter l'image zoomable (PNG)",
+  exported: (p) => `Image zoomable exportée : ${p}`,
+  exportFailed: (e) => `Export image zoomable : ${e}`,
+  renameTaken: (s) => `Renommage : l'image zoomable « ${s} » existe déjà`,
+  renamed: (o, n) =>
+    `Image zoomable renommée : ${o} → ${n} — corriger les « Zoom cinématique » qui l'utilisaient (le build les signale)`,
+  confirmDelete: (s) =>
+    `Supprimer l'image zoomable « ${s} » et son fichier ? Les « Zoom cinématique » qui l'utilisent seront signalés au build.`,
+  deleted: (s) => `Image zoomable supprimée : ${s}`,
+};
+
 export const RESOURCES: Record<ResKind, Resource> = {
   windowskin,
   iconset,
@@ -371,6 +420,7 @@ export const RESOURCES: Record<ResKind, Resource> = {
   sound,
   music,
   vignette,
+  mode7,
 };
 
 // ---- the four flows --------------------------------------------------

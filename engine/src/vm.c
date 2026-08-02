@@ -22,7 +22,8 @@
 #include "audio.h"   /* PLAYSFX / PLAYBGM: sound and music (B1) */
 #include "stage.h"   /* composed screen (B3) */
 #include "vignette.h" /* animated vignettes (B5) */
-#include "anim.h"     /* ANIMPLAY: frame-by-frame animations (A1) */
+#include "anim.h"  /* ANIMPLAY: frame-by-frame animations (A1) */
+#include "m7.h"     /* M7OPEN/M7ZOOM/M7CLOSE: the Mode 7 screen (M7-A) */
 #include "data/db_tables.h" /* Database register (DBREAD, v0.17) */
 #include "vm.h"
 
@@ -732,6 +733,32 @@ static void vm_step(void)
       anim_stop();
       break;
 
+    case VM_OP_M7OPEN: /* Mode 7 screen (M7-A) — deferred to the loop,
+                          1 frame of pause (the SHOWPIC/STAGEOPEN recipe).
+                          WITHOUT the pause the next opcode runs before
+                          m7_apply ever sees the request: M7ZOOM finds
+                          m7_on still 0 and drops the ramp, and M7CLOSE
+                          overwrites m7_req before the screen has opened. */
+      var = fetch8();
+      m7_request_open(var, fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
+    case VM_OP_M7ZOOM:
+      var = fetch8();  /* ramp, 0xFF stops */
+      val = fetch8();  /* flags */
+      m7_zoom(var, val & M7_ZOOM_LOOP);
+      if (val & 2)
+        vm.wait_mode = VM_WAIT_M7; /* m7_busy ignores loops */
+      break;
+
+    case VM_OP_M7CLOSE: /* closes the screen (internal warp) — 1 frame */
+      m7_request_close(fetch8());
+      vm.wait_mode = VM_WAIT_TIMER;
+      vm.wait_timer = 1;
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
@@ -1027,6 +1054,13 @@ void vm_update(void)
     else
       return;
   }
+  if (vm.wait_mode == VM_WAIT_M7)
+  {
+    if (!m7_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
   if (vm.wait_mode == VM_WAIT_TIMER)
   {
     if (vm.wait_timer)
@@ -1156,6 +1190,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_ANIM)
   {
     if (anim_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_M7)
+  {
+    if (m7_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

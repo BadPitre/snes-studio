@@ -96,6 +96,9 @@ const OP_ANIMSTOP: u8 = 0x3C;
 const OP_CALLF: u8 = 0x3D;
 const OP_RETF: u8 = 0x3E;
 const OP_SETLOC: u8 = 0x3F;
+const OP_M7OPEN: u8 = 0x40;
+const OP_M7ZOOM: u8 = 0x41;
+const OP_M7CLOSE: u8 = 0x42;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -277,6 +280,12 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "ANIMPLAY" => 5,
         // ANIMSTOP — stop every running animation
         "ANIMSTOP" => 1,
+        // M7OPEN <img> <dur> — Mode 7 screen (M7-A)
+        "M7OPEN" => 3,
+        // M7ZOOM <ramp|255> <flags bit0 = loop, bit1 = wait> — zoom ramp
+        "M7ZOOM" => 3,
+        // M7CLOSE <dur> — close it (internal warp back to the scene)
+        "M7CLOSE" => 2,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -929,6 +938,24 @@ pub fn assemble(
             "ANIMSTOP" => {
                 if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }
                 code.push(OP_ANIMSTOP);
+            }
+            // M7OPEN/M7ZOOM/M7CLOSE — the Mode 7 screen (M7-A). The
+            // editor exposes ONE command that chains the three; these
+            // stay separate because the engine gets primitives.
+            "M7OPEN" => {
+                if argc != 2 { bail!("M7OPEN <image> <duree>"); }
+                code.push(OP_M7OPEN);
+                for t in args { code.push(parse_u8(t)?); }
+            }
+            "M7ZOOM" => {
+                if argc != 2 { bail!("M7ZOOM <rampe|255> <flags>"); }
+                code.push(OP_M7ZOOM);
+                for t in args { code.push(parse_u8(t)?); }
+            }
+            "M7CLOSE" => {
+                if argc != 1 { bail!("M7CLOSE <duree>"); }
+                code.push(OP_M7CLOSE);
+                code.push(parse_u8(args[0])?);
             }
             // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
             // menu on a "list" widget of the UI layout; blocking
