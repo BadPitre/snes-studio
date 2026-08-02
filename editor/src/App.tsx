@@ -1752,7 +1752,7 @@ export default function App() {
         </div>
       ) : (
         <div className="empty">
-          <p>SNES Studio — éditeur (Phase 3b)</p>
+          <p>SNES Studio {__APP_VERSION__}</p>
           <button onClick={openProject}>Ouvrir un projet…</button>
         </div>
       )}
