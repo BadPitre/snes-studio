@@ -390,9 +390,9 @@ costs a rewrite rather than a tweak.
    produces nothing at all, re-run `snesbuild clean` before believing the
    symptom.
 
-2. **Move the camera with the pad, still no sprites.** Confirms the
-   subtraction of §7.1 and gives the first honest frame-rate reading for
-   a Mode 7 scene doing nothing else.
+2. **Pitch the plane and move the camera.** ✅ The camera follows the
+   hero and the plane is drawn in PERSPECTIVE — see §7.2b, which turned
+   out to be the whole point of the exercise.
 3. **One sprite, transformed in C.** The hero alone. Measure it with the
    V-counter. One sprite is ~2.5 lines by the spike's figure, so this
    MUST fit — and if it does not, the assumption behind the whole design
@@ -417,6 +417,74 @@ one cell transfer per VBlank (`PLANNING_SYSTEME_ANIMATIONS` §3.3). A
 world map with eight moving things that all update every frame is not
 worth a system that cannot ship; eight that update over two frames is.
 The rule must be CHECKABLE and stated to the author, not silent.
+
+### 7.2b The pitch — without it, none of this is visible
+
+The first world map that displayed correctly was reported back as "it
+looks exactly like a classic scene". That report was right, and it is the
+most useful thing anyone said about this system.
+
+**A Mode 7 plane with the identity matrix IS a flat top-down map.** The
+hardware is in mode 7, the VRAM is interleaved, the tilemap is 128x128 —
+and the picture is indistinguishable from the same scene rendered on BG2
+in mode 1. Put the two captures side by side and only the tile alignment
+differs. Everything §5 to §7.2 builds is a PREREQUISITE for the effect;
+none of it is the effect. What makes a plane read as Mode 7 is the
+PITCH: the floor laid under the camera, converging to a horizon.
+
+**How it is done.** The PPU computes, per screen pixel:
+
+```
+px = A*(x + HOFS - X0) + B*(y + VOFS - Y0) + X0
+py = C*(x + HOFS - X0) + D*(y + VOFS - Y0) + Y0
+```
+
+Choosing `HOFS = X0 - 128` and `VOFS = Y0 - HORIZON` turns the two
+parenthesised terms into `(x - 128)` and `d = y - HORIZON`, the line's
+distance below the horizon. With `B = C = 0` — no rotation, north stays
+up, which is what a world map wants — that leaves:
+
+```
+px = A(y)*(x - 128) + X0        A(d) = dA/d
+py = D(y)*d + Y0                D(d) = -(dA/d)^2
+```
+
+`dA` is the distance from the horizon to the ANCHOR line, the one row
+drawn 1:1 and where the hero stands. `D` is NEGATIVE so that far away is
+UP the map rather than down it.
+
+The property that makes this cheap: **A and D depend only on the horizon
+and the anchor, never on the camera.** The two tables are built once when
+the map opens (224 divisions, screen off) and the camera then moves
+through `X0`/`Y0` alone — four register writes per frame, no arithmetic
+at all. Contrast with the sprite loop of §7.2, which is per-frame maths
+and is why that step is still open.
+
+A and D are per-scanline values, which is what HDMA is for: channels 6
+and 5 in mode `$02`, one register written twice (`M7A` and `M7D` are
+double-write). Channels 3-6 belong to `hdmafx`, but its three effects are
+map ambience and the Mode 7 VBlank branch suspends them — so the branch
+must call `hdmafx_suspend()` BEFORE `m7_vblank()`, or the suspend wipes
+the mask the perspective just wrote.
+
+**The sky needs a window, not a bigger number.** Above the horizon the
+plane must not be sampled at all. Pushing `A` to a large value sends most
+columns outside the 128x128 area, where `M7SEL`'s "repeat character 0"
+gives a clean sky — but the columns NEAR `x = 128` are multiplied by
+almost nothing and stay inside it. The result is a rectangle of map
+floating in the sky, and no finite `A` removes it. The fix is to mask BG1
+above the horizon with window 1 (`W12SEL = $02`, `TMW = $01`), the window
+bounds coming from a third HDMA channel in REPEAT mode — two constant
+bands, ten bytes for the whole screen. The sky is then CGRAM 0, which is
+also where a sky colour or gradient would go.
+
+**One bug this uncovered, worth keeping.** `player_draw` caches what it
+last wrote to OAM, including the hero's 9th X bit. Opening the plane hides
+all 128 sprites, and `oamSetVisible(OBJ_HIDE)` parks them at x = 511 by
+SETTING that bit. The cache still said "not set", so the next draw skipped
+the write that would have cleared it: the hero was drawn, correctly, off
+screen. `player_draw_reset()` now drops the caches, and the rule is
+general — anything writing those OAM entries from outside must say so.
 
 ### 7.3 Events
 

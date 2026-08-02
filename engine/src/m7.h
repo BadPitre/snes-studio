@@ -42,6 +42,17 @@ void m7_request_close(u8 dur);
    scene is not a world map, so the caller can just ask. */
 u8 m7_world_open(u8 scene_id, u8 dur);
 
+/* A world map is up — as opposed to the flat image screen. The two are
+   NOT interchangeable: a world map is PITCHED (perspective HDMA) and
+   keeps the hero drawn; an image is flat, zoomable, and has no hero. */
+u8 m7_world_active(void);
+
+/* Puts the ordinary camera under the hero, so player_draw lands him on
+   the anchor line with no Mode 7 case of its own. Called from the main
+   loop AFTER camera_update, which would otherwise clamp it against the
+   mode-1 map. */
+void m7_world_track(void);
+
 /* Plays a compiled zoom ramp (datagen turns "from 100% to 150% in 90
    frames" into one 8.8 value per frame). flags bit 0 = loop. A looping
    ramp NEVER blocks a script — as with animations, waiting on it would

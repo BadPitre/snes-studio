@@ -341,6 +341,16 @@ int main(void)
       actors_draw();
       weather_draw(); /* weather: simulation + sprites in one pass (S13) */
     }
+    else if (m7_world_active())
+    {
+      /* A world map is a SCENE, not a cutscene: the hero stays. The
+         camera is placed under him first, so player_draw needs no case
+         of its own (M7-B). NPCs do not follow yet — a sprite anywhere
+         but the anchor needs the matrix applied to it, and §7.2 measured
+         that loop as too slow in C. */
+      m7_world_track();
+      player_draw();
+    }
     anim_update(); /* frame-by-frame animations (A1) — BEFORE vig_update:
                       the player sets cell and position, the vignette
                       writes the OAM shadow */
@@ -366,8 +376,12 @@ int main(void)
       /* Mode 7 (M7-A): one layer, no streaming, no camera. The matrix is
          eight register writes — the cheapest branch of the three. */
       screenfx_vblank();
-      m7_vblank();
+      /* hdmafx FIRST: it owns $420C and stands down here, and a world
+         map's perspective then arms its own two channels. The other
+         order let hdmafx_suspend wipe the mask m7_vblank had just
+         written. */
       hdmafx_suspend(); /* wave/gradient/spotlight are map ambience */
+      m7_vblank();
       vbl_open();
       vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
     }

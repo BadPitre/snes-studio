@@ -34,6 +34,8 @@
 #include "stage.h"
 #include "screenfx.h"
 #include "vignette.h"
+#include "player.h" /* the world map's camera IS the hero */
+#include "camera.h"
 
 /* mode 7 register (data_mode7.c — always emitted) */
 extern const u8 m7_img_count;
@@ -65,7 +67,80 @@ extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 #define M7_PLANE 128  /* the plane, in tiles */
 #define M7_SCALE_ONE 0x0100 /* 8.8: 1:1 */
 
+/* ---- PERSPECTIVE (world map only) ---------------------------------
+ * A Mode 7 plane with the identity matrix is a FLAT TOP-DOWN MAP. The
+ * hardware is in mode 7 and nothing about the picture says so — put it
+ * side by side with the same scene in mode 1 and the two images are
+ * almost identical. What makes a plane READ as Mode 7 is the pitch: the
+ * floor laid down under the camera, converging to a horizon.
+ *
+ * The PPU computes, for screen pixel (x, y):
+ *   px = A*(x + HOFS - X0) + B*(y + VOFS - Y0) + X0
+ *   py = C*(x + HOFS - X0) + D*(y + VOFS - Y0) + Y0
+ * Choosing HOFS = X0 - 128 and VOFS = Y0 - HORIZON turns the two
+ * parenthesised terms into (x - 128) and d = y - HORIZON, the line's
+ * distance below the horizon. Leaving B = C = 0 (no rotation: north
+ * stays up, which is what a world map wants):
+ *   px = A(y)*(x - 128) + X0
+ *   py = D(y)*d + Y0
+ * Perspective is then A(d) = dA/d — the plane widens as it comes closer
+ * — and D(d) = -(dA/d)^2, negative so that FAR is UP the map. dA is the
+ * distance from the horizon to the anchor line, the one row drawn 1:1.
+ *
+ * Both tables depend only on the horizon and the anchor, never on the
+ * camera: they are built ONCE when the map opens, and the camera moves
+ * through X0/Y0 alone — four register writes per frame, no per-frame
+ * maths at all.
+ *
+ * A and D are per-scanline, which is what HDMA is for: channels 6 and 5
+ * in mode $02 (one register written twice — M7A and M7D are
+ * double-write registers). Channels 3-6 belong to hdmafx, but its three
+ * effects are map ambience and the Mode 7 VBlank branch suspends them.
+ */
+#define M7P_HORIZON 56 /* screen line the plane vanishes into */
+#define M7P_ANCHOR 176 /* screen line drawn 1:1 — the hero stands here */
+#define M7P_DA (M7P_ANCHOR - M7P_HORIZON)
+#define M7P_FAR 0x3FFF /* above the horizon: sample far outside the
+                          plane so M7SEL's "repeat character 0" gives a
+                          clean sky rather than a stretched first row */
+/* HDMA continuous mode caps a block at 127 lines, so 224 lines are two
+   blocks of 112: [header][112 x 2 bytes][header][112 x 2][terminator] */
+#define M7P_HALF 112
+#define M7P_TAB (2 + M7P_HALF * 4 + 1)
+
+/* First line the plane is allowed to show. Above it the sampled point is
+   still INSIDE the plane for the few screen columns near x = 128 — the
+   near-horizon lines compress so hard that no finite A pushes them all
+   out — and a floating rectangle of map hangs in the sky. Windowing BG1
+   off up there settles it for good, and the sky becomes CGRAM 0. */
+#define M7P_SKY (M7P_HORIZON + M7P_DA / 8 + 1)
+
+/* channels 3, 5 and 6 (7 belongs to the NMI's OAM DMA — see hdmafx.c) */
+#define DMAP3 (*(vuint8 *)0x4330)
+#define BBAD3 (*(vuint8 *)0x4331)
+#define A1T3L (*(vuint8 *)0x4332)
+#define A1T3H (*(vuint8 *)0x4333)
+#define A1B3 (*(vuint8 *)0x4334)
+#define DMAP5 (*(vuint8 *)0x4350)
+#define BBAD5 (*(vuint8 *)0x4351)
+#define A1T5L (*(vuint8 *)0x4352)
+#define A1T5H (*(vuint8 *)0x4353)
+#define A1B5 (*(vuint8 *)0x4354)
+#define DMAP6 (*(vuint8 *)0x4360)
+#define BBAD6 (*(vuint8 *)0x4361)
+#define A1T6L (*(vuint8 *)0x4362)
+#define A1T6H (*(vuint8 *)0x4363)
+#define A1B6 (*(vuint8 *)0x4364)
+
+static u8 pa_tab[M7P_TAB];
+static u8 pd_tab[M7P_TAB];
+/* The window table needs no per-line entry: two constant bands, so
+   REPEAT mode (bit 7 clear) says "these two bytes for the next N
+   lines". Ten bytes for the whole screen. */
+static u8 pw_tab[10];
+
 static u8 m7_on = 0;
+static u8 m7_world = 0; /* a world map, not an image: perspective is on */
 static u8 m7_req = 0; /* 0 nothing, 1 open, 2 close */
 static u8 m7_req_img = 0;
 static u8 m7_req_dur = 0;
@@ -155,6 +230,136 @@ static void m7_place(void)
   REG_M7VOFS = (u8)(vofs >> 8);
 }
 
+/* Builds the two per-scanline tables. Called once, screen off — 224
+   divisions here buy zero arithmetic per frame afterwards.
+   Everything stays in 16 bits on purpose: tcc-816 has no 32-bit divide
+   worth calling, and (dA/d)^2 fits if the quotient and the remainder are
+   scaled separately. */
+static void m7_persp_build(void)
+{
+  u16 y, d, a, t, q, r, i;
+
+  pa_tab[0] = 0x80 | M7P_HALF;
+  pd_tab[0] = 0x80 | M7P_HALF;
+  pa_tab[1 + M7P_HALF * 2] = 0x80 | M7P_HALF;
+  pd_tab[1 + M7P_HALF * 2] = 0x80 | M7P_HALF;
+  pa_tab[M7P_TAB - 1] = 0; /* terminator */
+  pd_tab[M7P_TAB - 1] = 0;
+
+  for (y = 0; y < 224; y++)
+  {
+    /* two headers to step over, one before each half */
+    i = y < M7P_HALF ? 1 + y * 2 : 2 + y * 2;
+    d = y > M7P_HORIZON ? y - M7P_HORIZON : 0;
+    /* D = (dA/d)^2 leaves the 8.8 register below d = dA/8. Rather than
+       CLAMP those lines — which flattens them into a smeared wedge at the
+       join, plainly visible on a capture — treat them as sky: they are
+       past the render distance anyway. The horizon then reads as a clean
+       edge instead of a crease. */
+    if (y < M7P_SKY)
+    {
+      a = M7P_FAR;
+      t = M7P_FAR;
+    }
+    else
+    {
+      a = (u16)(((u16)M7P_DA << 8) / d); /* dA/d in 8.8 */
+      /* (dA/d)^2 = a*dA/d, split so the product never leaves 16 bits */
+      q = a / d;
+      r = a - q * d;
+      t = q * M7P_DA + (r * M7P_DA) / d;
+      t = (u16)(0 - t); /* NEGATIVE: far away is UP the map */
+    }
+    pa_tab[i] = (u8)a;
+    pa_tab[i + 1] = (u8)(a >> 8);
+    pd_tab[i] = (u8)t;
+    pd_tab[i + 1] = (u8)(t >> 8);
+  }
+
+  /* Sky band: window 1 covers the whole line, so BG1 is masked and only
+     the backdrop shows. Below: an EMPTY window (left > right). */
+  pw_tab[0] = M7P_SKY;
+  pw_tab[1] = 0x00; /* WH0 left */
+  pw_tab[2] = 0xFF; /* WH1 right */
+  pw_tab[3] = 127;  /* a repeat block caps at 127 lines */
+  pw_tab[4] = 0x01;
+  pw_tab[5] = 0x00;
+  pw_tab[6] = (u8)(224 - M7P_SKY - 127);
+  pw_tab[7] = 0x01;
+  pw_tab[8] = 0x00;
+  pw_tab[9] = 0;
+}
+
+/* Arms the two channels. Redone on every VBlank, like hdmafx's — a
+   general DMA can have reused the channel between two frames. */
+static void m7_persp_hdma(void)
+{
+  u16 a;
+
+  DMAP6 = 0x02; /* one register, written twice */
+  BBAD6 = 0x1B; /* M7A $211B */
+  a = (u16)(u8 *)pa_tab;
+  A1T6L = (u8)a;
+  A1T6H = (u8)(a >> 8);
+  A1B6 = 0x7E;
+  DMAP5 = 0x02;
+  BBAD5 = 0x1E; /* M7D $211E */
+  a = (u16)(u8 *)pd_tab;
+  A1T5L = (u8)a;
+  A1T5H = (u8)(a >> 8);
+  A1B5 = 0x7E;
+  DMAP3 = 0x01; /* two adjacent registers: $2126 then $2127 */
+  BBAD3 = 0x26; /* WH0 */
+  a = (u16)(u8 *)pw_tab;
+  A1T3L = (u8)a;
+  A1T3H = (u8)(a >> 8);
+  A1B3 = 0x7E;
+  /* This module writes $420C only while the plane is up, and the Mode 7
+     VBlank branch has already let hdmafx stand down. The scripted wipe
+     (S18c) keeps its channel: a scr_hide must still curtain a world
+     map. */
+  REG_HDMAEN = screenfx_wipe_active() ? 0x6C : 0x68;
+}
+
+/* Camera and pitch anchor. The whole perspective moves through these
+   four registers — see the header comment. */
+static void m7_persp_place(void)
+{
+  u16 x0 = m7_cx;
+  u16 y0 = m7_cy + M7P_DA;
+  u16 hofs = x0 - 128;
+  u16 vofs = y0 - M7P_HORIZON;
+
+  REG_M7X = (u8)(x0 & 0xFF);
+  REG_M7X = (u8)(x0 >> 8);
+  REG_M7Y = (u8)(y0 & 0xFF);
+  REG_M7Y = (u8)(y0 >> 8);
+  REG_M7HOFS = (u8)(hofs & 0xFF);
+  REG_M7HOFS = (u8)(hofs >> 8);
+  REG_M7VOFS = (u8)(vofs & 0xFF);
+  REG_M7VOFS = (u8)(vofs >> 8);
+}
+
+u8 m7_world_active(void)
+{
+  return m7_on && m7_world;
+}
+
+/* On a world map the camera IS the hero: he stands on the anchor line
+   and the plane slides underneath. Placing the ORDINARY camera so that
+   player_draw's `player.x - camera.x` lands on the anchor means the draw
+   loop needs no Mode 7 case at all — the hero, his charset, his walking
+   frames and his direction all keep working unchanged. */
+void m7_world_track(void)
+{
+  if (!m7_on || !m7_world)
+    return;
+  m7_cx = player.x + 8; /* the hero's centre, in plane pixels */
+  m7_cy = player.y + 8;
+  camera.x = player.x - 120;
+  camera.y = player.y - (M7P_ANCHOR - 16);
+}
+
 static void m7_fade_out(u8 dur)
 {
   u16 step, lvl, f;
@@ -204,6 +409,7 @@ static void m7_open(void)
   picture_reset(); /* an image is showing: Mode 7 takes over */
   stage_reset();   /* likewise a composed screen */
   m7_on = 1;
+  m7_world = 0; /* an image is shown FLAT and zoomed, never pitched */
   rp_id = 0xFF;
   rp_scale = M7_SCALE_ONE;
   rp_dirty = 0;
@@ -255,8 +461,7 @@ static void m7_open(void)
 static u8 wrow[M7_PLANE];
 
 /* Opens a world map scene on the plane. Returns 1 when it took over, so
-   the caller skips the ordinary scene path. The camera is still fixed at
-   the map's centre — see PLANNING_SYSTEME_MODE7 §7.2 for what follows. */
+   the caller skips the ordinary scene path. */
 u8 m7_world_open(u8 scene_id, u8 dur)
 {
   u8 i, w, h, bx, by, half;
@@ -275,6 +480,7 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   picture_reset();
   stage_reset();
   m7_on = 1;
+  m7_world = 1;
   rp_id = 0xFF;
   rp_scale = M7_SCALE_ONE;
   rp_dirty = 0;
@@ -318,11 +524,17 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   }
 
   REG_M7SEL = M7_OUTTILE;
-  /* Centre on the middle of the painted map, in plane pixels. */
-  m7_cx = (u16)w << 3;
-  m7_cy = (u16)h << 3;
-  m7_place();
-  m7_matrix(rp_scale);
+  /* B and C stay zero for good: no rotation on a world map, north is up.
+     A and D are the HDMA's from here on — these writes only give the
+     first frame something sane before the transfer starts. */
+  m7_matrix(M7_SCALE_ONE);
+  REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
+  REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
+  player_draw_reset(); /* the hide loop above moved the hero's OAM */
+  m7_persp_build();
+  m7_world_track(); /* the camera is the hero, from the very first frame */
+  m7_persp_place();
+  m7_persp_hdma();
 
   screenfx_warp_reset();
   vig_reload();
@@ -363,7 +575,16 @@ void m7_reset(void)
   setMode(BG_MODE1, 0x08); /* the engine's normal mode (main.c) */
   videoMode = M7_TM_GAME;
   REG_TM = M7_TM_GAME;
+  if (m7_world)
+  {
+    REG_HDMAEN = 0; /* the perspective must not survive into mode 1 —
+                       hdmafx reasserts its own mask at the next VBlank */
+    REG_W12SEL = 0; /* nor the sky window: a scene with no spotlight has
+                       no window at all, which is what we go back to */
+    REG_TMW = 0;
+  }
   m7_on = 0;
+  m7_world = 0;
   m7_req = 0;
   rp_id = 0xFF;
   /* Vignettes shown during the screen are part of its staging. */
@@ -394,7 +615,18 @@ void m7_update(void)
 
 void m7_vblank(void)
 {
-  if (!m7_on || !rp_dirty)
+  if (!m7_on)
+    return;
+  if (m7_world)
+  {
+    /* Four register writes and two channel setups: the whole cost of a
+       moving perspective. A and D come from the tables, which never
+       change while the map is up. */
+    m7_persp_place();
+    m7_persp_hdma();
+    return;
+  }
+  if (!rp_dirty)
     return;
   rp_dirty = 0;
   m7_matrix(rp_scale);

@@ -406,6 +406,19 @@ static u8 pl_lastf = 0xFF;
 static u16 pl_w1 = 0, pl_w3 = 0;
 static u8 pl_x9 = 0;
 
+/* Those caches describe what is ALREADY in the OAM shadow. Anything that
+   writes the hero's entries behind player_draw's back must say so, or
+   the next draw SKIPS the very writes that would undo it. Mode 7's world
+   map is the first path to hit this: it hides all 128 sprites on
+   opening, and oamSetVisible parks them at x = 511 by setting the 9th X
+   bit — which player_draw then never cleared, because its cached copy
+   still said "not set". The hero was drawn, correctly, off screen. */
+void player_draw_reset(void)
+{
+  pl_lastf = 0xFF;
+  pl_x9 = 0xFF; /* neither 0 nor 1: both branches rewrite */
+}
+
 void player_draw(void)
 {
   u16 sx = player.x - camera.x;
