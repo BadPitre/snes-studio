@@ -598,7 +598,89 @@ fn tile_quarters(src: &SourceTileset, key: TileKey) -> Result<[Quarter; 4]> {
     })
 }
 
+/// A world map's blocks, resolved to pixels, plus the map's index into
+/// them. `pixels` is BGR555, 0 meaning the tileset's transparent index —
+/// which is also the plane's reserved colour 0.
+pub struct ComposedBlocks {
+    pub pixels: Vec<u16>,
+    pub width: usize,
+    pub height: usize,
+    /// One block index per scene cell, row-major.
+    pub map: Vec<u8>,
+    /// Distinct blocks composed, block 0 (blank) included.
+    pub count: usize,
+}
+
+/// Blocks per row of the composed sheet — layout only, nothing downstream
+/// depends on it.
+const COMPOSE_COLS: usize = 16;
+
 impl SourceTileset {
+    /// Composes the 16x16 blocks a map ACTUALLY paints into one sheet,
+    /// autotile variants resolved, and returns the map's index into it.
+    ///
+    /// This exists for the Mode 7 world map, which needs PIXELS where the
+    /// ordinary path needs logical ids. An autotile is not a block in the
+    /// chipset: it is a block computed from its neighbours, so ids 1000+k
+    /// have no pixels of their own and the plane has nowhere to compute
+    /// them at run time. Resolving them here is the same `key_of_cell` /
+    /// `tile_quarters` pair `compile_scene` uses, so a world map and an
+    /// ordinary scene painted identically produce the same picture.
+    ///
+    /// Only the LOWER layer: Mode 7 has one plane, and a world map with
+    /// anything painted above is refused earlier (`project.rs`).
+    pub fn compose_blocks(&self, name: &str, lower: &[Vec<i32>]) -> Result<ComposedBlocks> {
+        let h = lower.len();
+        let w = if h > 0 { lower[0].len() } else { 0 };
+
+        // Block 0 is blank, so an EMPTY cell has somewhere to point.
+        let mut order: Vec<TileKey> = Vec::new();
+        let mut index: BTreeMap<TileKey, usize> = BTreeMap::new();
+        let mut map: Vec<u8> = Vec::with_capacity(w * h);
+        for y in 0..h {
+            for x in 0..w {
+                match key_of_cell(lower, x, y, w, h) {
+                    None => map.push(0),
+                    Some(k) => {
+                        let next = order.len() + 1;
+                        let id = *index.entry(k).or_insert(next);
+                        if id == next {
+                            order.push(k);
+                        }
+                        if id > 255 {
+                            bail!(
+                                "carte du monde '{}' : plus de 255 blocs distincts \
+                                 (autotiles comptees par variante) — le plan Mode 7 \
+                                 n'en adresse pas davantage",
+                                name
+                            );
+                        }
+                        map.push(id as u8);
+                    }
+                }
+            }
+        }
+
+        let count = order.len() + 1;
+        let rows = (count + COMPOSE_COLS - 1) / COMPOSE_COLS;
+        let (sw, sh) = (COMPOSE_COLS * 16, rows * 16);
+        let mut pixels = vec![0u16; sw * sh];
+        for (i, &key) in order.iter().enumerate() {
+            let b = i + 1; /* block 0 stays blank */
+            let (ox, oy) = ((b % COMPOSE_COLS) * 16, (b / COMPOSE_COLS) * 16);
+            let quarters = tile_quarters(self, key)?;
+            for (q, quarter) in quarters.iter().enumerate() {
+                let (qx, qy) = (ox + (q & 1) * 8, oy + (q >> 1) * 8);
+                for (y, row) in quarter.iter().enumerate() {
+                    for (x, px) in row.iter().enumerate() {
+                        pixels[(qy + y) * sw + qx + x] = px.unwrap_or(0);
+                    }
+                }
+            }
+        }
+        Ok(ComposedBlocks { pixels, width: sw, height: sh, map, count })
+    }
+
     /// Compiles a scene's gfx set: only the tiles used by the two logical
     /// layers. PER-SCENE limits: 254 local ids, 512 chars, 8 palettes of
     /// 15 colours.
@@ -966,5 +1048,110 @@ impl GfxSet {
             v.extend_from_slice(&c.to_le_bytes());
         }
         v
+    }
+}
+
+#[cfg(test)]
+mod compose_tests {
+    use super::*;
+
+    /// A sheet whose pixels are (tile index + 1) everywhere, so two grid
+    /// tiles are never confused and colour 0 stays the transparent one.
+    fn sheet(tiles: usize) -> IndexedImage {
+        let w = tiles * 16;
+        let mut pixels = vec![0u8; w * 16];
+        for t in 0..tiles {
+            for y in 0..16 {
+                for x in 0..16 {
+                    pixels[y * w + t * 16 + x] = (t + 1) as u8;
+                }
+            }
+        }
+        IndexedImage {
+            width: w,
+            height: 16,
+            pixels,
+            palette: (0..=tiles as u16).map(|i| i * 37 + 1).collect(),
+            palette_rgb: Vec::new(),
+        }
+    }
+
+    /// The RM2003 autotile sheet: 48x64, each of its twelve 16x16 pieces a
+    /// different colour, so a variant's four quarters are identifiable.
+    fn auto() -> IndexedImage {
+        let mut pixels = vec![0u8; 48 * 64];
+        for y in 0..64 {
+            for x in 0..48 {
+                pixels[y * 48 + x] = (1 + (y / 16) * 3 + x / 16) as u8;
+            }
+        }
+        IndexedImage {
+            width: 48,
+            height: 64,
+            pixels,
+            palette: (0..=12u16).map(|i| i * 101 + 3).collect(),
+            palette_rgb: Vec::new(),
+        }
+    }
+
+    fn src(tiles: usize, autos: Vec<IndexedImage>) -> SourceTileset {
+        SourceTileset {
+            img: sheet(tiles),
+            autos,
+            meta: TilesetMeta::default(),
+            count: tiles as u16,
+        }
+    }
+
+    #[test]
+    fn an_empty_cell_points_at_the_blank_block() {
+        let s = src(2, Vec::new());
+        let c = s.compose_blocks("m", &[vec![EMPTY, 0], vec![1, EMPTY]]).unwrap();
+        assert_eq!(c.map[0], 0);
+        assert_eq!(c.map[3], 0);
+        assert_ne!(c.map[1], 0);
+        // blank + two grid tiles
+        assert_eq!(c.count, 3);
+    }
+
+    #[test]
+    fn the_same_tile_twice_costs_one_block() {
+        let s = src(2, Vec::new());
+        let c = s.compose_blocks("m", &[vec![1, 1, 1], vec![1, 1, 1]]).unwrap();
+        assert_eq!(c.count, 2); /* blank + the one tile */
+        assert!(c.map.iter().all(|&b| b == 1));
+    }
+
+    /// The whole point of the exercise: id 1000+k has no pixels of its own,
+    /// so a world map painted with an autotile must come out as several
+    /// DIFFERENT blocks — the variants — not as one, and not as a failure.
+    #[test]
+    fn an_autotile_becomes_one_block_per_variant() {
+        let s = src(1, vec![auto()]);
+        // A 3x3 patch of autotile 0 INSIDE a grid tile: its centre is
+        // surrounded, its edges and corners are not, so they cannot share
+        // a variant. Surrounded it must be — a patch touching the map's
+        // border would see the border as "same" and collapse to one
+        // variant, which is correct and is why this grid is 5x5.
+        let a = AUTO_BASE;
+        let g = vec![
+            vec![0, 0, 0, 0, 0],
+            vec![0, a, a, a, 0],
+            vec![0, a, a, a, 0],
+            vec![0, a, a, a, 0],
+            vec![0, 0, 0, 0, 0],
+        ];
+        let c = s.compose_blocks("m", &g).unwrap();
+        // blank + the grid tile + corner / edge / centre variants
+        assert!(c.count >= 5, "expected several variants, got {}", c.count);
+        assert_ne!(c.map[6], c.map[12], "a corner and the centre must differ");
+        assert!(c.map.iter().all(|&b| b != 0), "nothing here is empty");
+    }
+
+    #[test]
+    fn an_autotile_and_a_grid_tile_do_not_share_a_block() {
+        let s = src(1, vec![auto()]);
+        let c = s.compose_blocks("m", &[vec![0, AUTO_BASE]]).unwrap();
+        assert_ne!(c.map[0], c.map[1]);
     }
 }

@@ -185,6 +185,32 @@ rather than auto-fitted, unlike an image (§8.3): shrinking a picture
 loses detail an author can live with, shrinking a tileset would break
 every map already painted with it.
 
+**AUTOTILES work, and they are why the unit of conversion is the MAP and
+not the chipset.** An id `1000+k` is not a block in the sheet: it is a
+block COMPUTED from its neighbours, so it has no pixels to convert and
+the plane has nowhere to compute it at run time. The first version
+converted the chipset and refused every map painted with an autotile —
+`bloc 1001 : le tileset n'en a que 11`, which is true and useless.
+
+What it does instead is compose, per map, the 16x16 blocks the author
+actually painted, autotile variants resolved through the same
+`key_of_cell` / `tile_quarters` pair the ordinary scene path uses. A
+world map and a classic scene painted identically therefore produce the
+same picture, which is the whole promise of "keep the tileset system".
+
+Two consequences worth stating:
+
+- **The budget is spent on what is on screen.** Converting the chipset
+  paid for its unused corners; converting the map does not. A 64x64 map
+  using two autotiles measured 24 distinct blocks and 50 patterns of the
+  256 available, against 35 for the bare chipset with nothing painted.
+- **An autotile costs one block PER VARIANT.** A lake's interior, its
+  four edges and its corners are different blocks. That is the honest
+  price of computing borders ahead of time, and it is why the budget is
+  reported per map at build time rather than per tileset. `datagen
+  m7-tileset` remains an upper bound on the sheet alone — it cannot see
+  the variants, because they depend on the painting.
+
 Passability comes from the tileset's existing sidecar. It needs no
 metatile indirection here, so it flattens to one byte per pattern.
 

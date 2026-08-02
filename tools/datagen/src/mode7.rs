@@ -445,15 +445,29 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
             METATILE_PX
         );
     }
-    let (mw, mh) = (img.width / METATILE_PX, img.height / METATILE_PX);
+    let rgb = resample(img, img.width, img.height);
+    convert_block_sheet(&rgb, img.width, img.height)
+}
+
+/// The converter proper: a sheet of 16x16 blocks given as BGR555 pixels.
+///
+/// Split out of `convert_tileset` because a WORLD MAP does not convert the
+/// chipset — it converts the blocks the map actually paints, autotile
+/// variants already resolved to pixels (`tileset::compose_blocks`). An
+/// autotile is not a block in the sheet: it is a block COMPUTED from its
+/// neighbours, and the plane has nowhere to compute it at run time.
+///
+/// Converting only what is painted also spends the 256-pattern budget on
+/// what is on screen instead of on a chipset's unused corners.
+pub fn convert_block_sheet(rgb: &[u16], width: usize, height: usize) -> Result<Mode7Tileset> {
+    let (mw, mh) = (width / METATILE_PX, height / METATILE_PX);
     if mw == 0 || mh == 0 {
         bail!("planche vide");
     }
 
     // One quantisation for the WHOLE sheet: the plane has a single
     // palette, so two blocks cannot each keep their own colours.
-    let rgb = resample(img, img.width, img.height);
-    let (indices, palette) = quantise(&rgb, MAX_COLOURS);
+    let (indices, palette) = quantise(rgb, MAX_COLOURS);
 
     let mut chars: Vec<u8> = vec![0u8; 64]; /* pattern 0 blank, as in convert */
     let mut seen: BTreeMap<[u8; 64], usize> = BTreeMap::new();
@@ -468,7 +482,7 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
                 let mut tile = [0u8; 64];
                 for row in 0..8 {
                     for col in 0..8 {
-                        tile[row * 8 + col] = indices[(oy + row) * img.width + ox + col];
+                        tile[row * 8 + col] = indices[(oy + row) * width + ox + col];
                     }
                 }
                 let next = seen.len();
@@ -510,6 +524,11 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
 /// the author learns "this tileset is over budget" while choosing rather
 /// than at build time. Prints one line either way — a refusal comes back
 /// as the error, which is already worded for a human.
+///
+/// It is a PESSIMISTIC bound: the build converts only the blocks a map
+/// actually paints (`tileset::compose_blocks`), so a real map costs less
+/// than the whole sheet — except where autotiles add variants, which this
+/// command cannot see because they depend on the painting.
 pub fn tileset_check_command(src: &std::path::Path) -> Result<()> {
     let img = crate::gfx::load_indexed_png(src)
         .with_context(|| format!("lecture de {}", src.display()))?;

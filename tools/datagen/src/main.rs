@@ -626,36 +626,22 @@ fn main() -> Result<()> {
         }
         let ts = scene_ts(sc)?;
         let png = &tileset_paths[ts];
-        let img = gfx::load_indexed_png(&proj_dir.join(png))
-            .with_context(|| format!("carte du monde '{}' : tileset {}", sc.name, png))?;
-        let t = mode7::convert_tileset(&img)
+        // Compose the blocks the map PAINTS, autotile variants resolved,
+        // rather than converting the chipset. Ids 1000+k have no pixels of
+        // their own and the plane cannot compute a variant at run time —
+        // and converting only what is painted spends the 256-pattern
+        // budget on what is on screen instead of on unused corners.
+        let blocks = sources[ts]
+            .compose_blocks(&sc.name, &sc.tilemap)
             .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
-        // Every painted block must exist in the sheet. Caught here rather
-        // than shown as garbage on the plane.
-        let mut plane = Vec::with_capacity(sc.width as usize * sc.height as usize);
-        for (y, row) in sc.tilemap.iter().enumerate() {
-            for (x, &id) in row.iter().enumerate() {
-                let id = if id < 0 { 0 } else { id as usize };
-                if id >= t.count {
-                    bail!(
-                        "carte du monde '{}' : bloc {} en ({}, {}) — le tileset \
-                         '{}' n'en a que {}",
-                        sc.name,
-                        id,
-                        x,
-                        y,
-                        png,
-                        t.count
-                    );
-                }
-                plane.push(id as u8);
-            }
-        }
+        let t = mode7::convert_block_sheet(&blocks.pixels, blocks.width, blocks.height)
+            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
         println!(
-            "  mode7 : carte du monde {} — {}x{} blocs, {} motifs, {} couleurs",
-            sc.name, sc.width, sc.height, t.patterns, t.colours
+            "  mode7 : carte du monde {} — {}x{} cases, {} blocs distincts, \
+             {} motifs 8x8, {} couleurs",
+            sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
-        worlds.push((sci, t, plane, sc.width, sc.height));
+        worlds.push((sci, t, blocks.map, sc.width, sc.height));
     }
 
     // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
