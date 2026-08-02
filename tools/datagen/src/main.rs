@@ -161,6 +161,26 @@ fn main() -> Result<()> {
         bail!("{} pictures (max 32)", pic_names.len());
     }
 
+    // Mode 7 names, needed BEFORE the scenes compile: the "m7" command
+    // resolves them to ids. The images themselves are converted later,
+    // with the rest of the graphics.
+    let (m7_img_names, m7_ramp_names): (Vec<String>, Vec<String>) = match &project.mode7 {
+        Some(c) => (
+            c.images
+                .iter()
+                .map(|rel| {
+                    Path::new(rel)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect(),
+            c.ramps.iter().map(|r| r.name.clone()).collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
     // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
     // reference them by stem
     let mut vig_names: Vec<String> = Vec::new();
@@ -262,6 +282,7 @@ fn main() -> Result<()> {
                 None => default_ts_stem.clone(),
             };
             let mut ec = events::EventCompiler::new(&mut texts);
+            ec.set_mode7(&m7_img_names, &m7_ramp_names);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -909,10 +930,13 @@ fn main() -> Result<()> {
     if !pic_names.is_empty() {
         println!("  pictures : {} image(s) plein ecran", pic_names.len());
     }
-    // Mode 7 (M7-A1). Emitted ONLY when the project declares some: the
-    // engine has no m7.c yet, and a project that never asked for Mode 7
-    // must generate exactly the bytes it did before.
-    if let Some(cfg) = &project.mode7 {
+    // Mode 7 (M7). data_mode7.c is ALWAYS emitted — the engine compiles
+    // m7.c unconditionally and needs the registry to link, with dummy
+    // tables when the project has none. Same recipe as the pictures, the
+    // vignettes and the animations.
+    {
+        let empty = project::Mode7Config::default();
+        let cfg = project.mode7.as_ref().unwrap_or(&empty);
         for (name, content) in gen_mode7_files(cfg, &proj_dir)? {
             write_out(&out_dir, &name, content)?;
         }

@@ -21,6 +21,8 @@
                              B cancels when allowed, wraps top/bottom */
 #define VM_WAIT_ANIM 10   /* ANIMPLAY "wait for the end": non-looping
                              frame-by-frame animations */
+#define VM_WAIT_M7 11     /* M7ZOOM "wait for the end": a non-looping
+                             Mode 7 zoom ramp */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)

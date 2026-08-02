@@ -455,9 +455,10 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    declares Mode 7 content, so `gate-datagen.sh` stays byte-identical on
    demo and showcase — the registry becomes unconditional in M7-A2, when
    the engine actually needs to link against it.
-3. **M7-A2** — the `m7.c` module (§6) and the three opcodes (§9).
-   Testable from a hand-written project, with no editor — the way A1-a
-   validated the animation player.
+3. **M7-A2** — 🟡 the `m7.c` module (§6) and the three opcodes (§9),
+   plus the composite "Zoom cinematique" command (§8.4) on the datagen
+   side. **Opening and zooming are proved on the emulator; CLOSING is
+   NOT.** See "The close defect" below.
 4. **M7-A3** — the editor: the "Zoom cinématique" command, the presets,
    the auto-fit preview (§8.3-8.5).
 5. **M7-B1** — the Mode 7 tileset resource (§5.1) and the `worldmap`
@@ -469,6 +470,42 @@ Everything here was checked on the emulator. Nothing has run on hardware.
 
 Each step is deliverable on its own. A is worth having without B; B is
 not worth starting before A has run on hardware.
+
+## 11b. The close defect (M7-A2, open)
+
+What works, run on a demo project through the snes9x core: the screen
+opens, the image lands centred on the plane framed in black, and the
+compiled ramp scales it — 25 % of the screen lit at 1:1, 77 % at 2x.
+`M7OPEN` and `M7ZOOM` are done.
+
+What does not: after `M7CLOSE` the screen stays black for ever. The game
+never comes back.
+
+What has been ruled out, each by an experiment rather than by reading:
+
+- **Not the close path failing to run.** A WRAM breadcrumb shows all four
+  stages firing — request, apply, take_close, reset.
+- **Not lost data.** A VRAM dump 120 frames after the close shows every
+  region repopulated: both tilemaps, the shared charset, the OBJ chars
+  and the BG3 font. `scene_load` did its work.
+- **Not the VRAM clear** in `m7_open`. Removing it changes nothing.
+- **Not anything in `m7_open` at all.** With the whole PPU setup skipped,
+  so that opening does nothing whatsoever, the close still ends black.
+- **Not the test project.** The same two-page auto event driving the
+  proven `stage` command instead renders correctly at the same frames.
+
+So the fault is in the close-and-internal-warp path itself, and the data
+being intact while the screen is black points at a PPU REGISTER left in a
+state nothing restores. `setMode` versus a raw `BGMODE` write has been
+tried; neither fixes it.
+
+The next things to try, in order: capture the PPU register state from the
+emulator rather than inferring it (the harness dumps VRAM and WRAM only —
+it needs extending), and compare `$2100` frame by frame against the
+`stage` control, which is the closest working path.
+
+Until this is fixed, the Mode 7 screen is a one-way door: usable for an
+intro that leads somewhere else, not for a screen you come back from.
 
 ## 12. Gates
 

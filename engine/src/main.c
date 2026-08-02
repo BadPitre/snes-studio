@@ -26,6 +26,7 @@
 #include "weather.h"
 #include "hdmafx.h"
 #include "stage.h"
+#include "m7.h"
 #include "vignette.h"
 #include "anim.h"
 #include "vbudget.h"
@@ -282,6 +283,16 @@ int main(void)
       do_warp(scene_ctx.scene_id, (u8)((player.x + 8) >> 4),
               (u8)((player.y + 8) >> 4), 0, stage_close_trans());
     }
+    m7_apply(); /* opening/closing the Mode 7 screen (M7-A) */
+    if (m7_take_close())
+    {
+      /* Same recipe as the composed screen: closing is an INTERNAL WARP
+         to the current scene. Mode 7 took the whole low half of VRAM, so
+         there is nothing to salvage — scene_load rebuilds it all. */
+      m7_reset();
+      do_warp(scene_ctx.scene_id, (u8)((player.x + 8) >> 4),
+              (u8)((player.y + 8) >> 4), 0, 0);
+    }
 
     if (!sysmenu_active())
     {
@@ -298,16 +309,18 @@ int main(void)
     debug_update();    /* Start+Select+R panel (S6) — inert without
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
+    m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();
-    if (!picture_active() && !stage_active())
+    if (!picture_active() && !stage_active() && !m7_active())
     {
       map_update(); /* prepares the tilemap window streaming */
       tileanim_update(); /* animated tiles (T1) — no scenery on a stage */
     }
-    if (!stage_active())
+    if (!stage_active() && !m7_active())
     {
-      /* the scene's sprites are frozen during the composed screen (B3) —
-         hidden on opening, the vignettes (B5) will take their entries */
+      /* the scene's sprites are frozen during the composed screen (B3)
+         and the Mode 7 screen (M7-A) — hidden on opening, the vignettes
+         (B5) will take their entries */
       player_draw(); /* OAM shadow — transferred by the NMI at VBlank */
       actors_draw();
       weather_draw(); /* weather: simulation + sprites in one pass (S13) */
@@ -331,6 +344,16 @@ int main(void)
       hdmafx_suspend(); /* no ripple over a full-screen image */
       vbl_open();
       ui_screen_vblank();
+    }
+    else if (m7_active())
+    {
+      /* Mode 7 (M7-A): one layer, no streaming, no camera. The matrix is
+         eight register writes — the cheapest branch of the three. */
+      screenfx_vblank();
+      m7_vblank();
+      hdmafx_suspend(); /* wave/gradient/spotlight are map ambience */
+      vbl_open();
+      vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
     }
     else if (stage_active())
     {

@@ -27,7 +27,15 @@ use crate::tileset::dist555;
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 
-/// Distinct 8x8 patterns the hardware can hold.
+/// Distinct 8x8 patterns the hardware can hold, INCLUDING the reserved
+/// blank one — so an image may use 255 of them.
+///
+/// Pattern 0 and colour 0 are reserved blank, and that is not tidiness.
+/// A Mode 7 plane is 128x128 tiles; an image covers a corner of it and
+/// every other cell reads pattern 0. If pattern 0 were an ordinary tile
+/// of the image, the whole screen around the picture would be tiled with
+/// it — seen on the first run, a nebula framed in orange wallpaper. The
+/// composed screen reserves its char 0 for the same reason.
 pub const MAX_TILES: usize = 256;
 /// Colours left to the background once the sprites keep CGRAM 128-255.
 pub const MAX_COLOURS: usize = 128;
@@ -195,18 +203,22 @@ fn quantise(rgb: &[u16], max: usize) -> (Vec<u8>, Vec<u16>) {
     }
     let entries: Vec<(u16, u32)> = hist.into_iter().collect();
 
-    let reps: Vec<u16> = if entries.len() <= max {
+    // One slot fewer for the image: colour 0 is reserved black, so the
+    // reserved blank pattern renders as nothing rather than as whatever
+    // median cut happened to put first.
+    let budget = max - 1;
+    let reps: Vec<u16> = if entries.len() <= budget {
         entries.iter().map(|e| e.0).collect()
     } else {
-        median_cut(&entries, max)
+        median_cut(&entries, budget)
     };
 
     // The palette always has MAX_COLOURS slots: the engine uploads a
     // fixed-size block, and unused entries being black is what makes a
     // stray index harmless instead of a random colour.
     let mut palette = vec![0u16; max];
-    for (i, &c) in reps.iter().take(max).enumerate() {
-        palette[i] = c;
+    for (i, &c) in reps.iter().take(budget).enumerate() {
+        palette[i + 1] = c; /* index 0 stays black */
     }
 
     // Nearest representative per DISTINCT colour, not per pixel: a
@@ -217,14 +229,14 @@ fn quantise(rgb: &[u16], max: usize) -> (Vec<u8>, Vec<u16>) {
         let idx = *lut.entry(c).or_insert_with(|| {
             let mut best = 0usize;
             let mut bd = u32::MAX;
-            for (i, &r) in reps.iter().take(max).enumerate() {
+            for (i, &r) in reps.iter().take(budget).enumerate() {
                 let d = dist555(c, r);
                 if d < bd {
                     bd = d;
                     best = i;
                 }
             }
-            best as u8
+            (best + 1) as u8 /* index 0 is the reserved black */
         });
         indices.push(idx);
     }
@@ -295,9 +307,12 @@ fn median_cut(entries: &[(u16, u32)], max: usize) -> Vec<u16> {
 /// EXACTLY — no flips, a Mode 7 map entry has no bits for them.
 fn tile_and_dedupe(indices: &[u8], w: usize, h: usize) -> (Vec<u8>, Vec<u8>, usize) {
     let (wt, ht) = (w / 8, h / 8);
-    let mut chars: Vec<u8> = Vec::new();
+    // Pattern 0 is BLANK and belongs to nobody: every plane cell the
+    // image does not cover reads it (see MAX_TILES).
+    let mut chars: Vec<u8> = vec![0u8; 64];
     let mut map: Vec<u8> = Vec::with_capacity(wt * ht);
     let mut seen: BTreeMap<[u8; 64], usize> = BTreeMap::new();
+    seen.insert([0u8; 64], 0);
     for ty in 0..ht {
         for tx in 0..wt {
             let mut tile = [0u8; 64];
@@ -455,21 +470,44 @@ mod tests {
         )
     }
 
+    /// Pattern 0 and colour 0 are RESERVED blank. This is the guard for a
+    /// bug that reached a running ROM: without the reservation, pattern 0
+    /// was the image's own top-left tile, so every cell of the 128x128
+    /// plane the image did not cover displayed it — the picture came up
+    /// framed in wallpaper made of itself.
+    #[test]
+    fn pattern_zero_and_colour_zero_are_reserved_blank() {
+        let m = convert(&img(64, 64, |x, y| ((x / 8 + y / 8) % 7 + 1) as u8, 8)).unwrap();
+        assert!(m.chars[..64].iter().all(|&b| b == 0), "pattern 0 must be blank");
+        assert_eq!(m.palette[0], 0, "colour 0 must be black");
+        assert!(!m.map.contains(&0), "no image cell may claim pattern 0");
+    }
+
     #[test]
     fn image_within_budget_is_untouched() {
-        // 128x128 = 256 distinct tiles: exactly the budget, no shrink.
-        let m = convert(&stamped(128, 128)).unwrap();
+        // 120x120 = 225 distinct tiles, plus the reserved blank = 226:
+        // inside the budget, so no shrink.
+        let m = convert(&stamped(120, 120)).unwrap();
         assert!(!m.report.downscaled);
-        assert_eq!((m.wt, m.ht), (16, 16));
-        assert_eq!(m.report.tiles, 256);
-        assert_eq!(m.chars.len(), 256 * 64);
-        assert_eq!(m.map.len(), 16 * 16);
+        assert_eq!((m.wt, m.ht), (15, 15));
+        assert_eq!(m.report.tiles, 226);
+        assert_eq!(m.chars.len(), 226 * 64);
+        assert_eq!(m.map.len(), 15 * 15);
         assert_eq!(m.palette.len(), MAX_COLOURS);
-        // The map must name every pattern exactly once.
+        // The map must name every image pattern exactly once.
         let mut seen = m.map.clone();
         seen.sort_unstable();
         seen.dedup();
-        assert_eq!(seen.len(), 256);
+        assert_eq!(seen.len(), 225);
+    }
+
+    /// 128x128 stamped is 256 distinct tiles, which USED to be exactly
+    /// the budget. With the blank reserved it is one too many, so the
+    /// image is shrunk — the boundary is 255 now, and this pins it.
+    #[test]
+    fn the_reserved_blank_costs_one_pattern_of_budget() {
+        let m = convert(&stamped(128, 128)).unwrap();
+        assert!(m.report.downscaled);
     }
 
     #[test]
@@ -491,10 +529,12 @@ mod tests {
 
     #[test]
     fn flat_image_collapses_to_one_tile() {
+        // Two patterns: the reserved blank, and the one the whole image
+        // is made of.
         let m = convert(&img(64, 64, |_, _| 3, 8)).unwrap();
-        assert_eq!(m.report.tiles, 1);
-        assert_eq!(m.chars.len(), 64);
-        assert!(m.map.iter().all(|&t| t == 0));
+        assert_eq!(m.report.tiles, 2);
+        assert_eq!(m.chars.len(), 2 * 64);
+        assert!(m.map.iter().all(|&t| t == 1));
     }
 
     #[test]
