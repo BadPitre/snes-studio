@@ -315,9 +315,24 @@ leaving them stale produces a shear.
 
 ### 7.1 The camera
 
-Position, zoom and rotation of the plane, written as `M7A`-`M7D`,
-`M7X`/`M7Y` at VBlank. Following the hero is a subtraction in world
-space; the transform is applied once, to the camera, not per tile.
+Three numbers: where the plane is centred, how much it is scaled, and how
+much it is turned. They go out as eight register writes per VBlank —
+`M7A`-`M7D` from a table, `M7X`/`M7Y` and `M7HOFS`/`M7VOFS` from the
+camera — and that is the entire per-frame cost of the plane itself.
+
+Following the hero is a SUBTRACTION in plane space, not a transform:
+`M7X`/`M7Y` take the hero's plane position and `HOFS`/`VOFS` bring that
+point to the middle of the screen, exactly as `m7_place()` already does
+for a still image. Nothing is multiplied to move the camera; the matrix
+does the work.
+
+**Rotation is deferred.** Scale alone needs `A = D = 1/zoom` with
+`B = C = 0`, which the compiled ramps already provide (§5.3). Turning
+the plane needs `A = cos/zoom`, `B = -sin/zoom`, `C = sin/zoom`,
+`D = cos/zoom` — four table lookups instead of one, and a sine table.
+That is cheap to add LATER and expensive to design around now, so B2
+ships scale-only and rotation becomes its own step. The register writes
+are identical either way; only where the four values come from changes.
 
 ### 7.2 The sprite loop — the real cost of this system
 
@@ -353,6 +368,43 @@ optimisation to consider later, it is the condition for M7-B to exist at
 all. Extrapolating P4's 2.7x C-to-assembly ratio puts it near 15 lines,
 which would fit — but that is an extrapolation, and the assembly figure
 has not been measured.
+
+**The plan for B2, in the order it should be built.** Each step ends in a
+number, because this is the one part of the system where a wrong guess
+costs a rewrite rather than a tweak.
+
+1. **Open the plane, no sprites at all.** `m7_world_open(scene)` expands
+   the metatile map through the quadrant table into the 128x128 plane
+   under force blank, then holds still. This proves the B1 data and the
+   VRAM layout on a ROM without touching the VBlank at all. If the plane
+   comes up wrong, it is the data, and nothing else is in the way.
+2. **Move the camera with the pad, still no sprites.** Confirms the
+   subtraction of §7.1 and gives the first honest frame-rate reading for
+   a Mode 7 scene doing nothing else.
+3. **One sprite, transformed in C.** The hero alone. Measure it with the
+   V-counter. One sprite is ~2.5 lines by the spike's figure, so this
+   MUST fit — and if it does not, the assumption behind the whole design
+   is wrong and B2 stops here rather than after the assembly is written.
+4. **The assembly loop.** Only now, with a working reference to compare
+   against pixel for pixel. Measure again. The gate is §10.4's number:
+   the loop plus everything else the VBlank already owes must stay under
+   37 lines, with the P5 arbiter measuring it rather than a guess.
+5. **Collision and warps**, which are data and cost nothing per frame.
+
+**Where the maths goes.** The multiplier's operands ARE `M7A`/`M7B`, so
+the transform can only run while the PPU is not reading them — inside the
+VBlank, with the matrix rewritten before rendering resumes (§10.3, proved
+by the spike). That puts the loop in the same window as every DMA the
+engine already does, which is why step 4 measures the WHOLE window and
+not just the loop.
+
+**The fallback if step 4 does not fit**, decided now so it is not decided
+under pressure: cap the number of transformed sprites per frame and
+round-robin the rest, exactly as the vignettes already cap themselves to
+one cell transfer per VBlank (`PLANNING_SYSTEME_ANIMATIONS` §3.3). A
+world map with eight moving things that all update every frame is not
+worth a system that cannot ship; eight that update over two frames is.
+The rule must be CHECKABLE and stated to the author, not silent.
 
 ### 7.3 Events
 
@@ -569,8 +621,12 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    over the 255-pattern budget is REFUSED rather than auto-fitted, unlike
    an image (§8.3) — shrinking an image loses detail the author can live
    with, shrinking a tileset would break every map painted with it.
-6. **M7-B2** — the camera and the second sprite loop (§7.1, §7.2). The
-   measurement of §10.4 gates the scope here.
+6. **M7-B2** — the camera and the second sprite loop (§7.1, §7.2), built
+   in the five measured steps of §7.2 and in that order. Rotation is
+   deliberately NOT in scope: scale alone uses the ramps that already
+   exist, and turning the plane adds a sine table that is cheap later and
+   expensive to design around now. The fallback if the assembly loop does
+   not fit is decided in §7.2 rather than under pressure.
 7. **M7-B3** — the editor: the scene type at creation and the restricted
    tools (§8.2).
 
