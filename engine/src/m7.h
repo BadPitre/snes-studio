@@ -35,6 +35,13 @@ u8 m7_busy(void);
 void m7_request_open(u8 img, u8 dur);
 void m7_request_close(u8 dur);
 
+/* WORLD MAP (M7-B, step 1 of the plan in the design doc §7.2): opens the
+   plane of a `worldmap` scene. The map is stored in 16x16 BLOCKS and
+   expanded here through the tileset's quadrant table — storing the
+   128x128 plane would be 16 KB per map for nothing. Returns 0 when the
+   scene is not a world map, so the caller can just ask. */
+u8 m7_world_open(u8 scene_id, u8 dur);
+
 /* Plays a compiled zoom ramp (datagen turns "from 100% to 150% in 90
    frames" into one 8.8 value per frame). flags bit 0 = loop. A looping
    ramp NEVER blocks a script — as with animations, waiting on it would

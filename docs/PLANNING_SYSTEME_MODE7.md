@@ -373,11 +373,22 @@ has not been measured.
 number, because this is the one part of the system where a wrong guess
 costs a rewrite rather than a tweak.
 
-1. **Open the plane, no sprites at all.** `m7_world_open(scene)` expands
-   the metatile map through the quadrant table into the 128x128 plane
-   under force blank, then holds still. This proves the B1 data and the
-   VRAM layout on a ROM without touching the VBlank at all. If the plane
-   comes up wrong, it is the data, and nothing else is in the way.
+1. **Open the plane, no sprites at all.** 🟡 `m7_world_open(scene)` is
+   WRITTEN and links, and it comes up **BLACK** on a 64x64 map painted
+   with visibly coloured blocks. It is called from NOWHERE — the boot
+   hook was removed once the failure showed, so no project boots into it
+   and the pixel regression stays clean on three cases.
+
+   What is already known, so the next session does not re-derive it: the
+   datagen side is verified (35 patterns, 17 colours, the registry
+   pointing at the right scene), the ROM builds, and the same VRAM upload
+   path works for a still image in `m7_open`. The difference between the
+   two is the PLANE EXPANSION — the metatile-to-quadrant loop and the
+   128-byte row DMAs — and the colour test rules out "the blocks were
+   simply dark". The first thing to try is a VRAM dump compared against
+   the expansion computed on the host, exactly as the M7-0 spike did for
+   the image: that is what turned a black screen into a byte comparison
+   last time, and it settled it in one step.
 2. **Move the camera with the pad, still no sprites.** Confirms the
    subtraction of §7.1 and gives the first honest frame-rate reading for
    a Mode 7 scene doing nothing else.

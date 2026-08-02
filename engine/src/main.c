@@ -216,7 +216,6 @@ int main(void)
 
   setScreenOn();
 
-
   while (1)
   {
     if (vm_active())

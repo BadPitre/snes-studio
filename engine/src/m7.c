@@ -43,6 +43,17 @@ extern const u8 *const m7_img_maps[];
 extern const u16 *const m7_img_pals[];
 extern const u8 m7_img_wt[];
 extern const u8 m7_img_ht[];
+/* world maps (data_m7world.c — always emitted) */
+extern const u8 m7w_count;
+extern const u8 m7w_scene[];
+extern const u8 *const m7w_chars[];
+extern const u16 *const m7w_chars_sizes[];
+extern const u8 *const m7w_metas[];
+extern const u8 *const m7w_maps[];
+extern const u16 *const m7w_pals[];
+extern const u8 m7w_w[];
+extern const u8 m7w_h[];
+
 extern const u8 m7_ramp_count;
 extern const u16 *const m7_ramps[];
 extern const u8 m7_ramp_lens[];
@@ -237,6 +248,88 @@ static void m7_open(void)
   vig_reload(); /* the upload overwrote CGRAM; the OBJ chars survived */
   setScreenOn();
   m7_fade_in(m7_req_dur);
+}
+
+/* One row of the plane, built in WRAM then pushed. 128 tiles wide, the
+   full plane width, so a row is one DMA whatever the map's size. */
+static u8 wrow[M7_PLANE];
+
+/* NOT WORKING YET — see PLANNING_SYSTEME_MODE7 §7.2. Written, links, and
+   comes up BLACK on a 64x64 map painted with visibly coloured blocks. It
+   is deliberately called from NOWHERE so that no project boots into it;
+   the next session wires it back after finding out why. */
+u8 m7_world_open(u8 scene_id, u8 dur)
+{
+  u8 i, w, h, bx, by, half;
+  const u8 *meta;
+  const u8 *map;
+  u16 zero;
+
+  for (i = 0; i < m7w_count; i++)
+    if (m7w_scene[i] == scene_id)
+      break;
+  if (i >= m7w_count)
+    return 0; /* not a world map — the caller carries on normally */
+
+  m7_fade_out(dur);
+  setScreenOff();
+  picture_reset();
+  stage_reset();
+  m7_on = 1;
+  rp_id = 0xFF;
+  rp_scale = M7_SCALE_ONE;
+  rp_dirty = 0;
+
+  for (bx = 0; bx < 128; bx++)
+    oamSetVisible((u16)(bx << 2), OBJ_HIDE);
+
+  REG_BGMODE = 0x07;
+  videoMode = M7_TM;
+  REG_TM = M7_TM;
+  REG_TS = 0;
+  screenfx_cm_hold(0);
+
+  zero = 0;
+  dmaFillVram16(&zero, 0x0000, 0x4000);
+  dmaCopyVram7((u8 *)m7w_chars[i], 0x0000, *m7w_chars_sizes[i], 0x80, 0x1900);
+  dmaCopyCGram((u8 *)m7w_pals[i], 0, 256);
+
+  /* Expand blocks to tiles: each 16x16 block is two tiles wide and two
+     tall, so a block row produces TWO plane rows — the top one from
+     quadrants 0 and 1, the bottom from 2 and 3. */
+  w = m7w_w[i];
+  h = m7w_h[i];
+  meta = m7w_metas[i];
+  map = m7w_maps[i];
+  for (by = 0; by < h; by++)
+  {
+    for (half = 0; half < 2; half++)
+    {
+      for (bx = 0; bx < M7_PLANE; bx++)
+        wrow[bx] = 0;
+      for (bx = 0; bx < w; bx++)
+      {
+        u16 b = (u16)map[(u16)by * w + bx] << 2;
+        wrow[bx << 1] = meta[b + (half << 1)];
+        wrow[(bx << 1) + 1] = meta[b + (half << 1) + 1];
+      }
+      dmaCopyVram7(wrow, (u16)(((u16)by << 1) + half) * M7_PLANE, M7_PLANE,
+                   0x00, 0x1800);
+    }
+  }
+
+  REG_M7SEL = M7_OUTTILE;
+  /* Centre on the middle of the painted map, in plane pixels. */
+  m7_cx = (u16)w << 3;
+  m7_cy = (u16)h << 3;
+  m7_place();
+  m7_matrix(rp_scale);
+
+  screenfx_warp_reset();
+  vig_reload();
+  setScreenOn();
+  m7_fade_in(dur);
+  return 1;
 }
 
 void m7_apply(void)
