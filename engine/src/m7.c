@@ -72,6 +72,14 @@ extern const u16 m7w_sky[];
 extern const u8 m7w_skyg[];
 extern const u16 m7w_skytop[];
 extern const u16 m7w_skybot[];
+/* SKY IMAGE (§7.2f): mode 1 above the horizon, mode 7 below, switched
+   mid-frame by HDMA on $2105. The picture rides on BG2 in the 16 KB the
+   plane leaves free; its palette is already inside m7w_pals at 112-127. */
+extern const u8 m7w_skyimg[];
+extern const u8 *const m7w_skych[];
+extern const u16 *const m7w_skych_sizes[];
+extern const u16 *const m7w_skymaps[];
+extern const u8 m7w_skyh[];
 
 /* Arms one HDMA channel from a FAR pointer — vramfast.asm, because C
    cannot hand over a pointer's bank. This is what lets the rotation
@@ -198,6 +206,29 @@ static u16 rot_base = 0; /* the open map's slice of the flat tables */
  * far more than the 31 steps a channel can need. */
 static u8 sky_on = 0;   /* a gradient is up: channel 4 is ours */
 static u8 sk_tab[M7P_TAB];
+
+/* ---- SKY IMAGE -----------------------------------------------------
+ * A picture above the horizon needs a second layer, and Mode 7 has none.
+ * So the VIDEO MODE ITSELF switches mid-frame — mode 1 down to the
+ * horizon, mode 7 under it — through an HDMA on $2105. Super Mario Kart's
+ * trick; the spike of §7.2f proved it holds here.
+ *
+ * It costs NO extra channel: this table REPLACES the sky window's. Above
+ * the horizon we are not in mode 7, so the plane cannot leak there and
+ * there is nothing left to mask.
+ *
+ * BG1 has to be silenced, because in mode 1 it draws too and its scroll
+ * registers ARE M7HOFS/M7VOFS — rewritten every frame with plane
+ * coordinates, so BG1 would show a wildly shifted copy of the sky.
+ * Pointing its mode-1 tilemap at a ZEROED region makes it render char 0
+ * everywhere, i.e. nothing. An HDMA on TM would work too and would cost
+ * the channel we do not have. */
+#define M7_SKY_CH 0x6000  /* sky chars — free while the plane is up */
+#define M7_SKY_MAP 0x7000 /* sky tilemap (the picture map's region) */
+#define M7_SKY_NUL 0x7800 /* BG1's blank mode-1 map */
+static u8 img_on = 0;
+static u8 img_h = 0;
+static u8 md_tab[8];
 
 static u8 pa_tab[M7P_TAB];
 static u8 pd_tab[M7P_TAB];
@@ -345,6 +376,49 @@ static void m7_sky_build(u16 top, u16 bot)
   }
 }
 
+/* Uploads the sky picture and puts mode 1 in a state where it shows
+   nothing but that picture. Called once, screen off. */
+static void m7_sky_image(u8 i)
+{
+  u16 zero;
+
+  img_h = m7w_skyh[i];
+  dmaCopyVram((u8 *)m7w_skych[i], M7_SKY_CH, *m7w_skych_sizes[i]);
+  dmaCopyVram((u8 *)m7w_skymaps[i], M7_SKY_MAP, 2048);
+  zero = 0;
+  dmaFillVram16(&zero, M7_SKY_NUL, 2048); /* BG1 draws char 0 = nothing */
+
+  REG_BG1SC = (u8)(M7_SKY_NUL >> 8);   /* 32x32 */
+  REG_BG2SC = (u8)(M7_SKY_MAP >> 8);
+  REG_BG12NBA = 0x66;                  /* BG1 and BG2 chars at $6000 */
+  videoMode = 0x13;
+  REG_TM = 0x13; /* BG1 (blank) + BG2 (the sky) + OBJ */
+
+  /* mode 1 to the horizon, mode 7 under it. A repeat block caps at 127
+     lines, so the lower band is two. */
+  md_tab[0] = pv_sky;
+  md_tab[1] = 0x01;
+  md_tab[2] = 127;
+  md_tab[3] = 0x07;
+  md_tab[4] = (u8)(224 - pv_sky - 127);
+  md_tab[5] = 0x07;
+  md_tab[6] = 0;
+}
+
+/* The sky pans with the camera: a quarter of its travel for distance,
+   plus a full screen width over a whole turn — which is exactly what a
+   256-wide picture wants, BG2's map being 32 tiles and wrapping. */
+static void m7_sky_scroll(void)
+{
+  u16 h = (m7_cx >> 2) + (u16)rot_ang * 16;
+  u16 v = (u16)(img_h - pv_sky); /* the picture's BOTTOM on the horizon */
+
+  REG_BG2HOFS = (u8)(h & 0xFF);
+  REG_BG2HOFS = (u8)(h >> 8);
+  REG_BG2VOFS = (u8)(v & 0xFF);
+  REG_BG2VOFS = (u8)(v >> 8);
+}
+
 /* Sets the camera angle and derives everything that follows from it.
    CLAMPED rather than refused: a script can reach this, and a world map
    that stops rendering because a variable held a silly number is worse
@@ -448,7 +522,10 @@ static void m7_persp_hdma(void)
     m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m + 12) & 15)]); /* M7C */
     m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);              /* M7D */
     m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + 4) & 15)]); /* M7B */
-    m7_arm(3, 0x2601, (const u8 *)pw_tab);
+    if (img_on)
+      m7_arm(3, 0x0500, (const u8 *)md_tab); /* $2105 BGMODE */
+    else
+      m7_arm(3, 0x2601, (const u8 *)pw_tab); /* $2126 window */
     REG_HDMAEN = screenfx_wipe_active() ? 0x7E : 0x7A;
     return;
   }
@@ -465,9 +542,18 @@ static void m7_persp_hdma(void)
   A1T5L = (u8)a;
   A1T5H = (u8)(a >> 8);
   A1B5 = 0x7E;
-  DMAP3 = 0x01; /* two adjacent registers: $2126 then $2127 */
-  BBAD3 = 0x26; /* WH0 */
-  a = (u16)(u8 *)pw_tab;
+  if (img_on)
+  {
+    DMAP3 = 0x00; /* one byte per entry */
+    BBAD3 = 0x05; /* $2105 BGMODE */
+    a = (u16)(u8 *)md_tab;
+  }
+  else
+  {
+    DMAP3 = 0x01; /* two adjacent registers: $2126 then $2127 */
+    BBAD3 = 0x26; /* WH0 */
+    a = (u16)(u8 *)pw_tab;
+  }
   A1T3L = (u8)a;
   A1T3H = (u8)(a >> 8);
   A1B3 = 0x7E;
@@ -707,6 +793,7 @@ u8 m7_world_open(u8 scene_id, u8 dur)
      first frame something sane before the transfer starts. */
   m7_matrix(M7_SCALE_ONE);
   m7_persp_set(m7w_horizon[i], m7w_anchor[i]); /* the scene's camera angle */
+  img_on = 0;
   /* SKY. A gradient keeps CGRAM 0 black so that backdrop + fixed colour
      IS the fixed colour; a flat sky is CGRAM 0 itself and needs no
      channel, which is why it still works under rotation. */
@@ -726,8 +813,20 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   rot_ok = m7w_rot[i];
   rot_ang = 0;
   rot_base = (u16)i * M7_ROT;
-  REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
-  REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
+  img_on = m7w_skyimg[i];
+  if (img_on)
+  {
+    /* No window: above the horizon we are in mode 1, so the plane is not
+       drawn there at all and there is nothing to mask. */
+    REG_W12SEL = 0;
+    REG_TMW = 0;
+    m7_sky_image(i);
+  }
+  else
+  {
+    REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
+    REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
+  }
   player_draw_reset(); /* the hide loop above moved the hero's OAM */
   m7_persp_build();
   m7_world_track(); /* the camera is the hero, from the very first frame */
@@ -786,6 +885,12 @@ void m7_reset(void)
       REG_CGADSUB = 0; /* the colour math goes back to screenfx, which
                           reasserts its own on the next dirty frame */
       sky_on = 0;
+    }
+    if (img_on)
+    {
+      REG_TM = M7_TM_GAME; /* the mode-1 sky's layers go back to the
+                              scene's own; scene_load rebuilds the rest */
+      img_on = 0;
     }
   }
   m7_on = 0;
@@ -858,6 +963,8 @@ void m7_vblank(void)
        moving perspective. A and D come from the tables, which never
        change while the map is up. */
     m7_persp_place();
+    if (img_on)
+      m7_sky_scroll();
     m7_persp_hdma();
     return;
   }

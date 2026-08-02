@@ -446,7 +446,7 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
         );
     }
     let rgb = resample(img, img.width, img.height);
-    convert_block_sheet(&rgb, img.width, img.height)
+    convert_block_sheet(&rgb, img.width, img.height, MAX_COLOURS)
 }
 
 /// The converter proper: a sheet of 16x16 blocks given as BGR555 pixels.
@@ -459,7 +459,12 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
 ///
 /// Converting only what is painted also spends the 256-pattern budget on
 /// what is on screen instead of on a chipset's unused corners.
-pub fn convert_block_sheet(rgb: &[u16], width: usize, height: usize) -> Result<Mode7Tileset> {
+pub fn convert_block_sheet(
+    rgb: &[u16],
+    width: usize,
+    height: usize,
+    max_colours: usize,
+) -> Result<Mode7Tileset> {
     let (mw, mh) = (width / METATILE_PX, height / METATILE_PX);
     if mw == 0 || mh == 0 {
         bail!("planche vide");
@@ -467,7 +472,11 @@ pub fn convert_block_sheet(rgb: &[u16], width: usize, height: usize) -> Result<M
 
     // One quantisation for the WHOLE sheet: the plane has a single
     // palette, so two blocks cannot each keep their own colours.
-    let (indices, palette) = quantise(rgb, MAX_COLOURS);
+    // max_colours is MAX_COLOURS normally, and 112 when the map carries a
+    // SKY IMAGE: mode 1's BG2 indexes CGRAM 0-127, the plane's own half,
+    // so the only way to give the sky colours of its own is to reserve
+    // the top sixteen (§7.2f).
+    let (indices, palette) = quantise(rgb, max_colours);
 
     let mut chars: Vec<u8> = vec![0u8; 64]; /* pattern 0 blank, as in convert */
     let mut seen: BTreeMap<[u8; 64], usize> = BTreeMap::new();

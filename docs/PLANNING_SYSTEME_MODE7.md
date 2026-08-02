@@ -687,7 +687,32 @@ but it IS a format change to the plane converter, and it only applies to
 maps that ask for an image sky.
 
 An image sky and a gradient sky are mutually exclusive by construction:
-the gradient colours the BACKDROP, and BG2 covers it.
+the gradient colours the BACKDROP, and BG2 covers it. datagen refuses the
+pair.
+
+**Built, and what it looks like in the data.** The sky is an ordinary
+16-colour PNG, at most 256x128 — the same constraints a project PICTURE
+already has, so it needs no resource category of its own and the editor
+picks from the pictures list. datagen compiles it to 4bpp chars for
+`$6000`, a 32x32 tilemap for `$7000`, and SPLICES its sixteen colours
+into the plane's palette at 112-127, so the engine still uploads ONE
+CGRAM block. 256 wide is not a maximum but the natural width: BG2's map
+is 32 tiles and wraps, so the picture loops seamlessly as the camera
+turns.
+
+`m7_sky_scroll` pans it a quarter of the camera's travel for distance,
+plus one screen width over a whole turn — which is exactly right for a
+looping 256-wide panorama — and puts its BOTTOM on the horizon.
+
+**Colour 0 is transparent, and that is the point.** A cloud layer drawn
+on index 0 lets the flat sky colour (CGRAM 0) show behind it, so the two
+products compose instead of competing.
+
+**The bug the first run produced: a striped sky.** `to_m7_sky` must
+reserve CHAR 0 BLANK. BG1 is silenced by pointing its tilemap at a zeroed
+region, which renders char 0 everywhere — and if char 0 is the picture's
+top-left tile, BG1 papers the sky with it, scrolled by M7HOFS/M7VOFS.
+Same reservation, and the same reason, as pattern 0 of the plane (§5.1).
 
 ### 7.3 Events
 

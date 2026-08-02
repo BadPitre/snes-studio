@@ -333,6 +333,10 @@ function sceneToJson(sc: Scene): string {
     sc.kind === "worldmap" && sc.m7_rotate ? `\n  "m7_rotate": true,` : "";
   // Sky: a flat colour OR a gradient's two ends, never both — the engine
   // keeps CGRAM 0 black under a gradient so the fixed colour is exact.
+  const skyImg =
+    sc.kind === "worldmap" && sc.m7_sky_image
+      ? `\n  "m7_sky_image": ${JSON.stringify(sc.m7_sky_image)},`
+      : "";
   const sky =
     sc.kind !== "worldmap"
       ? ""
@@ -345,7 +349,7 @@ function sceneToJson(sc: Scene): string {
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${view}${rotate}${sky}${music}${tileset}${parent}${effect}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${view}${rotate}${sky}${skyImg}${music}${tileset}${parent}${effect}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "events": ${events},

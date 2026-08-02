@@ -1760,8 +1760,17 @@ export default function App() {
                   setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
                 }
                 onRotate={(m7_rotate) => setScene((sc) => ({ ...sc, m7_rotate }))}
-                onSky={(m7_sky, m7_sky_top, m7_sky_bottom) =>
-                  setScene((sc) => ({ ...sc, m7_sky, m7_sky_top, m7_sky_bottom }))
+                pictures={projectPictures(data.project).map(
+                  (e) => [assetStem(picPath(e)), picPath(e)] as [string, string]
+                )}
+                onSky={(m7_sky, m7_sky_top, m7_sky_bottom, m7_sky_image) =>
+                  setScene((sc) => ({
+                    ...sc,
+                    m7_sky,
+                    m7_sky_top,
+                    m7_sky_bottom,
+                    m7_sky_image,
+                  }))
                 }
               />
             )}

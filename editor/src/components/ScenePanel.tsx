@@ -20,13 +20,17 @@ interface Props {
   onView: (horizon: number, anchor: number) => void;
   /** World map rotation (opt-in: it costs ROM). */
   onRotate: (on: boolean) => void;
-  /** World map sky: flat colour, or a gradient's two ends. */
-  onSky: (flat?: string, top?: string, bottom?: string) => void;
+  /** World map sky: flat colour, a gradient's two ends, or an image. */
+  onSky: (flat?: string, top?: string, bottom?: string, image?: string) => void;
+  /** Project pictures, as [label, path] — a sky image is an ordinary
+   *  16-colour PNG, so it needs no resource category of its own. */
+  pictures: [string, string][];
 }
 
-type SkyMode = "black" | "flat" | "gradient";
+type SkyMode = "black" | "flat" | "gradient" | "image";
 
 function skyOf(scene: Scene): SkyMode {
+  if (scene.m7_sky_image) return "image";
   if (scene.m7_sky_top && scene.m7_sky_bottom) return "gradient";
   return scene.m7_sky ? "flat" : "black";
 }
@@ -157,9 +161,15 @@ export default function ScenePanel(props: Props) {
               value={sky}
               onChange={(e) => {
                 const m = e.target.value as SkyMode;
-                if (m === "black") props.onSky(undefined, undefined, undefined);
-                else if (m === "flat")
-                  props.onSky(scene.m7_sky ?? "#4090e0", undefined, undefined);
+                if (m === "black") props.onSky();
+                else if (m === "flat") props.onSky(scene.m7_sky ?? "#4090e0");
+                else if (m === "image")
+                  props.onSky(
+                    scene.m7_sky ?? "#000000",
+                    undefined,
+                    undefined,
+                    scene.m7_sky_image ?? props.pictures[0]?.[1] ?? ""
+                  );
                 else
                   props.onSky(
                     undefined,
@@ -173,6 +183,9 @@ export default function ScenePanel(props: Props) {
               <option value="gradient" disabled={!!scene.m7_rotate}>
                 Dégradé vertical{scene.m7_rotate ? " — impossible avec la rotation" : ""}
               </option>
+              <option value="image" disabled={!props.pictures.length}>
+                Image{!props.pictures.length ? " — aucune image dans le projet" : ""}
+              </option>
             </select>
             {sky === "flat" && (
               <div className="row">
@@ -181,7 +194,34 @@ export default function ScenePanel(props: Props) {
                   <input
                     type="color"
                     value={scene.m7_sky ?? "#4090e0"}
-                    onChange={(e) => props.onSky(e.target.value, undefined, undefined)}
+                    onChange={(e) => props.onSky(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+            {sky === "image" && (
+              <div className="row">
+                <label>
+                  Image
+                  <select
+                    value={scene.m7_sky_image ?? ""}
+                    onChange={(e) =>
+                      props.onSky(scene.m7_sky, undefined, undefined, e.target.value)
+                    }
+                  >
+                    {props.pictures.map(([label, path]) => (
+                      <option key={path} value={path}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Fond derrière
+                  <input
+                    type="color"
+                    value={scene.m7_sky ?? "#000000"}
+                    onChange={(e) =>
+                      props.onSky(e.target.value, undefined, undefined, scene.m7_sky_image)
+                    }
                   />
                 </label>
               </div>
@@ -215,6 +255,9 @@ export default function ScenePanel(props: Props) {
               une couleur d'eau ou de brume s'y lit bien. Le dégradé prend un
               canal HDMA, que la rotation occupe déjà : les deux s'excluent, et
               datagen le refuse plutôt que de l'ignorer.
+              {sky === "image"
+                ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
+                : ""}
             </p>
 
             <p className="hint">

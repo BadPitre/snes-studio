@@ -626,6 +626,30 @@ fn main() -> Result<()> {
         }
         let ts = scene_ts(sc)?;
         let png = &tileset_paths[ts];
+        let (sky, sky_grad) = sc.m7_sky_colours()?;
+        // A SKY IMAGE takes 16 of the plane's colours: mode 1's BG2
+        // indexes CGRAM 0-127, the plane's own half (§7.2f).
+        let sky_img = match &sc.m7_sky_image {
+            Some(rel) => {
+                let img = gfx::load_indexed_png(&proj_dir.join(rel))
+                    .with_context(|| format!("carte du monde '{}' : ciel {}", sc.name, rel))?;
+                let (chars, map, pal) = img
+                    .to_m7_sky()
+                    .with_context(|| format!("carte du monde '{}' (ciel {})", sc.name, rel))?;
+                println!(
+                    "  mode7 : ciel de {} — {} ({}x{}, {} tuiles), plan plafonne \
+                     a 112 couleurs",
+                    sc.name,
+                    rel,
+                    img.width,
+                    img.height,
+                    chars.len() / 32
+                );
+                Some((chars, map, pal, img.height as u8))
+            }
+            None => None,
+        };
+        let plane_colours = if sky_img.is_some() { 112 } else { mode7::MAX_COLOURS };
         // Compose the blocks the map PAINTS, autotile variants resolved,
         // rather than converting the chipset. Ids 1000+k have no pixels of
         // their own and the plane cannot compute a variant at run time —
@@ -634,7 +658,12 @@ fn main() -> Result<()> {
         let blocks = sources[ts]
             .compose_blocks(&sc.name, &sc.tilemap)
             .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
-        let t = mode7::convert_block_sheet(&blocks.pixels, blocks.width, blocks.height)
+        let mut t = mode7::convert_block_sheet(
+            &blocks.pixels,
+            blocks.width,
+            blocks.height,
+            plane_colours,
+        )
             .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
         println!(
             "  mode7 : carte du monde {} — {}x{} cases, {} blocs distincts, \
@@ -642,7 +671,6 @@ fn main() -> Result<()> {
             sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
         let (horizon, anchor) = sc.m7_view()?;
-        let (sky, sky_grad) = sc.m7_sky_colours()?;
         let rot = if sc.m7_rotate {
             let r = mode7::compile_rotation(horizon, anchor)
                 .with_context(|| format!("carte du monde '{}'", sc.name))?;
@@ -656,6 +684,13 @@ fn main() -> Result<()> {
         } else {
             None
         };
+        // The engine uploads ONE 128-entry CGRAM block, so the sky's
+        // sixteen ride in the plane's palette at 112-127 rather than in a
+        // transfer of their own.
+        if let Some((_, _, pal, _)) = &sky_img {
+            t.palette.resize(112, 0);
+            t.palette.extend_from_slice(pal);
+        }
         worlds.push(WorldMap {
             scene: sci,
             tiles: t,
@@ -667,6 +702,7 @@ fn main() -> Result<()> {
             rot,
             sky,
             sky_grad,
+            sky_img,
         });
     }
 
@@ -1628,6 +1664,9 @@ struct WorldMap {
     /// Sky above the horizon: a flat colour, plus a gradient's two ends.
     sky: u16,
     sky_grad: Option<(u16, u16)>,
+    /// Sky IMAGE: 4bpp chars, a 32x32 tilemap, its palette, and the
+    /// source height (the engine aligns its bottom on the horizon).
+    sky_img: Option<(Vec<u8>, Vec<u16>, Vec<u16>, u8)>,
 }
 
 fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
@@ -1676,6 +1715,24 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
             }
             files.push((format!("data_m7wrot{}.c", i), s));
         }
+
+        // SKY IMAGE: 4bpp chars for $6000, a 32x32 tilemap for $7000.
+        // Its palette is NOT emitted here — it rides in the plane's, at
+        // 112-127, so the engine uploads one CGRAM block and not two.
+        if let Some((chars, map, _, h)) = &wm.sky_img {
+            let mut s = String::from(emit::HEADER);
+            s.push_str("#include <snes.h>\n\n");
+            s.push_str("/* world map sky: 4bpp chars, palette 7 (CGRAM 112-127) */\n");
+            s.push_str(&emit::u8_array(&format!("m7w{}_skych", i), chars, 16, false));
+            s.push_str(&format!(
+                "const u16 m7w{}_skych_size = sizeof(m7w{}_skych);\n\n",
+                i, i
+            ));
+            s.push_str("/* 32x32 tilemap, image at the top left */\n");
+            s.push_str(&emit::u16_array(&format!("m7w{}_skymap", i), map));
+            s.push_str(&format!("\nconst u8 m7w{}_skyh = {};\n", i, h));
+            files.push((format!("data_m7wsky{}.c", i), s));
+        }
     }
 
     let mut s = String::from(emit::HEADER);
@@ -1687,6 +1744,13 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
              extern const u16 m7w{i}_pal[];\n",
             i = i
         ));
+        if worlds[i].sky_img.is_some() {
+            s.push_str(&format!(
+                "extern const u8 m7w{i}_skych[];\nextern const u16 m7w{i}_skych_size;\n\
+                 extern const u16 m7w{i}_skymap[];\n",
+                i = i
+            ));
+        }
     }
     s.push_str(&format!("\nconst u8 m7w_count = {};\n\n", worlds.len()));
     let n = worlds.len().max(1);
@@ -1724,6 +1788,22 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     });
     table("const u16 m7w_skybot", &|i| {
         worlds[i].sky_grad.map_or(0, |g| g.1).to_string()
+    });
+    // SKY IMAGE (§7.2f): mode 1 above the horizon, on BG2.
+    table("const u8 m7w_skyimg", &|i| {
+        u8::from(worlds[i].sky_img.is_some()).to_string()
+    });
+    table("const u8 *const m7w_skych", &|i| {
+        if worlds[i].sky_img.is_some() { format!("m7w{}_skych", i) } else { "0".into() }
+    });
+    table("const u16 *const m7w_skych_sizes", &|i| {
+        if worlds[i].sky_img.is_some() { format!("&m7w{}_skych_size", i) } else { "0".into() }
+    });
+    table("const u16 *const m7w_skymaps", &|i| {
+        if worlds[i].sky_img.is_some() { format!("m7w{}_skymap", i) } else { "0".into() }
+    });
+    table("const u8 m7w_skyh", &|i| {
+        worlds[i].sky_img.as_ref().map_or(0, |x| x.3).to_string()
     });
     // ROTATION tables, FLAT: index i*16 + k rather than a table of
     // tables. One indirection instead of two — tcc-816 is fragile on

@@ -289,6 +289,10 @@ pub struct Scene {
     pub m7_sky_top: Option<String>,
     #[serde(default)]
     pub m7_sky_bottom: Option<String>,
+    /// A sky IMAGE: shown above the horizon through the mid-frame video
+    /// mode switch (§7.2f). Costs the plane 16 colours.
+    #[serde(default)]
+    pub m7_sky_image: Option<String>,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
@@ -551,6 +555,12 @@ impl Scene {
                 .with_context(|| format!("carte du monde '{}' : ciel", self.name))?,
             None => 0,
         };
+        if self.m7_sky_image.is_some() && self.m7_sky_top.is_some() {
+            bail!(
+                "carte du monde '{}' : un ciel EN IMAGE et un ciel EN DEGRADE                  s'excluent — le degrade colore le fond, et l'image le couvre",
+                self.name
+            );
+        }
         let grad = match (&self.m7_sky_top, &self.m7_sky_bottom) {
             (Some(t), Some(b)) => {
                 if self.m7_rotate {

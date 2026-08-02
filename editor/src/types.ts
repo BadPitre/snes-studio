@@ -680,6 +680,9 @@ export interface Scene {
   m7_sky?: string;
   m7_sky_top?: string;
   m7_sky_bottom?: string;
+  /** A sky IMAGE, by path — mode 1 above the horizon (§7.2f). Costs the
+   *  plane 16 colours, and excludes the gradient. */
+  m7_sky_image?: string;
   width: number;
   height: number;
   player_start: [number, number];
