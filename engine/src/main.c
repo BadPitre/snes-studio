@@ -174,6 +174,11 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
   audio_play_music(scene_ctx.music_id);
 
   screenfx_warp_reset(); /* fade resynced, tint reasserted */
+  /* Warping INTO a world map: the plane replaces the scene the lines
+     above have just built, before the screen comes back on, so the
+     ordinary map is never seen for a frame. */
+  if (m7_world_open(scene_ctx.scene_id, 0))
+    return;
   warp_open(tr_in);
 }
 
