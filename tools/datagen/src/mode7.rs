@@ -413,8 +413,10 @@ pub fn preview_command(src: &std::path::Path, dst: &std::path::Path) -> Result<(
 /// datagen expands each block into its four quadrants.
 pub const METATILE_PX: usize = 16;
 /// The plane in metatiles — what the editor bounds a world map to.
+#[allow(dead_code)] // used by the worldmap scene type, still to land
 pub const PLANE_METATILES: usize = PLANE_TILES / 2;
 
+#[allow(dead_code)] // chars/meta/palette land with the worldmap emitter
 pub struct Mode7Tileset {
     /// 8bpp patterns, 64 bytes each. Pattern 0 is the reserved blank.
     pub chars: Vec<u8>,
@@ -499,6 +501,27 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
         patterns,
         colours,
     })
+}
+
+/// `datagen m7-tileset <chipset.png>`: reports what a tileset would cost
+/// as a world map's plane, without generating anything.
+///
+/// The editor calls this before letting a scene become a world map, so
+/// the author learns "this tileset is over budget" while choosing rather
+/// than at build time. Prints one line either way — a refusal comes back
+/// as the error, which is already worded for a human.
+pub fn tileset_check_command(src: &std::path::Path) -> Result<()> {
+    let img = crate::gfx::load_indexed_png(src)
+        .with_context(|| format!("lecture de {}", src.display()))?;
+    let t = convert_tileset(&img)?;
+    println!(
+        "{} bloc(s) 16x16 — {} motifs 8x8 sur {} disponibles, {} couleurs",
+        t.count,
+        t.patterns,
+        MAX_TILES,
+        t.colours
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------

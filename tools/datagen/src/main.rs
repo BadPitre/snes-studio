@@ -44,6 +44,12 @@ fn main() -> Result<()> {
         }
         return mode7::preview_command(Path::new(&args[2]), Path::new(&args[3]));
     }
+    if args.len() >= 2 && args[1] == "m7-tileset" {
+        if args.len() != 3 {
+            bail!("usage : datagen m7-tileset <chipset.png>");
+        }
+        return mode7::tileset_check_command(Path::new(&args[2]));
+    }
     if args.len() >= 2 && args[1] == "tidy" {
         if args.len() < 3 {
             bail!("usage : datagen tidy <dossier_projet> [--dry-run]");

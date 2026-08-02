@@ -188,6 +188,23 @@ every map already painted with it.
 Passability comes from the tileset's existing sidecar. It needs no
 metatile indirection here, so it flattens to one byte per pattern.
 
+**Measured on the repository's real tilesets** (`datagen m7-tileset`):
+
+| Tileset | Blocks | Patterns of 256 |
+| --- | --- | --- |
+| `tileset.png` | 11 | 35 |
+| `tileset_automne.png` | 6 | 21 |
+| `chemin_auto.png` | 12 | 21 |
+| `eau_auto.png` | 12 | 17 |
+| `bourg.png` (a full RM2003 chipset) | 288 | **808 — refused** |
+
+So the budget is comfortable for a tileset made FOR a world map, and out
+of reach for a complete town chipset. That is the right shape: nobody
+paints an overworld with a 288-block interior sheet, and the author who
+tries gets a sentence saying how far over they are rather than a broken
+map. The `m7-tileset` subcommand exists so the editor can say it while
+they choose, not at build time (§8.2).
+
 ### 5.2 The Mode 7 image (M7-A)
 
 A Mode 7 image is its **own asset**, living in `assets/mode7/`, and
