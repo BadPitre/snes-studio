@@ -1760,6 +1760,9 @@ export default function App() {
                   setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
                 }
                 onRotate={(m7_rotate) => setScene((sc) => ({ ...sc, m7_rotate }))}
+                onSky={(m7_sky, m7_sky_top, m7_sky_bottom) =>
+                  setScene((sc) => ({ ...sc, m7_sky, m7_sky_top, m7_sky_bottom }))
+                }
               />
             )}
             {tab === "effect" && (

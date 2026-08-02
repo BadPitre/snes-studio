@@ -20,6 +20,15 @@ interface Props {
   onView: (horizon: number, anchor: number) => void;
   /** World map rotation (opt-in: it costs ROM). */
   onRotate: (on: boolean) => void;
+  /** World map sky: flat colour, or a gradient's two ends. */
+  onSky: (flat?: string, top?: string, bottom?: string) => void;
+}
+
+type SkyMode = "black" | "flat" | "gradient";
+
+function skyOf(scene: Scene): SkyMode {
+  if (scene.m7_sky_top && scene.m7_sky_bottom) return "gradient";
+  return scene.m7_sky ? "flat" : "black";
 }
 
 /** Which preset a scene's two lines correspond to — "custom" when they
@@ -40,6 +49,7 @@ export default function ScenePanel(props: Props) {
   const [height, setHeight] = useState(scene.height);
   const world = scene.kind === "worldmap";
   const view = viewOf(scene);
+  const sky = skyOf(scene);
   const [horizon, setHorizon] = useState(scene.m7_horizon ?? 56);
   const [anchor, setAnchor] = useState(scene.m7_anchor ?? 176);
 
@@ -142,6 +152,71 @@ export default function ScenePanel(props: Props) {
                 ? "La vue peut pivoter autour du héros avec la commande « Tourner la vue ». Coût : ~14 Ko de ROM de tables compilées pour CET angle — changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
                 : "Sans rotation, le nord reste en haut et la carte ne coûte rien de plus."}
             </p>
+            <div className="palette-title">Ciel</div>
+            <select
+              value={sky}
+              onChange={(e) => {
+                const m = e.target.value as SkyMode;
+                if (m === "black") props.onSky(undefined, undefined, undefined);
+                else if (m === "flat")
+                  props.onSky(scene.m7_sky ?? "#4090e0", undefined, undefined);
+                else
+                  props.onSky(
+                    undefined,
+                    scene.m7_sky_top ?? "#102060",
+                    scene.m7_sky_bottom ?? "#f0a060"
+                  );
+              }}
+            >
+              <option value="black">Noir (rien à afficher)</option>
+              <option value="flat">Couleur unie</option>
+              <option value="gradient" disabled={!!scene.m7_rotate}>
+                Dégradé vertical{scene.m7_rotate ? " — impossible avec la rotation" : ""}
+              </option>
+            </select>
+            {sky === "flat" && (
+              <div className="row">
+                <label>
+                  Couleur
+                  <input
+                    type="color"
+                    value={scene.m7_sky ?? "#4090e0"}
+                    onChange={(e) => props.onSky(e.target.value, undefined, undefined)}
+                  />
+                </label>
+              </div>
+            )}
+            {sky === "gradient" && (
+              <div className="row">
+                <label>
+                  Haut
+                  <input
+                    type="color"
+                    value={scene.m7_sky_top ?? "#102060"}
+                    onChange={(e) =>
+                      props.onSky(undefined, e.target.value, scene.m7_sky_bottom)
+                    }
+                  />
+                </label>
+                <label>
+                  Bas (horizon)
+                  <input
+                    type="color"
+                    value={scene.m7_sky_bottom ?? "#f0a060"}
+                    onChange={(e) =>
+                      props.onSky(undefined, scene.m7_sky_top, e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
+            <p className="hint">
+              Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la carte —
+              une couleur d'eau ou de brume s'y lit bien. Le dégradé prend un
+              canal HDMA, que la rotation occupe déjà : les deux s'excluent, et
+              datagen le refuse plutôt que de l'ignorer.
+            </p>
+
             <p className="hint">
               L'écart horizon/ancrage est l'inclinaison : {anchor - horizon} lignes
               {anchor - horizon >= 150

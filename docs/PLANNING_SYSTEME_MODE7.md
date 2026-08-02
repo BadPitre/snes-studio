@@ -611,6 +611,44 @@ view turns.
   shows. Making input follow the view is a design decision about the
   GAME, not about Mode 7, and it is not made here.
 
+### 7.2e The sky — colour, then gradient
+
+Above the horizon BG1 is windowed off, so what shows there is the
+BACKDROP, CGRAM 0. Two products fall out of that, and they cost very
+different things.
+
+**A flat sky is one CGRAM write.** No HDMA channel, so it works under
+rotation, which uses all five. Worth knowing: the backdrop is ALSO what
+shows beyond the painted map's edges, so the sky colour is the
+out-of-map colour too — which reads well as water or haze, and is
+consistent with the horizon by construction.
+
+**A gradient is colour math on the BACKDROP ALONE** — `CGADSUB = $20`,
+no BG1 bit — with the fixed colour rewritten per scanline by HDMA on
+`COLDATA`. screenfx's own gradient (S15) uses `$23`, which INCLUDES BG1:
+on a world map that would tint the whole plane rather than the sky. So
+this is a circuit of its own in `m7.c`, not a flag in screenfx — the
+module already owns the window registers for the same reason. CGRAM 0
+stays black under a gradient, so backdrop + fixed = fixed and the sky is
+exactly the colour asked for.
+
+`COLDATA` takes one component per write (bits 7-5 select B/G/R), so the
+table uses HDMA mode `$02` — one register written twice — for two
+components a line, rotating through R/G/B. Over the ~70 lines of sky that
+is far more than the 31 steps a channel can need, and a component one
+line stale is invisible.
+
+**The gradient and rotation exclude each other**, and datagen refuses the
+pair rather than dropping one silently: both want a channel and rotation
+takes the last one. A flat sky remains available either way.
+
+**One bug worth keeping.** The colour-math registers are set at open AND
+REASSERTED EVERY FRAME. `screenfx_vblank` runs first in the Mode 7 branch
+and rewrites `CGADSUB` whenever its own state is dirty, so the open-time
+value survived exactly one frame and the sky came back black. Anything
+this module asserts over screenfx's registers has to be asserted per
+frame, not once.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
@@ -712,6 +750,10 @@ Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
 | `M7CLOSE` | `dur u8` | Closes it — internal warp back to the scene |
 | `M7VIEW` | `horizon u8, anchor u8` | World map CAMERA ANGLE (§7.2c) |
 | `M7ROT` | `step u8 (0-15)` | World map ROTATION, 22.5 deg a step (§7.2d) |
+
+The SKY (§7.2e) has no opcode: it is scene data only, because it belongs
+to the place rather than to a moment. A script that wants a sunset uses
+the ordinary screen tint.
 
 The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does

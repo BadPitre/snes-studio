@@ -65,6 +65,13 @@ extern const u8 *const m7w_rotp[];
 extern const u8 *const m7w_rotr[];
 extern const u16 m7w_rotox[];
 extern const u16 m7w_rotoy[];
+/* SKY: the band above the horizon, where BG1 is windowed off and the
+   BACKDROP shows. m7w_sky is CGRAM 0 itself; the gradient's two ends
+   drive a COLDATA table built below. */
+extern const u16 m7w_sky[];
+extern const u8 m7w_skyg[];
+extern const u16 m7w_skytop[];
+extern const u16 m7w_skybot[];
 
 /* Arms one HDMA channel from a FAR pointer — vramfast.asm, because C
    cannot hand over a pointer's bank. This is what lets the rotation
@@ -145,6 +152,11 @@ static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
 #define A1T3L (*(vuint8 *)0x4332)
 #define A1T3H (*(vuint8 *)0x4333)
 #define A1B3 (*(vuint8 *)0x4334)
+#define DMAP4 (*(vuint8 *)0x4340)
+#define BBAD4 (*(vuint8 *)0x4341)
+#define A1T4L (*(vuint8 *)0x4342)
+#define A1T4H (*(vuint8 *)0x4343)
+#define A1B4 (*(vuint8 *)0x4344)
 #define DMAP5 (*(vuint8 *)0x4350)
 #define BBAD5 (*(vuint8 *)0x4351)
 #define A1T5L (*(vuint8 *)0x4352)
@@ -165,6 +177,27 @@ static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
 static u8 rot_ok = 0;
 static u8 rot_ang = 0;
 static u16 rot_base = 0; /* the open map's slice of the flat tables */
+
+/* ---- SKY -----------------------------------------------------------
+ * A flat sky is CGRAM 0: the plane is windowed off above the horizon, so
+ * what shows there is the backdrop. One register write, no channel, and
+ * it works with rotation.
+ *
+ * A GRADIENT is colour math on the backdrop ALONE — CGADSUB $20, no BG1
+ * bit — with the fixed colour rewritten per scanline through HDMA on
+ * COLDATA. screenfx's own gradient (S15) uses $23, which includes BG1:
+ * on a world map that would tint the whole plane, not the sky. Hence a
+ * circuit of its own here rather than a flag over there; this module
+ * already owns the window registers for the same reason.
+ *
+ * CGRAM 0 stays BLACK under a gradient, so backdrop + fixed = fixed and
+ * the sky is exactly the colour asked for.
+ *
+ * COLDATA takes ONE component per write (bits 7-5 select B/G/R), so mode
+ * $02 pushes two components a line — over the ~70 lines of sky that is
+ * far more than the 31 steps a channel can need. */
+static u8 sky_on = 0;   /* a gradient is up: channel 4 is ours */
+static u8 sk_tab[M7P_TAB];
 
 static u8 pa_tab[M7P_TAB];
 static u8 pd_tab[M7P_TAB];
@@ -262,6 +295,54 @@ static void m7_place(void)
   REG_M7HOFS = (u8)(hofs >> 8);
   REG_M7VOFS = (u8)(vofs & 0xFF);
   REG_M7VOFS = (u8)(vofs >> 8);
+}
+
+/* One CGRAM entry, by hand: PVSnesLib's helpers all take a whole
+   palette. */
+static void m7_cgram0(u16 c)
+{
+  REG_CGADD = 0;
+  *(vuint8 *)0x2122 = (u8)(c & 0xFF); /* CGDATA — PVSnesLib names the
+                                         address but not the register */
+  *(vuint8 *)0x2122 = (u8)(c >> 8);
+}
+
+/* Builds the per-scanline COLDATA table for a sky gradient. Same layout
+   as the perspective tables — two continuous blocks of 112 — but mode
+   $02, so two component writes a line. */
+static void m7_sky_build(u16 top, u16 bot)
+{
+  u16 y, i, span;
+  u8 c[3], t[3], b[3], k;
+
+  t[0] = (u8)(top & 31);
+  t[1] = (u8)((top >> 5) & 31);
+  t[2] = (u8)((top >> 10) & 31);
+  b[0] = (u8)(bot & 31);
+  b[1] = (u8)((bot >> 5) & 31);
+  b[2] = (u8)((bot >> 10) & 31);
+
+  sk_tab[0] = 0x80 | M7P_HALF;
+  sk_tab[1 + M7P_HALF * 2] = 0x80 | M7P_HALF;
+  sk_tab[M7P_TAB - 1] = 0;
+
+  /* The gradient spans the SKY, not the screen: below the horizon the
+     plane covers the backdrop anyway, and stretching it to line 223
+     would waste most of its range on pixels nobody sees. */
+  span = pv_sky ? pv_sky : 1;
+  for (y = 0; y < 224; y++)
+  {
+    u16 f = y < span ? y : span; /* held at the bottom colour below */
+    for (k = 0; k < 3; k++)
+      c[k] = (u8)(t[k] + ((int)(b[k] - t[k]) * (int)f) / (int)span);
+    i = y < M7P_HALF ? 1 + y * 2 : 2 + y * 2;
+    /* two components a line, rotating, so all three refresh every line
+       and a half — a component one line stale is invisible */
+    k = (u8)((y * 2) % 3);
+    sk_tab[i] = (u8)((k == 0 ? 0x20 : k == 1 ? 0x40 : 0x80) | c[k]);
+    k = (u8)((y * 2 + 1) % 3);
+    sk_tab[i + 1] = (u8)((k == 0 ? 0x20 : k == 1 ? 0x40 : 0x80) | c[k]);
+  }
 }
 
 /* Sets the camera angle and derives everything that follows from it.
@@ -394,7 +475,25 @@ static void m7_persp_hdma(void)
      VBlank branch has already let hdmafx stand down. The scripted wipe
      (S18c) keeps its channel: a scr_hide must still curtain a world
      map. */
-  REG_HDMAEN = screenfx_wipe_active() ? 0x6C : 0x68;
+  m = screenfx_wipe_active() ? 0x6C : 0x68;
+  if (sky_on)
+  {
+    DMAP4 = 0x02; /* ONE register, written twice: two colour components a
+                     line — COLDATA takes one component per write */
+    BBAD4 = 0x32; /* COLDATA */
+    a = (u16)(u8 *)sk_tab;
+    A1T4L = (u8)a;
+    A1T4H = (u8)(a >> 8);
+    A1B4 = 0x7E;
+    m |= 0x10;
+    /* REASSERTED EVERY FRAME, not just at open: screenfx_vblank runs
+       first in this branch and rewrites CGADSUB whenever its own state
+       is dirty — the open-time value survived exactly one frame, and the
+       sky came back black. */
+    REG_CGWSEL = 0x00;
+    REG_CGADSUB = 0x20; /* addition on the BACKDROP ALONE */
+  }
+  REG_HDMAEN = m;
 }
 
 /* Camera and pitch anchor. The whole perspective moves through these
@@ -608,6 +707,22 @@ u8 m7_world_open(u8 scene_id, u8 dur)
      first frame something sane before the transfer starts. */
   m7_matrix(M7_SCALE_ONE);
   m7_persp_set(m7w_horizon[i], m7w_anchor[i]); /* the scene's camera angle */
+  /* SKY. A gradient keeps CGRAM 0 black so that backdrop + fixed colour
+     IS the fixed colour; a flat sky is CGRAM 0 itself and needs no
+     channel, which is why it still works under rotation. */
+  sky_on = m7w_skyg[i];
+  if (sky_on)
+  {
+    m7_cgram0(0);
+    m7_sky_build(m7w_skytop[i], m7w_skybot[i]);
+    REG_CGWSEL = 0x00;
+    REG_CGADSUB = 0x20; /* addition on the BACKDROP ALONE — not BG1, or
+                           the gradient would tint the whole plane */
+  }
+  else
+  {
+    m7_cgram0(m7w_sky[i]);
+  }
   rot_ok = m7w_rot[i];
   rot_ang = 0;
   rot_base = (u16)i * M7_ROT;
@@ -666,6 +781,12 @@ void m7_reset(void)
     REG_W12SEL = 0; /* nor the sky window: a scene with no spotlight has
                        no window at all, which is what we go back to */
     REG_TMW = 0;
+    if (sky_on)
+    {
+      REG_CGADSUB = 0; /* the colour math goes back to screenfx, which
+                          reasserts its own on the next dirty frame */
+      sky_on = 0;
+    }
   }
   m7_on = 0;
   m7_world = 0;

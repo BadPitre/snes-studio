@@ -642,6 +642,7 @@ fn main() -> Result<()> {
             sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
         let (horizon, anchor) = sc.m7_view()?;
+        let (sky, sky_grad) = sc.m7_sky_colours()?;
         let rot = if sc.m7_rotate {
             let r = mode7::compile_rotation(horizon, anchor)
                 .with_context(|| format!("carte du monde '{}'", sc.name))?;
@@ -664,6 +665,8 @@ fn main() -> Result<()> {
             horizon,
             anchor,
             rot,
+            sky,
+            sky_grad,
         });
     }
 
@@ -1622,6 +1625,9 @@ struct WorldMap {
     anchor: u8,
     /// Rotation tables, when the scene asked for them (opt-in: ~14 KB).
     rot: Option<mode7::Mode7Rotation>,
+    /// Sky above the horizon: a flat colour, plus a gradient's two ends.
+    sky: u16,
+    sky_grad: Option<(u16, u16)>,
 }
 
 fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
@@ -1707,6 +1713,18 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     table("const u8 m7w_horizon", &|i| worlds[i].horizon.to_string());
     table("const u8 m7w_anchor", &|i| worlds[i].anchor.to_string());
     table("const u8 m7w_rot", &|i| u8::from(worlds[i].rot.is_some()).to_string());
+    // SKY above the horizon. m7w_sky is CGRAM 0 (the backdrop); the
+    // gradient's two ends drive a COLDATA table built by the engine.
+    table("const u16 m7w_sky", &|i| worlds[i].sky.to_string());
+    table("const u8 m7w_skyg", &|i| {
+        u8::from(worlds[i].sky_grad.is_some()).to_string()
+    });
+    table("const u16 m7w_skytop", &|i| {
+        worlds[i].sky_grad.map_or(0, |g| g.0).to_string()
+    });
+    table("const u16 m7w_skybot", &|i| {
+        worlds[i].sky_grad.map_or(0, |g| g.1).to_string()
+    });
     // ROTATION tables, FLAT: index i*16 + k rather than a table of
     // tables. One indirection instead of two — tcc-816 is fragile on
     // array-of-array symbols, and a map that does not rotate costs 16

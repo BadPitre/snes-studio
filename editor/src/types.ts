@@ -674,6 +674,12 @@ export interface Scene {
   /** World map ROTATION: opt-in, ~14 KB of ROM for the compiled tables.
    *  A map that never turns pays nothing. */
   m7_rotate?: boolean;
+  /** World map SKY, the band above the horizon — black when absent.
+   *  A flat colour costs no HDMA channel and works with rotation; the
+   *  gradient needs one, and rotation takes all five. */
+  m7_sky?: string;
+  m7_sky_top?: string;
+  m7_sky_bottom?: string;
   width: number;
   height: number;
   player_start: [number, number];

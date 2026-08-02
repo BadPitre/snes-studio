@@ -1,7 +1,21 @@
 //! The source project model: the JSON the editor writes.
 //! Reference: docs/SPEC_FORMATS.md.
 
+use anyhow::Context;
 use serde::Deserialize;
+
+/// "#RRGGBB" to BGR555. The editor writes hex because that is what a
+/// colour picker produces; the PPU wants five bits a channel.
+fn parse_rgb(s: &str) -> anyhow::Result<u16> {
+    use anyhow::bail;
+    let h = s.trim_start_matches('#');
+    if h.len() != 6 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("couleur '{}' : attendu #RRGGBB", s);
+    }
+    let v = u32::from_str_radix(h, 16).unwrap();
+    let (r, g, b) = ((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    Ok(((r >> 3) as u16) | (((g >> 3) as u16) << 5) | (((b >> 3) as u16) << 10))
+}
 
 #[derive(Deserialize)]
 pub struct Project {
@@ -266,6 +280,15 @@ pub struct Scene {
     /// per map — a map that never turns pays nothing.
     #[serde(default)]
     pub m7_rotate: bool,
+    /// World map SKY, the band above the horizon. Absent means black.
+    /// `m7_sky` is a flat colour "#RRGGBB"; giving `m7_sky_top` AND
+    /// `m7_sky_bottom` instead paints a vertical gradient.
+    #[serde(default)]
+    pub m7_sky: Option<String>,
+    #[serde(default)]
+    pub m7_sky_top: Option<String>,
+    #[serde(default)]
+    pub m7_sky_bottom: Option<String>,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
@@ -514,6 +537,46 @@ impl Scene {
     ///
     /// The 16-line floor on the gap is where the vertical scale leaves
     /// its 8.8 register — below it the whole screen is sky.
+    /// The world map's sky: a flat BGR555 colour, plus the gradient's two
+    /// ends when it has one.
+    ///
+    /// The gradient needs an HDMA channel for COLDATA, and a ROTATING map
+    /// already uses all five a world map has free. Refused rather than
+    /// silently dropped: the author would otherwise see a black sky and
+    /// have no way to learn why.
+    pub fn m7_sky_colours(&self) -> anyhow::Result<(u16, Option<(u16, u16)>)> {
+        use anyhow::bail;
+        let flat = match &self.m7_sky {
+            Some(s) => parse_rgb(s)
+                .with_context(|| format!("carte du monde '{}' : ciel", self.name))?,
+            None => 0,
+        };
+        let grad = match (&self.m7_sky_top, &self.m7_sky_bottom) {
+            (Some(t), Some(b)) => {
+                if self.m7_rotate {
+                    bail!(
+                        "carte du monde '{}' : un ciel en degrade et la rotation                          demandent chacun un canal HDMA, et la rotation prend les                          cinq disponibles — choisir l'un ou l'autre (un ciel de                          couleur unie reste possible avec la rotation)",
+                        self.name
+                    );
+                }
+                Some((
+                    parse_rgb(t).with_context(|| {
+                        format!("carte du monde '{}' : haut du ciel", self.name)
+                    })?,
+                    parse_rgb(b).with_context(|| {
+                        format!("carte du monde '{}' : bas du ciel", self.name)
+                    })?,
+                ))
+            }
+            (None, None) => None,
+            _ => bail!(
+                "carte du monde '{}' : un degrade de ciel demande m7_sky_top ET                  m7_sky_bottom",
+                self.name
+            ),
+        };
+        Ok((flat, grad))
+    }
+
     pub fn m7_view(&self) -> anyhow::Result<(u8, u8)> {
         use anyhow::bail;
         let horizon = self.m7_horizon.unwrap_or(56);
