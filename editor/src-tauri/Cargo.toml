@@ -1,8 +1,22 @@
 [package]
 name = "snes-studio-editor"
-version = "0.1.0"
+# Keep in step with editor/package.json and src-tauri/tauri.conf.json: the
+# bundle takes its version from the config, the crate from here, and a
+# drift between the two shows up as a wrong "About" box months later.
+version = "0.6.0"
 edition = "2021"
-description = "SNES Studio - editeur no-code"
+description = "SNES Studio — the no-code SNES game maker"
+license = "MIT"
+repository = "https://github.com/BadPitre/snes-studio"
+
+# Release builds are shipped to authors, not run from a terminal: optimise
+# for size and strip the symbols rather than keep a debuggable binary.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 
 [lib]
 name = "snes_studio_editor_lib"

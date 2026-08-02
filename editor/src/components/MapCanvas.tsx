@@ -1,12 +1,12 @@
-// Canvas de la map : rendu des deux couches (autotiles recalculés en
-// direct, style RPG Maker 2003) + calque d'interaction séparé (survol
-// encadré, aperçu rectangle/ellipse, sélection pipette) pour ne pas
-// redessiner la map à chaque mouvement de souris.
+// The map canvas: rendering of both layers (autotiles recomputed live,
+// RPG Maker 2003 style) plus a separate interaction layer (hover frame,
+// rectangle/ellipse preview, eyedropper selection) so the map is not
+// redrawn on every mouse move.
 //
-// Souris (comme RM2003) : clic gauche = dessin selon le mode (crayon,
-// rectangle, ellipse, pot de peinture) ; clic droit = pipette — un clic
-// prend la tile sous le curseur, un glisser copie un bloc de la map dans
-// le tampon.
+// Mouse (as in RM2003): left click = drawing according to the mode
+// (pencil, rectangle, ellipse, paint bucket); right click = eyedropper —
+// a click takes the tile under the cursor, a drag copies a block of the
+// map into the stamp.
 
 import { useEffect, useRef, useState } from "react";
 import type { Layer, Scene, TilesetMeta } from "../types";
@@ -15,7 +15,7 @@ import type { DrawMode, Tool } from "../state";
 import { cellSolid } from "../state";
 import { drawAutotileCell } from "../autotile";
 
-// curseurs façon RM2003 : crayon (dessin) et pot de peinture
+// RM2003-style cursors: pencil (drawing) and paint bucket
 const CUR_PEN =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath d='M1 16l2.2-5.8L12 1.4 15.6 5 6.8 13.8z' fill='%23ffd75e' stroke='%23222'/%3E%3Cpath d='M1 16l2.2-5.8 3.6 3.6z' fill='%23f0b060' stroke='%23222'/%3E%3C/svg%3E\") 0 16, crosshair";
 const CUR_FILL =
@@ -30,22 +30,22 @@ interface Props {
   tool: Tool;
   layer: Layer;
   drawMode: DrawMode;
-  // taille d'une tile à l'écran, en px (zoom : 32 = 1/1 … 4 = 1/8)
+  // on-screen tile size, in px (zoom: 32 = 1/1 … 4 = 1/8)
   ts: number;
   showCollision: boolean;
   showGrid: boolean;
-  // crayon / outils ponctuels — first = début de geste (1 entrée d'historique)
+  // pencil / one-shot tools — first = start of a gesture (1 history entry)
   onPaint: (tx: number, ty: number, ox: number, oy: number, first: boolean) => void;
-  // rectangle / ellipse / remplissage — motif ancré en (ax,ay)
+  // rectangle / ellipse / fill — pattern anchored at (ax,ay)
   onApplyPattern: (cells: Array<[number, number]>, ax: number, ay: number) => void;
-  // pipette (clic droit) : bloc copié depuis la couche active
+  // eyedropper (right click): block copied from the active layer
   onPickBlock: (tiles: number[][]) => void;
-  // position du curseur en tiles (null = hors de la map)
+  // cursor position in tiles (null = outside the map)
   onHover: (pos: [number, number] | null) => void;
-  // couche Événements : sélection, double-clic (éditer), menu contextuel
+  // Events layer: selection, double-click (edit), context menu
   selectedEvent: number | null;
   onSelectEvent: (index: number | null) => void;
-  // curseur de CELLULE de la couche Événements (v0.16) : cible du coller
+  // CELL cursor of the Events layer (v0.16): the paste target
   cursor: [number, number] | null;
   onSelectCell: (tx: number, ty: number) => void;
   onOpenEvent: (index: number) => void;
@@ -69,7 +69,7 @@ export default function MapCanvas(props: Props) {
   const evLayer = layer === "events";
   const activeGrid = layer === "upper" ? scene.upper : scene.tilemap;
 
-  // --- rendu de la map (couches + overlays statiques) ---------------------
+  // --- map rendering (layers + static overlays) ---------------------------
   useEffect(() => {
     const cv = baseRef.current;
     if (!cv) return;
@@ -111,12 +111,12 @@ export default function MapCanvas(props: Props) {
       ctx.globalAlpha = 1;
     };
 
-    // couche inf puis sup — la couche non éditée est atténuée (repère
-    // RM2003) ; sur la couche Événements, les deux sont pleines
+    // lower layer then upper — the layer not being edited is dimmed (an
+    // RM2003 cue); on the Events layer, both are at full strength
     drawLayer(scene.tilemap, layer === "upper");
     drawLayer(scene.upper, layer === "lower");
 
-    // collision dérivée de la passabilité du tileset (lecture seule)
+    // collision derived from the tileset's passability (read only)
     if (showCollision) {
       ctx.fillStyle = "rgba(255,40,40,0.35)";
       for (let y = 0; y < scene.height; y++) {
@@ -126,7 +126,7 @@ export default function MapCanvas(props: Props) {
       }
     }
 
-    // grille
+    // grid
     if (showGrid) {
       ctx.strokeStyle = "rgba(255,255,255,0.15)";
       ctx.lineWidth = 1;
@@ -144,7 +144,7 @@ export default function MapCanvas(props: Props) {
       }
     }
 
-    // warps (violet, "W")
+    // warps (purple, "W")
     ctx.font = `${Math.max(6, TS - 10)}px monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -158,7 +158,7 @@ export default function MapCanvas(props: Props) {
       ctx.fillText("W", w.x * TS + TS / 2, w.y * TS + TS / 2 + 1);
     }
 
-    // départ joueur
+    // player start
     ctx.strokeStyle = "#20c0ff";
     ctx.lineWidth = 2;
     ctx.strokeRect(
@@ -168,11 +168,11 @@ export default function MapCanvas(props: Props) {
       TS - 2
     );
 
-    // événements — apparence = sprite ; sans apparence = marqueur (orange
-    // "C" contact, cyan "A" auto, gris "E" action invisible)
+    // events — an appearance = a sprite; without one = a marker (orange
+    // "C" contact, cyan "A" auto, grey "E" invisible action)
     scene.events.forEach((ev, i) => {
-      // l'apparence s'affiche quel que soit le déclencheur ; T4 : une
-      // apparence TILE (couche haute) se dessine sur la cellule même
+      // the appearance shows whatever the trigger is; T4: a TILE
+      // appearance (upper layer) is drawn on the cell itself
       if (ev.tile !== undefined && tileset) {
         const sx = (ev.tile % perRow) * 16;
         const sy = Math.floor(ev.tile / perRow) * 16;
@@ -200,28 +200,28 @@ export default function MapCanvas(props: Props) {
         ctx.fillStyle = color[2];
         ctx.fillText(color[3], ev.x * TS + TS / 2, ev.y * TS + TS / 2 + 1);
       } else if (sprites) {
-        // frame 16x24 ancrée en bas de la tile (la tête dépasse de 8 px
-        // au-dessus, façon RM2003)
+        // a 16x24 frame anchored at the bottom of the tile (the head
+        // sticks out 8 px above, RM2003 style)
         const f = eventFrame(ev);
         ctx.drawImage(
           sprites, f * 16, 0, 16, 24,
           ev.x * TS, ev.y * TS - TS / 2, TS, TS + TS / 2
         );
       }
-      // couche Événements : boîte blanche RM2003 sur chaque event
+      // Events layer: an RM2003 white box on every event
       if (evLayer) {
         ctx.strokeStyle = i === props.selectedEvent ? "#ffe020" : "rgba(255,255,255,0.85)";
         ctx.lineWidth = i === props.selectedEvent ? 3 : 1.5;
         ctx.strokeRect(ev.x * TS + 1.5, ev.y * TS + 1.5, TS - 3, TS - 3);
       }
     });
-    // départ joueur : "S" lisible sur la couche Événements
+    // player start: an "S" readable on the Events layer
     if (evLayer) {
       ctx.fillStyle = "#20c0ff";
       ctx.fillText("S", scene.player_start[0] * TS + TS / 2, scene.player_start[1] * TS + TS / 2 + 1);
     }
-    // curseur de cellule (v0.16) : cadre blanc/noir façon RM2003 — la
-    // cible du coller (Ctrl+V) sur la couche Événements
+    // cell cursor (v0.16): a white/black frame, RM2003 style — the target
+    // of a paste (Ctrl+V) on the Events layer
     if (evLayer && props.cursor) {
       const [cx, cy] = props.cursor;
       if (cx >= 0 && cy >= 0 && cx < scene.width && cy < scene.height) {
@@ -235,14 +235,14 @@ export default function MapCanvas(props: Props) {
     }
   }, [scene, tileset, autotiles, meta, sprites, layer, showCollision, showGrid, TS, props.selectedEvent, props.cursor]);
 
-  // --- calque d'interaction : survol encadré + aperçus --------------------
+  // --- interaction layer: hover frame + previews --------------------------
   useEffect(() => {
     const cv = overlayRef.current;
     if (!cv) return;
     const ctx = cv.getContext("2d")!;
     ctx.clearRect(0, 0, cv.width, cv.height);
 
-    // cadre double (blanc sur noir) lisible sur tout décor — façon RM2003
+    // a double frame (white on black) readable on any scenery — RM2003 style
     const frame = (x: number, y: number, w: number, h: number) => {
       ctx.strokeStyle = "rgba(0,0,0,0.8)";
       ctx.lineWidth = 4;
@@ -253,7 +253,7 @@ export default function MapCanvas(props: Props) {
     };
 
     if (pickDrag) {
-      // sélection pipette : cadre jaune pointillé
+      // eyedropper selection: a dashed yellow frame
       const x = Math.min(pickDrag.start[0], pickDrag.cur[0]);
       const y = Math.min(pickDrag.start[1], pickDrag.cur[1]);
       const w = Math.abs(pickDrag.start[0] - pickDrag.cur[0]) + 1;
@@ -300,7 +300,7 @@ export default function MapCanvas(props: Props) {
     }
 
     if (hover) {
-      // cadre de survol à la taille du tampon (1x1 pour les autres outils)
+      // hover frame at the stamp's size (1x1 for the other tools)
       let w = 1;
       let h = 1;
       if (!evLayer && props.tool.kind === "tile" && drawMode !== "fill") {
@@ -321,7 +321,7 @@ export default function MapCanvas(props: Props) {
     ];
   }
 
-  // cellules d'une forme (rectangle plein ou ellipse inscrite)
+  // cells of a shape (a filled rectangle or an inscribed ellipse)
   function shapeCells(a: Cell, b: Cell, circle: boolean): Array<[number, number]> {
     const x0 = Math.min(a[0], b[0]);
     const y0 = Math.min(a[1], b[1]);
@@ -345,7 +345,7 @@ export default function MapCanvas(props: Props) {
     return out;
   }
 
-  // remplissage : zone connexe de même tile sur la couche active
+  // fill: the connected area of identical tiles on the active layer
   function floodCells(x0: number, y0: number): Array<[number, number]> {
     const target = activeGrid[y0][x0];
     const seen = new Set<number>();
@@ -369,12 +369,12 @@ export default function MapCanvas(props: Props) {
       if (e.button === 0) {
         const hit = eventAt(props.scene, tx, ty);
         props.onSelectEvent(hit >= 0 ? hit : null);
-        props.onSelectCell(tx, ty); // cellule sélectionnée = cible du coller
+        props.onSelectCell(tx, ty); // selected cell = the paste target
       }
-      return; // clic droit : menu contextuel (onContextMenu), pas de pipette
+      return; // right click: context menu (onContextMenu), no eyedropper
     }
     if (e.button === 2) {
-      // pipette : clic = tile, glisser = bloc
+      // eyedropper: a click = a tile, a drag = a block
       setPickDrag({ start: [tx, ty], cur: [tx, ty] });
       return;
     }

@@ -1,44 +1,44 @@
-# SNES STUDIO — Système de Database (schémas + dbgen)
+# SNES STUDIO — the Database system (schemas + dbgen)
 
-**Objectif :** des données de jeu structurées (stats, objets, monstres…)
-définies par des **schémas**, saisies en **TOML texte**, compilées en
-**tables C byte-packed** dans la ROM. Le pendant « Database » de RPG
-Maker 2003, mais extensible : ajouter une table = ajouter un schéma.
+**Goal:** structured game data (stats, items, monsters…) defined by
+**schemas**, entered as **text TOML**, compiled into **byte-packed C
+tables** in the ROM. RPG Maker 2003's "Database" counterpart, but
+extensible: adding a table means adding a schema.
 
-Document compagnon : `INTEGRATION_DATABASE_EDITEUR.md` (l'UI générique
-de l'éditeur). Contractuel au même titre que `SPEC_FORMATS.md` : tout
-écart du code doit mettre ce document à jour dans le même commit.
+Companion document: `INTEGRATION_DATABASE_EDITEUR.md` (the editor's
+generic UI). Contractual on the same footing as `SPEC_FORMATS.md`: code
+that diverges from it must update this document in the same commit.
 
 ---
 
-## 1. Arborescence d'un projet
+## 1. Project layout
 
 ```
-monprojet/
+myproject/
   project.json
   scenes/…
-  schemas/            # UN fichier TOML par table (source de vérité des types)
+  schemas/            # ONE TOML file per table (the source of truth for types)
     stats.toml
     items.toml
-  data/               # les instances, saisies par l'éditeur (ou à la main)
+  data/               # the instances, entered from the editor (or by hand)
     stats.toml
     items.toml
 ```
 
-Un projet SANS dossier `schemas/` n'a pas de database : dbgen n'émet
-rien, rien ne change (compatibilité totale avec les projets existants).
+A project WITHOUT a `schemas/` folder has no database: dbgen emits
+nothing and nothing changes (full compatibility with existing projects).
 
-## 2. Format d'un schéma (`schemas/<table>.toml`)
+## 2. Schema format (`schemas/<table>.toml`)
 
 ```toml
-name  = "stats"        # snake_case — nom des constantes C (STATS_*)
-title = "Stats"        # titre affiché dans l'éditeur
-max   = 255            # nombre d'entrées max (1-255, défaut 255)
+name  = "stats"        # snake_case — the name of the C constants (STATS_*)
+title = "Stats"        # the title shown in the editor
+max   = 255            # maximum number of entries (1-255, default 255)
 
 [[fields]]
 name    = "max_hp"     # snake_case
 type    = "u16"
-default = 10           # @default — valeur pré-remplie à la création
+default = 10           # @default — pre-filled on creation
 
 [[fields]]
 name = "attack"
@@ -46,112 +46,107 @@ type = "u8"
 
 [[fields]]
 name  = "elem_resist"
-type  = "flags8"       # 8 cases à cocher nommées
+type  = "flags8"       # 8 named checkboxes
 flags = ["feu", "glace", "foudre", "eau", "terre", "vent", "lumiere", "ombre"]
 
 [[fields]]
 name = "drop_item"
-type = "ref:items"     # menu déroulant peuplé par la table items — stocke
-                       # l'index u8 (0xFF = aucun si optional = true)
+type = "ref:items"     # a dropdown filled from the items table — stores the
+                       # u8 index (0xFF = none when optional = true)
 optional = true
 
 [[fields]]
 name = "hp"
 type = "u16"
-runtime_copy = true    # @runtime_copy — valeur de base copiée en WRAM à
-                       # l'instanciation (info UI, même encodage ROM)
+runtime_copy = true    # @runtime_copy — a base value copied into WRAM at
+                       # instantiation (UI information, same ROM encoding)
 ```
 
-### Types de champs (v1)
+### Field types (v1)
 
-| Type | Taille ROM | Bornes | Widget éditeur |
-|------|-----------|--------|----------------|
-| `u8`  | 1 octet | 0..255 | numérique |
-| `u16` | 2 octets (little-endian) | 0..65535 | numérique |
-| `s8`  | 1 octet (complément à 2) | −128..127 | numérique |
-| `s16` | 2 octets (complément à 2) | −32768..32767 | numérique |
-| `flags8` | 1 octet (bit i = flags[i]) | 8 noms max | 8 cases à cocher |
-| `ref:<table>` | 1 octet (index dans la table cible) | table ≤ 255 entrées ; `optional = true` → 0xFF = aucun | menu déroulant |
-| `text_id` | 2 octets (id dans la banque de textes, little-endian) | nom d'un texte de texts.json ; `optional = true` → 0xFFFF = aucun | sélecteur de texte |
-| `picture` / `sound` / `music` | 1 octet (index dans la liste projet — le même que SHOWPIC/PLAYSFX/PLAYBGM) | nom (stem) d'une ressource de project.json ; `optional = true` → 0xFF = aucune ; nom inconnu = erreur de build (B7) | menu déroulant par nom + ▶ play/pause (son/musique) |
+| Type | ROM size | Range | Editor widget |
+|------|----------|-------|---------------|
+| `u8`  | 1 byte | 0..255 | numeric |
+| `u16` | 2 bytes (little-endian) | 0..65535 | numeric |
+| `s8`  | 1 byte (two's complement) | −128..127 | numeric |
+| `s16` | 2 bytes (two's complement) | −32768..32767 | numeric |
+| `flags8` | 1 byte (bit i = flags[i]) | 8 names max | 8 checkboxes |
+| `ref:<table>` | 1 byte (index in the target table) | table <= 255 entries; `optional = true` → 0xFF = none | dropdown |
+| `text_id` | 2 bytes (id in the text bank, little-endian) | the name of a text in texts.json; `optional = true` → 0xFFFF = none | text picker |
+| `picture` / `sound` / `music` | 1 byte (index in the project list — the same one SHOWPIC/PLAYSFX/PLAYBGM use) | the stem of a project.json resource; `optional = true` → 0xFF = none; an unknown name is a build error (B7) | dropdown by name + a ▶ play/pause (sound/music) |
 
-Attributs de champ : `default` (valeur à la création — pour `ref:` le
-nom symbolique cible, pour `flags8` une liste de noms), `optional`
-(refs/text_id/ressources seulement), `runtime_copy` (documentaire),
-`min`/`max` (resserrer les bornes d'un type numérique — validées par
-dbgen ET par l'éditeur).
+Field attributes: `default` (the value on creation — for `ref:` the target
+symbolic name, for `flags8` a list of names), `optional` (refs, text_id
+and resources only), `runtime_copy` (documentary), `min`/`max` (tighten a
+numeric type's range — enforced by dbgen AND by the editor).
 
-**Dégradation élégante** : un type inconnu (version future) est affiché
-en lecture seule par l'éditeur avec un avertissement ; dbgen, lui,
-refuse de builder (le build ne devine jamais).
+**Graceful degradation**: an unknown type (a future version) is shown
+read-only by the editor with a warning; dbgen, for its part, refuses to
+build — the build never guesses.
 
-## 3. Format des instances (`data/<table>.toml`)
+## 3. Instance format (`data/<table>.toml`)
 
 ```toml
 [[entry]]
-id     = "slime"       # snake_case UNIQUE dans la table → STATS_SLIME
-name   = "Slime"       # libellé humain (éditeur seulement, pas en ROM)
+id     = "slime"       # snake_case, UNIQUE in the table → STATS_SLIME
+name   = "Slime"       # human label (editor only, not in ROM)
 max_hp = 20
 attack = 5
-elem_resist = ["feu"]  # flags8 : liste de noms cochés
-drop_item = "potion"   # ref: par id symbolique, jamais par index
+elem_resist = ["feu"]  # flags8: the list of names ticked
+drop_item = "potion"   # ref: by symbolic id, never by index
 ```
 
-- L'ORDRE des entrées du fichier est l'ordre des index ROM (réordonner
-  dans l'éditeur = réécrire le fichier). Les refs étant symboliques,
-  réordonner ne casse rien.
-- Champ absent = `default` du schéma (ou 0 ; ref/text_id `optional`
-  absent = aucun ; sinon erreur).
-- L'éditeur écrit les clés dans l'ordre du schéma, une entrée par bloc
-  `[[entry]]` — diffs Git stables.
+- The ORDER of the entries in the file is the order of the ROM indices
+  (reordering in the editor rewrites the file). Since refs are symbolic,
+  reordering breaks nothing.
+- A missing field takes the schema's `default` (or 0; an absent `optional`
+  ref/text_id means none; otherwise it is an error).
+- The editor writes the keys in schema order, one entry per `[[entry]]`
+  block — stable Git diffs.
 
-## 4. dbgen — le traducteur unique
+## 4. dbgen — the single translator
 
-Implémentation : **module `db.rs` de datagen** (un seul binaire, un seul
-chemin de build — `make data` reste l'unique commande ; l'esprit
-« dbgen » du planning est un module, pas un exécutable séparé).
+Implementation: **datagen's `db.rs` module** (one binary, one build path —
+`make data` stays the only command; the planning document's "dbgen" is a
+module, not a separate executable).
 
-Entrées : `schemas/*.toml` + `data/*.toml` + texts.json (pour les
-`text_id`). Sorties, dans `engine/src/data/` :
+Inputs: `schemas/*.toml` + `data/*.toml` + texts.json (for the
+`text_id`s). Outputs, under `engine/src/data/`:
 
-- `db_<table>.c` — la table byte-packed :
-  `const u8 db_<table>[N * TAILLE_ENTREE] = {…};` (une section ROM par
-  table, même règle 32 Ko que les assets).
-- `db_tables.h` — pour TOUTES les tables : `#define <TABLE>_<ID> <index>`
-  (constantes symboliques), `#define DB_<TABLE>_COUNT N`,
-  `#define DB_<TABLE>_SIZE <taille d'entrée>`, offsets de champs
-  `#define DB_<TABLE>_<CHAMP> <offset>`, et les `extern const u8 …`.
+- `db_<table>.c` — the byte-packed table:
+  `const u8 db_<table>[N * ENTRY_SIZE] = {…};` (one ROM section per table,
+  the same 32 KB rule as the assets).
+- `db_tables.h` — for EVERY table: `#define <TABLE>_<ID> <index>` (the
+  symbolic constants), `#define DB_<TABLE>_COUNT N`,
+  `#define DB_<TABLE>_SIZE <entry size>`, the field offsets
+  `#define DB_<TABLE>_<FIELD> <offset>`, and the `extern const u8 …`.
 
-Validations (mêmes règles que l'éditeur) : ids snake_case uniques,
-bornes de type et min/max, refs existantes, flags connus, table pleine
-(> max), champ inconnu dans une entrée, type de schéma inconnu.
-Messages d'erreur nommés (« stats.toml : entree "slime", champ
-"attack" : 300 hors bornes u8 »).
+Validations (the same rules as the editor): unique snake_case ids, type
+ranges and min/max, refs that exist, known flags, a full table (> max), an
+unknown field in an entry, an unknown schema type. Error messages name
+what failed ("stats.toml : entree "slime", champ "attack" : 300 hors
+bornes u8").
 
-Le moteur lit ces tables comme n'importe quelles données (`db_stats[
-STATS_SLIME * DB_STATS_SIZE + DB_STATS_ATTACK]`) — AUCUNE donnée en dur
-dans le moteur, comme toujours. Les opcodes VM qui liront la database
-(« donner l'objet X », « lire la stat Y ») arrivent dans une phase
-ultérieure, sur demande explicite (règle d'extension des opcodes).
+The engine reads these tables like any other data (`db_stats[STATS_SLIME *
+DB_STATS_SIZE + DB_STATS_ATTACK]`) — NO data hard-coded in the engine, as
+always. The VM opcodes that read the database ("give item X", "read stat
+Y") arrive in a later phase, on an explicit request (the opcode extension
+rule).
 
-## 5. Règles de conception (rappel)
+## 5. Design rules (a reminder)
 
-1. Le schéma est l'unique source de vérité — rien en dur côté éditeur.
-2. Les fichiers `data/` restent lisibles et diffables (ordre stable).
-3. Un seul chemin de génération : éditeur → data/*.toml → dbgen → C.
-4. Dégradation élégante sur type inconnu (lecture seule, pas de crash).
-5. Moddabilité : les utilisateurs avancés peuvent définir leurs propres
-   tables custom — l'UI générique les affiche sans code nouveau.
+1. The schema is the single source of truth — nothing hard-coded on the
+   editor side.
+2. The `data/` files stay readable and diffable (stable ordering).
+3. One generation path: editor → data/*.toml → dbgen → C.
+4. Graceful degradation on an unknown type (read-only, not a crash).
+5. Moddability: advanced users can define their own custom tables — the
+   generic UI shows them with no new code.
 
-## 6. Phasage
+## 6. Phasing
 
-| Phase | Livrable |
-|-------|----------|
-| **P10-a** | dbgen (module datagen) + schémas `stats`/`items` du démo + tables en ROM |
-| **P10-b** | Onglet/fenêtre Database générique dans l'éditeur (3 panneaux, widgets par type, validation live, jauge d'octets) |
-| **v2** | Tables RM2003 complètes (Monstres, Compétences, États…), widgets spécialisés (courbes), opcodes VM de lecture/écriture, recherche globale des refs |
-
----
-
-*Document rédigé le 28 juillet 2026 (Phase 10) — dérivé de
-`INTEGRATION_DATABASE_EDITEUR.md`.*
+| Phase | Deliverable |
+|-------|-------------|
+| **P10-a** | dbgen (the datagen module) + the demo's `stats`/`items` schemas + the tables in ROM |
+| **P10-b** | A generic Database tab/window in the editor (three panels, widgets by type, live validation, a byte gauge) |
+| **v2** | The full RM2003 tables (Monsters, Skills, States…), specialised widgets (curves), read/write VM opcodes, global ref search |

@@ -1,10 +1,10 @@
-// Fenêtres des prefabs (v0.16) :
-// — SavePrefabModal : « Enregistrer comme prefab » avec nom + CATÉGORIE
-//   (fini le prompt du navigateur, et fini les prefabs tous au même
-//   endroit) ;
-// — PrefabsModal : bibliothèque groupée par catégorie — sert de fenêtre
-//   « Nouvel événement depuis un prefab » (pick) ET de gestionnaire
-//   (Tools → Prefabs… : renommer, recatégoriser, supprimer).
+// Prefab windows (v0.16):
+// — SavePrefabModal: "Enregistrer comme prefab" with a name + a CATEGORY
+//   (no more browser prompt, and no more prefabs all landing in the same
+//   place);
+// — PrefabsModal: a library grouped by category — serves as the "Nouvel
+//   événement depuis un prefab" window (pick) AND as the manager
+//   (Tools > Prefabs…: rename, recategorise, delete).
 
 import { useState } from "react";
 import type { EventPrefab } from "../types";
@@ -20,7 +20,7 @@ function categories(prefabs: EventPrefab[]): string[] {
   return cats;
 }
 
-// ---- Enregistrer comme prefab ---------------------------------------------
+// ---- Save as a prefab -----------------------------------------------------
 
 export function SavePrefabModal(props: {
   defaultName: string;
@@ -66,13 +66,13 @@ export function SavePrefabModal(props: {
   );
 }
 
-// ---- Bibliothèque : choisir / gérer ---------------------------------------
+// ---- Library: pick / manage -----------------------------------------------
 
 export function PrefabsModal(props: {
   prefabs: EventPrefab[];
-  pick?: boolean; // « Nouvel événement depuis un prefab » : double-clic = créer
+  pick?: boolean; // "Nouvel événement depuis un prefab": double-click = create
   onPick?: (pf: EventPrefab) => void;
-  onOk: (prefabs: EventPrefab[]) => void; // renommages/suppressions appliqués
+  onOk: (prefabs: EventPrefab[]) => void; // renames/deletions applied
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<EventPrefab[]>(() =>
@@ -85,7 +85,7 @@ export function PrefabsModal(props: {
 
   const pick = (i: number) => {
     if (!props.pick || !draft[i]) return;
-    props.onOk(draft); // les éditions faites en passant sont conservées
+    props.onOk(draft); // edits made along the way are kept
     props.onPick?.(draft[i]);
   };
 

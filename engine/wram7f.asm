@@ -1,18 +1,19 @@
-; wram7f.asm — grilles de scène décompressées, en WRAM bank $7F.
+; wram7f.asm — the decompressed scene grids, in WRAM bank $7F.
 ;
-; POURQUOI ICI ET PAS EN C : le .bss de tcc-816 vit dans le SLOT 2 (bank
-; $7E, $2000-$FFFF) tandis que PVSnesLib pose SES variables (dont
-; oamMemory) dans le SLOT 0 de la même bank ($8000-$FFFF). WLA alloue les
-; deux slots INDÉPENDAMMENT : un .bss qui dépasse $7E:8000 recouvre
-; silencieusement l'OAM shadow — sprites fantômes, limite de 32 sprites
-; par ligne saturée, PNJ coupés en haut d'écran. Aucun message du linker.
+; WHY HERE AND NOT IN C: tcc-816's .bss lives in SLOT 2 (bank $7E,
+; $2000-$FFFF) while PVSnesLib puts ITS OWN variables (oamMemory among
+; them) in SLOT 0 of the same bank ($8000-$FFFF). WLA allocates the two
+; slots INDEPENDENTLY: a .bss running past $7E:8000 silently overwrites
+; the OAM shadow — ghost sprites, the 32-sprites-per-line limit
+; saturated, NPCs cut off at the top of the screen. Not a word from the
+; linker.
 ;
-; Les 24 Ko de grilles partent donc en bank $7F (libre), et hdr.asm borne
-; désormais le SLOT 2 à $2000-$7FFF pour que tout futur dépassement casse
-; le build au lieu de corrompre l'OAM. Voir docs/SPEC_FORMATS.md §6.
+; So the 24 KB of grids go into bank $7F (free), and hdr.asm now bounds
+; SLOT 2 to $2000-$7FFF so that any future overflow breaks the build
+; instead of corrupting the OAM. See docs/SPEC_FORMATS.md §6.
 ;
-; Budget : MAP_BUF_CELLS = 8192 cellules par grille (spec §1.6), validé
-; par datagen. Garder ces tailles en phase avec src/scene.c.
+; Budget: MAP_BUF_CELLS = 8192 cells per grid (spec §1.6), validated by
+; datagen. Keep these sizes in step with src/scene.c.
 
 .include "hdr.asm"
 

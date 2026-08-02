@@ -1,12 +1,12 @@
-// Autotiles RPG Maker 2003 : PNG 48x64 = 12 tiles 16x16.
-// (0,0) îlot d'aperçu, (1,0) inutilisé, (2,0) coins internes,
-// rangées 1-3 = bloc 9-slice. Chaque quart 8x8 d'une cellule choisit sa
-// pièce selon ses voisins de MÊME autotile (bord de map = même).
-// MÊME ALGORITHME que tools/datagen/src/tileset.rs — toute évolution ici
-// doit être répercutée là-bas.
+// RPG Maker 2003 autotiles: a 48x64 PNG = 12 tiles of 16x16.
+// (0,0) preview islet, (1,0) unused, (2,0) inner corners,
+// rows 1-3 = the 9-slice block. Each 8x8 quarter of a cell picks its
+// piece from its neighbours of the SAME autotile (map edge = same).
+// THE SAME ALGORITHM as tools/datagen/src/tileset.rs — any change here
+// must be mirrored there.
 
-// pièce : 0 coin externe, 1 bord horizontal, 2 bord vertical,
-// 3 coin interne, 4 centre
+// piece: 0 outer corner, 1 horizontal edge, 2 vertical edge,
+// 3 inner corner, 4 centre
 function quarterPiece(v: boolean, h: boolean, d: boolean): number {
   if (!v && !h) return 0;
   if (!v && h) return 1;
@@ -14,7 +14,7 @@ function quarterPiece(v: boolean, h: boolean, d: boolean): number {
   return d ? 4 : 3;
 }
 
-// position (col,row) de la pièce dans le gabarit, pour le quart (qx,qy)
+// position (col,row) of the piece in the template, for the quarter (qx,qy)
 function piecePos(p: number, qx: number, qy: number): [number, number] {
   const cx = qx === 1 ? 2 : 0;
   const ry = qy === 1 ? 3 : 1;
@@ -27,8 +27,8 @@ function piecePos(p: number, qx: number, qy: number): [number, number] {
   }
 }
 
-// Dessine la cellule autotile (dx,dy taille size px) d'après `same(ox,oy)` :
-// le voisin (offset en tiles) est-il le même autotile ?
+// Draws the autotile cell (dx,dy, size px) from `same(ox,oy)`: is the
+// neighbour (offset in tiles) the same autotile?
 export function drawAutotileCell(
   ctx: CanvasRenderingContext2D,
   img: ImageBitmap,
@@ -63,7 +63,7 @@ export function drawAutotileCell(
   }
 }
 
-// Aperçu palette : la tile îlot (0,0) du gabarit
+// Palette preview: the islet tile (0,0) of the template
 export function drawAutotilePreview(
   ctx: CanvasRenderingContext2D,
   img: ImageBitmap,

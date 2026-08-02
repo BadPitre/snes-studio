@@ -1,11 +1,11 @@
-// Création de scène : nom + dimensions (contrainte spec : >= 20x15).
+// Scene creation: a name + dimensions (spec constraint: >= 20x15).
 
 import { useState } from "react";
 import { MIN_H, MIN_W } from "../types";
 
 interface Props {
   existing: string[];
-  // scène parente dans l'arborescence (null = racine du projet)
+  // parent scene in the tree (null = the project's root)
   parent: string | null;
   onCreate: (name: string, width: number, height: number) => void;
   onClose: () => void;
@@ -16,12 +16,12 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
   const [width, setWidth] = useState(32);
   const [height, setHeight] = useState(32);
 
-  // le nom TAPÉ doit être valide tel quel (a-z, 0-9, _) — pas de
-  // nettoyage silencieux : « MaScene » ne doit pas devenir « ascene »
+  // the name TYPED must be valid as it stands (a-z, 0-9, _) — no silent
+  // cleanup: "MaScene" must not silently become "ascene"
   const charsOk = /^[a-z0-9_]+$/.test(name);
   const taken = charsOk && existing.includes(name);
   const nameOk = charsOk && !taken;
-  // 8192 tiles max par scène (budget WRAM de décompression, spec §1.6)
+  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
   const sizeOk =
     width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 &&
     width * height <= 8192;

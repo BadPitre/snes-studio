@@ -1,0 +1,8 @@
+[package]
+name = "snesbuild"
+version = "0.1.0"
+edition = "2021"
+description = "SNES Studio — native driver for the PVSnesLib toolchain (no make, no shell)"
+
+[dependencies]
+anyhow = "1"

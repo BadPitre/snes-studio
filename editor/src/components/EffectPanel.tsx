@@ -1,14 +1,14 @@
-// Onglet « Couche d'effet » (S11/S17) : une image de scène en OVERLAY
-// (motif dérivant au-dessus du jeu — nuages, brume, S9) ou en PANORAMA
-// (fond derrière la carte, vu par les tuiles gommées). Les explications
-// vivent en INFO-BULLES (survol souris) — l'interface reste épurée.
-// La couche sup de la scène est désactivée tant qu'une image est choisie.
+// "Couche d'effet" tab (S11/S17): a scene image as an OVERLAY (a pattern
+// drifting above the game — clouds, mist, S9) or as a PANORAMA (a
+// background behind the map, seen through the erased tiles). The
+// explanations live in TOOLTIPS (mouse hover) — the interface stays
+// spare. The scene's upper layer is disabled while an image is chosen.
 
 import type { Scene, SceneEffect } from "../types";
 
 interface Props {
   scene: Scene;
-  pictures: string[]; // stems des images (registre Picture)
+  pictures: string[]; // picture stems (the Picture register)
   onSetEffect: (effect: SceneEffect | undefined) => void;
 }
 

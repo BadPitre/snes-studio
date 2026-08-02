@@ -7,7 +7,14 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "tauri build",
+    "sidecars": "node tools/sidecars.mjs",
+    "vendor": "node tools/vendor.mjs",
+    "check:caps": "node tools/check-capabilities.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "smoke:commands": "node tools/smoke-commands.mjs",
+    "smoke:resources": "node tools/smoke-resources.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -23,6 +30,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "playwright": "^1.56.1",
     "typescript": "^5.6.3",
     "vite": "^6.0.3"
   }

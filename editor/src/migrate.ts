@@ -1,14 +1,14 @@
-// Migration F1-c — les fonctions ont d'abord été des common events à
-// paramètres, avant d'avoir leur propre liste. Un projet enregistré
-// entre-temps porte ses fonctions au mauvais endroit ; les déplacer
-// sans rien perdre, y compris les APPELS qui les visent.
+// F1-c migration — functions were first common events with parameters,
+// before they had a list of their own. A project saved in between
+// carries its functions in the wrong place; moving them without losing
+// anything, including the CALLS that target them.
 //
-// Le piège est là : les commandes stockent un INDEX, pas un nom. Sortir
-// des entrées de common_events décale toutes celles qui restent, donc
-// il ne suffit pas de déplacer les définitions — il faut réécrire les
-// « call » ET les « call_fn » de tout le projet. Une migration qui
-// oublierait ça appellerait silencieusement le mauvais script, ce qui
-// est bien pire qu'une erreur franche.
+// The trap is here: the commands store an INDEX, not a name. Taking
+// entries out of common_events shifts every remaining one, so moving
+// the definitions is not enough — the "call" AND "call_fn" commands of
+// the whole project must be rewritten. A migration that forgot this
+// would silently call the wrong script, which is far worse than a
+// clean error.
 
 import type { Command, CommonEvent, FunctionDef, ProjectData } from "./types";
 
@@ -35,7 +35,7 @@ export function migrateFunctions(d: ProjectData): ProjectData {
 
   const keptCommons: CommonEvent[] = [];
   const moved: FunctionDef[] = [];
-  const ceMap = new Map<number, number>(); // ancien index -> nouvel index
+  const ceMap = new Map<number, number>(); // old index -> new index
   const fnMap = new Map<number, number>();
   commons.forEach((ce, i) => {
     if (isFn(ce)) {
@@ -56,8 +56,8 @@ export function migrateFunctions(d: ProjectData): ProjectData {
       });
     }
   });
-  // les fonctions déjà présentes gardent leurs index, les déplacées
-  // s'ajoutent derrière
+  // the functions already present keep their indices, the moved ones are
+  // appended behind them
   const existing = d.project.functions ?? [];
   const shift = existing.length;
   const functions = [...existing, ...moved];
@@ -66,9 +66,9 @@ export function migrateFunctions(d: ProjectData): ProjectData {
     const any = c as unknown as { c: string; n?: number };
     if (any.c === "call" && any.n !== undefined) {
       const to = ceMap.get(any.n);
-      // un « call » qui visait une fonction devient un « call_fn » sans
-      // arguments : datagen le refusera avec un message clair, ce qui
-      // vaut mieux qu'un appel muet vers le mauvais script
+      // a "call" that targeted a function becomes a "call_fn" with no
+      // arguments: datagen will refuse it with a clear message, which
+      // beats a silent call to the wrong script
       if (to !== undefined) any.n = to;
       else {
         const f = fnMap.get(any.n);

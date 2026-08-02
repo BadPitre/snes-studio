@@ -1,14 +1,14 @@
-//! db.rs — « dbgen » : le système de Database (Phase 10).
-//! Réf contractuelle : docs/PLANNING_SYSTEME_DATABASE.md.
+//! "dbgen": the Database system.
+//! Contractual reference: docs/PLANNING_SYSTEME_DATABASE.md.
 //!
-//! Lit `<projet>/schemas/*.toml` (types des tables) et
-//! `<projet>/data/<table>.toml` (les instances), valide tout (bornes,
-//! refs symboliques, unicité des ids), puis émet dans engine/src/data :
-//!   - db_<table>.c   : la table byte-packed (une section ROM par table)
-//!   - db_tables.h    : constantes <TABLE>_<ID>, tailles, offsets, extern
+//! Reads `<project>/schemas/*.toml` (table types) and
+//! `<project>/data/<table>.toml` (the instances), validates everything
+//! (bounds, symbolic refs, id uniqueness), then emits into engine/src/data:
+//!   - db_<table>.c   the byte-packed table, one ROM section per table
+//!   - db_tables.h    <TABLE>_<ID> constants, sizes, offsets, externs
 //!
-//! Un projet sans dossier schemas/ n'a pas de database : rien n'est émis
-//! (les éventuels db_* d'une génération précédente sont purgés).
+//! A project with no schemas/ directory has no database: nothing is
+//! emitted, and any db_* left from a previous run is purged.
 
 use crate::emit;
 use anyhow::{bail, Context, Result};
@@ -38,20 +38,20 @@ pub struct Field {
     pub name: String,
     #[serde(rename = "type")]
     pub ty: String,
-    /// noms des bits d'un flags8 (8 max, bit i = flags[i])
+    /// Names of a flags8's bits (at most 8; bit i is flags[i]).
     #[serde(default)]
     pub flags: Vec<String>,
-    /// ref:/text_id : la valeur peut être absente (0xFF / 0xFFFF)
+    /// For ref: and text_id, the value may be absent (0xFF / 0xFFFF).
     #[serde(default)]
     pub optional: bool,
-    /// documentaire (l'éditeur affiche « copié à l'instanciation »)
+    /// Documentary: the editor shows "copied on instantiation".
     #[serde(default)]
     #[allow(dead_code)]
     pub runtime_copy: bool,
-    /// valeur pré-remplie à la création (et valeur d'un champ absent)
+    /// Value pre-filled on creation, and the value of an absent field.
     #[serde(default)]
     pub default: Option<toml::Value>,
-    /// resserrement des bornes numériques du type
+    /// Tightens the type's numeric bounds.
     #[serde(default)]
     pub min: Option<i64>,
     #[serde(default)]
@@ -70,21 +70,21 @@ fn is_snake(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// Taille ROM d'un champ, en octets
+/// ROM size of a field, in bytes.
 fn field_size(ty: &str) -> Result<usize> {
     Ok(match ty {
         "u8" | "s8" | "flags8" => 1,
         "u16" | "s16" | "text_id" => 2,
-        // B7 : ressources du projet par NOM — un index u8 en ROM
-        // (l'ordre des listes de project.json, le même que les opcodes
-        // SHOWPIC/PLAYSFX/PLAYBGM), 0xFF = absent (optional)
+        // Project resources by NAME become a u8 index in ROM: the order
+        // of the project.json lists, the same one the SHOWPIC/PLAYSFX/
+        // PLAYBGM opcodes use. 0xFF means absent (optional).
         "picture" | "sound" | "music" => 1,
         t if t.starts_with("ref:") => 1,
         other => bail!("type de champ inconnu : « {} »", other),
     })
 }
 
-/// Bornes numériques d'un type (min, max)
+/// Numeric bounds of a type, as (min, max).
 fn type_bounds(ty: &str) -> (i64, i64) {
     match ty {
         "u8" => (0, 255),
@@ -96,27 +96,27 @@ fn type_bounds(ty: &str) -> (i64, i64) {
 
 pub struct Db {
     pub schemas: Vec<Schema>,
-    /// par table : les ids symboliques dans l'ordre des index
+    /// Per table: symbolic ids in index order.
     pub ids: Vec<Vec<String>>,
-    /// par table : les entrées brutes — encodées par `encode` (les
-    /// text_id demandent la banque de textes FINALE, close après les
-    /// events), et par table : les octets encodés
+    /// Per table: the raw entries. `encode` turns them into bytes, and
+    /// needs the FINAL text bank — closed after the events — to resolve
+    /// text_id. The encoded bytes go here too.
     entries: Vec<Vec<toml::Table>>,
     pub blobs: Vec<Vec<u8>>,
 }
 
 impl Db {
-    /// id de table (index du registre db_tables[], opcode DBREAD) par nom
+    /// Table id (index into db_tables[], used by DBREAD), keyed by name.
     pub fn table_id(&self, name: &str) -> Option<usize> {
         self.schemas.iter().position(|s| s.name == name)
     }
 
-    /// index d'une entrée par id symbolique
+    /// Entry index, keyed by symbolic id.
     pub fn entry_index(&self, table: usize, id: &str) -> Option<usize> {
         self.ids[table].iter().position(|s| s == id)
     }
 
-    /// (offset, taille en octets) d'un champ d'une table
+    /// (offset, size in bytes) of a table's field.
     pub fn field_info(&self, table: usize, field: &str) -> Option<(usize, usize)> {
         let mut ofs = 0usize;
         for f in &self.schemas[table].fields {
@@ -130,15 +130,15 @@ impl Db {
     }
 }
 
-/// Charge et valide schémas + instances (tout SAUF la résolution des
-/// text_id — voir `encode`). `Ok(None)` = pas de database.
+/// Loads and validates schemas and instances — everything EXCEPT text_id
+/// resolution, which `encode` does. `Ok(None)` means no database.
 pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
     let schema_dir = proj_dir.join("schemas");
     if !schema_dir.is_dir() {
         return Ok(None);
     }
 
-    // Schémas, par ordre alphabétique de fichier (ordre déterministe)
+    // Schemas in alphabetical file order, so the output is deterministic.
     let mut paths: Vec<_> = std::fs::read_dir(&schema_dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("toml"))
@@ -200,7 +200,7 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
         .map(|(i, s)| (s.name.clone(), i))
         .collect();
 
-    // refs : les tables cibles doivent exister
+    // refs: the target tables must exist
     for sc in &schemas {
         for f in &sc.fields {
             if let Some(target) = f.ty.strip_prefix("ref:") {
@@ -214,8 +214,8 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
         }
     }
 
-    // Instances : d'abord tous les ids (les refs croisées doivent voir
-    // toutes les tables), puis l'encodage
+    // Instances: collect every id first, so cross-refs can see all the
+    // tables, then encode.
     let mut entries: Vec<Vec<toml::Table>> = Vec::new();
     let mut ids: Vec<Vec<String>> = Vec::new();
     for sc in &schemas {
@@ -257,10 +257,10 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
     Ok(Some(Db { schemas, ids, entries, blobs: Vec::new() }))
 }
 
-/// Encodage byte-packed, champ par champ dans l'ordre du schéma — à
-/// appeler quand la banque de textes est CLOSE (text_id résolus ici).
-/// Noms des ressources du projet (B7) — l'index dans chaque liste est
-/// la valeur ROM des champs picture/sound/music
+/// Byte-packed encoding, field by field in schema order. Call once the
+/// text bank is CLOSED — text_id is resolved here.
+/// The project resource names are passed in: a field's ROM value is its
+/// index in the matching list (picture/sound/music).
 pub struct ResNames<'a> {
     pub pictures: &'a [String],
     pub sounds: &'a [String],
@@ -334,7 +334,7 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                         blob.push(byte);
                     }
                     "picture" | "sound" | "music" => {
-                        // B7 : nom -> index de la liste projet (0xFF = absent)
+                        // name -> index in the project list (0xFF absent)
                         let (list, what): (&[String], &str) = match f.ty.as_str() {
                             "picture" => (res.pictures, "picture"),
                             "sound" => (res.sounds, "son"),
@@ -375,7 +375,7 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                         }
                     },
                     t => {
-                        // ref:<table> (seul cas restant après field_size)
+                        // ref:<table>, the only case left after field_size
                         let target = t.strip_prefix("ref:").unwrap();
                         let tt = table_idx[target];
                         match raw.and_then(|v| v.as_str()) {
@@ -406,13 +406,13 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
     Ok(())
 }
 
-/// Taille d'une entrée d'un schéma, en octets
+/// Size of one entry of a schema, in bytes.
 pub fn entry_size(sc: &Schema) -> usize {
     sc.fields.iter().map(|f| field_size(&f.ty).unwrap_or(0)).sum()
 }
 
-/// db_index.c + db_tables.h d'un projet SANS database : le registre vide
-/// (le moteur les inclut inconditionnellement — opcode DBREAD, v0.17)
+/// db_index.c and db_tables.h for a project with NO database: an empty
+/// registry. The engine includes them unconditionally (DBREAD).
 pub fn emit_empty() -> Vec<(String, String)> {
     let mut h = String::from(emit::HEADER);
     h.push_str("#ifndef DB_TABLES_H\n#define DB_TABLES_H\n\n#define DB_TABLE_COUNT 0\n");
@@ -422,8 +422,8 @@ pub fn emit_empty() -> Vec<(String, String)> {
     vec![("db_index.c".to_string(), c), ("db_tables.h".to_string(), h)]
 }
 
-/// Émet db_<table>.c (un par table) + db_index.c (registre pour DBREAD)
-/// + db_tables.h — (nom, contenu)
+/// Emits db_<table>.c (one per table), db_index.c (the DBREAD registry)
+/// and db_tables.h, as (name, contents).
 pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     let mut files = Vec::new();
     let mut h = String::from(emit::HEADER);
@@ -451,7 +451,7 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
         let mut c = String::from(emit::HEADER);
         c.push_str("#include <snes.h>\n\n");
         if db.blobs[ti].is_empty() {
-            // table vide : un octet, jamais lu (un tableau C vide est invalide)
+            // Empty table: one byte, never read — an empty C array is invalid.
             let _ = write!(c, "const u8 db_{}[1] = {{ 0x00 }};\n", sc.name);
         } else {
             c.push_str(&emit::u8_array(&format!("db_{}", sc.name), &db.blobs[ti], 16, false));
@@ -461,8 +461,8 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     h.push_str("#endif /* DB_TABLES_H */\n");
     files.push(("db_tables.h".to_string(), h));
 
-    // registre des tables (opcode DBREAD, v0.17) : id de table = index
-    // dans l'ordre des schémas (alphabétique, stable)
+    // Table registry (DBREAD): a table's id is its index in schema order,
+    // which is alphabetical and therefore stable.
     let mut c = String::from(emit::HEADER);
     c.push_str("#include <snes.h>\n#include \"db_tables.h\"\n\n");
     c.push_str("const u8 *const db_tables[] = {\n");

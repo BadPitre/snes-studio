@@ -1,10 +1,10 @@
-// Fenêtre « UI / Thème » (Tools →) — DESIGNER à canvas (Phase 12 D1,
-// modèle UMG demandé par Bertrand) : palette d'objets à gauche +
-// arborescence, canvas central interactif (sélection au clic, drag des
-// racines, poignée de redimensionnement, snap à la grille de 8 px),
-// inspecteur des propriétés à droite. Compile vers ui/layout.toml
-// ([[node]] en arbre) — l'aplatisseur (uilayout.ts) est le MIROIR de
-// uigen : ce que montre le canvas est ce que le moteur dessinera.
+// "UI / Thème" window (Tools >) — a canvas DESIGNER (Phase 12 D1, on the
+// UMG model): an object palette on the left plus a tree, an interactive
+// canvas in the middle (click to select, drag the roots, a resize handle,
+// snap to the 8 px grid), a property inspector on the right. Compiles to
+// ui/layout.toml ([[node]] as a tree) — the flattener (uilayout.ts) is
+// the MIRROR of uigen: what the canvas shows is what the engine will
+// draw.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../types";
@@ -32,18 +32,18 @@ import VarListModal from "./VarListModal";
 
 interface Props {
   root: string;
-  // "widgets" : liste + designer des widgets ; "dialogs" : thème +
-  // fenêtres message/choix (Tools → UI, deux sous-menus)
+  // "widgets": the widget list + designer; "dialogs": the theme +
+  // message/choice windows (Tools > UI, two submenus)
   mode: "widgets" | "dialogs";
   project: Project;
   windowskins: string[];
   iconsets: string[];
-  fonts: string[]; // fontes du projet (S1) — la défaut (assets.font) en tête
+  fonts: string[]; // the project's fonts (S1) — the default (assets.font) first
   varNames: string[];
   switchNames: string[];
   onRenameVars: (switches: string[], variables: string[]) => void;
-  // ui du projet + widgets (racines) + styles de dialogue — ui/layout.toml
-  // est écrit AVANT l'appel, les listes alimentent les commandes d'event
+  // the project's ui + widgets (roots) + dialogue styles — ui/layout.toml
+  // is written BEFORE the call, the lists feed the event commands
   onOk: (ui: Project["ui"], widgets: string[], styles: string[]) => void;
   onClose: () => void;
 }
@@ -62,7 +62,7 @@ const KIND_LABELS: Record<NodeKind, string> = {
   list: "▤ Liste (curseur)",
 };
 
-// nœud neuf par type (le designer complète id/pos/parent)
+// a fresh node per type (the designer fills in id/pos/parent)
 function newNode(kind: NodeKind): Partial<UiNode> {
   switch (kind) {
     case "window": return { size: [10, 4] };
@@ -92,24 +92,24 @@ export default function UiThemeModal(props: Props) {
   const [font, setFont] = useState<ImageBitmap | null>(null);
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
-  // pictures du projet (widget « Image » en mode picture) : bitmap par
-  // NOM (le stem, comme dans les commandes d'event)
+  // the project's pictures (the "Image" widget in picture mode): bitmap
+  // by NAME (the stem, as in the event commands)
   const [pics, setPics] = useState<Record<string, ImageBitmap>>({});
   const [selId, setSelId] = useState<string | null>(null);
-  // mode dialogues (S1) : boîte sélectionnée — 0 = défaut, i+1 = styles[i] ;
-  // skin/fonte PROPRES au style pour la preview
+  // dialogs mode (S1): the selected box — 0 = default, i+1 = styles[i];
+  // skin/font OWNED by the style, for the preview
   const [styleIdx, setStyleIdx] = useState(0);
   const [stSkin, setStSkin] = useState<ImageBitmap | null>(null);
   const [stFont, setStFont] = useState<ImageBitmap | null>(null);
-  // widget (racine) en cours d'édition — les autres sont estompés sur le
-  // canvas ; null = tout l'écran (demande Bertrand : « je crée un widget
-  // et ça ouvre le designer dessus »)
+  // widget (root) being edited — the others are dimmed on the canvas;
+  // null = the whole screen (creating a widget opens the designer
+  // straight onto it)
   const [scope, setScope] = useState<string | null>(null);
-  // deux pages (demande Bertrand) : liste des widgets -> designer
+  // two pages: the widget list -> the designer
   const [view, setView] = useState<"list" | "design">("list");
   const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // drag en cours : déplacement d'une racine ou redimensionnement
+  // drag in progress: moving a root or resizing
   const dragRef = useRef<
     | { mode: "move"; id: string; offX: number; offY: number }
     | { mode: "resize"; id: string }
@@ -130,8 +130,8 @@ export default function UiThemeModal(props: Props) {
       void loadAssetPng(props.root, ui.icons).then(setIcons).catch(() => setIcons(null));
     else setIcons(null);
   }, [ui.icons, props.root]);
-  // Les images des widgets sont dimensionnées par l'image elle-même : le
-  // designer a besoin de leurs tailles pour placer et vérifier le layout.
+  // The widgets' images are sized by the image itself: the designer needs
+  // their sizes to place and check the layout.
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -141,7 +141,7 @@ export default function UiThemeModal(props: Props) {
         try {
           out[assetStem(p)] = await loadAssetPng(props.root, p);
         } catch {
-          /* image illisible : ignorée, le nœud signalera l'absence */
+          /* unreadable image: ignored, the node will report it missing */
         }
       }
       if (alive) setPics(out);
@@ -156,7 +156,7 @@ export default function UiThemeModal(props: Props) {
       sizes[name] = [Math.ceil(bmp.width / 8), Math.ceil(bmp.height / 8)];
     setPicSizes(sizes);
   }, [pics]);
-  // assets PROPRES au style sélectionné (S1) — absents = ceux du thème
+  // assets OWNED by the selected style (S1) — absent = the theme's
   const curStyle = styleIdx > 0 ? lay?.styles[styleIdx - 1] : undefined;
   useEffect(() => {
     if (curStyle?.windowskin)
@@ -168,8 +168,8 @@ export default function UiThemeModal(props: Props) {
       void loadAssetPng(props.root, curStyle.font).then(setStFont).catch(() => setStFont(null));
     else setStFont(null);
   }, [curStyle?.font, props.root]);
-  // fontes des WIDGETS (S2) : bitmaps chargées pour la preview — la clé
-  // ne change que quand la liste des fontes utilisées change
+  // WIDGET fonts (S2): bitmaps loaded for the preview — the key only
+  // changes when the list of fonts in use changes
   const [fontMap, setFontMap] = useState<Record<string, ImageBitmap>>({});
   const widgetFontKey = [
     ...new Set((lay?.nodes ?? []).filter((n) => !n.parent && n.font).map((n) => n.font!)),
@@ -214,7 +214,7 @@ export default function UiThemeModal(props: Props) {
     return urls;
   }, [icons, iconCount]);
 
-  // ---- rendu du canvas (fidèle moteur, via les primitives aplaties) ----
+  // ---- canvas rendering (engine-faithful, through the flat primitives) ----
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !lay || !flat) return;
@@ -259,10 +259,10 @@ export default function UiThemeModal(props: Props) {
       }
     };
 
-    // primitives dans l'ordre d'émission (les panneaux précèdent leurs
-    // enfants — même z-order que le moteur)
+    // primitives in emission order (panels come before their children —
+    // the same z-order as the engine)
     for (const p of flat.prims) {
-      // fonte du widget (S2) — celle du projet si absente/pas chargée
+      // the widget's font (S2) — the project's if absent or not loaded
       const pf = p.font ? fontMap[p.font] ?? font : font;
       const f = p.frame;
       if (f) win(p.x, p.y, p.w, p.h);
@@ -299,10 +299,10 @@ export default function UiThemeModal(props: Props) {
           for (let k = 0; k < p.w; k++) icon(p.icon + k, (x0 + k) * 8, y0 * 8);
           break;
         case 8: {
-          // image du projet : on montre l'image telle qu'elle est. En jeu
-          // elle sera ramenée aux 4 couleurs de la fonte (rappel affiché
-          // dans l'inspecteur) — l'aperçu situe et dimensionne, il ne
-          // simule pas la réduction de couleurs.
+          // a project image: we show it as it is. In game it will be
+          // brought back to the font's 4 colours (a reminder is shown in
+          // the inspector) — the preview places and sizes it, it does not
+          // simulate the colour reduction.
           const bmp = p.pic ? pics[p.pic] : undefined;
           if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
           break;
@@ -315,7 +315,7 @@ export default function UiThemeModal(props: Props) {
           break;
         }
         case 7: {
-          // liste à curseur (B6) : un item par rangée, '>' sur le premier
+          // cursor list (B6): one item per row, '>' on the first
           const items = p.text.split("\n");
           for (let k = 0; k < items.length && k < ch; k++) {
             if (k === 0) text(">", x0, y0 + k, 1, pf);
@@ -325,8 +325,8 @@ export default function UiThemeModal(props: Props) {
         }
       }
     }
-    // fenêtres du dialogue (zones interdites aux widgets) — en mode
-    // dialogues, celles du STYLE sélectionné, avec SON skin et SA fonte
+    // the dialogue's windows (areas forbidden to widgets) — in dialogs
+    // mode, those of the SELECTED style, with ITS skin and ITS font
     const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
     const dSkin = st?.windowskin ? stSkin : skin;
     const dFont = st?.font ? stFont : font;
@@ -338,7 +338,7 @@ export default function UiThemeModal(props: Props) {
       win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
       text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
     }
-    // mode widget : les AUTRES widgets sont estompés (contexte)
+    // widget mode: the OTHER widgets are dimmed (context)
     if (scope) {
       ctx.fillStyle = "rgba(10, 12, 16, 0.55)";
       for (const r of rootsOf(lay.nodes)) {
@@ -347,7 +347,7 @@ export default function UiThemeModal(props: Props) {
         ctx.fillRect(rr.x * 8, rr.y * 8, rr.w * 8, rr.h * 8);
       }
     }
-    // sélection : cadre blanc/noir + poignée de redimensionnement
+    // selection: a white/black frame + a resize handle
     if (selId && flat.rects[selId]) {
       const r = flat.rects[selId];
       ctx.strokeStyle = "#000";
@@ -379,7 +379,7 @@ export default function UiThemeModal(props: Props) {
     setLay({ ...lay, [key]: w });
   };
 
-  // ---- styles de dialogue (S1, mode "dialogs") -------------------------
+  // ---- dialogue styles (S1, "dialogs" mode) ----------------------------
   const patchStyle = (patch: Partial<DialogStyle>) => {
     if (styleIdx === 0) return;
     setLay({
@@ -387,8 +387,8 @@ export default function UiThemeModal(props: Props) {
       styles: lay.styles.map((s, i) => (i === styleIdx - 1 ? { ...s, ...patch } : s)),
     });
   };
-  // fenêtre du style : lit l'EFFECTIVE (héritée du défaut si absente),
-  // écrit une fenêtre propre au style
+  // the style's window: reads the EFFECTIVE one (inherited from the
+  // default when absent), writes a window owned by the style
   const patchStyleWin = (key: "message" | "choice", i: number, axis: "pos" | "size", v: number) => {
     if (!curStyle) return;
     const eff = key === "message" ? curStyle.message ?? lay.message : curStyle.choice ?? curStyle.message ?? lay.message;
@@ -407,7 +407,7 @@ export default function UiThemeModal(props: Props) {
     setStyleIdx(lay.styles.length + 1);
   };
 
-  // profondeur d'un nœud (hit-test : on prend le plus PROFOND)
+  // depth of a node (hit-test: we take the DEEPEST)
   const depthOf = (id: string): number => {
     let d = 0;
     let n = lay.nodes.find((k) => k.id === id);
@@ -443,7 +443,7 @@ export default function UiThemeModal(props: Props) {
 
   const onCanvasDown = (e: React.MouseEvent) => {
     const [tx, ty] = tileOf(e);
-    // poignée de resize du nœud sélectionné ?
+    // resize handle of the selected node?
     if (sel && sel.size && flat.rects[sel.id]) {
       const r = flat.rects[sel.id];
       if (tx === r.x + r.w - 1 && ty === r.y + r.h - 1) {
@@ -452,7 +452,7 @@ export default function UiThemeModal(props: Props) {
       }
     }
     const hit = nodeAt(tx, ty);
-    // en mode widget : cliquer un AUTRE widget bascule le designer dessus
+    // in widget mode: clicking ANOTHER widget switches the designer to it
     if (hit && scope) {
       const hitRoot = rootAncestor(lay.nodes, hit);
       if (hitRoot && hitRoot.id !== scope) setScope(hitRoot.id);
@@ -494,9 +494,9 @@ export default function UiThemeModal(props: Props) {
     dragRef.current = null;
   };
 
-  // première position LIBRE pour un nouveau widget racine (demande
-  // Bertrand : « pas tout au même endroit ») — évite les racines
-  // existantes et les fenêtres du dialogue
+  // first FREE position for a new root widget — avoids the existing
+  // roots and the dialogue's windows, so two widgets do not land in the
+  // same place
   const freeSpot = (w: number, h: number): [number, number] => {
     const taken = rootsOf(lay.nodes)
       .filter((r) => r.pos && flat.rects[r.id])
@@ -512,13 +512,13 @@ export default function UiThemeModal(props: Props) {
     return [1, 1];
   };
 
-  // ---- palette : ajout d'un nœud --------------------------------------
+  // ---- palette: adding a node -----------------------------------------
   const addNode = (kind: NodeKind, asRoot = false) => {
     let i = 1;
     while (lay.nodes.some((n) => n.id === `${kind}${i}`)) i++;
     const node: UiNode = { id: `${kind}${i}`, type: kind, ...newNode(kind) };
-    // dans le conteneur sélectionné, sinon frère, sinon le widget en
-    // cours d'édition, sinon nouveau widget racine sur une place libre
+    // into the selected container, otherwise as a sibling, otherwise into
+    // the widget being edited, otherwise a new root widget on a free spot
     const scopeNode = scope ? lay.nodes.find((n) => n.id === scope) : undefined;
     const target = asRoot
       ? undefined
@@ -540,7 +540,7 @@ export default function UiThemeModal(props: Props) {
     setLay({ ...lay, nodes: [...lay.nodes, node] });
     setSelId(node.id);
     if (!target) {
-      setScope(node.id); // nouveau widget : le designer s'ouvre dessus
+      setScope(node.id); // a new widget: the designer opens onto it
       setView("design");
     }
   };
@@ -591,7 +591,7 @@ export default function UiThemeModal(props: Props) {
     setSelId(newId);
   };
 
-  // ---- arborescence ----------------------------------------------------
+  // ---- tree ------------------------------------------------------------
   const TreeRow = ({ n, depth }: { n: UiNode; depth: number }) => (
     <>
       <div
@@ -936,7 +936,7 @@ export default function UiThemeModal(props: Props) {
                       onClick={() => {
                         setSelId(r.id);
                         setScope(r.id);
-                        // suppression directe du widget et de ses enfants
+                        // direct deletion of the widget and its children
                         const doomed = new Set([r.id]);
                         let grew = true;
                         while (grew) {
@@ -976,7 +976,7 @@ export default function UiThemeModal(props: Props) {
         )}
         {props.mode === "widgets" && view === "design" && (
         <div className="uitheme-body">
-          {/* colonne gauche : retour + palette + structure */}
+          {/* left column: back + palette + structure */}
           <div className="uitheme-left">
             <button onClick={() => setView("list")}>← Widgets</button>
             <fieldset className="evedit-box">
@@ -1013,7 +1013,7 @@ export default function UiThemeModal(props: Props) {
             </fieldset>
           </div>
 
-          {/* canvas central */}
+          {/* central canvas */}
           <div className="uitheme-preview">
             <span className="hint">
               Canvas (clic = sélectionner, glisser = déplacer la racine, coin ▪ = redimensionner)
@@ -1058,7 +1058,7 @@ export default function UiThemeModal(props: Props) {
             )}
           </div>
 
-          {/* inspecteur */}
+          {/* inspector */}
           <div className="uitheme-inspector">
             <fieldset className="evedit-box">
               <legend>Inspecteur</legend>
@@ -1326,8 +1326,8 @@ export default function UiThemeModal(props: Props) {
             title={flat.errors.length ? "Corriger les erreurs d'abord" : undefined}
             onClick={() => {
               void (async () => {
-                // écrire PUIS prévenir : l'appelant recharge la liste des
-                // widgets — la course écriture/rechargement a déjà mordu
+                // write THEN notify: the caller reloads the widget list —
+                // the write/reload race has bitten once already
                 await ensureProjectDir(props.root, "ui");
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
                 props.onOk(

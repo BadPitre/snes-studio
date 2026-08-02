@@ -1,5 +1,5 @@
-//! Modèle du projet source (JSON) — le format que l'éditeur (Phase 3)
-//! produira. Réf : docs/SPEC_FORMATS.md.
+//! The source project model: the JSON the editor writes.
+//! Reference: docs/SPEC_FORMATS.md.
 
 use serde::Deserialize;
 
@@ -10,70 +10,69 @@ pub struct Project {
     pub boot_scene: String,
     pub scenes: Vec<String>,
     pub assets: Assets,
-    /// Modules .it, dans l'ordre des music_id (optionnel)
+    /// .it modules, in music_id order (optional).
     #[serde(default)]
     pub musics: Vec<String>,
-    /// Sons WAV (B1), dans l'ordre des sfx_id (optionnel) — convertis
-    /// en BRR 8 kHz par datagen (module sfx)
+    /// WAV sounds, in sfx_id order (optional). datagen converts them to
+    /// 8 kHz BRR — see the sfx module.
     #[serde(default)]
     pub sounds: Vec<String>,
-    /// Tilesets 16x16, dans l'ordre des tileset_id (defaut : [assets.tileset])
+    /// 16x16 tilesets, in tileset_id order (defaults to [assets.tileset]).
     #[serde(default)]
     pub tilesets: Vec<String>,
-    /// Noms des blocs de personnage (écrits par l'éditeur) — purement
-    /// cosmétique côté datagen : sert à nommer les charsets dans les
-    /// messages d'erreur (« PNJ vert » plutôt que « bloc 3 »)
+    /// Character block names, written by the editor. Cosmetic here: they
+    /// let error messages say "green NPC" rather than "block 3".
     #[serde(default)]
     pub charsets: Vec<String>,
-    /// Common events (v0.16, modèle RM2003) : scripts globaux appelables
-    /// depuis n'importe quel event ({"c":"call","n":k}) ou déclenchés en
-    /// auto par un switch. Compilés PAR SCÈNE (seuls les corps référencés
-    /// sont émis dans le bloc scripts de la scène).
+    /// Common events, RM2003 style: global scripts callable from any event
+    /// ({"c":"call","n":k}) or run automatically by a switch. Compiled PER
+    /// SCENE — only the bodies actually referenced land in a scene's
+    /// script block.
     #[serde(default)]
     pub common_events: Vec<CommonEvent>,
     #[serde(default)]
     pub functions: Vec<FunctionDef>,
-    /// Système UI (Phase 11, docs/SPEC_SYSTEME_UI.md) : thème v1
+    /// UI system (docs/SPEC_SYSTEME_UI.md): the project theme.
     #[serde(default)]
     pub ui: Option<UiConfig>,
-    /// Pictures (S3, façon RM2003) : PNG ≤ 16 couleurs affichés plein
-    /// écran par la commande d'event « Afficher une image » — l'ordre
-    /// donne les pic_id, les commandes les référencent par stem.
-    /// Entrée objet (S4) : { path, trans: true } = image à TRANSPARENCE
-    /// (pixels alpha percés à l'import — le décor se voit à travers)
+    /// Pictures, RM2003 style: PNGs of at most 16 colours shown full
+    /// screen by the "show picture" command. Order gives the pic_id;
+    /// commands reference them by stem.
+    /// An object entry { path, trans: true } marks a TRANSPARENT image —
+    /// alpha pixels are punched through at import and the scenery shows.
     #[serde(default)]
     pub pictures: Vec<PicEntry>,
-    /// Vignettes (B5) : bandes de frames 32x32 en sprites — émoticônes,
-    /// portraits, animations d'attaque. L'ordre donne les vig_id.
+    /// Vignettes: strips of 32x32 sprite frames — emotes, portraits,
+    /// attack animations. Order gives the vig_id.
     #[serde(default)]
     pub vignettes: Vec<String>,
-    /// Animations image par image (A1) — voir docs/PLANNING_SYSTEME_ANIMATIONS
+    /// Frame-by-frame animations — see docs/PLANNING_SYSTEME_ANIMATIONS.
     #[serde(default)]
     pub animations: Vec<AnimEntry>,
-    /// Écrans composés (B6bis) : noms des fichiers screens/<nom>.json —
-    /// compositions visuelles (fond + slots) + script, DÉROULÉES par la
-    /// commande {"c":"screen"} en STAGEOPEN/STAGEPOSE + script inline.
+    /// Composed screens: names of screens/<name>.json. Visual compositions
+    /// (background plus slots) and a script, UNROLLED by the {"c":"screen"}
+    /// command into STAGEOPEN/STAGEPOSE plus the inline script.
     #[serde(default)]
     pub screens: Vec<String>,
 }
 
-/// Écran composé (B6bis, screens/<nom>.json) — sucre d'éditeur : le
-/// moteur ne voit que les commandes stage existantes.
+/// A composed screen (screens/<name>.json). Editor sugar: the engine only
+/// ever sees the existing stage commands.
 #[derive(Deserialize, Clone)]
 pub struct ScreenDef {
     #[serde(skip)]
     pub name: String,
-    /// stem d'une picture (fond) — absent/vide = fond noir
+    /// Stem of a picture used as background; absent or empty means black.
     #[serde(default)]
     pub backdrop: String,
-    /// images posées à l'ouverture (slot 1-5, position en pixels)
+    /// Images posed on open (slot 1-5, position in pixels).
     #[serde(default)]
     pub slots: Vec<ScreenSlot>,
-    /// héritage : ancien script unique (devient scripts[0])
+    /// Legacy single script; becomes scripts[0].
     #[serde(default)]
     pub script: Vec<serde_json::Value>,
-    /// scripts NOMMÉS : le premier est joué à l'ouverture, les autres
-    /// s'appellent via {"c":"screen_call","script":"nom"} (inline)
+    /// NAMED scripts: the first runs on open, the others are called with
+    /// {"c":"screen_call","script":"name"} and inlined.
     #[serde(default)]
     pub scripts: Vec<ScreenScript>,
 }
@@ -82,12 +81,12 @@ pub struct ScreenDef {
 pub struct ScreenScript {
     #[serde(default)]
     pub name: String,
-    /// "auto" = à l'ouverture (dans l'ordre), "call" = par screen_call.
-    /// Absent : le premier script est auto, les autres call (héritage).
+    /// "auto" runs on open, in order; "call" runs via screen_call.
+    /// Absent: the first script is auto and the rest are call (legacy).
     #[serde(default)]
     pub trigger: String,
-    /// condition d'un script auto (switch ou variable) — compilée en
-    /// if autour du corps
+    /// Condition on an auto script (switch or variable), compiled to an
+    /// `if` around the body.
     #[serde(default)]
     pub cond: Option<ScreenCond>,
     #[serde(default)]
@@ -114,14 +113,14 @@ pub struct ScreenSlot {
     pub x: u16,
     #[serde(default)]
     pub y: u16,
-    /// libellé d'auteur — purement éditeur, ignoré ici
+    /// Author label — editor only, ignored here.
     #[serde(default)]
     #[allow(dead_code)]
     pub name: String,
 }
 
-/// Entrée du registre pictures : chemin nu, ou objet avec le drapeau de
-/// transparence (S4)
+/// A pictures registry entry: a bare path, or an object carrying the
+/// transparency flag.
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum PicEntry {
@@ -145,21 +144,21 @@ impl PicEntry {
     }
 }
 
-/// Thème UI v1 (docs/SPEC_SYSTEME_UI.md §6 — la table database arrive
-/// avec les thèmes multiples ; v1 = un thème projet)
+/// UI theme (docs/SPEC_SYSTEME_UI.md §6). One theme per project for now;
+/// the database table arrives with multiple themes.
 #[derive(Deserialize)]
 pub struct UiConfig {
-    /// PNG 24x24 (9-slice : 3x3 tiles 8x8) — MÊME palette que la fonte
-    /// (0 transparent, 1 fond, 2 texte/bord, 3 accent). Absent = boîte
-    /// pleine historique.
+    /// 24x24 PNG (9-slice, 3x3 tiles of 8x8) on the SAME palette as the
+    /// font: 0 transparent, 1 background, 2 text/border, 3 accent.
+    /// Absent means the historical solid box.
     #[serde(default)]
     pub windowskin: Option<String>,
-    /// frames par caractère du typewriter (0 = instantané, défaut)
+    /// Typewriter frames per character; 0 (the default) is instant.
     #[serde(default)]
     pub text_speed: u8,
-    /// Planche d'icônes UI des widgets (W1, PLANNING_SYSTEME_MENUS.md) :
-    /// PNG bande Nx8 (largeur multiple de 8, max 64 icônes), palette de
-    /// la fonte — chars BG3 appendus après le windowskin (UI_ICON_BASE).
+    /// UI widget icon sheet: an Nx8 strip (width a multiple of 8, at most
+    /// 64 icons) on the font's palette. Its BG3 chars are appended after
+    /// the windowskin (UI_ICON_BASE).
     #[serde(default)]
     pub icons: Option<String>,
 }
@@ -168,36 +167,42 @@ pub struct UiConfig {
 pub struct CommonEvent {
     #[serde(default)]
     pub name: String,
-    /// "none" (appelable seulement) ou "auto" (relancé tant que son
-    /// switch est ON — RM2003 Autorun ; switch OBLIGATOIRE)
+    /// "none" means callable only; "auto" reruns while its switch is ON
+    /// (RM2003 Autorun), and then the switch is MANDATORY.
     #[serde(default = "trigger_none")]
     pub trigger: String,
-    /// Switch de condition (requis si trigger == "auto")
+    /// Condition switch, required when trigger == "auto".
     #[serde(default)]
     pub switch: Option<u16>,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
-    /// F1-c — VESTIGE. Les fonctions ont d'abord été des common events à
-    /// paramètres ; elles ont maintenant leur propre liste. Ce champ ne
-    /// sert plus qu'à refuser explicitement un projet resté au format
-    /// d'avant, plutôt que de perdre son contenu en silence.
+    /// VESTIGIAL. Functions started life as common events with
+    /// parameters; they have their own list now. This field only exists
+    /// to refuse an old-format project explicitly, rather than silently
+    /// losing its contents.
     #[serde(default)]
     pub params: Vec<String>,
 }
 
-/// F1 — une FONCTION : un script global qui prend des paramètres et peut
-/// rendre une valeur. Séparée des common events parce que ce n'est pas
-/// la même chose : un common event est un bloc de commandes qu'on
-/// déclenche, une fonction est un calcul qu'on appelle. Les noms de
-/// paramètres ne servent qu'à l'éditeur ; le moteur ne connaît que des
-/// index dans le cadre d'appel.
+/// A FUNCTION: a global script that takes parameters and may return a
+/// value. Kept apart from common events because it is not the same
+/// thing — a common event is a block of commands you trigger, a function
+/// is a computation you call. Parameter names serve the editor only; the
+/// engine knows nothing but indices into the call frame.
 #[derive(Deserialize)]
 pub struct FunctionDef {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub params: Vec<String>,
-    /// rend une valeur (commande « ret_fn »), lue par la source « ret »
+    /// Names of the LOCAL variables. They live in the call frame right
+    /// after the parameters: every call gets its own, zeroed, recursion
+    /// included. That is what lets a function keep scratch state without
+    /// borrowing a global — and without two nested calls trampling each
+    /// other.
+    #[serde(default)]
+    pub locals: Vec<String>,
+    /// Whether it returns a value ("ret_fn"), read by the "ret" source.
     #[serde(default)]
     pub returns: bool,
     #[serde(default)]
@@ -221,34 +226,34 @@ pub struct Scene {
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
-    /// Couche inférieure : ids logiques (0.. = grille, 1000+k = autotile k)
+    /// Lower layer: logical ids (0.. = grid, 1000+k = autotile k).
     pub tilemap: Vec<Vec<i32>>,
-    /// Couche supérieure : -1 = vide (absent = tout vide)
+    /// Upper layer: -1 is empty; absent means all empty.
     #[serde(default)]
     pub upper: Option<Vec<Vec<i32>>>,
-    /// Héritage pré-passabilité : IGNORÉ (la collision est dérivée du
-    /// tileset depuis la Phase 5c) — accepté pour les vieux fichiers
+    /// Pre-passability legacy: IGNORED. Collision is derived from the
+    /// tileset now; the field is still accepted for old files.
     #[serde(default)]
     #[allow(dead_code)]
     pub collision: Option<Vec<Vec<u8>>>,
     #[serde(default)]
     pub actors: Vec<Actor>,
-    /// Événements (Event Editor) — compilés vers actors + script (events.rs)
+    /// Events (Event Editor), compiled to actors plus script — events.rs.
     #[serde(default)]
     pub events: Vec<Event>,
     #[serde(default)]
     pub script: Vec<String>,
     #[serde(default)]
     pub warps: Vec<Warp>,
-    /// Nom (stem) d'un module de project.musics — absent = silence
+    /// Stem of a module in project.musics; absent means silence.
     #[serde(default)]
     pub music: Option<String>,
-    /// Nom (stem) d'un tileset de project.tilesets — absent = le premier
+    /// Stem of a tileset in project.tilesets; absent means the first.
     #[serde(default)]
     pub tileset: Option<String>,
-    /// Couche d'effet (S9) : motif dérivant porté par BG1 à la place de
-    /// la couche sup (ignorée dans ces scènes). pic = stem d'une image à
-    /// TRANSPARENCE de project.pictures, dx/dy en px par seconde.
+    /// Effect layer: a drifting pattern carried by BG1 in place of the
+    /// upper layer, which is ignored in those scenes. `pic` is the stem
+    /// of a TRANSPARENT image in project.pictures; dx/dy are px per second.
     #[serde(default)]
     pub effect: Option<Effect>,
 }
@@ -260,20 +265,20 @@ pub struct Effect {
     pub dx: f64,
     #[serde(default)]
     pub dy: f64,
-    /// "half" (semi-transparent), "add", "sub" — absent = opaque
+    /// "half" (semi-transparent), "add", "sub"; absent means opaque.
     #[serde(default)]
     pub blend: Option<String>,
-    /// Suivi caméra (S11) : "half" (½) ou "quarter" (¼) — absent = le
-    /// motif est fixe à l'écran (très lointain), seule la dérive bouge
+    /// Camera follow: "half" or "quarter". Absent means the pattern is
+    /// fixed on screen — very distant — and only the drift moves it.
     #[serde(default)]
     pub parallax: Option<String>,
-    /// Position du plan (S17) : "front" (défaut) = surimpression au-dessus
-    /// du jeu (nuages, brume) ; "back" = PANORAMA derrière la carte, vu
-    /// par les tuiles gommées de la couche basse (façon RPG Maker).
+    /// Plane position: "front" (default) overlays the game (clouds, mist);
+    /// "back" is a PANORAMA behind the map, seen through the erased tiles
+    /// of the lower layer, RPG Maker style.
     #[serde(default)]
     pub mode: Option<String>,
-    /// Panorama : répéter l'image (défaut true = motif qui boucle et peut
-    /// défiler) ou non (false = image fixe unique, sans défilement).
+    /// Panorama: repeat the image (default true — a looping, scrollable
+    /// pattern) or not (false — one fixed image, no scrolling).
     #[serde(default)]
     pub repeat: Option<bool>,
 }
@@ -282,21 +287,21 @@ pub struct Effect {
 pub struct Warp {
     pub x: u8,
     pub y: u8,
-    /// Nom de la scène cible
+    /// Target scene name.
     pub to: String,
     pub tx: u8,
     pub ty: u8,
-    /// v0.16 — direction du héros à l'arrivée ("down"/"up"/"left"/
-    /// "right"), absente = conserver (WarpDef.flags, spec §1.5)
+    /// Hero facing on arrival ("down"/"up"/"left"/"right"); absent keeps
+    /// the current one (WarpDef.flags, spec §1.5).
     #[serde(default)]
     pub dir: Option<String>,
-    /// S18 — transition : "fade" (défaut), "none" (instantané),
-    /// "mosaic" (mosaïque $2106) — WarpDef.trans
+    /// Transition: "fade" (default), "none" (instant), "mosaic"
+    /// ($2106 mosaic) — WarpDef.trans.
     #[serde(default)]
     pub trans: Option<String>,
 }
 
-/// Code moteur d'une transition d'écran (S18/S18b)
+/// Engine code for a screen transition.
 pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
     Ok(match trans.as_deref() {
         None | Some("") | Some("fade") => 0,
@@ -314,43 +319,42 @@ pub fn trans_code(trans: &Option<String>) -> anyhow::Result<u8> {
 
 #[derive(Deserialize)]
 pub struct Actor {
-    /// "npc" (parle avec A), "trigger" (contact : le script part quand le
-    /// héros marche sur la tile), "auto" (le script part au chargement de
-    /// la scène) — modèle des déclencheurs RM2003 (v0.6)
+    /// "npc" talks with A; "trigger" fires when the hero steps on the
+    /// tile; "auto" fires when the scene loads. RM2003 trigger model.
     #[serde(rename = "type")]
     pub kind: String,
     pub x: u8,
     pub y: u8,
-    /// Bloc de personnage — ignoré pour trigger/auto (invisibles)
+    /// Character block; ignored for trigger/auto, which are invisible.
     #[serde(default)]
     pub sprite: u8,
     #[serde(default = "dir_down")]
     pub dir: String,
-    /// Label d'entrée dans le script de la scène (absent = pas de script)
+    /// Entry label in the scene's script; absent means no script.
     #[serde(default)]
     pub entry: Option<String>,
-    /// v0.10 — pages d'events : page 2+ du même event (entrées consécutives)
+    /// Event pages: page 2+ of the same event, as consecutive entries.
     #[serde(default)]
     pub cont: bool,
-    /// v0.10 — condition d'activation : 0 aucune, 1 switch ON, 2 switch OFF,
-    /// 3 variable >= valeur (spec §1.3)
+    /// Activation condition: 0 none, 1 switch ON, 2 switch OFF,
+    /// 3 variable >= value (spec §1.3).
     #[serde(default)]
     pub cond_type: u8,
     #[serde(default)]
     pub cond_idx: u16,
     #[serde(default)]
     pub cond_val: u16,
-    /// v0.11 — 0 statique, 1 aléatoire, 2 vertical, 3 horizontal,
+    /// 0 static, 1 random, 2 vertical, 3 horizontal, 4 custom route.
     /// 4 route custom (v0.14)
     #[serde(default)]
     pub move_type: u8,
-    /// v0.14 — 0 sous le héros, 1 comme le héros, 2 au-dessus
+    /// 0 below the hero, 1 same as the hero, 2 above.
     #[serde(default = "prio_same")]
     pub priority: u8,
-    /// v0.14 — vitesse 1-4 (0 = défaut 1)
+    /// Speed 1-4 (0 means the default, 1).
     #[serde(default)]
     pub speed: u8,
-    /// v0.14 — label du blob de route custom dans le bloc scripts
+    /// Label of the custom route blob in the script block.
     #[serde(default)]
     pub route_label: Option<String>,
 }
@@ -369,64 +373,63 @@ pub struct TextEntry {
     pub text: String,
 }
 
-/// Événement (Event Editor, modèle RM2003) — sucre du format SOURCE :
-/// compilé par events.rs vers un acteur + du bytecode VM (TOOLS.md).
+/// An event (Event Editor, RM2003 model). Sugar over the SOURCE format:
+/// events.rs compiles it to an actor plus VM bytecode (TOOLS.md).
 #[derive(Deserialize)]
 pub struct Event {
     #[serde(default)]
     pub name: String,
     pub x: u8,
     pub y: u8,
-    /// "action" (touche A), "touch" (contact), "auto" (chargement)
+    /// "action" (A button), "touch" (contact), "auto" (scene load).
     #[serde(default = "trigger_action")]
     pub trigger: String,
-    /// Bloc de personnage ; -1 = invisible (touch/auto)
+    /// Character block; -1 means invisible (touch/auto).
     #[serde(default = "minus_one")]
     pub sprite: i16,
-    /// T4 — apparence TILE : id de grille de la couche haute du tileset
-    /// de la scène (exclusif avec sprite ; datagen compose un bloc de
-    /// sprite virtuel depuis la tile)
+    /// TILE appearance: a grid id from the upper layer of the scene's
+    /// tileset, exclusive with `sprite`. datagen composes a virtual
+    /// sprite block from that tile.
     #[serde(default)]
     pub tile: Option<u16>,
     #[serde(default = "dir_down")]
     pub dir: String,
-    /// Label d'un script écrit à la main (avancé) — ignoré si commands
+    /// Label of a hand-written script (advanced); ignored if `commands`.
     #[serde(default)]
     pub entry: Option<String>,
-    /// Commandes structurées (Event Editor)
+    /// Structured commands (Event Editor).
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
-    /// v0.11 — type de mouvement : "static" (défaut), "random",
-    /// "vertical", "horizontal", "custom" (v0.14 : move_route requis)
+    /// Movement type: "static" (default), "random", "vertical",
+    /// "horizontal", "custom" (which requires move_route).
     #[serde(default)]
     pub r#move: Option<String>,
-    /// v0.14 — route custom : {"freq","repeat","skip","steps":[...]}
+    /// Custom route: {"freq","repeat","skip","steps":[...]}.
     #[serde(default)]
     pub move_route: Option<serde_json::Value>,
-    /// v0.14 — "below" | "same" (défaut) | "above"
+    /// "below" | "same" (default) | "above".
     #[serde(default)]
     pub priority: Option<String>,
-    /// v0.14 — vitesse 1-4 (absent = 1)
+    /// Speed 1-4; absent means 1.
     #[serde(default)]
     pub speed: Option<u8>,
-    /// v0.10 — pages conditionnelles (absent = 1 page implicite formée des
-    /// champs ci-dessus). Chaque page a sa condition, son apparence, son
-    /// déclencheur et ses commandes ; la DERNIÈRE page dont la condition
-    /// passe est active (modèle RM2003).
+    /// Conditional pages; absent means one implicit page made of the
+    /// fields above. Each page has its condition, appearance, trigger and
+    /// commands; the LAST page whose condition passes is active (RM2003).
     #[serde(default)]
     pub pages: Vec<EventPage>,
 }
 
 #[derive(serde::Deserialize)]
 pub struct EventPage {
-    /// {"switch": n, "on": bool} ou {"var": n, "min": v} — absent = toujours
+    /// {"switch": n, "on": bool} or {"var": n, "min": v}; absent = always.
     #[serde(default)]
     pub condition: Option<serde_json::Value>,
     #[serde(default = "trigger_action")]
     pub trigger: String,
     #[serde(default = "minus_one")]
     pub sprite: i16,
-    /// T4 — apparence tile (voir Event::tile)
+    /// Tile appearance — see Event::tile.
     #[serde(default)]
     pub tile: Option<u16>,
     #[serde(default = "dir_down")]
@@ -454,7 +457,7 @@ fn minus_one() -> i16 {
 }
 
 impl Scene {
-    /// Vérifications de cohérence avec la spec (§1.2, §1.4, contrainte >= 32)
+    /// Consistency checks against the spec (§1.2, §1.4, the >= 32 rule).
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
         if self.width < 20 || self.height < 15 {
@@ -484,7 +487,7 @@ impl Scene {
             match a.kind.as_str() {
                 "npc" => {}
                 "trigger" | "auto" => {
-                    // sans script, un déclencheur ne sert à rien
+                    // a trigger with no script does nothing
                     if a.entry.is_none() {
                         bail!(
                             "scene '{}' : acteur '{}' en ({},{}) sans entry (script requis)",
@@ -503,13 +506,13 @@ impl Scene {
             if w.x >= self.width || w.y >= self.height {
                 bail!("scene '{}' : warp ({},{}) hors map", self.name, w.x, w.y);
             }
-            // « warp sur tile libre » : vérifié après dérivation de la
-            // collision (binbank), la passabilité venant du tileset
+            // "warp on a walkable tile" is checked after collision is
+            // derived (binbank): passability comes from the tileset
         }
         Ok(())
     }
 
-    /// Couche supérieure, ou grille vide (-1) si absente
+    /// Upper layer, or an empty (-1) grid when absent.
     pub fn upper_or_empty(&self) -> Vec<Vec<i32>> {
         match &self.upper {
             Some(up) => up.clone(),
@@ -528,40 +531,39 @@ pub fn dir_code(dir: &str) -> anyhow::Result<u8> {
     })
 }
 
-/// Une cellule POSÉE (A1-e) : le calque affiche `cell` de la planche au
-/// décalage (x, y). `cell = -1` = ce calque n'affiche RIEN sur cette
-/// frame — même convention que `event: -1` ailleurs dans le format.
+/// One POSED cell: the layer shows `cell` of the sheet at offset (x, y).
+/// `cell = -1` means this layer shows NOTHING on that frame — the same
+/// convention as `event: -1` elsewhere in the format.
 #[derive(Deserialize)]
 pub struct AnimCell {
-    /// index de cellule DANS la vignette servant de planche, -1 = rien
+    /// Cell index within the vignette used as sheet; -1 means nothing.
     pub cell: i16,
-    /// décalage signé en pixels par rapport au point d'ancrage
+    /// Signed pixel offset from the anchor point.
     #[serde(default)]
     pub x: i16,
     #[serde(default)]
     pub y: i16,
 }
 
-/// Une frame d'animation (A1) : les cellules affichées SIMULTANÉMENT
-/// (une par calque), combien de temps, et un son optionnel joué à
-/// l'entrée de la frame.
+/// One animation frame: the cells shown SIMULTANEOUSLY (one per layer),
+/// how long, and an optional sound played when the frame is entered.
 #[derive(Deserialize)]
 pub struct AnimFrame {
-    /// une entrée par CALQUE (A1-e)
+    /// One entry per LAYER.
     #[serde(default)]
     pub cells: Vec<AnimCell>,
-    /// forme HÉRITÉE mono-calque (projets d'avant les calques) — lue
-    /// quand `cells` est absent, jamais réécrite par l'éditeur
+    /// LEGACY single-layer form, from projects predating layers. Read
+    /// when `cells` is absent, never written back by the editor.
     #[serde(default)]
     pub cell: Option<i16>,
     #[serde(default)]
     pub x: i16,
     #[serde(default)]
     pub y: i16,
-    /// durée en frames écran (1-255)
+    /// Duration in screen frames (1-255).
     #[serde(default = "anim_dur_default")]
     pub dur: u8,
-    /// son joué À L'ENTRÉE de cette frame (nom du projet)
+    /// Sound played ON ENTERING this frame (project name).
     #[serde(default)]
     pub sfx: Option<String>,
 }
@@ -571,7 +573,7 @@ fn anim_dur_default() -> u8 {
 }
 
 impl AnimFrame {
-    /// Cellules posées de la frame, forme héritée comprise.
+    /// The frame's posed cells, legacy form included.
     pub fn posed(&self) -> Vec<(i16, i16, i16)> {
         if !self.cells.is_empty() {
             return self.cells.iter().map(|c| (c.cell, c.x, c.y)).collect();
@@ -580,20 +582,19 @@ impl AnimFrame {
     }
 }
 
-/// Animation image par image (A1). La planche de cellules est une
-/// VIGNETTE du projet : le pipeline graphique (chars OBJ 32x32, palette,
-/// transfert au VBlank) est déjà écrit et testé, l'animation n'ajoute
-/// que la piste de frames.
+/// A frame-by-frame animation. The cell sheet is a project VIGNETTE: the
+/// graphics pipeline (32x32 OBJ chars, palette, VBlank transfer) is
+/// already written and tested, so an animation only adds the frame track.
 #[derive(Deserialize)]
 pub struct AnimEntry {
     pub name: String,
-    /// nom (stem) de la vignette servant de planche de cellules
+    /// Stem of the vignette used as cell sheet.
     pub vignette: String,
     #[serde(default)]
     pub r#loop: bool,
-    /// Cellules affichées SIMULTANÉMENT (1-4). Un calque coûte un slot
-    /// de vignette mais AUCUNE palette de plus : tous viennent de la
-    /// même planche (voir engine/src/vignette.h).
+    /// Cells shown SIMULTANEOUSLY (1-4). A layer costs a vignette slot but
+    /// NO extra palette: they all come from the same sheet. See
+    /// engine/src/vignette.h.
     #[serde(default = "anim_layers_default")]
     pub layers: u8,
     pub frames: Vec<AnimFrame>,

@@ -1,15 +1,15 @@
-// Fenêtre « Tilesets » (Tools →, T1/T2) — l'onglet Tileset de la Database
-// RM2003 : la LISTE des tilesets du projet à gauche (＋ en crée un VIDE,
-// on lui assigne ensuite un fichier chipset importé via le Gestionnaire
-// de ressources), Nom + Fichier en tête, deux onglets Couche basse /
-// Couche haute, et les modes d'édition en colonne à gauche de la grille :
-//   Passabilité   : O passable, X solide, ☆ au-dessus du héros (cycle)
-//   Directionnel  : 4 flèches par tile — un côté FERMÉ ne se franchit
-//                   plus (comptoirs, corniches) ; clic près d'un bord
-//   Animations    : séquences de tiles animées façon eau RM2003
-//                   (2-4 tiles de grille, 1-2-3 ou 1-2-3-2, vitesse)
-// La passabilité & co vivent dans le sidecar du FICHIER (assets/<stem>
-// .json) : deux tilesets qui partagent un fichier partagent ses réglages.
+// "Tilesets" window (Tools >, T1/T2) — the Tileset tab of the RM2003
+// Database: the LIST of the project's tilesets on the left (＋ creates an
+// EMPTY one, you then assign it a chipset file imported through the
+// resource manager), Name + File at the top, two tabs Lower layer /
+// Upper layer, and the editing modes in a column left of the grid:
+//   Passability   : O walkable, X solid, ☆ above the hero (a cycle)
+//   Directional   : 4 arrows per tile — a CLOSED side can no longer be
+//                   crossed (counters, ledges); click near an edge
+//   Animations    : animated tile sequences, RM2003 water style
+//                   (2-4 grid tiles, 1-2-3 or 1-2-3-2, a speed)
+// Passability and friends live in the FILE's sidecar (assets/<stem>
+// .json): two tilesets sharing a file share its settings.
 
 import { useEffect, useRef, useState } from "react";
 import type { TilesetDef, TilesetMeta } from "../types";
@@ -18,11 +18,11 @@ import { isAboveId, isSolidId, cyclePassability } from "../state";
 import { drawAutotilePreview } from "../autotile";
 
 interface Props {
-  defs: TilesetDef[]; // entrées nommées (project.tileset_defs)
-  files: string[]; // chipsets importés (project.tilesets — chemins PNG)
-  tilesets: Record<string, ImageBitmap>; // bitmaps par stem de fichier
-  autoImgs: Record<string, ImageBitmap[]>; // autotiles par stem
-  meta: Record<string, TilesetMeta>; // sidecars par stem
+  defs: TilesetDef[]; // named entries (project.tileset_defs)
+  files: string[]; // imported chipsets (project.tilesets — PNG paths)
+  tilesets: Record<string, ImageBitmap>; // bitmaps by file stem
+  autoImgs: Record<string, ImageBitmap[]>; // autotiles by stem
+  meta: Record<string, TilesetMeta>; // sidecars by stem
   onOk: (defs: TilesetDef[], meta: Record<string, TilesetMeta>) => void;
   onClose: () => void;
 }
@@ -31,9 +31,9 @@ type Mode = "pass" | "dirs" | "anims";
 type Tab = "lower" | "upper";
 
 const COLS = 6;
-const CELL = 40; // tile 16x16 affichée x2 + marge pour les flèches
+const CELL = 40; // a 16x16 tile shown x2 + margin for the arrows
 
-// bits des côtés fermés — alignés sur DIR_* du moteur
+// bits of the closed sides — aligned on the engine's DIR_*
 const B_DOWN = 1, B_UP = 2, B_LEFT = 4, B_RIGHT = 8;
 
 export default function TilesetsModal(props: Props) {
@@ -58,8 +58,8 @@ export default function TilesetsModal(props: Props) {
     : 0;
   const anims = meta.anims ?? [];
 
-  // cellules affichées, filtrées par ONGLET (chipsets RM2003 :
-  // upper_start sépare les sections ; sans lui, tout vit en couche basse)
+  // cells shown, filtered by TAB (RM2003 chipsets: upper_start splits the
+  // sections; without it, everything lives in the lower layer)
   const us = meta.upper_start;
   const cells: number[] = [];
   if (tab === "lower") {
@@ -76,7 +76,7 @@ export default function TilesetsModal(props: Props) {
     if (stem) setDraft({ ...draft, [stem]: m });
   };
 
-  // nom libre le plus proche pour une nouvelle entrée
+  // nearest free name for a new entry
   function freeName(): string {
     for (let i = defs.length + 1; ; i++) {
       const n = `tileset${i}`;
@@ -84,7 +84,7 @@ export default function TilesetsModal(props: Props) {
     }
   }
 
-  // ---- rendu de la grille ----------------------------------------------
+  // ---- grid rendering --------------------------------------------------
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
@@ -166,7 +166,7 @@ export default function TilesetsModal(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bmp, autos, meta, mode, tab, seqSel, rows, stem]);
 
-  // ---- clics sur la grille -----------------------------------------------
+  // ---- clicks on the grid ------------------------------------------------
   function onClick(e: React.MouseEvent) {
     if (!bmp) return;
     const rect = ref.current!.getBoundingClientRect();
@@ -179,9 +179,9 @@ export default function TilesetsModal(props: Props) {
       patch(cyclePassability(meta, id));
       return;
     }
-    if (id >= AUTOTILE_BASE) return; // dirs/anims : tiles de grille seules
+    if (id >= AUTOTILE_BASE) return; // dirs/anims: grid tiles only
     if (mode === "dirs") {
-      if (isSolidId(meta, id)) return; // un solide n'a pas de côtés
+      if (isSolidId(meta, id)) return; // a solid has no sides
       const lx = e.clientX - rect.left - cx * CELL - 20; // centre 0
       const ly = e.clientY - rect.top - cy * CELL - 20;
       const bit =
@@ -221,7 +221,7 @@ export default function TilesetsModal(props: Props) {
       <div className="modal database" onClick={(e) => e.stopPropagation()}>
         <div className="palette-title">Tilesets<button className="modal-x" title="Fermer" onClick={props.onClose}>✕</button></div>
         <div className="db-body">
-          {/* ---- colonne gauche : la liste, façon Database RM2003 ---- */}
+          {/* ---- left column: the list, RM2003 Database style ---- */}
           <div className="db-tablecol">
             <div className="evedit-cmds db-tables">
               {defs.map((d, i) => (
@@ -263,7 +263,7 @@ export default function TilesetsModal(props: Props) {
             </div>
           </div>
 
-          {/* ---- panneau principal ---- */}
+          {/* ---- main panel ---- */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
             {def && (
               <div className="row" style={{ gap: 8 }}>
@@ -300,7 +300,7 @@ export default function TilesetsModal(props: Props) {
               </div>
             )}
             <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
-              {/* modes d'édition en colonne (Editing Mode de RM2003) */}
+              {/* editing modes in a column (RM2003's Editing Mode) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "0 0 200px" }}>
                 <button className={mode === "pass" ? "active" : ""} onClick={() => setMode("pass")}
                   title="Clic : O (passable) → X (solide) → ☆ (au-dessus du héros) → O. Autotiles compris.">
@@ -395,7 +395,7 @@ export default function TilesetsModal(props: Props) {
                   </>
                 )}
               </div>
-              {/* grille du tileset — onglets de couche juste au-dessus */}
+              {/* the tileset grid — layer tabs just above */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
                 <div className="tabs">
                   <button

@@ -1,29 +1,29 @@
 /*
- * sysmenu.h — menu Système (touche START) : sauvegarder / charger, façon
- * RM2003. Réutilise la textbox (choix avec curseur).
+ * sysmenu.h — the System menu (START): save and load, RM2003 style.
+ * Reuses the textbox for its cursor-driven choices.
  */
 #ifndef SYSMENU_H
 #define SYSMENU_H
 
 #include <snes.h>
 
-/* Init explicite (au boot) — ne jamais compter sur une mise à zéro
-   implicite des statiques avec cette toolchain. */
+/* Explicit init at boot — never rely on statics being zeroed with this
+   toolchain (docs/ENGINE_CONSTRAINTS.md §1.2). */
 void sysmenu_init(void);
 
-/* 1 si le menu est ouvert (le joueur est gelé). */
+/* 1 while the menu is open (the player is frozen). */
 u8 sysmenu_active(void);
 
-/* Ouvre le menu principal (Sauvegarder / Charger / Fermer). */
+/* Opens the main menu (Save / Load / Close). */
 void sysmenu_open(void);
 
-/* À appeler chaque frame quand le menu est actif : navigation + actions. */
+/* Call every frame while the menu is active: navigation and actions. */
 void sysmenu_update(void);
 
-/* Un chargement a été validé ? Renvoie 1 (une seule fois) — la destination
-   est dans save_info (save.h), les gvars sont déjà appliquées ; la boucle
-   principale fait le warp puis pose la direction. Pas de paramètres
-   pointeurs : tcc-816 est fragile sur ce pattern. */
+/* Has a load been confirmed? Returns 1 once. The destination is in
+   save_info (save.h) and the gvars are already applied; the main loop
+   does the warp and then sets the facing. No pointer parameters —
+   tcc-816 is fragile on that pattern (§1.7). */
 u8 sysmenu_take_load(void);
 
 #endif /* SYSMENU_H */

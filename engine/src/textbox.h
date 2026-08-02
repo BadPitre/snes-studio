@@ -1,56 +1,56 @@
 /*
- * textbox.h — fenêtre de dialogue sur BG3 (mode 1, 2bpp, priorité haute).
+ * textbox.h — the dialogue window on BG3 (mode 1, 2bpp, high priority).
  */
 #ifndef TEXTBOX_H
 #define TEXTBOX_H
 
 #include <snes.h>
 
-/* Charge la fonte + palette et pointe la map BG3. À appeler écran
-   éteint (le nettoyage de la map est fait par ui_screen_init — M1). */
+/* Loads the font and palette and points the BG3 map at it. Call with
+   the screen off; ui_screen_init clears the map. */
 void textbox_init(void);
 
-/* Recharge la palette de la fonte (CGRAM 16-19, slots réservés spec §4) —
-   à appeler après chaque scene_load : le chargement CGRAM de la scène
-   écrase ces slots. */
+/* Reloads the font palette (CGRAM 16-19, slots reserved by spec §4).
+   Call after every scene_load: the scene's CGRAM load overwrites those
+   slots. */
 void textbox_load_pal(void);
 
-/* Prépare la boîte avec le texte text_id (table de data_texts.c),
-   avec retour à la ligne par mot. Affichée au prochain VBlank. */
+/* Prepares the box with text text_id (the data_texts.c table), wrapping
+   on word boundaries. Shown at the next VBlank. */
 void textbox_open(u16 text_id);
 
-/* Variantes « chaîne C » pour le vocabulaire moteur (menu Système) */
+/* "C string" variants, for the engine's own vocabulary (System menu) */
 void textbox_open_raw(const char *s);
 void textbox_choices_raw(const char *const *options, u8 count, u8 sel);
 
-/* CHOICE (spec §2 v0.6) : affiche 2-4 options (une par ligne) avec le
-   curseur '>' sur l'option sel. */
+/* CHOICE (spec §2): shows 2-4 options, one per line, with the '>'
+   cursor on option `sel`. */
 void textbox_open_choices(const u16 *text_ids, u8 count, u8 sel);
 
-/* Déplace le curseur du CHOICE en cours. */
+/* Moves the cursor of the CHOICE in progress. */
 void textbox_choice_cursor(u8 sel);
 
-/* Style de dialogue courant (S1, opcode DLGSTYLE) : fenêtre, windowskin
-   et fonte du style n (0 = défaut, hors bornes = 0). */
+/* Current dialogue style (the DLGSTYLE opcode): window, windowskin and
+   font of style n (0 default; out of range means 0). */
 void textbox_set_style(u8 n);
 
-/* Machine à écrire (Phase 11, thème UI_TEXT_SPEED > 0) : un pas de
-   révélation par frame (appelé pendant l'attente TEXTBOX de la VM),
-   1 si la révélation court encore, tout révéler d'un coup (touche A —
-   s'arrête sur un point d'attente \! : ils sont voulus par l'auteur). */
+/* Typewriter (UI_TEXT_SPEED > 0): one reveal step per frame, called
+   while the VM waits on TEXTBOX. Returns 1 while the reveal is still
+   running. Revealing everything at once (the A button) stops on a \! 
+   wait point: those are the author's, deliberately. */
 void textbox_tick(void);
 u8 textbox_busy(void);
 void textbox_finish(void);
 
-/* Codes spéciaux (T2, spec §2) : point d'attente \! en cours (l'appui
-   sur A doit REPRENDRE la révélation, pas fermer), reprise après \!,
-   et fermeture automatique \^ (la VM ferme sans attendre d'appui). */
+/* Special codes (spec §2): a \! wait point in progress — pressing A
+   must RESUME the reveal, not close the box — resumption after it, and
+   automatic closing on \^, where the VM closes without waiting. */
 u8 textbox_waiting_key(void);
 void textbox_resume(void);
 u8 textbox_autoclose(void);
 
-/* Efface la boîte (la bande du dialogue redevient transparente au
-   prochain VBlank — transfert centralisé par ui_screen_vblank). */
+/* Clears the box: the dialogue band goes transparent again at the next
+   VBlank, through ui_screen_vblank. */
 void textbox_close(void);
 
 #endif /* TEXTBOX_H */

@@ -1,11 +1,11 @@
-// Fenêtre « Commande d'événement » — boîte Event Command de RM2003, les
-// commandes classées par ONGLETS (demande utilisateur : beaucoup de
-// commandes à venir, les colonnes ne tiennent plus). Les commandes
-// annoncées mais pas encore compilables restent grisées (jamais de
-// bouton qui ment).
+// "Commande d'événement" window — RM2003's Event Command box, with the
+// commands filed by TABS: many more commands are coming and the columns
+// no longer fit. Commands that are announced but not yet compilable stay
+// greyed out — never a button that lies about what it will do at build
+// time.
 //
-// Elle s'ouvre depuis l'Event Editor : double-clic sur une ligne vide,
-// ou clic droit → Insérer…
+// It opens from the Event Editor: double-click on an empty row, or right
+// click > Insérer…
 
 import { useState } from "react";
 import type { Command } from "../types";
@@ -134,17 +134,17 @@ const TABS: Tab[] = [
   },
 ];
 
-// Dans le corps d'une FONCTION, la liste se réduit : une fonction est un
-// CALCUL, pas une mise en scène. Y proposer « Afficher un message » ou
-// « Secouer l'écran » invite à écrire des fonctions qui font des choses
-// au lieu d'en rendre — et c'est précisément ce qu'on ne veut pas
-// encourager. Ce qui reste : la logique, les variables, la database, et
-// les appels entre fonctions.
+// Inside a FUNCTION body the list shrinks: a function is a
+// COMPUTATION, not staging. Offering "Afficher un message" or "Secouer
+// l'écran" there invites writing functions that DO things instead of
+// returning them — and that is precisely what we do not want to
+// encourage. What is left: logic, variables, the database, and the
+// calls between functions.
 //
-// « Appeler un common event » n'y est pas non plus : un common event
-// peut contenir n'importe quoi, donc l'autoriser rouvrirait par la
-// fenêtre ce qu'on ferme par la porte. Pour composer, une fonction
-// appelle une AUTRE FONCTION.
+// "Appeler un common event" is not there either: a common event can
+// contain anything, so allowing it would let back in through the window
+// what we shut out through the door. To compose, a function calls
+// ANOTHER FUNCTION.
 const FN_TABS: Tab[] = [
   {
     title: "Logique et calcul",
@@ -171,7 +171,7 @@ const FN_TABS: Tab[] = [
 interface Props {
   onPick: (c: Command["c"]) => void;
   onClose: () => void;
-  /** corps d'une fonction : liste restreinte (voir FN_TABS) */
+  /** a function body: a restricted list (see FN_TABS) */
   inFunction?: boolean;
 }
 

@@ -1,31 +1,30 @@
-//! sfx.rs — effets sonores (B1) : WAV du projet → échantillons BRR pour
-//! le SPC700 (spcSetSoundEntry/spcPlaySound de PVSnesLib).
+//! Sound effects: project WAV files to BRR samples for the SPC700
+//! (`spcSetSoundEntry` / `spcPlaySound` in PVSnesLib).
 //!
-//! Chaîne : WAV PCM (8/16/24/32 bits, mono ou stéréo, tout taux)
-//! → mono → ré-échantillonnage linéaire à 8000 Hz (pitch 4 du SPC,
-//! hz = pitch x 2000) → encodage BRR (blocs de 16 échantillons sur
-//! 9 octets, filtres 0-3 et shift 0-12 choisis par recherche
-//! exhaustive de l'erreur minimale — l'encodeur du kit, pas d'outil
-//! externe). Sortie stable et déterministe (arithmétique entière).
+//! Chain: PCM WAV (8/16/24/32-bit, mono or stereo, any rate) -> mono ->
+//! linear resample to 8000 Hz (SPC pitch 4, hz = pitch * 2000) -> BRR
+//! encoding. BRR blocks hold 16 samples in 9 bytes; filter (0-3) and
+//! shift (0-12) are picked by exhaustive search for minimal error. All
+//! integer arithmetic, so the output is deterministic.
 //!
-//! Budgets contractuels (docs/TOOLS.md) : un son ≤ 8 Ko BRR (~1,8 s),
-//! ≤ 16 sons, total ≤ 24 Ko (les données partagent une bank LoROM).
-//! La région SPC allouée = le plus gros son (ils s'y chargent chacun
-//! leur tour au moment de jouer — modèle PVSnesLib).
+//! Contractual budgets (docs/TOOLS.md): one sound <= 8 KB BRR (~1.8 s),
+//! at most 16 sounds, 24 KB total — the data shares one LoROM bank. The
+//! SPC region allocated is the size of the largest sound: they load one
+//! at a time, at play time, following the PVSnesLib model.
 
 use anyhow::{bail, Context, Result};
 
 pub const SFX_RATE: u32 = 8000; // pitch 4 (hz = pitch x 2000)
-pub const SFX_MAX_BRR: usize = 8192; // ~1,8 s à 8 kHz
+pub const SFX_MAX_BRR: usize = 8192; // ~1.8 s at 8 kHz
 pub const SFX_MAX_COUNT: usize = 16;
 pub const SFX_MAX_TOTAL: usize = 24 * 1024;
 
-/// Décode un WAV en échantillons mono i16 à SFX_RATE.
+/// Decodes a WAV into mono i16 samples at SFX_RATE.
 pub fn wav_to_mono_8k(bytes: &[u8], name: &str) -> Result<Vec<i16>> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         bail!("son '{}' : pas un fichier WAV (en-tête RIFF/WAVE absent)", name);
     }
-    let mut fmt: Option<(u16, u16, u32, u16)> = None; // (format, canaux, taux, bits)
+    let mut fmt: Option<(u16, u16, u32, u16)> = None; // (format, channels, rate, bits)
     let mut data: Option<&[u8]> = None;
     let mut o = 12usize;
     while o + 8 <= bytes.len() {
@@ -44,7 +43,7 @@ pub fn wav_to_mono_8k(bytes: &[u8], name: &str) -> Result<Vec<i16>> {
             b"data" => data = Some(body),
             _ => {}
         }
-        o += 8 + len + (len & 1); // les chunks RIFF sont alignés sur 2
+        o += 8 + len + (len & 1); // RIFF chunks are 2-aligned
     }
     let (format, channels, rate, bits) =
         fmt.with_context(|| format!("son '{}' : chunk fmt absent", name))?;
@@ -55,8 +54,8 @@ pub fn wav_to_mono_8k(bytes: &[u8], name: &str) -> Result<Vec<i16>> {
     if rate < 4000 || rate > 96000 {
         bail!("son '{}' : taux {} Hz hors limites (4000-96000)", name, rate);
     }
-    // format 1 = PCM entier, 3 = float 32 ; 0xFFFE (extensible) est
-    // accepté en supposant PCM (le sous-format est au-delà des 16 octets)
+    // Format 1 is integer PCM, 3 is 32-bit float. 0xFFFE (extensible) is
+    // accepted as PCM: its subformat lives past the 16 bytes we read.
     let read_sample = |frame: usize, ch: usize| -> Result<i32> {
         let bps = (bits / 8) as usize;
         let idx = (frame * channels as usize + ch) * bps;
@@ -95,12 +94,12 @@ pub fn wav_to_mono_8k(bytes: &[u8], name: &str) -> Result<Vec<i16>> {
     if frames == 0 {
         bail!("son '{}' : aucun échantillon", name);
     }
-    // mono + ré-échantillonnage linéaire vers 8 kHz en une passe
+    // Downmix and resample to 8 kHz in one pass.
     let out_frames = ((frames as u64 * SFX_RATE as u64) / rate as u64) as usize;
     let out_frames = out_frames.max(1);
     let mut out = Vec::with_capacity(out_frames);
     for i in 0..out_frames {
-        let pos = i as u64 * rate as u64 * 256 / SFX_RATE as u64; // 8.8 fixe
+        let pos = i as u64 * rate as u64 * 256 / SFX_RATE as u64; // 8.8 fixed point
         let f0 = (pos >> 8) as usize;
         let frac = (pos & 255) as i32;
         let f1 = (f0 + 1).min(frames - 1);
@@ -115,7 +114,7 @@ pub fn wav_to_mono_8k(bytes: &[u8], name: &str) -> Result<Vec<i16>> {
     Ok(out)
 }
 
-/// prédiction entière des filtres BRR 0-3 (formules du DSP)
+/// Integer prediction for BRR filters 0-3, as the DSP computes it.
 fn brr_predict(filter: u8, p1: i32, p2: i32) -> i32 {
     match filter {
         1 => (p1 * 15) >> 4,
@@ -125,9 +124,9 @@ fn brr_predict(filter: u8, p1: i32, p2: i32) -> i32 {
     }
 }
 
-/// Encode des échantillons mono en BRR : blocs [header][8 octets de
-/// nibbles], header = shift<<4 | filtre<<2 | loop<<1 | end. Pas de
-/// boucle (les effets jouent une fois), bit END sur le dernier bloc.
+/// Encodes mono samples to BRR. A block is [header][8 nibble bytes],
+/// header = shift<<4 | filter<<2 | loop<<1 | end. No looping — effects
+/// play once — and the END bit goes on the last block.
 pub fn encode_brr(samples: &[i16]) -> Vec<u8> {
     let mut padded: Vec<i32> = samples.iter().map(|&s| s as i32).collect();
     while padded.len() % 16 != 0 {
@@ -135,13 +134,15 @@ pub fn encode_brr(samples: &[i16]) -> Vec<u8> {
     }
     let nblocks = padded.len() / 16;
     let mut out = Vec::with_capacity(nblocks * 9);
-    let mut hp1 = 0i32; // historique du décodeur (suivi avec les valeurs
-    let mut hp2 = 0i32; // RECONSTRUITES, pas les sources)
+    // Decoder history, tracked with the RECONSTRUCTED values rather than
+    // the source ones — that is what the DSP will have.
+    let mut hp1 = 0i32;
+    let mut hp2 = 0i32;
     for bi in 0..nblocks {
         let blk = &padded[bi * 16..bi * 16 + 16];
         let mut best_err = i64::MAX;
-        let mut best = ([0u8; 8], 0u8, 0u8, 0i32, 0i32); // nibbles, filtre, shift, p1, p2
-        let max_filter = if bi == 0 { 0 } else { 3 }; // bloc 0 : historique nul
+        let mut best = ([0u8; 8], 0u8, 0u8, 0i32, 0i32); // nibbles, filter, shift, p1, p2
+        let max_filter = if bi == 0 { 0 } else { 3 }; // block 0 has no history
         for filter in 0..=max_filter {
             for shift in 0..=12u8 {
                 let mut p1 = hp1;
@@ -162,7 +163,7 @@ pub fn encode_brr(samples: &[i16]) -> Vec<u8> {
                     let e = (recon - s) as i64;
                     err += e * e;
                     if err >= best_err {
-                        break; // cette combinaison a déjà perdu
+                        break; // this combination has already lost
                     }
                     if i & 1 == 0 {
                         nib[i >> 1] = ((q as u8) & 0xF) << 4;

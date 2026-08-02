@@ -1,31 +1,31 @@
 /*
- * stage.c — écran composé (B3) : fond + images posées multi-slots.
+ * stage.c — the composed screen (B3): background + multi-slot images.
  *
- * Plan VRAM pendant l'écran (les régions de la SCÈNE sont réutilisées,
- * la fermeture repasse par scene_load — warp interne) :
- *  - BG2 = FOND : chars dans la région OBJ ($4000, ≤ 512 — les sprites
- *    sont cachés, comme pour les pictures), carte 32x32 en $7000 ;
- *  - BG1 = IMAGES POSÉES : chars dans la région tileset ($2000, ≤ 512,
- *    char 0 réservé transparent), carte 32x32 dans le creux $7800 ;
- *  - BG3 (dialogues/HUD) : intact. Palettes : fond -> palette BG 0,
- *    slot i -> palette BG 2+i (la fonte en CGRAM 16-19 est préservée,
- *    la palette 7 reste celle des pictures).
+ * VRAM plan while the screen is up (the SCENE's regions are reused, and
+ * closing goes back through scene_load — an internal warp):
+ *  - BG2 = BACKGROUND: chars in the OBJ region ($4000, <= 512 — the
+ *    sprites are hidden, as for pictures), 32x32 map at $7000;
+ *  - BG1 = LAID-OUT IMAGES: chars in the tileset region ($2000, <= 512,
+ *    char 0 reserved as transparent), 32x32 map in the $7800 gap;
+ *  - BG3 (dialogues/HUD): untouched. Palettes: background -> BG palette
+ *    0, slot i -> BG palette 2+i (the font in CGRAM 16-19 is preserved,
+ *    palette 7 stays the pictures').
  *
- * OUVERTURE/FERMETURE : écran éteint sous fondu (recette do_warp),
- * depuis la boucle principale. POSES écran allumé : transferts étalés
- * (≤ 1 Ko de chars par VBlank, puis palette, puis la carte 2 rangées
- * par frame — construites hors VBlank) ; la VM attend la fin
- * (VM_WAIT_STAGE) : les monstres « apparaissent » l'un après l'autre.
+ * OPENING/CLOSING: screen off under a fade (the do_warp recipe), from
+ * the main loop. LAYING with the screen on: spread transfers (<= 1 KB of
+ * chars per VBlank, then the palette, then the map 2 rows per frame —
+ * built outside the VBlank); the VM waits for the end (VM_WAIT_STAGE):
+ * the monsters "appear" one after the other.
  *
- * Allocateur de chars APPEND : re-poser un slot avec la MÊME image ne
- * recharge rien (déplacement = carte seule) ; une autre image alloue à
- * la suite. La place n'est rendue qu'à la fermeture de l'écran —
- * budget 511 chars au total, pose ignorée au-delà (le panneau S6 et
- * les docs donnent la règle).
+ * APPEND char allocator: laying a slot again with the SAME image
+ * reloads nothing (a move is map-only); another image allocates after
+ * it. The space is only given back when the screen closes — a budget of
+ * 511 chars in total, a lay beyond that is ignored (the S6 panel and
+ * the docs give the rule).
  *
- * Les images sont les PICTURES du projet (mêmes données, datagen ne
- * change pas) : entrées de carte réécrites à la volée
- * (char + base du slot, palette du slot).
+ * The images are the project's PICTURES (same data, datagen does not
+ * change): map entries rewritten on the fly (char + the slot's base,
+ * the slot's palette).
  */
 #include <snes.h>
 #include "stage.h"
@@ -36,7 +36,7 @@
 #include "player.h"
 #include "vram.h"
 
-/* registre pictures (data_pictures.c — toujours émis) */
+/* pictures register (data_pictures.c — always emitted) */
 extern const u8 pic_count;
 extern const u8 *const pic_chars[];
 extern const u16 *const pic_chars_sizes[];
@@ -45,57 +45,57 @@ extern const u16 *const pic_pals[];
 extern const u8 pic_wt[];
 extern const u8 pic_ht[];
 
-extern u8 videoMode; /* miroir PVSnesLib de REG_TM */
+extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 
-#define SG_MAP_BG1 0x7800 /* carte 32x32 des images posées (creux libre) */
-#define SG_MAP_BG2 VRAM_PIC_MAP /* carte du fond ($7000 — la picture ne
-                                   peut pas être affichée en même temps) */
-#define SG_TM 0x17        /* BG1 + BG2 + BG3 + OBJ (vignettes B5 — les
-   sprites de la scène sont cachés à l'ouverture, l'OAM est propre) */
+#define SG_MAP_BG1 0x7800 /* 32x32 map of the laid images (free gap) */
+#define SG_MAP_BG2 VRAM_PIC_MAP /* background map ($7000 — the picture
+                                   cannot be shown at the same time) */
+#define SG_TM 0x17        /* BG1 + BG2 + BG3 + OBJ (vignettes B5 — the
+   scene's sprites are hidden on opening, the OAM is clean) */
 #define SG_TM_GAME 0x17
-#define SG_CHUNK 1024     /* octets de chars par VBlank (budget S6) */
+#define SG_CHUNK 1024     /* bytes of chars per VBlank (S6 budget) */
 
 static u8 sg_on = 0;
-static u8 sg_req = 0; /* 0 rien, 1 ouvrir, 2 fermer */
+static u8 sg_req = 0; /* 0 nothing, 1 open, 2 close */
 static u8 sg_req_pic = 0;
 static u8 sg_req_dur = 0;
-static u8 sg_req_trans = 0; /* transition (S18) : 0 fondu, 1 instantané,
-                               2 mosaïque */
-static u8 sg_close = 0;     /* la boucle doit exécuter le warp interne */
-static u8 sg_close_tr = 0;  /* transition de la fermeture en cours (S18) */
-static u16 sg_next_char = 1; /* allocateur (char 0 = transparent) */
+static u8 sg_req_trans = 0; /* transition (S18): 0 fade, 1 instant,
+                               2 mosaic */
+static u8 sg_close = 0;     /* the loop must run the internal warp */
+static u8 sg_close_tr = 0;  /* transition of the close in progress (S18) */
+static u16 sg_next_char = 1; /* allocator (char 0 = transparent) */
 
-static u8 sl_pic[STAGE_SLOTS];  /* 0xFF = slot vide */
+static u8 sl_pic[STAGE_SLOTS];  /* 0xFF = empty slot */
 static u16 sl_base[STAGE_SLOTS];
-static u8 sl_x[STAGE_SLOTS]; /* région posée (tiles) — pour l'effacement */
+static u8 sl_x[STAGE_SLOTS]; /* laid region (tiles) — for the erase */
 static u8 sl_y[STAGE_SLOTS];
 
-/* transfert étalé d'une pose : phases chars -> palette -> effacement de
-   l'ancienne région -> carte (2 rangées par frame, bâties hors VBlank) */
-static u8 up_act = 0; /* 0 repos, 1 chars, 2 pal, 3 clear, 4 carte */
+/* spread transfer of a lay: phases chars -> palette -> erase the old
+   region -> map (2 rows per frame, built outside the VBlank) */
+static u8 up_act = 0; /* 0 idle, 1 chars, 2 pal, 3 clear, 4 map */
 static u8 up_slot = 0;
 static u8 up_pic = 0;
 static u8 up_tx = 0, up_ty = 0;
-static u16 up_sent = 0; /* octets de chars déjà envoyés */
-static u8 up_row = 0;   /* rangée courante (clear/carte) */
-static u8 up_rows = 0;  /* rangées bâties dans le tampon (0-2) */
-static u16 up_buf[64];  /* 2 rangées de carte max */
-static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* région à effacer */
-static u16 sg_zero = 0; /* motif du dmaFillVram16 (entrée transparente) */
+static u16 up_sent = 0; /* bytes of chars already sent */
+static u8 up_row = 0;   /* current row (clear/map) */
+static u8 up_rows = 0;  /* rows built in the buffer (0-2) */
+static u16 up_buf[64];  /* 2 map rows max */
+static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* region to erase */
+static u16 sg_zero = 0; /* pattern for dmaFillVram16 (transparent entry) */
 
-/* Effets par slot (B4) : manipulation de la PALETTE de l'image posée
-   — flash blanc, fondu vers noir (mort), assombrir, restaurer. Une
-   OMBRE WRAM par slot (les 15 couleurs utiles) : le fondu la divise
-   par demi-teintes BGR555 ((v >> 1) & 0x3DEF — un shift + un masque
-   par couleur, JAMAIS de multiplication, leçon panneau S6), le
-   VBlank pousse 30 octets de CGRAM par slot marqué sale. */
-static u16 sl_sh[STAGE_SLOTS][15]; /* ombre de la palette du slot */
-static u8 fx_mode[STAGE_SLOTS];    /* 0 rien, 1 flash, 2 fondu-noir */
-static u8 fx_t[STAGE_SLOTS];       /* frames restantes de l'effet */
-static u8 fx_per[STAGE_SLOTS];     /* fondu : période entre demi-teintes */
-static u8 fx_cnt[STAGE_SLOTS];     /* compteur de période (pas de modulo) */
-static u8 fx_dirty = 0; /* bitmask : palettes à pousser au VBlank (le
-   flash pousse le BLANC tant que mode == 1, l'ombre sinon) */
+/* Per-slot effects (B4): manipulating the PALETTE of the laid image
+   — white flash, fade to black (death), darken, restore. One WRAM
+   SHADOW per slot (the 15 useful colours): the fade halves it in
+   BGR555 ((v >> 1) & 0x3DEF — one shift and one mask per colour, NEVER
+   a multiplication, the S6 panel lesson), and the VBlank pushes 30
+   bytes of CGRAM per slot marked dirty. */
+static u16 sl_sh[STAGE_SLOTS][15]; /* shadow of the slot's palette */
+static u8 fx_mode[STAGE_SLOTS];    /* 0 nothing, 1 flash, 2 fade-to-black */
+static u8 fx_t[STAGE_SLOTS];       /* frames left in the effect */
+static u8 fx_per[STAGE_SLOTS];     /* fade: period between half-tints */
+static u8 fx_cnt[STAGE_SLOTS];     /* period counter (no modulo) */
+static u8 fx_dirty = 0; /* bitmask: palettes to push at VBlank (the
+   flash pushes WHITE while mode == 1, the shadow otherwise) */
 static const u16 sg_white[15] = {
     0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF,
     0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF};
@@ -127,8 +127,8 @@ void stage_request_close(u8 fade_dur, u8 trans)
   sg_req_trans = trans;
 }
 
-/* Transition de la DERNIÈRE fermeture (S18) — do_warp (warp interne de
-   fermeture) l'applique à la réapparition de la map. */
+/* Transition of the LAST close (S18) — do_warp (the internal closing
+   warp) applies it when the map reappears. */
 u8 stage_close_trans(void)
 {
   return sg_close_tr;
@@ -148,18 +148,18 @@ void stage_reset(void)
     return;
   videoMode = SG_TM_GAME;
   REG_TM = SG_TM_GAME;
-  sg_on = 0; /* scene_load (warp) recharge décor, sprites et scrolls */
+  sg_on = 0; /* scene_load (warp) reloads scenery, sprites and scrolls */
   up_act = 0;
   sg_req = 0;
-  /* les vignettes affichées pendant l'écran font partie de sa mise en
-     scène : la fermeture les masque (sinon elles flottent sur la map) */
+  /* the vignettes shown during the screen are part of its staging: the
+     close hides them (otherwise they float over the map) */
   vig_hide(0);
   vig_hide(1);
 }
 
-/* fondus maison sur $2100 — recette picture (S7), durée en frames.
-   trans (S18) : 2 = mosaïque ($2106 BG1-3) couplée à la luminosité —
-   l'écran pixelise en s'assombrissant ; 1 = instantané (pas de rampe). */
+/* in-house fades on $2100 — the picture recipe (S7), duration in frames.
+   trans (S18): 2 = mosaic ($2106 on BG1-3) coupled to brightness — the
+   screen pixelates as it darkens; 1 = instant (no ramp). */
 static void sg_trans_regs(u8 trans, u8 b)
 {
   if (trans == 2)
@@ -175,7 +175,7 @@ static void sg_fade_out(u8 dur, u8 trans)
     return;
   if (trans >= 3)
   {
-    /* balayage (S18b) : le rideau noir grandit sur dur frames */
+    /* wipe (S18b): the black curtain grows over dur frames */
     for (f = 1; f <= dur; f++)
     {
       WaitForVBlank();
@@ -183,7 +183,7 @@ static void sg_fade_out(u8 dur, u8 trans)
     }
     WaitForVBlank();
     screenfx_wipe_off();
-    REG_INIDISP = 0; /* reste noir jusqu'au setScreenOff */
+    REG_INIDISP = 0; /* stays black until setScreenOff */
     return;
   }
   step = 0x0F00 / dur;
@@ -203,13 +203,13 @@ static void sg_fade_in(u8 dur, u8 trans)
   if (!dur || trans == 1)
   {
     if (trans == 2)
-      REG_MOSAIC = 0; /* rampe sautée : ne pas rester pixelisé */
+      REG_MOSAIC = 0; /* ramp skipped: do not stay pixelated */
     return;
   }
   if (trans >= 3)
   {
-    /* balayage : rideau complet armé avant de rallumer (setScreenOn a
-       posé 15 — le HDMA écrit $2100 dès la ligne 0 de la frame) */
+    /* wipe: the full curtain is armed before turning the screen back on
+       (setScreenOn set 15 — the HDMA writes $2100 from line 0) */
     REG_INIDISP = 0;
     screenfx_wipe_step(trans, 224);
     for (f = 1; f <= dur; f++)
@@ -219,7 +219,7 @@ static void sg_fade_in(u8 dur, u8 trans)
     }
     WaitForVBlank();
     screenfx_wipe_off();
-    REG_INIDISP = 0x0F; /* la dernière valeur HDMA peut être un 0 de bande */
+    REG_INIDISP = 0x0F; /* the last HDMA value may be a band 0 */
     return;
   }
   step = 0x0F00 / dur;
@@ -237,7 +237,7 @@ static void sg_fade_in(u8 dur, u8 trans)
   if (trans == 2)
   {
     WaitForVBlank();
-    REG_MOSAIC = 0; /* effet rendu (taille 1, aucun BG) */
+    REG_MOSAIC = 0; /* effect done (size 1, no BG) */
   }
 }
 
@@ -249,56 +249,56 @@ static void sg_open(void)
   sg_fade_out(sg_req_dur, sg_req_trans);
   setScreenOff();
   if (sg_req_trans == 2)
-    REG_MOSAIC = 0; /* la mosaïque de fermeture ne colle pas à l'écran */
-  picture_reset(); /* une image affichée : l'écran composé prend tout */
+    REG_MOSAIC = 0; /* the closing mosaic must not stick to the screen */
+  picture_reset(); /* an image is showing: the composed screen takes over */
   sg_on = 1;
   up_act = 0;
   sg_next_char = 1;
   for (i = 0; i < STAGE_SLOTS; i++)
   {
     sl_pic[i] = 0xFF;
-    fx_mode[i] = 0; /* effets de palette (B4) remis à zéro */
+    fx_mode[i] = 0; /* palette effects (B4) reset */
   }
   fx_dirty = 0;
-  /* sprites de la scène cachés (héros, PNJ, météo) — les *_draw de la
-     boucle sont gelés tant que l'écran est là */
+  /* the scene's sprites are hidden (hero, NPCs, weather) — the loop's
+     *_draw calls are frozen while the screen is up */
   for (i = 0; i < 128; i++)
     oamSetVisible((u16)(i << 2), OBJ_HIDE);
   videoMode = SG_TM;
   REG_TM = SG_TM;
-  /* BG1 = couche des images posées : chars région tileset (char 0
-     rendu transparent), carte 32x32 vide en $7800 */
+  /* BG1 = the layer of laid images: chars in the tileset region (char 0
+     made transparent), empty 32x32 map at $7800 */
   bgSetGfxPtr(0, VRAM_BG1_GFX);
   bgSetMapPtr(0, SG_MAP_BG1, SC_32x32);
   sg_zero = 0;
-  dmaFillVram16(&sg_zero, VRAM_BG1_GFX, 16); /* char 0 : 16 words à 0 */
+  dmaFillVram16(&sg_zero, VRAM_BG1_GFX, 16); /* char 0: 16 words of 0 */
   dmaFillVram16(&sg_zero, SG_MAP_BG1, 32 * 32);
-  /* BG2 = fond : chars région OBJ, carte en $7000 */
+  /* BG2 = the background: chars in the OBJ region, map at $7000 */
   bgSetGfxPtr(1, VRAM_OBJ_GFX);
   bgSetMapPtr(1, SG_MAP_BG2, SC_32x32);
   if (id < pic_count)
   {
     dmaCopyVram((u8 *)pic_chars[id], VRAM_OBJ_GFX, *pic_chars_sizes[id]);
     dmaCopyVram((u8 *)pic_maps[id], SG_MAP_BG2, 32 * 32 * 2);
-    dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* palette BG 0 */
-    /* un fond À TRANSPARENCE a ses entrées marquées palette 7 (S4) —
-       la même palette y est posée pour qu'il s'affiche quand même
-       (fond opaque recommandé, mais jamais de couleurs folles) */
+    dmaCopyCGram((u8 *)pic_pals[id], 0, 32); /* BG palette 0 */
+    /* a background WITH TRANSPARENCY has its entries marked palette 7
+       (S4) — the same palette is laid there so it shows anyway (an
+       opaque background is recommended, but never wild colours) */
     dmaCopyCGram((u8 *)pic_pals[id] + 2, 113, 30);
   }
   else
   {
-    /* pas de fond : noir (char 0 transparent + carte vide + CGRAM 0) */
+    /* no background: black (transparent char 0 + empty map + CGRAM 0) */
     dmaFillVram16(&sg_zero, VRAM_OBJ_GFX, 16);
     dmaFillVram16(&sg_zero, SG_MAP_BG2, 32 * 32);
     dmaCopyCGram((u8 *)&sg_zero, 0, 2);
   }
   bgSetScroll(0, 0, 0);
   bgSetScroll(1, 0, 0);
-  REG_TS = 0; /* pas de mélange sur l'écran composé — teinte/flash actifs */
+  REG_TS = 0; /* no blend on the composed screen — tint/flash active */
   screenfx_cm_hold(0);
   screenfx_warp_reset();
-  vig_reload(); /* le fond a pu écraser les chars 384+ des vignettes */
+  vig_reload(); /* the background may have overwritten chars 384+ (vignettes) */
   setScreenOn();
   sg_fade_in(sg_req_dur, sg_req_trans);
 }
@@ -315,8 +315,8 @@ void stage_apply(void)
     sg_fade_out(sg_req_dur, sg_req_trans);
     setScreenOff();
     if (sg_req_trans == 2)
-      REG_MOSAIC = 0; /* la réapparition (do_warp) repart d'un état sain */
-    sg_close = 1; /* la boucle enchaîne sur le warp interne (do_warp) */
+      REG_MOSAIC = 0; /* the reappearance (do_warp) starts from a clean state */
+    sg_close = 1; /* the loop goes on to the internal warp (do_warp) */
     sg_close_tr = sg_req_trans;
   }
 }
@@ -332,26 +332,26 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
   h = pic_ht[pic];
   if (w == 0 || h == 0)
     return;
-  if (tx > 32 - w) /* clamp à l'écran (carte 32x32, 28 rangées vues) */
+  if (tx > 32 - w) /* clamp to the screen (32x32 map, 28 rows seen) */
     tx = 32 - w;
   if (ty > 28 - h)
     ty = 28 - h;
   if (sl_pic[slot] != pic)
   {
-    /* nouvelle image dans ce slot : allocation À LA SUITE — la place
-       n'est rendue qu'à la fermeture (budget 511 chars, pose ignorée
-       au-delà : simplifier les images ou fermer/rouvrir l'écran) */
-    need = *pic_chars_sizes[pic] >> 5; /* 32 octets par char */
+      /* a new image in this slot: allocated AFTER the others — the space
+         is only given back on close (budget 511 chars, a lay beyond that
+         is ignored: simplify the images or close and reopen the screen) */
+    need = *pic_chars_sizes[pic] >> 5; /* 32 bytes per char */
     if (sg_next_char + need > 512)
       return;
     up_sent = 0;
-    up_act = 1; /* phase chars */
+    up_act = 1; /* chars phase */
     sl_base[slot] = sg_next_char;
     sg_next_char += need;
   }
   else
-    up_act = 3; /* même image : effacement + carte seulement */
-  /* l'ancienne région du slot sera effacée avant d'écrire la nouvelle */
+    up_act = 3; /* same image: erase + map only */
+  /* the slot's old region will be erased before the new one is written */
   up_cx = sl_x[slot];
   up_cy = sl_y[slot];
   if (sl_pic[slot] != 0xFF)
@@ -360,7 +360,7 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
     up_ch = pic_ht[sl_pic[slot]];
   }
   else
-    up_ch = 0; /* rien à effacer */
+    up_ch = 0; /* nothing to erase */
   up_slot = slot;
   up_pic = pic;
   up_tx = tx;
@@ -370,8 +370,8 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
   sl_pic[slot] = pic;
   sl_x[slot] = tx;
   sl_y[slot] = ty;
-  /* ombre de la palette (B4) : copie des 15 couleurs utiles depuis la
-     ROM — les effets partent toujours d'une palette propre */
+  /* palette shadow (B4): a copy of the 15 useful colours from ROM — the
+     effects always start from a clean palette */
   {
     const u16 *pp = pic_pals[pic] + 1;
     u8 i;
@@ -391,26 +391,26 @@ void stage_slotfx(u8 slot, u8 fx, u8 dur)
     return;
   switch (fx)
   {
-  case 1: /* FLASH blanc : dur frames, puis la palette courante revient */
+  case 1: /* white FLASH: dur frames, then the current palette returns */
     fx_mode[slot] = 1;
     fx_t[slot] = dur ? dur : 6;
     fx_dirty |= (u8)(1 << slot);
     break;
-  case 2: /* FONDU vers noir (mort) : 5 paliers de demi-teintes sur dur */
+  case 2: /* FADE to black (death): 5 half-tint steps over dur */
     fx_mode[slot] = 2;
     fx_t[slot] = dur ? dur : 30;
     if (dur >= 5)
-      fx_per[slot] = dur / 5; /* UNE division, à la commande */
+      fx_per[slot] = dur / 5; /* ONE division, at command time */
     else
       fx_per[slot] = 1;
     fx_cnt[slot] = fx_per[slot];
     break;
-  case 3: /* ASSOMBRIR d'un cran (persistant — poison, pétrification) */
+  case 3: /* DARKEN by one step (persistent — poison, petrification) */
     for (i = 0; i < 15; i++)
       sl_sh[slot][i] = (sl_sh[slot][i] >> 1) & 0x3DEF;
     fx_dirty |= (u8)(1 << slot);
     break;
-  default: /* 0 : RESTAURER la palette d'origine (fin d'état) */
+  default: /* 0: RESTORE the original palette (end of a status) */
     pp = pic_pals[sl_pic[slot]] + 1;
     for (i = 0; i < 15; i++)
       sl_sh[slot][i] = pp[i];
@@ -420,7 +420,7 @@ void stage_slotfx(u8 slot, u8 fx, u8 dur)
   }
 }
 
-/* un pas des effets de palette par frame (appelé par stage_update) */
+/* one step of the palette effects per frame (called by stage_update) */
 static void sg_fx_step(void)
 {
   u8 s, i;
@@ -434,11 +434,11 @@ static void sg_fx_step(void)
     {
       if (!fx_t[s])
       {
-        fx_mode[s] = 0; /* fin du flash : l'ombre courante revient */
+        fx_mode[s] = 0; /* end of the flash: the current shadow comes back */
         fx_dirty |= (u8)(1 << s);
       }
     }
-    else /* fondu vers noir */
+    else /* fade to black */
     {
       if (!fx_t[s])
       {
@@ -447,7 +447,7 @@ static void sg_fx_step(void)
         fx_mode[s] = 0;
         fx_dirty |= (u8)(1 << s);
       }
-      else if (--fx_cnt[s] == 0) /* palier : demi-teinte (pas de modulo) */
+      else if (--fx_cnt[s] == 0) /* step: half-tint (no modulo) */
       {
         fx_cnt[s] = fx_per[s];
         for (i = 0; i < 15; i++)
@@ -468,13 +468,13 @@ void stage_clear(u8 slot)
   up_ch = pic_ht[sl_pic[slot]];
   up_slot = slot;
   up_row = 0;
-  up_act = 5; /* effacement seul */
-  /* le slot garde sa base de chars : re-poser la même image plus tard
-     ne recoûtera que la carte */
+  up_act = 5; /* erase only */
+  /* the slot keeps its char base: laying the same image again later will
+     only cost the map */
 }
 
-/* bâtit jusqu'à 2 rangées de carte dans up_buf (boucle principale —
-   jamais au VBlank : réécriture char+palette de w entrées par rangée) */
+/* builds up to 2 map rows into up_buf (main loop — never at VBlank: it
+   rewrites char+palette for w entries per row) */
 void stage_update(void)
 {
   const u16 *src;
@@ -483,16 +483,16 @@ void stage_update(void)
   u8 w, r, i, pal;
 
   if (sg_on)
-    sg_fx_step(); /* effets de palette par slot (B4) */
+    sg_fx_step(); /* per-slot palette effects (B4) */
   if (up_act != 4 || up_rows)
     return;
   w = pic_wt[up_pic];
   base = sl_base[up_slot];
-  pal = (u8)(2 + up_slot); /* palette BG du slot */
+  pal = (u8)(2 + up_slot); /* BG palette of the slot */
   for (r = 0; r < 2 && (u8)(up_row + r) < pic_ht[up_pic]; r++)
   {
     src = pic_maps[up_pic] + ((u16)(up_row + r) << 5);
-    q = up_buf + ((u16)r << 5); /* rangée 1 à +32 (stride du VBlank) */
+    q = up_buf + ((u16)r << 5); /* row 1 at +32 (the VBlank's stride) */
     for (i = 0; i < w; i++)
       *q++ = ((*src++ & 0x03FF) + base) | ((u16)pal << 10);
     up_rows++;
@@ -506,11 +506,11 @@ void stage_vblank(void)
 
   if (sg_on)
   {
-    /* scrolls de l'écran composé : fixes (+ secousse scriptée) */
+    /* scrolls of the composed screen: fixed (+ scripted shake) */
     bgSetScroll(0, screenfx_shake_x(), 0);
     bgSetScroll(1, screenfx_shake_x(), 0);
-    /* effets de palette (B4) : UNE palette de slot poussée par VBlank
-       (30 octets — flash = blanc tant que l'effet court, ombre sinon) */
+    /* palette effects (B4): ONE slot palette pushed per VBlank (30 bytes
+       — white while a flash runs, the shadow otherwise) */
     if (fx_dirty)
     {
       for (n = 0; n < STAGE_SLOTS; n++)
@@ -526,7 +526,7 @@ void stage_vblank(void)
   }
   switch (up_act)
   {
-  case 1: /* chars de l'image, par morceaux de 1 Ko */
+  case 1: /* image chars, in 1 KB chunks */
     n = *pic_chars_sizes[up_pic] - up_sent;
     if (n > SG_CHUNK)
       n = SG_CHUNK;
@@ -536,12 +536,12 @@ void stage_vblank(void)
     if (up_sent >= *pic_chars_sizes[up_pic])
       up_act = 2;
     break;
-  case 2: /* palette du slot (couleurs 1-15 de la palette BG 2+slot) */
+  case 2: /* slot palette (colours 1-15 of BG palette 2+slot) */
     dmaCopyCGram((u8 *)pic_pals[up_pic] + 2,
                  (u8)(((2 + up_slot) << 4) + 1), 30);
     up_act = 3;
     break;
-  case 3: /* effacement de l'ancienne région (2 rangées par VBlank) */
+  case 3: /* erasing the old region (2 rows per VBlank) */
   case 5:
     for (r = 0; r < 2 && up_row < up_ch; r++, up_row++)
     {
@@ -551,16 +551,16 @@ void stage_vblank(void)
     if (up_row >= up_ch)
     {
       if (up_act == 5)
-        up_act = 0; /* effacement seul : terminé */
+        up_act = 0; /* erase only: done */
       else
       {
-        up_act = 4; /* place à la carte */
+        up_act = 4; /* now the map */
         up_row = 0;
         up_rows = 0;
       }
     }
     break;
-  case 4: /* carte : les rangées bâties par stage_update */
+  case 4: /* map: the rows built by stage_update */
     if (!up_rows)
       break;
     addr = SG_MAP_BG1 + ((u16)up_ty << 5) + up_tx + ((u16)up_row << 5);
@@ -571,7 +571,7 @@ void stage_vblank(void)
     up_row += up_rows;
     up_rows = 0;
     if (up_row >= pic_ht[up_pic])
-      up_act = 0; /* pose terminée — la VM reprend */
+      up_act = 0; /* lay finished — the VM resumes */
     break;
   }
 }

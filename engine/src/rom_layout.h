@@ -1,23 +1,23 @@
 /*
- * rom_layout.h — layout des banks ROM de données (kit §3, spec §1).
- * Choix du moteur/pipeline, tenu en phase avec tools/datagen (binbank.rs).
+ * rom_layout.h — the layout of the data ROM banks (spec §1).
+ * An engine and pipeline choice, kept in step with tools/datagen.
  */
 #ifndef ROM_LAYOUT_H
 #define ROM_LAYOUT_H
 
-/* Multi-bank (M1) : $82 et $86 portent les TABLES (Scene Table,
-   en-tête textes) — les données elles-mêmes peuvent vivre dans des
-   banks supplémentaires, leurs numéros voyagent dans les pointeurs far
-   émis par datagen. Le moteur suit les pointeurs, sans carte des banks. */
-#define BANK_SCENES 0x82    /* Scene Table à $82:8000 */
-#define BANK_TEXTS 0x86     /* en-tête textes (count + entrées + paires) */
-#define BANK_BASE_ADDR 0x8000 /* LoROM : les banks de données commencent là */
+/* $82 and $86 carry the TABLES (the Scene Table, the text header); the
+   data itself may live in extra banks, whose numbers travel inside the
+   far pointers datagen emits. The engine follows the pointers and holds
+   no map of the banks. */
+#define BANK_SCENES 0x82    /* Scene Table at $82:8000 */
+#define BANK_TEXTS 0x86     /* text header (count + entries + pairs) */
+#define BANK_BASE_ADDR 0x8000 /* LoROM: data banks start here */
 
 /*
- * Pointeur far tcc-816 construit octet par octet dans sa représentation
- * mémoire : [addr lo][addr hi][bank][0]. PAS d'arithmétique 32-bit :
- * tcc-816 compile mal `(u32)bank << 16` quand bank est une variable
- * (pointeur corrompu, vérifié au harnais d'émulation — Phase 2b).
+ * A tcc-816 far pointer, built byte by byte in its memory
+ * representation: [addr lo][addr hi][bank][0]. NO 32-bit arithmetic —
+ * tcc-816 miscompiles `(u32)bank << 16` when bank is a variable
+ * (docs/ENGINE_CONSTRAINTS.md §1.4).
  */
 static const u8 *make_far(u8 bank, u16 addr)
 {

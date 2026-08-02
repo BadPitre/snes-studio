@@ -1,14 +1,15 @@
-//! datagen — SNES Studio Phase 2 : projet source (JSON + PNG indexés) →
-//! données moteur.
+//! datagen — source project (JSON plus indexed PNGs) to engine data.
 //!
-//! Usage : datagen <dossier_projet> <dossier_engine>
-//!   ex.  : datagen demo engine
+//! Usage: datagen <project_dir> <engine_dir>
+//!   e.g.  datagen demo engine
 //!
-//! Sorties :
-//!  - engine/src/data/scenes.bin + texts.bin — format binaire byte-exact
-//!    (spec §1-2), épinglés en banks $82/$86 par src/data/databanks.asm
-//!  - engine/src/data/data_assets.c + data_font.c — assets gfx (C, v0)
+//! Outputs:
+//!  - engine/src/data/scenes.bin and texts.bin — the byte-exact binary
+//!    format (spec §1-2), pinned to banks $82/$86 by
+//!    src/data/databanks.asm
+//!  - engine/src/data/*.c — graphics and tables as generated C
 
+mod anim;
 mod binbank;
 mod charset;
 mod chipset;
@@ -17,8 +18,10 @@ mod emit;
 mod events;
 mod gfx;
 mod project;
+mod screens;
 mod script;
 mod sfx;
+mod tidy;
 mod tileset;
 mod ui;
 
@@ -34,6 +37,13 @@ fn main() -> Result<()> {
         }
         return chipset::import(Path::new(&args[2]), Path::new(&args[3]), &args[4]);
     }
+    if args.len() >= 2 && args[1] == "tidy" {
+        if args.len() < 3 {
+            bail!("usage : datagen tidy <dossier_projet> [--dry-run]");
+        }
+        let dry = args.iter().any(|a| a == "--dry-run");
+        return tidy::run(Path::new(&args[2]), dry);
+    }
     if args.len() >= 2 && args[1] == "import-charset" {
         if args.len() != 6 {
             bail!(
@@ -45,16 +55,17 @@ fn main() -> Result<()> {
         let bloc: usize = args[5].parse().context("bloc : nombre attendu")?;
         return charset::import(Path::new(&args[2]), Path::new(&args[3]), perso, bloc);
     }
-    // --debug (S6) : grave le drapeau du menu de debug dans la ROM —
-    // passé par le bouton « Jouer » de l'éditeur, jamais par le build
-    // cartouche (une cartouche ne doit pas embarquer le menu)
+    // --debug burns the debug-menu flag into the ROM. It comes from the
+    // editor's "Play" button, never from the cartridge build — a
+    // cartridge must not ship the menu.
     let debug_rom = args.iter().any(|a| a == "--debug");
     let args: Vec<String> = args.into_iter().filter(|a| a != "--debug").collect();
     if args.len() != 3 {
         bail!(
             "usage : datagen <dossier_projet> <dossier_engine> [--debug]\n\
              \x20       datagen import-chipset <chipset.png> <dossier_projet> <nom>\n\
-             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>"
+             \x20       datagen import-charset <charset.png> <dossier_projet> <perso> <bloc>\n\
+             \x20       datagen tidy <dossier_projet> [--dry-run]"
         );
     }
     let proj_dir = PathBuf::from(&args[1]);
@@ -65,21 +76,20 @@ fn main() -> Result<()> {
         read_json(&proj_dir.join("project.json")).context("project.json")?;
     let mut texts: Vec<project::TextEntry> =
         read_json(&proj_dir.join("texts.json")).context("texts.json")?;
-    // Database (Phase 10) : chargée AVANT les events (la commande db_read
-    // résout tables/entrées/champs), encodée APRÈS (text_id → banque close)
+    // The database loads BEFORE the events (db_read resolves tables,
+    // entries and fields) and is encoded AFTER, against a closed text bank.
     let mut database = db::load(&proj_dir)?;
-    // blocs référencés par des pas gfx: (Move Route), par scène
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
-    // Layout UI chargé TÔT (Phase 12) : la commande d'event « Afficher
-    // un widget UI » résout les noms de widgets vers leurs index
+    // The UI layout loads EARLY: the "show a UI widget" event command
+    // resolves widget names to their indices.
     let ui_icon_count = match project.ui.as_ref().and_then(|u| u.icons.as_ref()) {
         Some(path) => gfx::load_indexed_png(&proj_dir.join(path))?.width / 8,
         None => 0,
     };
-    // Images des widgets « Image » en mode picture : elles sont ramenées
-    // à la palette de la fonte (la couche UI n'a que 4 couleurs), donc le
-    // layout a besoin de cette palette dès son chargement.
+    // Images of "Image" widgets in picture mode are mapped to the font's
+    // palette — the UI layer has only 4 colours — so the layout needs
+    // that palette as soon as it loads.
     let ui_font_pal = gfx::load_indexed_png(&proj_dir.join(&project.assets.font))
         .with_context(|| format!("fonte {}", project.assets.font))?
         .palette_n(4);
@@ -101,104 +111,27 @@ fn main() -> Result<()> {
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
 
-    // S1 — plan des ressources VRAM BG3 (bases de chars, budget 256) :
-    // fonte 0 (97 chars : transparent + 96 glyphes) | skins (9 chars
-    // chacun) | icones (2 x N : normales + variantes fond de panneau) |
-    // fontes supplementaires (96 chars, base sur ' ')
-    let theme_skin = project.ui.as_ref().and_then(|u| u.windowskin.clone());
-    let mut ui_fonts: Vec<String> = vec![project.assets.font.clone()];
-    let mut ui_skins: Vec<String> = Vec::new();
-    if let Some(skn) = &theme_skin {
-        ui_skins.push(skn.clone());
-    }
-    for st in &ui_layout.dialog_style {
-        if let Some(f) = &st.font {
-            if !ui_fonts.contains(f) {
-                ui_fonts.push(f.clone());
-            }
-        }
-        if let Some(k) = &st.windowskin {
-            if !ui_skins.contains(k) {
-                ui_skins.push(k.clone());
-            }
-        }
-    }
-    // fontes des WIDGETS (S2) : dédupliquées avec celles des styles
-    for p in &ui_prims {
-        if let Some(f) = &p.font {
-            if !ui_fonts.contains(f) {
-                ui_fonts.push(f.clone());
-            }
-        }
-    }
-    let ui_skin_base = |path: &Option<String>| -> usize {
-        // base char d'un skin (0 = boite pleine) — theme si absent
-        let p = path.as_ref().or(theme_skin.as_ref());
-        match p {
-            Some(p) => ui_skins.iter().position(|k| k == p).map(|i| 97 + 9 * i).unwrap_or(0),
-            None => 0,
-        }
-    };
-    let ui_icon_base = 97 + 9 * ui_skins.len();
-    let ui_font_base = |path: &Option<String>| -> usize {
-        match path {
-            None => 1,
-            Some(p) => {
-                let i = ui_fonts.iter().position(|f| f == p).unwrap_or(0);
-                if i == 0 { 1 } else { ui_icon_base + 2 * ui_icon_count + 96 * (i - 1) }
-            }
-        }
-    };
-    // Images de widgets (mode picture) : leurs chars sont posés APRES les
-    // fontes supplementaires. Les primitives ne portaient jusqu'ici que
-    // l'index de l'image ; on le remplace par le char de base definitif.
-    let ui_pic_base = ui_icon_base + 2 * ui_icon_count + 96 * (ui_fonts.len() - 1);
-    let mut ui_pic_offsets: Vec<usize> = Vec::new();
-    let mut ui_pic_chars = 0usize;
-    for (_, chars, _, _) in ui_pics.iter() {
-        ui_pic_offsets.push(ui_pic_chars);
-        ui_pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
-    }
-    for p in ui_prims.iter_mut() {
-        if p.kind == 8 {
-            p.icon = (ui_pic_base + ui_pic_offsets[p.icon as usize]) as u8;
-        }
-    }
+    // BG3 VRAM char plan (bases and budget): see ui::Plan.
+    let ui_plan = ui::plan(
+        &ui_layout,
+        &mut ui_prims,
+        &ui_pics,
+        &project.assets.font,
+        project.ui.as_ref().and_then(|u| u.windowskin.clone()),
+        ui_icon_count,
+    )?;
     let ui_prims = ui_prims;
-    let ui_total_chars = ui_pic_base + ui_pic_chars;
-    if ui_total_chars > 256 {
-        bail!(
-            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
-             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
-             Retirer un style, une fonte, des icones, ou reduire une image.",
-            ui_total_chars, ui_fonts.len(), ui_skins.len(), ui_icon_count,
-            ui_pics.len(), ui_pic_chars
-        );
-    }
-    if ui_pic_chars > 0 {
+    if ui_plan.pic_chars > 0 {
         println!(
             "  ui : {} image(s) de widget -> {} chars BG3 ({} / 256 utilises)",
-            ui_pics.len(), ui_pic_chars, ui_total_chars
+            ui_pics.len(), ui_plan.pic_chars, ui_plan.total_chars
         );
     }
-    // tables des styles : style 0 (defaut) puis les dialog_style
-    let ui_msg = ui_layout.message.clone().unwrap();
-    let ui_chc = ui_layout.choice.clone().unwrap();
-    let mut ui_style_rows: Vec<(ui::Win, ui::Win, usize, usize)> = vec![(
-        ui_msg.clone(),
-        ui_chc.clone(),
-        1,
-        ui_skin_base(&None),
-    )];
-    for st in &ui_layout.dialog_style {
-        let m = st.message.clone().unwrap_or_else(|| ui_msg.clone());
-        let c = st.choice.clone().unwrap_or_else(|| m.clone());
-        ui_style_rows.push((m, c, ui_font_base(&st.font), ui_skin_base(&st.windowskin)));
-    }
+    let ui_style_rows = ui_plan.style_rows(&ui_layout);
 
-    // Pictures (S3) : PNG indexés ≤ 16 couleurs compilés en chars 4bpp
-    // dédupliqués + tilemap + palette — les commandes pic_show les
-    // référencent par stem, chargés AVANT les scènes
+    // Pictures: indexed PNGs of at most 16 colours, compiled to
+    // deduplicated 4bpp chars plus a tilemap and a palette. pic_show
+    // commands reference them by stem; loaded BEFORE the scenes.
     let mut pic_names: Vec<String> = Vec::new();
     let mut pic_dims: Vec<(usize, usize)> = Vec::new();
     let mut pic_trans: Vec<bool> = Vec::new();
@@ -225,8 +158,8 @@ fn main() -> Result<()> {
         bail!("{} pictures (max 32)", pic_names.len());
     }
 
-    // Vignettes (B5) : bandes de frames 32x32 en sprites OBJ — les
-    // commandes vig_show les référencent par stem
+    // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
+    // reference them by stem
     let mut vig_names: Vec<String> = Vec::new();
     let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>)> = Vec::new();
     for rel in &project.vignettes {
@@ -247,71 +180,13 @@ fn main() -> Result<()> {
         bail!("{} vignettes (max 32)", vig_names.len());
     }
 
-    // Écrans composés (B6bis) : screens/<nom>.json — validés ici, déroulés
-    // en commandes stage par events.rs (aucun format binaire nouveau)
-    let mut screens: Vec<project::ScreenDef> = Vec::new();
-    for name in &project.screens {
-        let path = proj_dir.join("screens").join(format!("{}.json", name));
-        let txt = std::fs::read_to_string(&path)
-            .with_context(|| format!("écran '{}' : lecture de {}", name, path.display()))?;
-        let mut def: project::ScreenDef = serde_json::from_str(&txt)
-            .with_context(|| format!("écran '{}' : JSON invalide", name))?;
-        def.name = name.clone();
-        if screens.iter().any(|s| s.name == def.name) {
-            bail!("écran '{}' : nom en double", name);
-        }
-        // héritage : l'ancien champ « script » devient le premier
-        // script nommé
-        if def.scripts.is_empty() {
-            def.scripts.push(project::ScreenScript {
-                name: "principal".to_string(),
-                trigger: "auto".to_string(),
-                cond: None,
-                commands: std::mem::take(&mut def.script),
-            });
-        }
-        for (i, sc) in def.scripts.iter_mut().enumerate() {
-            if sc.trigger.is_empty() {
-                sc.trigger = if i == 0 { "auto" } else { "call" }.to_string();
-            }
-            if sc.trigger != "auto" && sc.trigger != "call" {
-                bail!(
-                    "écran '{}' : script '{}' — déclencheur inconnu '{}'",
-                    name, sc.name, sc.trigger
-                );
-            }
-        }
-        {
-            let mut seen = std::collections::HashSet::new();
-            for sc in &def.scripts {
-                if !seen.insert(sc.name.clone()) {
-                    bail!("écran '{}' : script '{}' en double", name, sc.name);
-                }
-            }
-        }
-        for sl in &def.slots {
-            if sl.slot < 1 || sl.slot > 5 {
-                bail!("écran '{}' : slot {} (attendu 1-5)", name, sl.slot);
-            }
-            if !pic_names.contains(&sl.pic) {
-                bail!(
-                    "écran '{}' : image '{}' introuvable (supprimée ou renommée ?)",
-                    name, sl.pic
-                );
-            }
-        }
-        if !def.backdrop.is_empty() && !pic_names.contains(&def.backdrop) {
-            bail!(
-                "écran '{}' : fond '{}' introuvable (supprimé ou renommé ?)",
-                name, def.backdrop
-            );
-        }
-        screens.push(def);
-    }
+    // Composed screens: loaded and validated by screens.rs, unrolled into
+    // stage commands by events.rs. No new binary format.
+    let screens = screens::load(&proj_dir, &project.screens, &pic_names)?;
 
     let mut scenes = Vec::new();
 
-    // Sons (B1) : id = index dans project.sounds, nom = stem du fichier
+    // Sounds: the id is the index in project.sounds, the name the stem
     let mut sound_ids: HashMap<String, u8> = HashMap::new();
     let mut sound_names: Vec<String> = Vec::new();
     for (i, m) in project.sounds.iter().enumerate() {
@@ -328,163 +203,21 @@ fn main() -> Result<()> {
         bail!("trop de sons (max {})", sfx::SFX_MAX_COUNT);
     }
 
-    // ---- Animations image par image (A1) ----------------------------
-    // La planche de cellules est une VIGNETTE du projet : le pipeline
-    // graphique (chars OBJ 32x32, palette, transfert au VBlank) existe
-    // deja et est teste, l'animation n'ajoute que la piste de frames.
-    // Piste APLATIE et de pas FIXE — le moteur avance d'un pas constant,
-    // sans decodage a longueur variable. Par frame : L enregistrements de
-    // 3 octets [cellule][dx signe][dy signe] (un par CALQUE, cellule 0xFF
-    // = ce calque n'affiche rien), puis [duree 1-255][son, 0xFF = aucun].
-    // Le pas vaut donc 3L + 2 ; a un calque, c'est exactement le format
-    // d'origine (5 octets).
-    let mut anim_names: Vec<String> = Vec::new();
-    let mut anim_vig: Vec<u8> = Vec::new();
-    let mut anim_flags: Vec<u8> = Vec::new();
-    let mut anim_layers: Vec<u8> = Vec::new();
-    let mut anim_nframes: Vec<u8> = Vec::new();
-    let mut anim_ofs: Vec<u16> = Vec::new();
-    let mut anim_track: Vec<u8> = Vec::new();
-    for a in &project.animations {
-        if anim_names.contains(&a.name) {
-            bail!("animation '{}' : nom en double", a.name);
-        }
-        let vig = vig_names
-            .iter()
-            .position(|v| v == &a.vignette)
-            .with_context(|| {
-                format!(
-                    "animation '{}' : vignette '{}' introuvable (vignettes du projet : {})",
-                    a.name,
-                    a.vignette,
-                    if vig_names.is_empty() {
-                        "aucune".to_string()
-                    } else {
-                        vig_names.join(", ")
-                    }
-                )
-            })?;
-        let cells = vig_data[vig].1;
-        if a.frames.is_empty() {
-            bail!("animation '{}' : aucune frame", a.name);
-        }
-        if a.frames.len() > 255 {
-            bail!("animation '{}' : {} frames (max 255)", a.name, a.frames.len());
-        }
-        // calques : bornes du moteur (slots de vignette + entrees OAM)
-        let nl = a.layers as usize;
-        if !(1..=4).contains(&nl) {
-            bail!(
-                "animation '{}' : {} calques (1 a 4 — au dela, plus de slot de vignette)",
-                a.name, a.layers
-            );
-        }
-        let stride = nl * 3 + 2;
-        if anim_track.len() + a.frames.len() * stride > 65535 {
-            bail!("animations : piste trop longue (max 64 Ko)");
-        }
-        anim_ofs.push(anim_track.len() as u16);
-        for (i, f) in a.frames.iter().enumerate() {
-            let posed = f.posed();
-            if posed.len() > nl {
-                bail!(
-                    "animation '{}', frame {} : {} cellules posees pour {} calque(s)",
-                    a.name, i + 1, posed.len(), nl
-                );
-            }
-            if f.dur == 0 {
-                bail!("animation '{}', frame {} : duree nulle", a.name, i + 1);
-            }
-            for l in 0..nl {
-                // un calque non renseigne sur cette frame n'affiche rien —
-                // c'est ce qui permet a un calque d'apparaitre en cours de
-                // route sans une seconde timeline
-                let (c, x, y) = posed.get(l).copied().unwrap_or((-1, 0, 0));
-                if c < 0 {
-                    anim_track.extend_from_slice(&[0xFF, 0, 0]);
-                    continue;
-                }
-                if c as usize >= cells {
-                    bail!(
-                        "animation '{}', frame {}, calque {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
-                        a.name, i + 1, l + 1, c, a.vignette, cells
-                    );
-                }
-                if !(-128..=127).contains(&x) || !(-128..=127).contains(&y) {
-                    bail!(
-                        "animation '{}', frame {}, calque {} : decalage [{}, {}] hors de -128..127",
-                        a.name, i + 1, l + 1, x, y
-                    );
-                }
-                anim_track.push(c as u8);
-                anim_track.push(x as i8 as u8);
-                anim_track.push(y as i8 as u8);
-            }
-            let sfx = match &f.sfx {
-                None => 0xFFu8,
-                Some(n) => *sound_ids.get(n).with_context(|| {
-                    format!(
-                        "animation '{}', frame {} : son '{}' introuvable dans le projet",
-                        a.name, i + 1, n
-                    )
-                })?,
-            };
-            anim_track.push(f.dur);
-            anim_track.push(sfx);
-        }
-        // Budget VBlank : une cellule = 4 DMA, et il n'en passe qu'UNE par
-        // image ecran (mesure, cf. VIG_VB_MAX dans engine/src/vignette.c).
-        // Si K calques changent de cellule en entrant dans une frame, il
-        // leur faut K images pour se mettre a jour : une frame plus courte
-        // affiche un calque en retard. On le DIT, on ne l'interdit pas —
-        // l'auteur peut vouloir ce clignotement.
-        for i in 1..a.frames.len() {
-            let prev = a.frames[i - 1].posed();
-            let cur = a.frames[i].posed();
-            let changed = (0..nl)
-                .filter(|&l| {
-                    let p = prev.get(l).map(|c| c.0).unwrap_or(-1);
-                    let c = cur.get(l).map(|c| c.0).unwrap_or(-1);
-                    p != c
-                })
-                .count();
-            if changed > a.frames[i].dur as usize {
-                println!(
-                    "  attention : animation '{}', frame {} — {} cellules changent                      pour une duree de {} image(s) : une cellule aura du retard                      (allonger la duree, ou echelonner les changements)",
-                    a.name, i + 1, changed, a.frames[i].dur
-                );
-            }
-        }
-        anim_vig.push(vig as u8);
-        anim_flags.push(a.r#loop as u8);
-        anim_layers.push(nl as u8);
-        anim_nframes.push(a.frames.len() as u8);
-        anim_names.push(a.name.clone());
-    }
-    if anim_names.len() > 255 {
-        bail!("{} animations (max 255)", anim_names.len());
-    }
-    if !anim_names.is_empty() {
-        let frames: usize = anim_nframes.iter().map(|&n| n as usize).sum();
-        let maxl = anim_layers.iter().copied().max().unwrap_or(1);
-        println!(
-            "  animations : {} ({} frames, jusqu'a {} calque(s), {} octets de piste)",
-            anim_names.len(),
-            frames,
-            maxl,
-            anim_track.len()
-        );
-    }
+    // Frame-by-frame animations (A1): the frame track and its tables.
+    // The format and the checks live in anim.rs.
+    let vig_cells: Vec<usize> = vig_data.iter().map(|v| v.1).collect();
+    let anims = anim::compile(&project.animations, &vig_names, &vig_cells, &sound_ids)?;
+    anim::report(&anims);
     let music_names: Vec<String> = project
         .musics
         .iter()
         .map(|m| Path::new(m).file_stem().unwrap().to_str().unwrap().to_string())
         .collect();
 
-    // T4 — apparences TILE : la feuille de sprites est chargée AVANT la
-    // compilation des events (les blocs virtuels s'indexent après les
-    // blocs réels), le registre global collecte les (tileset, tile)
-    // rencontrés — la feuille étendue est composée après la boucle.
+    // TILE appearances: the sprite sheet loads BEFORE the events are
+    // compiled, since virtual blocks are indexed after the real ones. The
+    // global registry collects the (tileset, tile) pairs encountered, and
+    // the extended sheet is composed after the loop.
     let sprites = gfx::load_indexed_png(&proj_dir.join(&project.assets.sprites))
         .with_context(|| format!("sprites {}", project.assets.sprites))?;
     let real_sprite_blocks = sprites.sprite_blocks()?;
@@ -509,17 +242,17 @@ fn main() -> Result<()> {
             bail!("scene '{}' : champ name incoherent ('{}')", name, scene.name);
         }
         scene.validate()?;
-        // Héritage : les vieux acteurs trigger/auto étaient invisibles
+        // legacy: old trigger/auto actors were invisible
         for a in &mut scene.actors {
             if a.kind != "npc" {
                 a.sprite = 255;
             }
         }
-        // Événements (Event Editor) : compilés vers acteurs + asm VM, leurs
-        // textes inline rejoignent la bank de textes (dédupliqués).
-        // v0.16 : TOUJOURS exécuté — chaque bloc scripts commence par la
-        // table CETAB des common events auto (offset 0, lue par le moteur),
-        // même vide.
+        // Events (Event Editor): compiled to actors plus VM assembly,
+        // their inline texts joining the text bank, deduplicated.
+        // ALWAYS run — every script block starts with the CETAB table of
+        // auto common events at offset 0, which the engine reads, even
+        // when it is empty.
         {
             let scene_ts = match &scene.tileset {
                 Some(t) => t.clone(),
@@ -539,7 +272,7 @@ fn main() -> Result<()> {
                 &sound_names,
                 &music_names,
                 &vig_names,
-                &anim_names,
+                &anims.names,
                 &screens,
                 &scene_ts,
                 &mut tile_blocks,
@@ -568,7 +301,7 @@ fn main() -> Result<()> {
         .position(|s| s == &project.boot_scene)
         .with_context(|| format!("boot_scene '{}' absente de scenes[]", project.boot_scene))?;
 
-    // Musiques : id = index dans project.musics, nom = stem du fichier
+    // Music: the id is the index in project.musics, the name the stem
     let mut music_ids: HashMap<String, u8> = HashMap::new();
     for (i, m) in project.musics.iter().enumerate() {
         let stem = Path::new(m)
@@ -584,7 +317,7 @@ fn main() -> Result<()> {
     }
 
 
-    // Tilesets : id = index dans project.tilesets (defaut : assets.tileset seul)
+    // Tilesets: the id is the index in project.tilesets (default: assets.tileset alone)
     let tileset_paths: Vec<String> = if project.tilesets.is_empty() {
         vec![project.assets.tileset.clone()]
     } else {
@@ -603,8 +336,8 @@ fn main() -> Result<()> {
 
     std::fs::create_dir_all(&out_dir)?;
 
-    // Copie des modules vers engine/src/data/music/NN_stem.it : l'ordre
-    // alphabétique (préfixe) = l'ordre des music_id pour le soundbank Make
+    // Modules are copied to engine/src/data/music/NN_stem.it: alphabetical
+    // order (the prefix) is the music_id order the soundbank Make expects
     let music_dir = out_dir.join("music");
     if music_dir.exists() {
         for e in std::fs::read_dir(&music_dir)? {
@@ -623,9 +356,9 @@ fn main() -> Result<()> {
             .with_context(|| format!("copie de {}", srcp.display()))?;
         println!("  {}", dst.display());
     }
-    // Sons (B1) : WAV -> BRR 8 kHz, data_sfx.c TOUJOURS émis (zéro
-    // donnée en dur dans le moteur — vide sans sons), région SPC = le
-    // plus gros son (ils s'y chargent chacun leur tour, cf sfx.rs)
+    // Sounds: WAV to 8 kHz BRR. data_sfx.c is ALWAYS emitted — no data
+    // hardcoded in the engine, so it is empty without sounds. The SPC
+    // region is sized for the largest sound; see sfx.rs.
     let mut sfx_max = 0usize;
     {
         let mut s = String::from(emit::HEADER);
@@ -680,7 +413,7 @@ fn main() -> Result<()> {
         &out_dir,
         "audio_cfg.h",
         format!(
-            "/* GENERE par datagen — ne pas editer. */
+            "/* GENERATED by datagen — do not edit. */
 #define AUDIO_ENABLED {}
 #define SFX_COUNT {}
 #define SFX_REGION {}
@@ -691,9 +424,9 @@ fn main() -> Result<()> {
         ),
     )?;
 
-    // Tilesets : grille + sidecar (autotiles, passabilité). Les variantes
-    // d'autotiles UTILISÉES par les scènes sont collectées avant compilation
-    // (les ids binaires suivent la grille, ordre déterministe).
+    // Tilesets: grid plus sidecar (autotiles, passability). The autotile
+    // variants USED by the scenes are collected before compilation — the
+    // binary ids follow the grid, in deterministic order.
     let sources: Vec<tileset::SourceTileset> = tileset_paths
         .iter()
         .map(|p| tileset::load_source(&proj_dir, p).with_context(|| format!("tileset {}", p)))
@@ -709,14 +442,14 @@ fn main() -> Result<()> {
         })
     };
 
-    // Validation des ids logiques des deux couches
+    // Validate the logical ids of both layers
     for sc in &scenes {
         let ts = scene_ts(sc)?;
         let src = &sources[ts];
         let upper = sc.upper_or_empty();
-        // S10 : la gomme (-1) est acceptée sur les DEUX couches — cellule
-        // vide = noir en jeu (expand_scene la gère déjà, la validation
-        // était restée pré-S10)
+        // The eraser (-1) is accepted on BOTH layers: an empty cell reads
+        // black in game. expand_scene already handled it; the validation
+        // had stayed behind.
         for layer in [&sc.tilemap, &upper] {
             for row in layer.iter() {
                 for &id in row {
@@ -728,16 +461,16 @@ fn main() -> Result<()> {
         }
     }
 
-    // GFX compilés PAR SCÈNE (budget VRAM réel) — partagés entre scènes
-    // au contenu identique (empreinte)
+    // Graphics compiled PER SCENE (the real VRAM budget), shared between
+    // scenes with identical content through a fingerprint
     let mut fp_ids: HashMap<Vec<u8>, u8> = HashMap::new();
     let mut gfx_sets: Vec<tileset::GfxSet> = Vec::new();
     let mut set_ids: Vec<u8> = Vec::new();
     let mut grids = Vec::new();
-    // T1 — tiles animées : par scène, séquences résolues en chars du
-    // gfx set (dest = chars VRAM de la tile de base, src = chars ROM de
-    // chaque frame). (dest4, frames de 4 chars, mode 0="123"/1="1232",
-    // vitesse en frames d'affichage)
+    // Animated tiles: per scene, sequences resolved to chars of the gfx
+    // set — dest is the VRAM chars of the base tile, src the ROM chars of
+    // each frame. (dest4, frames of 4 chars, mode 0 = "123" / 1 = "1232",
+    // speed in display frames)
     let mut scene_anims: Vec<Vec<([u16; 4], Vec<[u16; 4]>, u8, u8)>> = Vec::new();
     for sc in &scenes {
         let ts = scene_ts(sc)?;
@@ -768,8 +501,8 @@ fn main() -> Result<()> {
             let Some(dest) = gfx.plain_entries(base) else {
                 continue; // la tile de base n'est pas posée dans cette scène
             };
-            // partage de chars toléré ENTRE les frames de la séquence
-            // (quarts inchangés), interdit avec toute autre tile
+            // Sharing chars BETWEEN the frames of one sequence is fine
+            // (unchanged quarters); sharing with any other tile is not.
             let allowed: Vec<u8> = a
                 .tiles
                 .iter()
@@ -829,17 +562,16 @@ fn main() -> Result<()> {
     }
     println!("  {} gfx sets pour {} scenes", gfx_sets.len(), scenes.len());
 
-    // Feuille de sprites 16x24 (Phase 6) : blocs de personnage de 12 frames
-    // (modele charset RM2003) — sprite d'un acteur = index de bloc.
-    // Sets compilés PAR SCÈNE (v0.5, comme les tilesets) : chaque scène
-    // n'embarque que le bloc joueur (0) + les blocs de ses acteurs (5 max),
-    // datagen remappe les sprite_id binaires vers les slots locaux.
-    // T4 — feuille ÉTENDUE : les blocs virtuels des apparences tile sont
-    // composés à la suite des blocs réels (12 frames identiques 16x24,
-    // la tile posée lignes 8-23 : alignée sur la cellule en jeu). Les
-    // couleurs de la tile rejoignent la palette de la feuille (index 0
-    // transparent) — to_obj_sheet ré-indexe ensuite par bloc comme pour
-    // n'importe quel charset.
+    // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
+    // model); an actor's sprite is a block index.
+    // Sets are compiled PER SCENE, like the tilesets: a scene only
+    // embeds the player block (0) plus its actors' blocks, 5 at most, and
+    // datagen remaps the binary sprite_id to local slots.
+    // EXTENDED sheet: the virtual blocks of tile appearances are composed
+    // after the real ones — 12 identical 16x24 frames, the posed tile on
+    // lines 8-23 so it aligns with the cell in game. The tile's colours
+    // join the sheet's palette (index 0 transparent); to_obj_sheet then
+    // re-indexes per block, as for any other charset.
     let sprites = if tile_blocks.is_empty() {
         sprites
     } else {
@@ -889,7 +621,7 @@ fn main() -> Result<()> {
                             Some(i) => i + 1,
                             None => {
                                 if ext.palette.len() >= 256 {
-                                    // palette pleine : plus proche existant
+                                    // palette full: nearest existing colour
                                     let mut best = (1usize, u32::MAX);
                                     for (i, &pc) in
                                         ext.palette.iter().enumerate().skip(1)
@@ -949,9 +681,9 @@ fn main() -> Result<()> {
         }
         let used: Vec<usize> = used.into_iter().collect();
         if used.len() > 5 {
-            // Nommer les coupables : ce n'est PAS le nombre d'events qui
-            // deborde mais la variete d'apparences (VRAM OBJ = 16 Ko, soit
-            // 5 charsets par scene, heros compris).
+            // Name the culprit: it is NOT the number of events that
+            // overflows but the variety of appearances — OBJ VRAM is
+            // 16 KB, that is 5 charsets per scene, hero included.
             let charset_name = |b: usize| -> String {
                 if b >= real_sprite_blocks {
                     let (ts, t) = &tile_blocks[b - real_sprite_blocks];
@@ -1016,9 +748,9 @@ fn main() -> Result<()> {
         sprite_blocks
     );
 
-    // Banks binaires (spec §1-2) + asm d'épinglage — multi-bank (M1) :
-    // les pools scènes et textes s'étendent sur des banks supplémentaires
-    // allouées à la suite (EXTRA_WLA_FIRST…)
+    // Binary banks (spec §1-2) plus the pinning asm. The scene and text
+    // pools extend into extra banks allocated in sequence, from
+    // EXTRA_WLA_FIRST onwards.
     let mut next_extra = binbank::EXTRA_WLA_FIRST;
     let scene_pool = binbank::build_scene_bank(
         &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &text_ids,
@@ -1031,8 +763,8 @@ fn main() -> Result<()> {
     for (k, blob) in text_pool.blobs.iter().enumerate() {
         write_bin(&out_dir, &binbank::pool_bin_name("texts", k), blob)?;
     }
-    // purge des .bin d'un build précédent plus large (le databanks.asm ne
-    // les référence plus, mais un fichier orphelin sème le doute)
+    // Purge the .bin files of a previous, larger build: databanks.asm no
+    // longer references them, but an orphan file sows doubt.
     for base in ["scenes", "texts"] {
         let n = if base == "scenes" { scene_pool.blobs.len() } else { text_pool.blobs.len() };
         for k in n..binbank::WLA_BANK_COUNT as usize {
@@ -1057,11 +789,11 @@ fn main() -> Result<()> {
         text_pool.used(), text_pool.capacity(), text_pool.blobs.len()
     );
 
-    // Menu de debug (S6) : drapeau + budgets RÉELS des banks, gravés dans
-    // les données — TOUJOURS émis (le moteur inclut debug.c
-    // inconditionnellement, inerte sans le drapeau). La rangée SCN/TXT
-    // est PRÉ-FORMATÉE ici : le moteur n'a ni division ni place pour
-    // formater des totaux multi-bank (M1).
+    // Debug menu: the flag plus the REAL bank budgets, burned into the
+    // data. ALWAYS emitted — the engine includes debug.c unconditionally
+    // and it is inert without the flag. The SCN/TXT row is PRE-FORMATTED
+    // here: the engine has neither division nor room to format
+    // multi-bank totals.
     {
         let mut row = format!(
             "SCN {}/{} TXT {}/{}",
@@ -1079,9 +811,9 @@ fn main() -> Result<()> {
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str(&format!(
-            "/* menu de debug en jeu (Start+Select+R) — S6/M1 */\n\
+            "/* in-game debug menu (Start+Select+R) — S6/M1 */\n\
              const u8 dbg_enabled = {};\n\
-             /* rangée budgets pré-formatée (32 colonnes max) */\n\
+             /* pre-formatted budget row (32 columns max) */\n\
              const char dbg_banks_txt[] = \"{}\";\n",
             debug_rom as u8, row
         ));
@@ -1091,10 +823,10 @@ fn main() -> Result<()> {
         println!("  debug : menu Start+Select+R actif dans cette ROM");
     }
 
-    // Assets gfx (representation C v0 — pas de format binaire en spec).
-    // Un fichier par set (section ROM insécable = 32 Ko max) : purger
-    // d'abord les data_gfx*/data_sprites* d'une génération précédente,
-    // sinon un set disparu resterait compilé et lié (symboles fantômes).
+    // Graphics assets as generated C (no binary format in the spec).
+    // ONE FILE PER SET, because a ROM section is unsplittable at 32 KB.
+    // Purge the data_gfx*/data_sprites* of a previous run first, or a set
+    // that has since disappeared would stay compiled and linked.
     for entry in std::fs::read_dir(&out_dir)? {
         let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -1107,10 +839,10 @@ fn main() -> Result<()> {
                 .with_context(|| format!("purge de {}", path.display()))?;
         }
     }
-    // S4 : les images à transparence vivent sur la palette BG 7 — si un
-    // tileset l'occupe aussi, le décor visible derrière l'image serait
-    // faux DANS SES scènes (avertissement, pas une erreur : l'auteur
-    // peut ne jamais montrer l'image là-bas)
+    // Transparent images live on BG palette 7. If a tileset occupies it
+    // too, the scenery seen through the image would be wrong IN ITS
+    // scenes — a warning, not an error: the author may never show the
+    // image there.
     if pic_trans.iter().any(|&t| t) {
         for (i, g) in gfx_sets.iter().enumerate() {
             if g.pal[112..128].iter().any(|&c| c != 0) {
@@ -1126,39 +858,39 @@ fn main() -> Result<()> {
     for (name, content) in gen_asset_files(&gfx_sets, &sprite_sets)? {
         write_out(&out_dir, &name, content)?;
     }
-    // Pictures (S3) : un fichier par image (une section ROM = une bank)
-    // + le registre data_pictures.c — TOUJOURS émis (le moteur inclut
-    // picture.c inconditionnellement, tables factices si aucune image)
+    // Pictures: one file per image (one ROM section, one bank) plus the
+    // data_pictures.c registry. ALWAYS emitted — the engine includes
+    // picture.c unconditionally, with dummy tables when there is none.
     for (name, content) in gen_vignette_files(&vig_names, &vig_data) {
         write_out(&out_dir, &name, content)?;
     }
-    // Animations (A1) : registre TOUJOURS emis — le moteur compile anim.c
-    // inconditionnellement, avec des tables factices si le projet n'en a
-    // aucune (meme recette que les vignettes et les pictures).
+    // Animations: the registry is ALWAYS emitted — the engine compiles
+    // anim.c unconditionally, with dummy tables when the project has
+    // none. Same recipe as the vignettes and the pictures.
     {
         let mut s = String::from(emit::HEADER);
         let one = |v: &Vec<u8>| -> Vec<u8> {
             if v.is_empty() { vec![0] } else { v.clone() }
         };
         s.push_str("#include <snes.h>\n\n");
-        s.push_str(&format!("const u8 anim_count = {};\n\n", anim_names.len()));
-        s.push_str("/* vignette servant de planche de cellules, par animation */\n");
-        s.push_str(&emit::u8_array("anim_vig", &one(&anim_vig), 16, false));
-        s.push_str("\n/* bit 0 = boucle */\n");
-        s.push_str(&emit::u8_array("anim_flags", &one(&anim_flags), 16, false));
-        s.push_str("\n/* cellules simultanees (calques) : pas de piste = 3L + 2 */\n");
-        s.push_str(&emit::u8_array("anim_layers", &one(&anim_layers), 16, false));
-        s.push_str("\n/* nombre de frames */\n");
-        s.push_str(&emit::u8_array("anim_nframes", &one(&anim_nframes), 16, false));
-        s.push_str("\n/* offset de la premiere frame dans anim_track */\n");
+        s.push_str(&format!("const u8 anim_count = {};\n\n", anims.len()));
+        s.push_str("/* the vignette used as the cell sheet, per animation */\n");
+        s.push_str(&emit::u8_array("anim_vig", &one(&anims.vig), 16, false));
+        s.push_str("\n/* bit 0 = loop */\n");
+        s.push_str(&emit::u8_array("anim_flags", &one(&anims.flags), 16, false));
+        s.push_str("\n/* simultaneous cells (layers): track stride = 3L + 2 */\n");
+        s.push_str(&emit::u8_array("anim_layers", &one(&anims.layers), 16, false));
+        s.push_str("\n/* frame count */\n");
+        s.push_str(&emit::u8_array("anim_nframes", &one(&anims.nframes), 16, false));
+        s.push_str("\n/* offset of the first frame in anim_track */\n");
         s.push_str(&emit::u16_array(
             "anim_ofs",
-            &(if anim_ofs.is_empty() { vec![0] } else { anim_ofs.clone() }),
+            &(if anims.ofs.is_empty() { vec![0] } else { anims.ofs.clone() }),
         ));
         s.push_str(
-            "\n/* piste aplatie, pas FIXE de 3L + 2 octets par frame :\n                L x [cellule (0xFF = calque vide)][dx signe][dy signe]\n                puis [duree][son, 0xFF = aucun] */\n",
+            "\n/* flattened track, FIXED stride of 3L + 2 bytes per frame:\n                L x [cell (0xFF = empty layer)][signed dx][signed dy]\n                then [duration][sound, 0xFF = none] */\n",
         );
-        s.push_str(&emit::u8_array("anim_track", &one(&anim_track), 16, false));
+        s.push_str(&emit::u8_array("anim_track", &one(&anims.track), 16, false));
         write_out(&out_dir, "data_anims.c", s)?;
     }
     for (name, content) in gen_picture_files(&pic_names, &pic_data, &pic_trans, &pic_dims) {
@@ -1167,9 +899,9 @@ fn main() -> Result<()> {
     if !pic_names.is_empty() {
         println!("  pictures : {} image(s) plein ecran", pic_names.len());
     }
-    // Couche d'effet par scène (S9) : data_effects.c TOUJOURS émis (le
-    // moteur inclut effectlayer.c inconditionnellement) — 0xFF = aucune.
-    // Vitesses en px/s converties en pas 8.8 par frame (60 Hz).
+    // Per-scene effect layer: data_effects.c is ALWAYS emitted (the
+    // engine includes effectlayer.c unconditionally); 0xFF means none.
+    // Speeds in px/s are converted to 8.8 steps per frame at 60 Hz.
     {
         let n = scenes.len().max(1);
         let mut e_pic = vec![0xFFu8; n];
@@ -1184,7 +916,7 @@ fn main() -> Result<()> {
                 Some(e) => e,
                 None => continue,
             };
-            // Position du plan (S17) : "front" surimpression, "back" panorama
+            // Plane position: "front" overlays, "back" is a panorama
             let is_back = match eff.mode.as_deref() {
                 None | Some("front") => false,
                 Some("back") => true,
@@ -1201,13 +933,13 @@ fn main() -> Result<()> {
                     if pic_names.is_empty() { "aucune".to_string() } else { pic_names.join(", ") }
                 )
             })?;
-            // Le plan d'effet vit sur la palette BG 7 (le moteur l'y force).
-            // Front (nuages) : l'image DOIT être importée « avec
-            // transparence » — la transparence EST l'effet (on voit le
-            // décor entre les nuages). Back (panorama) : opaque accepté,
-            // mais la couleur d'index 0 reste transparente sur SNES (fond
-            // noir) — on avertit, l'auteur peut réimporter en choisissant
-            // une couleur transparente pour maîtriser cet index.
+            // The effect plane lives on BG palette 7, which the engine
+            // forces. Front (clouds): the image MUST be imported "with
+            // transparency" — the transparency IS the effect, the scenery
+            // showing between the clouds. Back (panorama): opaque is
+            // accepted, but colour index 0 stays transparent on the SNES
+            // (black backdrop), so we warn — the author can re-import and
+            // choose which colour lands on that index.
             if !pic_trans[idx] {
                 if is_back {
                     println!(
@@ -1245,7 +977,7 @@ fn main() -> Result<()> {
                 Some("sub") => 3,
                 Some(o) => bail!("scene '{}' : blend d'effet inconnu « {} »", sc.name, o),
             };
-            // S11 : suivi caméra = décalage binaire (camera >> n) — 1 = ½, 2 = ¼
+            // Camera follow is a shift (camera >> n): 1 is half, 2 a quarter
             e_par[i] = match eff.parallax.as_deref() {
                 None | Some("none") => 0,
                 Some("half") => 1,
@@ -1271,7 +1003,7 @@ fn main() -> Result<()> {
             }
         }
         let mut s = String::from(emit::HEADER);
-        s.push_str("#include <snes.h>\n\n/* couche d'effet par scene (S9) — 0xFF = aucune */\n");
+        s.push_str("#include <snes.h>\n\n/* per-scene effect layer (S9) — 0xFF = none */\n");
         let dump_u8 = |name: &str, v: &[u8]| {
             let mut o = format!("const u8 {}[{}] = {{ ", name, v.len());
             for x in v { o.push_str(&format!("{}, ", x)); }
@@ -1297,11 +1029,11 @@ fn main() -> Result<()> {
                 e_pic.iter().filter(|&&p| p != 0xFF).count());
         }
     }
-    // Météo (S13) : data_weather.c TOUJOURS émis — chars 4bpp des
-    // particules (pluie/neige, blocs 16x16 : TL,TR puis BL,BR) +
-    // palette OBJ 7 (4 couleurs). Zéro donnée en dur dans le moteur.
+    // Weather: data_weather.c is ALWAYS emitted — the 4bpp particle chars
+    // (rain, snow; 16x16 blocks as TL, TR, then BL, BR) plus OBJ palette 7
+    // (4 colours). No data hardcoded in the engine.
     {
-        // encode un char 8x8 (indices 0-15) en 4bpp planaire SNES
+        // encode one 8x8 char (indices 0-15) as planar SNES 4bpp
         let pack_char = |px: &dyn Fn(usize, usize) -> u8| -> [u8; 32] {
             let mut out = [0u8; 32];
             for y in 0..8 {
@@ -1321,7 +1053,7 @@ fn main() -> Result<()> {
             }
             out
         };
-        // bloc 16x16 -> 128 octets (TL, TR, BL, BR)
+        // a 16x16 block is 128 bytes (TL, TR, BL, BR)
         let pack_block = |bm: &[[u8; 16]; 16]| -> Vec<u8> {
             let mut out = Vec::with_capacity(128);
             for (qy, qx) in [(0usize, 0usize), (0, 8), (8, 0), (8, 8)] {
@@ -1329,7 +1061,7 @@ fn main() -> Result<()> {
             }
             out
         };
-        // pluie : trait diagonal 2 px (tête blanche, traîne bleutée)
+        // rain: a 2 px diagonal streak, white head and blue trail
         let mut rain = [[0u8; 16]; 16];
         for i in 0..12usize {
             let x = 11 - i / 2;
@@ -1339,7 +1071,7 @@ fn main() -> Result<()> {
                 rain[y][x + 1] = 2;
             }
         }
-        // neige : flocon (croix blanche + pointes bleutées)
+        // snow: a flake, white cross with blue tips
         let mut snow = [[0u8; 16]; 16];
         for (x, y, c) in [
             (8, 8, 1u8), (7, 8, 1), (9, 8, 1), (8, 7, 1), (8, 9, 1),
@@ -1348,7 +1080,7 @@ fn main() -> Result<()> {
         ] {
             snow[y][x] = c;
         }
-        // palette OBJ 7 : transparent, blanc, bleu clair, (libre)
+        // OBJ palette 7: transparent, white, light blue, (free)
         let bgr = |r: u16, g: u16, b: u16| -> u16 { (b << 10) | (g << 5) | r };
         let pal = [0u16, bgr(31, 31, 31), bgr(22, 26, 31), 0];
         let mut s = String::from(emit::HEADER);
@@ -1362,11 +1094,11 @@ fn main() -> Result<()> {
         write_out(&out_dir, "data_weather.c", s)?;
     }
 
-    // T1 — tiles animées : tables aplaties par scène (data_tileanim.c).
-    // ta_first[s]..ta_first[s+1] = séquences de la scène s ; par séquence :
-    // 4 chars VRAM de destination, n frames de 4 chars ROM sources, mode
-    // (0 = 1-2-3, 1 = 1-2-3-2), vitesse en frames. Le moteur (tileanim.c)
-    // copie 4 chars (128 octets) du charset ROM vers la VRAM à chaque pas.
+    // Animated tiles: per-scene flattened tables (data_tileanim.c).
+    // ta_first[s]..ta_first[s+1] are scene s's sequences. Per sequence:
+    // 4 destination VRAM chars, n frames of 4 source ROM chars, mode
+    // (0 = 1-2-3, 1 = 1-2-3-2), speed in frames. tileanim.c copies
+    // 128 bytes from the ROM charset into VRAM at each step.
     {
         let mut first: Vec<u8> = vec![0];
         let mut dest: Vec<u16> = Vec::new();
@@ -1411,24 +1143,24 @@ fn main() -> Result<()> {
             println!("  tiles animees : {} sequence(s)", nseq);
         }
     }
-    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_skins, &ui_fonts[1..], &ui_pics)?)?;
-    // Système UI (Phase 11) : thème v1 + layouts uigen — le moteur lit la
-    // config via defines (même mécanisme qu'audio_cfg.h, toujours émis)
+    write_out(&out_dir, "data_font.c", gen_font(&proj_dir, &project, &ui_plan.skins, ui_plan.extra_fonts(), &ui_pics)?)?;
+    // UI system: the theme plus the uigen layouts. The engine reads its
+    // configuration through defines, always emitted (as for audio_cfg.h).
     {
         let (has_skin, speed) = match &project.ui {
             Some(u) => (u.windowskin.is_some() as u8, u.text_speed),
             None => (0, 0),
         };
-        // planche + layout déjà chargés/validés en amont (résolution des
-        // widgets par les events) — on ne fait qu'émettre
-        let icon_count = ui_icon_count;
-        let icon_base = ui_icon_base;
+        // The sheet and layout were loaded and validated upstream, when
+        // the events resolved widget names; here we only emit.
+        let icon_count = ui_plan.icon_count;
+        let icon_base = ui_plan.icon_base;
         let (layout, prims) = (&ui_layout, &ui_prims);
         write_out(
             &out_dir,
             "ui_cfg.h",
             format!(
-                "/* GENERE par datagen — ne pas editer. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n#define UI_ICON_BASE {}\n#define UI_ICON_COUNT {}\n#define UI_STYLE_COUNT {}\n{}",
+                "/* GENERATED by datagen — do not edit. */\n#define UI_HAS_SKIN {}\n#define UI_TEXT_SPEED {}\n#define UI_ICON_BASE {}\n#define UI_ICON_COUNT {}\n#define UI_STYLE_COUNT {}\n{}",
                 has_skin,
                 speed,
                 icon_base,
@@ -1438,7 +1170,7 @@ fn main() -> Result<()> {
             ),
         )?;
         let ui_ov_font_bases: Vec<usize> =
-            prims.iter().map(|p| ui_font_base(&p.font)).collect();
+            prims.iter().map(|p| ui_plan.font_base(&p.font)).collect();
         write_out(
             &out_dir,
             "ui_overlays.c",
@@ -1450,9 +1182,9 @@ fn main() -> Result<()> {
         }
     }
 
-    // Database (Phase 10, docs/PLANNING_SYSTEME_DATABASE.md) : schémas +
-    // instances TOML → tables C byte-packed. Purge d'abord les db_* d'une
-    // génération précédente (table supprimée = symbole fantôme sinon).
+    // Database (docs/PLANNING_SYSTEME_DATABASE.md): TOML schemas and
+    // instances to byte-packed C tables. Purge the db_* of a previous run
+    // first, or a deleted table leaves a ghost symbol.
     for entry in std::fs::read_dir(&out_dir)? {
         let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -1481,7 +1213,7 @@ fn main() -> Result<()> {
             }
         }
         None => {
-            // registre vide : le moteur inclut db_tables.h sans condition
+            // empty registry: the engine includes db_tables.h unconditionally
             for (name, content) in db::emit_empty() {
                 write_out(&out_dir, &name, content)?;
             }
@@ -1517,28 +1249,28 @@ fn write_bin(dir: &Path, name: &str, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Fichiers C d'assets : UN FICHIER PAR SET. tcc-816 émet le `.rodata` de
-/// chaque .c comme UNE section WLA SUPERFREE — insécable, donc 32 Ko max
-/// (une bank LoROM). Tout dans un seul data_assets.c plafonnait le projet
-/// entier à ~32 Ko d'assets (« No room for section .rodata ») ; en
-/// éclatant par set, wlalink répartit les sections sur les banks libres.
-/// data_assets.c ne garde que les tables de pointeurs (résolues au link,
-/// pointeurs far 24-bit : la bank de chaque set n'importe pas).
+/// Asset C files: ONE FILE PER SET. tcc-816 emits each .c file's
+/// `.rodata` as ONE SUPERFREE WLA section — unsplittable, therefore
+/// 32 KB max, one LoROM bank. Putting everything in a single
+/// data_assets.c capped the whole project at ~32 KB of assets ("No room
+/// for section .rodata"); split per set, wlalink spreads the sections
+/// over the free banks. data_assets.c keeps only the pointer tables,
+/// resolved at link time as 24-bit far pointers, so each set's bank does not matter.
 fn gen_asset_files(
     gfx_sets: &[tileset::GfxSet],
     sprite_sets: &[(Vec<u8>, Vec<u16>)],
 ) -> Result<Vec<(String, String)>> {
-    // Garde-fou : une section = une bank. Aucun set légitime n'approche
-    // cette taille (chipset complet ~15 Ko) — si on y arrive, c'est un
-    // asset pathologique, pas un problème de découpage.
+    // Guard rail: one section, one bank. No legitimate set comes close
+    // (a full chipset is ~15 KB) — reaching this means a pathological
+    // asset, not a splitting problem.
     const SET_MAX: usize = 0x7C00;
     let mut files = Vec::new();
 
-    // Un gfx set par scene (partage par empreinte) + tables de pointeurs
-    // indexees par gfx_set_id (header octet 1) — pattern « scene_table » :
-    // l'indexation d'un tableau de pointeurs est fiable chez tcc.
-    // gs{i}_prio : 1 octet par id local, 1 = ☆ (priorite BG1, couche sup).
-    // gs{i}_pal : CGRAM BG complete, 8 palettes x 16 couleurs.
+    // One gfx set per scene (shared by fingerprint) plus pointer tables
+    // indexed by gfx_set_id (header byte 1) — the "scene_table" pattern:
+    // indexing an array of pointers is reliable under tcc.
+    // gs{i}_prio: one byte per local id, 1 meaning above (BG1 priority).
+    // gs{i}_pal: the full BG CGRAM, 8 palettes of 16 colours.
     for (i, g) in gfx_sets.iter().enumerate() {
         let bytes = g.charset.len() + 2 * g.table.len() + g.prio.len() + 2 * g.pal.len();
         if bytes > SET_MAX {
@@ -1563,7 +1295,7 @@ fn gen_asset_files(
         files.push((format!("data_gfx{}.c", i), s));
     }
 
-    // Sprite sets par scène (v0.5) : chars OBJ + CGRAM OBJ complète
+    // Per-scene sprite sets: OBJ chars plus the full OBJ CGRAM
     for (i, (chars, pal)) in sprite_sets.iter().enumerate() {
         let bytes = chars.len() + 2 * pal.len();
         if bytes > SET_MAX {
@@ -1588,9 +1320,9 @@ fn gen_asset_files(
     Ok(files)
 }
 
-/// data_assets.c : les tables de pointeurs indexées par set_id, seules
-/// structures que le moteur référence (les données vivent dans les
-/// data_gfx{i}.c / data_sprites{i}.c, banks choisies par le linker).
+/// data_assets.c: the pointer tables indexed by set_id, the only
+/// structures the engine references. The data itself lives in the
+/// data_gfx{i}.c / data_sprites{i}.c files, in banks the linker picks.
 fn gen_asset_tables(
     gfx_sets: &[tileset::GfxSet],
     sprite_sets: &[(Vec<u8>, Vec<u16>)],
@@ -1636,8 +1368,8 @@ fn gen_asset_tables(
     }
     s.push_str("};\n\n");
 
-    // Sprite sets par scène (v0.5), indexés par l'octet 27 du Scene
-    // Header via des tables de pointeurs (pattern « scene_table »).
+    // Per-scene sprite sets, indexed by byte 27 of the Scene Header
+    // through pointer tables (the "scene_table" pattern).
     s.push_str("const u8 *const sprite_chars[] = {\n");
     for i in 0..sprite_sets.len() {
         s.push_str(&format!("  ss{}_chars,\n", i));
@@ -1654,12 +1386,12 @@ fn gen_asset_tables(
     s
 }
 
-/// Pictures (S3) : data_pic{i}.c par image (chars 4bpp + tilemap + palette,
-/// une section = une bank LoROM) + data_pictures.c, le registre de tables
-/// de pointeurs indexées par pic_id (pattern « scene_table »). Toujours
-/// émis — tables factices sans image (picture.c est inconditionnel).
-/// Vignettes (B5) : data_vig{i}.c (chars 4bpp des frames + palette) +
-/// data_vignettes.c, le registre indexé par vig_id — TOUJOURS émis.
+/// Pictures: data_pic{i}.c per image (4bpp chars, tilemap, palette — one
+/// section, one LoROM bank) plus data_pictures.c, the registry of pointer
+/// tables indexed by pic_id ("scene_table" pattern). Always emitted, with
+/// dummy tables when there is no image (picture.c is unconditional).
+/// Vignettes: data_vig{i}.c (the frames' 4bpp chars plus a palette) and
+/// data_vignettes.c, the registry indexed by vig_id — ALWAYS emitted.
 fn gen_vignette_files(
     names: &[String],
     vigs: &[(Vec<u8>, usize, Vec<u16>)],
@@ -1742,8 +1474,8 @@ fn gen_picture_files(
         ));
     }
     s.push_str(&format!("\nconst u8 pic_count = {};\n\n", pics.len()));
-    // dimensions en tiles (S7) : clamp/centrage RUNTIME par le moteur —
-    // obligatoire dès que la position ou l'image sortent de variables
+    // Dimensions in tiles: the engine clamps and centres at RUNTIME, which
+    // is mandatory as soon as the position or the image comes from a variable.
     {
         let n = pics.len().max(1);
         s.push_str(&format!("const u8 pic_wt[{}] = {{ ", n));
@@ -1756,8 +1488,8 @@ fn gen_picture_files(
         }
         s.push_str("};\n\n");
     }
-    // drapeaux par image (S4) : bit 0 = transparence (le moteur laisse la
-    // couche décor visible et préserve la couleur de fond de la scène)
+    // Per-image flags: bit 0 is transparency, which makes the engine keep
+    // the scenery layer visible and preserve the scene's backdrop colour.
     {
         let n = pics.len().max(1);
         s.push_str(&format!("const u8 pic_flags[{}] = {{ ", n));
@@ -1817,10 +1549,10 @@ fn gen_font(
     s.push_str("#include <snes.h>\n\n");
     let mut gfx_bytes = font.to_font()?;
 
-    // Ordre VRAM (S1, plan calculé en tête de main) : fonte 0 | skins
-    // (9 chars chacun, thème puis styles) | icônes (normales + variantes
-    // fond de panneau) | fontes supplémentaires des styles (96 chars).
-    // Toutes les fontes/skins partagent la PALETTE de la fonte 0.
+    // VRAM order (the plan computed at the top of main): font 0 | skins
+    // (9 chars each, theme then styles) | icons (normal, then
+    // panel-background variants) | the styles' extra fonts (96 chars).
+    // Every font and skin shares the PALETTE of font 0.
     for skin_path in ui_skins.iter() {
         let skin = gfx::load_indexed_png(&proj_dir.join(skin_path))
             .with_context(|| format!("windowskin {}", skin_path))?;
@@ -1847,9 +1579,9 @@ fn gen_font(
             format!("fonte de style {}", extra)
         })?);
     }
-    // Images des widgets « Image » (mode picture) : posées en DERNIER,
-    // dans l'ordre où le layout les rencontre — même ordre que le plan de
-    // chars calculé en tête de main (ui_pic_base).
+    // "Image" widget images are placed LAST, in the order the layout
+    // meets them — the same order as the char plan computed at the top of
+    // main (see ui::plan).
     for (_, chars, _, _) in ui_pics.iter() {
         gfx_bytes.extend_from_slice(chars);
     }

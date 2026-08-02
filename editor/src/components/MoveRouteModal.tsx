@@ -1,8 +1,8 @@
-// Fenêtre « Itinéraire » — calquée sur le dialogue Move Route de RM2003 :
-// liste des pas `$>` à gauche, grille de boutons (3 colonnes) à droite,
-// radios Fréquence 1-8, options Répéter / Ignorer si bloqué. L'itinéraire
-// part en tâche de fond en jeu (cinématiques) — le séquencer avec
-// « Attendre la fin des déplacements ».
+// "Itinéraire" window — modelled on RM2003's Move Route dialogue: the
+// list of `$>` steps on the left, a button grid (3 columns) on the
+// right, Frequency 1-8 radios, Repeat / Ignore if blocked options. The
+// route runs in the background in game (cutscenes) — sequence it with
+// "Attendre la fin des déplacements".
 
 import { useEffect, useState } from "react";
 import type { Command, RouteStep } from "../types";
@@ -12,15 +12,15 @@ type RouteCmd = Extract<Command, { c: "route" }>;
 
 interface Props {
   cmd: RouteCmd;
-  hideTarget?: boolean; // route custom de page : pas de sélecteur d'event
-  eventNames: string[]; // noms des events de la scène (index = n° d'entrée)
-  switchNames: string[]; // noms des switches (libellés swon/swoff)
-  charsetNames: string[]; // noms des blocs de personnage (pas gfx)
+  hideTarget?: boolean; // a page's custom route: no event selector
+  eventNames: string[]; // names of the scene's events (index = entry number)
+  switchNames: string[]; // switch names (swon/swoff labels)
+  charsetNames: string[]; // names of the character blocks (gfx step)
   onOk: (c: RouteCmd) => void;
   onClose: () => void;
 }
 
-// Grille façon RM2003 : 3 colonnes (marcher / tourner / attributs)
+// RM2003-style grid: 3 columns (walk / turn / attributes)
 const COL1: RouteStep["s"][] = ["up", "right", "down", "left", "mrand", "mhero", "mflee", "fwd"];
 const COL2: RouteStep["s"][] = ["tup", "tright", "tdown", "tleft", "t90r", "t90l", "t180", "t90x", "trand", "face", "tflee"];
 const COL3: RouteStep["s"][] = ["spd+", "spd-", "frq+", "frq-", "fixon", "fixoff", "thruon", "thruoff"];
@@ -36,11 +36,11 @@ function stepLabel(st: RouteStep, swNames: string[], chNames: string[]): string 
 
 export default function MoveRouteModal(props: Props) {
   const [draft, setDraft] = useState<RouteCmd>(() => ({ freq: 3, ...structuredClone(props.cmd) }));
-  const [sel, setSel] = useState(draft.steps.length); // insertion en queue
+  const [sel, setSel] = useState(draft.steps.length); // append at the end
 
   const [clipStep, setClipStep] = useState<RouteStep | null>(null);
 
-  // Suppr efface le pas sélectionné ; Ctrl+C / Ctrl+V copient-collent
+  // Del clears the selected step; Ctrl+C / Ctrl+V copy and paste
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;

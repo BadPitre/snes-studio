@@ -1,65 +1,65 @@
-; actorsfast.asm — boucle d'affichage des acteurs en 65816 (P4).
+; actorsfast.asm — the actor drawing loop, in 65816 (P4).
 ;
-; POURQUOI DE L'ASSEMBLEUR ICI, ET NULLE PART AILLEURS
-; Mesure au compteur de scanline, plaine peuplee :
-;   0 PNJ -> 6,9 lignes    8 -> 85    16 -> 165    24 -> 244
-; soit 9,88 lignes ECRAN par acteur visible, parfaitement lineaire, et
-; 244 lignes sur 262 a 24 PNJ — la frame entiere passe la. Ramene en
-; cycles CPU : ~2 250 par acteur, pour une quinzaine de lectures de
-; tableau et quatre ecritures OAM. Ce n'est pas l'algorithme qui coute
-; (P3 l'avait deja degraisse : mots OAM invariants en cache, ecriture
-; inlinee, sortie anticipee des hors-champ), c'est le CODEGEN de
-; tcc-816 — un sep/rep autour de chaque operation sur u8, une adresse
-; longue recalculee a chaque acces de tableau. Aucune reecriture en C
-; ne rattrape ca ; c'est le seul endroit du moteur ou le profil
-; justifie le cout de maintenance de l'assembleur.
+; WHY ASSEMBLY HERE, AND NOWHERE ELSE
+; Measured with the scanline counter, on a populated plain:
+;   0 NPCs -> 6.9 lines    8 -> 85    16 -> 165    24 -> 244
 ;
-; CONTRAT
-;   entree : actors_hot_n (u8), camera.x / camera.y, tableaux actor_*
-;   sortie : shadow OAM ecrit pour les acteurs VISIBLES ; actor_shown,
-;            actor_x9, actor_lastf, actor_w1, actor_w3 a jour ; les
-;            acteurs a CACHER listes dans actors_hide_list/_n.
+; that is 9.88 SCREEN lines per visible actor, perfectly linear, and
+; 244 lines out of 262 at 24 NPCs — the whole frame goes there.
+; Brought back to CPU cycles: ~2,250 per actor, for fifteen-odd array
+; reads and four OAM writes. It is not the algorithm that costs (P3
+; had already trimmed it: invariant OAM words cached, the write
+; inlined, early exit for off-screen actors), it is tcc-816's CODEGEN
+; — a sep/rep around every u8 operation, a long address recomputed on
+; every array access. No C rewrite catches up with that; this is the
+; only place in the engine where the profile justifies the maintenance
+; cost of assembly.
 ;
-; Le masquage reste en C : il n'arrive qu'a la TRANSITION hors champ
-; (jamais en regime etabli, c'est le gain de P3) et il passe par
-; oamSetVisible de PVSnesLib, qu'on ne veut pas dupliquer ici.
+; CONTRACT
+;   in:  actors_hot_n (u8), camera.x / camera.y, the actor_* arrays
+;   out: the OAM shadow written for VISIBLE actors; actor_shown,
+;        actor_x9, actor_lastf, actor_w1, actor_w3 up to date; the
+;        actors to HIDE listed in actors_hide_list/_n.
 ;
-; CONVENTIONS 65816 respectees ici, chacune apprise a ses depens :
-;  - A reste en 16 bits ; les tableaux d'OCTETS se LISENT en 16 bits
-;    avec un and #$00FF (l'octet suivant est ignore), mais s'ECRIVENT
-;    obligatoirement sous sep #$20 — un store 16 bits ecraserait
-;    l'element voisin.
-;  - `long,Y` n'existe pas sur 65816 : seul `long,X` est encode. Les
-;    acces indexes par Y passent donc par l'adressage ABSOLU, avec le
-;    registre de bank pose a $7E (tout est en WRAM basse).
-;  - X porte i (index d'octet), Y porte 2*i ou l'offset OAM selon la
-;    phase ; af_i2 garde 2*i quand les deux sont necessaires.
+; Hiding stays in C: it only happens on the TRANSITION off screen
+; (never in steady state — that is the P3 gain) and it goes through
+; PVSnesLib's oamSetVisible, which we do not want to duplicate here.
 ;
-; CE QUE CA DONNE, MESURE (meme profileur, moyenne sur 128 frames apres
-; chauffe, cout de actors_draw() seul) :
-;      PNJ visibles      8      16      24
-;   C (tcc-816)         86     166     245  lignes ecran
-;   asm, adr. longue    28      51      95
-;   asm, page directe   26      47      90
-; soit 2,7x plus rapide que le C. Le passage des temporaires en page
-; directe n'apporte que 5 a 7 % la-dedans : je l'avais annonce comme LE
-; facteur manquant, c'est faux — l'essentiel du gain vient de la
-; suppression des sep/rep et du recalcul d'adresse longue par acces de
-; tableau. Il est garde parce qu'il est acquis et sans risque, pas parce
-; qu'il change la donne.
+; The 65816 conventions this file obeys, each learned the hard way:
+;  - A stays 16-bit; BYTE arrays are READ in 16 bits with an
+;    and #$00FF (the next byte is ignored), but they MUST be WRITTEN
+;    under sep #$20 — a 16-bit store would clobber the neighbour.
+;  - "long,Y" does not exist on the 65816: only "long,X" is encoded.
+;    Y-indexed accesses therefore go through ABSOLUTE addressing, with
+;    the bank register set to $7E (everything is in low WRAM).
+;  - X carries i (byte index), Y carries 2*i or the OAM offset
+;    depending on the phase; af_i2 keeps 2*i when both are needed.
 ;
-; A noter pour qui reprendra la mesure : a 16 et 24 PNJ, la version C ne
-; boucle que 370 fois sur 900 frames — elle tourne a 30 Hz. Les deux
-; versions ne simulent alors PAS la meme chose ; seul le cout de
-; actors_draw() se compare, pas le rendu.
+; WHAT IT BUYS, MEASURED (same profiler, mean over 128 frames after
+; warm-up, the cost of actors_draw() alone):
+;      visible NPCs      8      16      24
+;   C (tcc-816)         86     166     245  screen lines
+;   asm, long address   28      51      95
+;   asm, direct page    26      47      90
+; that is 2.7x faster than the C. Moving the temporaries to the direct
+; page only accounts for 5 to 7 % of it: I had announced it as THE
+; missing factor, which is wrong — most of the gain comes from
+; removing the sep/rep pairs and the long-address recomputation on
+; every array access. It is kept because it is acquired and risk-free,
+; not because it changes anything.
+;
+; Worth knowing for whoever redoes the measurement: at 16 and 24 NPCs
+; the C version only loops 370 times over 900 frames — it runs at
+; 30 Hz. The two versions are then NOT simulating the same thing; only
+; the cost of actors_draw() compares, not the rendering.
 
 .include "hdr.asm"
 .accu 16
 .index 16
 .16bit
 
-; Offsets des temporaires dans la PAGE DIRECTE (voir la note sur la
-; RAMSECTION, en bas de ce fichier : elle DOIT rester en bank $00)
+; Offsets of the temporaries in the DIRECT PAGE (see the note about the
+; RAMSECTION at the bottom of this file: it MUST stay in bank $00)
 .define D_N 0
 .define D_CX 2
 .define D_CY 4
@@ -86,19 +86,19 @@ actors_draw_hot:
     phb
     phd
     php
-    rep #$30                    ; A et X/Y en 16 bits, une fois pour toutes
+    rep #$30                    ; A and X/Y 16-bit, once and for all
     sep #$20
     lda #$7E
     pha
-    plb                         ; DB = $7E : oamMemory et le .bss adressables
-    rep #$20                    ; en absolu, donc indexables par Y
-    lda.w #af_n                 ; D sur le bloc de temporaires : chaque
-    tcd                         ; acces passe de 5-6 a 3-4 cycles
+    plb                         ; DB = $7E: oamMemory and the .bss are
+    rep #$20                    ; absolute-addressable, hence Y-indexable
+    lda.w #af_n                 ; D on the temporaries block: each access
+    tcd                         ; goes from 5-6 down to 3-4 cycles
 
     lda.l actors_hot_n
     and.w #$00FF
     bne +
-    brl _fin
+    brl _af_end
 +
     sta.b D_N
 
@@ -114,48 +114,48 @@ actors_draw_hot:
     sta.b D_CYMAX
 
     sep #$20
-    lda #0                      ; STZ n'a pas de mode long sur 65816
+    lda #0                      ; STZ has no long mode on the 65816
     sta.l actors_hide_n
     rep #$20
     ldx.w #0
 
-; ---- un tour par slot ------------------------------------------------
-_boucle:
+; ---- one pass per slot -----------------------------------------------
+_af_loop:
     lda.l actor_active,x
     and.w #$00FF
-    bne +                ; page inactive : OBJ deja caches
-    brl _suivant
+    bne +                ; inactive page: OBJs already hidden
+    brl _af_next
 +
 
     lda.l actor_sprite,x
     and.w #$00FF
     cmp.w #$00FF
     bne +                ; invisible
-    brl _suivant
+    brl _af_next
 +
     sta.b D_PAL
 
     txa
     asl a
-    sta.b D_I2                 ; 2*i pour les tableaux 16 bits
+    sta.b D_I2                 ; 2*i for the 16-bit arrays
     tay
 
-    ; --- visibilite : metasprite 16x24 contre la fenetre camera -------
+    ; --- visibility: the 16x24 metasprite against the camera window ---
     lda.w actor_px,y
     sta.b D_AX
     clc
     adc.w #16
     cmp.b D_CX
     bne +                   ; ax+16 <= cx
-    brl _hors
+    brl _af_offscreen
 +
     bcs +
-    brl _hors
+    brl _af_offscreen
 +
     lda.b D_AX
     cmp.b D_CXMAX
     bcc +                   ; ax >= cx+256
-    brl _hors
+    brl _af_offscreen
 +
 
     lda.w actor_py,y
@@ -164,22 +164,22 @@ _boucle:
     adc.w #16
     cmp.b D_CY
     bne +
-    brl _hors
+    brl _af_offscreen
 +
     bcs +
-    brl _hors
+    brl _af_offscreen
 +
     lda.b D_AY
     cmp.b D_CYMAX
     bcc +
-    brl _hors
+    brl _af_offscreen
 +
 
-    ; --- coordonnees ecran --------------------------------------------
+    ; --- screen coordinates -------------------------------------------
     lda.b D_AX
     sec
     sbc.l af_cx
-    sta.b D_SX                 ; 16 bits : le 9e bit sert plus bas
+    sta.b D_SX                 ; 16-bit: the 9th bit is used below
     and.w #$00FF
     sta.b D_X8
 
@@ -191,15 +191,15 @@ _boucle:
     and.w #$00FF
     sta.b D_SY
 
-    ; --- numero de frame : base + direction*3 + pas de marche ---------
+    ; --- frame number: base + direction*3 + walk step -----------------
     lda.l actor_gfx,x
     and.w #$00FF
     cmp.w #$00FF
-    bne _gfx_force
-    lda.l actor_fbase,x         ; base normale (sprite_id * 12)
+    bne _af_gfx_force
+    lda.l actor_fbase,x         ; normal base (sprite_id * 12)
     and.w #$00FF
-    bra _gfx_ok
-_gfx_force:                     ; Change Graphic : gfx * 12
+    bra _af_gfx_ok
+_af_gfx_force:                     ; Change Graphic: gfx * 12
     sta.b D_T
     asl a
     asl a                       ; g*4
@@ -211,7 +211,7 @@ _gfx_force:                     ; Change Graphic : gfx * 12
     clc
     adc.b D_T2                 ; g*12
     and.w #$00FF
-_gfx_ok:
+_af_gfx_ok:
     sta.b D_F
 
     lda.l actor_dirs,x
@@ -227,12 +227,12 @@ _gfx_ok:
 
     lda.l actor_step,x
     and.w #$00FF
-    beq _frame_ok               ; aucun pas en cours : pose de repos
+    beq _af_frame_ok               ; no step in progress: idle pose
     lda.l actor_anim,x
     and.w #$00FF
     sta.b D_T
     and.w #$0001
-    beq _frame_ok               ; phase paire : repos
+    beq _af_frame_ok               ; even phase: idle
     lda.b D_T
     lsr a                       ; anim >> 1
     clc
@@ -241,17 +241,17 @@ _gfx_ok:
     adc.b D_F
     and.w #$00FF
     sta.b D_F
-_frame_ok:
+_af_frame_ok:
 
-    ; --- mots OAM invariants : recalcules SEULEMENT si la frame change -
+    ; --- invariant OAM words: recomputed ONLY when the frame changes ---
     lda.l actor_lastf,x
     and.w #$00FF
     cmp.b D_F
-    beq _oam                    ; cache encore valide
+    beq _af_oam                    ; cache still valid
 
     sep #$20
     lda.b D_F
-    sta.l actor_lastf,x         ; store 8 bits : ne pas ecraser le voisin
+    sta.l actor_lastf,x         ; 8-bit store: do not clobber the neighbour
     rep #$20
 
     ; tile = ((f & 0xF8) << 3) | ((f & 7) << 1)
@@ -266,56 +266,56 @@ _frame_ok:
     asl a
     ora.b D_T2
     sta.b D_TILE
-    ; attr = (pal << 1) | (prio << 4), prio 3 si ACTOR_PRIO_ABOVE sinon 2
+    ; attr = (pal << 1) | (prio << 4), prio 3 if ACTOR_PRIO_ABOVE else 2
     lda.l actor_prio,x
     and.w #$00FF
     cmp.w #2                    ; ACTOR_PRIO_ABOVE
-    bne _prio_normale
+    bne _af_prio_normal
     lda.w #(3 << 4)
-    bra _prio_ok
-_prio_normale:
+    bra _af_prio_ok
+_af_prio_normal:
     lda.w #(2 << 4)             ; ACTOR_OBJ_PRIO
-_prio_ok:
+_af_prio_ok:
     sta.b D_T2
     lda.b D_PAL
     asl a
     ora.b D_T2
     sta.b D_ATTR
 
-    lda.b D_I2                 ; LDY n'a pas de mode long : passer par A
+    lda.b D_I2                 ; LDY has no long mode: go through A
     tay
-    jsr _mot_oam                ; w1 depuis af_tile
+    jsr _af_oam_word                ; w1 from af_tile
     sta.w actor_w1,y
     lda.b D_TILE
     clc
-    adc.w #32                   ; rangee du dessous
+    adc.w #32                   ; the row below
     sta.b D_TILE
     lda.b D_I2
     tay
-    jsr _mot_oam
+    jsr _af_oam_word
     sta.w actor_w3,y
 
-; ---- ecriture des deux entrees OAM -----------------------------------
-_oam:
+; ---- writing the two OAM entries -------------------------------------
+_af_oam:
     txa                         ; ACTOR_OAM_TOP(i) = ((i<<1)+2)<<2 = 8i + 8
     asl a
     asl a
     asl a
     clc
     adc.w #8
-    tay                         ; Y = offset d'octet dans oamMemory
+    tay                         ; Y = byte offset into oamMemory
 
     lda.b D_SY
-    xba                         ; sy en octet haut
+    xba                         ; sy in the high byte
     ora.b D_X8
-    sta.w oamMemory,y           ; mot 0 : X | Y<<8
+    sta.w oamMemory,y           ; word 0: X | Y<<8
 
     phy
     lda.b D_I2
     tay
     lda.w actor_w1,y
     ply
-    sta.w oamMemory + 2,y       ; mot 1
+    sta.w oamMemory + 2,y       ; word 1
 
     lda.b D_SY
     clc
@@ -323,78 +323,78 @@ _oam:
     and.w #$00FF
     xba
     ora.b D_X8
-    sta.w oamMemory + 4,y       ; mot 2
+    sta.w oamMemory + 4,y       ; word 2
 
     phy
     lda.b D_I2
     tay
     lda.w actor_w3,y
     ply
-    sta.w oamMemory + 6,y       ; mot 3
+    sta.w oamMemory + 6,y       ; word 3
 
-    ; --- 9e bit de X : la table 2 n'est touchee qu'au CHANGEMENT -------
+    ; --- 9th bit of X: table 2 is only touched on a CHANGE -------------
     lda.b D_SX
     and.w #$0100
-    beq _x9_val
+    beq _af_x9_val
     lda.w #1
-_x9_val:
-    sta.b D_T                  ; nouveau x9 (0 ou 1)
+_af_x9_val:
+    sta.b D_T                  ; new x9 (0 or 1)
     lda.l actor_x9,x
     and.w #$00FF
     cmp.b D_T
-    beq _montre                 ; inchange : on ne touche pas la table 2
+    beq _af_shown                 ; unchanged: leave table 2 alone
 
-    ; masque : (id>>2)&3 == 0 ? 0x05 : 0x50. id = 8i+8, donc
-    ; id>>2 = 2i+2, nul modulo 4 quand i est IMPAIR.
+    ; mask: (id>>2)&3 == 0 ? 0x05 : 0x50. id = 8i+8, so id>>2 = 2i+2,
+    ; which is zero modulo 4 when i is ODD.
     txa
     and.w #$0001
-    beq _masque_pair
-    lda.w #$0005                ; i impair -> (id>>2)&3 == 0
-    bra _masque_ok
-_masque_pair:
+    beq _af_mask_even
+    lda.w #$0005                ; i odd -> (id>>2)&3 == 0
+    bra _af_mask_ok
+_af_mask_even:
     lda.w #$0050
-_masque_ok:
+_af_mask_ok:
     sta.b D_MASK
 
-    tya                         ; Y = offset OAM de l'acteur
+    tya                         ; Y = OAM offset of the actor
     lsr a
     lsr a
     lsr a
     lsr a                       ; id >> 4
     clc
     adc.w #512
-    tay                         ; octet de la table 2
+    tay                         ; byte of table 2
 
     sep #$20
     lda.b D_T
-    sta.l actor_x9,x            ; store 8 bits
-    beq _x9_efface
+    sta.l actor_x9,x            ; 8-bit store
+    beq _af_x9_clear
     lda.w oamMemory,y
     ora.b D_MASK
-    bra _x9_ecrit
-_x9_efface:
+    bra _af_x9_write
+_af_x9_clear:
     lda.b D_MASK
     eor #$FF
     sta.b D_MASKN
     lda.w oamMemory,y
     and.b D_MASKN
-_x9_ecrit:
+_af_x9_write:
     sta.w oamMemory,y
     rep #$20
 
-_montre:
+_af_shown:
     sep #$20
     lda #1
     sta.l actor_shown,x
     rep #$20
-    bra _suivant
+    bra _af_next
 
-; ---- hors champ : le C s'en charge, et seulement a la TRANSITION -----
-_hors:
+; ---- off screen: the C side handles it, and only on the TRANSITION ---
+_af_offscreen:
     lda.l actor_shown,x
     and.w #$00FF
-    bne +                ; deja cache : rien a faire (le gain P3)
-    brl _suivant
+    bne +                ; already hidden: nothing to do (the P3 gain)
+    brl _af_next
 +
     lda.l actors_hide_n
     and.w #$00FF
@@ -407,28 +407,28 @@ _hors:
     sta.l actors_hide_n
     rep #$20
 
-_suivant:
+_af_next:
     inx
-    cpx.b D_N                  ; CPX n'a pas de mode long ; af_n est en
-    bcs +                 ; bank $7E, adressable en absolu (DB = $7E)
-    brl _boucle
+    cpx.b D_N                  ; CPX has no long mode; af_n is in bank
+    bcs +                 ; $7E, absolute-addressable (DB = $7E)
+    brl _af_loop
 +
 
-_fin:
+_af_end:
     plp
     pld
     plb
     rtl
 
-; mot OAM depuis af_tile et af_attr :
+; OAM word from af_tile and af_attr:
 ;   (tile & 0xFF) | ((attr | (tile >> 8)) << 8)
-; Y est preserve par l'appelant autour de l'appel.
-_mot_oam:
+; Y is preserved by the caller around the call.
+_af_oam_word:
     lda.b D_TILE
-    xba                         ; octet haut de tile en bas
+    xba                         ; high byte of tile down low
     and.w #$00FF
     ora.b D_ATTR
-    xba                         ; remonte en octet haut
+    xba                         ; back up into the high byte
     and.w #$FF00
     sta.b D_T2
     lda.b D_TILE
@@ -438,11 +438,11 @@ _mot_oam:
 
 .ENDS
 
-; Variables de travail. En BANK 0 (SLOT 1) et non en $7E : l'adressage en
-; PAGE DIRECTE du 65816 vise TOUJOURS la bank $00, quel que soit le
-; registre de bank. Un bloc pose en $7E et adresse via D tape dans les
-; registres PPU — c'est la regression pixel qui l'a signale, en trois
-; images faussees, avant que ca ne devienne un fantome de plus.
+; Work variables. In BANK 0 (SLOT 1) and not in $7E: the 65816's DIRECT
+; PAGE addressing ALWAYS targets bank $00, whatever the bank register
+; holds. A block placed in $7E and addressed through D lands in the PPU
+; registers — the pixel regression is what caught it, in three wrong
+; frames, before it could become one more ghost.
 .RAMSECTION "actorsfastvars" BANK 0 SLOT 1
 af_n      dw
 af_cx     dw

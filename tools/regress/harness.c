@@ -1,8 +1,8 @@
 /*
- * harness.c — lance un ROM SNES dans le core libretro snes9x, exécute N
- * frames, dump le framebuffer en PPM et des stats de luminosité.
+ * harness.c — runs a SNES ROM in the snes9x libretro core for N frames,
+ * dumps the framebuffer as PPM plus brightness statistics.
  * Usage: harness <core.so> <rom.sfc> <frames> <out.ppm> [pad_script]
- *   pad_script: "frame:bouton,frame:bouton,..." (bouton: A,B,U,D,L,R,S)
+ *   pad_script: "frame:button,frame:button,..." (button: A,B,U,D,L,R,S)
  */
 #include <dlfcn.h>
 #include <stdint.h>
@@ -15,7 +15,7 @@ static uint16_t fb[1024 * 512];
 static unsigned fb_w, fb_h;
 static int pixfmt = RETRO_PIXEL_FORMAT_0RGB1555;
 
-/* état du pad 1 (bitmask des RETRO_DEVICE_ID_JOYPAD_*) */
+/* pad 1 state (a bitmask of RETRO_DEVICE_ID_JOYPAD_*) */
 static uint32_t pad_state = 0;
 
 static void video_cb(const void *data, unsigned width, unsigned height, size_t pitch)
@@ -109,13 +109,13 @@ int main(int argc, char **argv)
     fclose(f);
 
     struct retro_game_info gi = { argv[2], rom, (size_t)sz, NULL };
-    if (!load_game(&gi)) { fprintf(stderr, "load_game a echoue\n"); return 2; }
+    if (!load_game(&gi)) { fprintf(stderr, "load_game failed\n"); return 2; }
 
     int frames = atoi(argv[3]);
     const char *pad = argc > 5 ? argv[5] : "";
 
     for (int i = 0; i < frames; i++) {
-        /* pad script : appuie 5 frames a partir de la frame indiquee */
+        /* pad script: hold for 5 frames from the given frame onwards */
         pad_state = 0;
         const char *p = pad;
         while (*p) {

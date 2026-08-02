@@ -1,131 +1,132 @@
-# Système MENUS & WIDGETS — plan de construction (Phase 12)
+# MENUS & WIDGETS — build plan (Phase 12)
 
-Document de conception CONTRACTUEL (même statut que
-`PLANNING_SYSTEME_DATABASE.md`) : tout écart d'implémentation se
-répercute ici dans le MÊME commit. Réfs : `SPEC_SYSTEME_UI.md` (§2
-overlay, §5 pile de scènes), `SPEC_FORMATS.md` §2/§4.
+A CONTRACTUAL design document (same status as
+`PLANNING_SYSTEME_DATABASE.md`): any implementation that diverges from it
+updates it in the SAME commit. References: `SPEC_SYSTEME_UI.md` (§2
+overlay, §5 scene stack), `SPEC_FORMATS.md` §2/§4.
 
-Objectif utilisateur (références visuelles validées avec Bertrand) :
+What the user asked for, from agreed visual references:
 
-- **HUD à la Zelda ALttP** : cœurs de vie, jauge de magie verticale,
-  compteurs à icône (rubis/bombes/flèches), placés LIBREMENT à l'écran
-  — pas seulement dans la bande du haut.
-- **Menu à la FF4** : écran plein par-dessus le jeu en pause, fenêtres
-  multiples (commandes, équipe, temps, or), curseur, sous-écrans
-  empilés (Item/Magic/Status…), B dépile.
+- **A Zelda ALttP style HUD**: life hearts, a vertical magic gauge, icon
+  counters (rupees/bombs/arrows), placed FREELY on screen — not just in
+  the top band.
+- **An FF4 style menu**: a full screen over the paused game, several
+  windows (commands, party, time, gold), a cursor, stacked sub-screens
+  (Item/Magic/Status…), B pops.
 
-Tout est DONNÉES : layouts TOML compilés par uigen, contenus liés aux
-variables/database. Zéro contenu de jeu en dur dans le moteur.
+Everything is DATA: TOML layouts compiled by uigen, contents bound to
+variables and to the database. No game content hard-coded in the engine.
 
 ---
 
-## M1 — tampon d'écran UI unifié (prérequis moteur)
+## M1 — a unified UI screen buffer (engine prerequisite)
 
-**Problème** : BG3 avait trois écrivains disjoints — textbox (bande du
-dialogue, shadow local), ui_overlay (rangées 0-3, shadow local), timer
-(rangée 1, écriture VRAM directe). Chacun transférait SA zone : un
-overlay hors de la bande 0-3 ou un widget latéral écraserait/serait
-écrasé par le dialogue ; un redessin d'overlay effaçait déjà le timer
-(conflit latent).
+**The problem**: BG3 had three disjoint writers — the textbox (the
+dialogue band, its own shadow), ui_overlay (rows 0-3, its own shadow) and
+the timer (row 1, writing VRAM directly). Each transferred ITS OWN area:
+an overlay outside the 0-3 band, or a widget on the side, would overwrite
+or be overwritten by the dialogue; an overlay redraw already erased the
+timer (a latent conflict).
 
-**Solution** : module `ui_screen.c` — UN tampon WRAM `ui_map[32*28]`
-(1792 o, .bss $7E, sous le plafond checkwram) qui est LA vérité de la
-couche BG3. Tous les modules UI y dessinent (hors VBlank) et déclarent
-leurs rangées touchées via `ui_mark(row, h)` ; au VBlank, UN SEUL DMA
-du span de rangées sale (`ui_screen_vblank`). `ui_screen_init` nettoie
-la map entière écran éteint (rangées 28-31 de la map 32x32 comprises).
+**The fix**: the `ui_screen.c` module — ONE WRAM buffer `ui_map[32*28]`
+(1792 bytes, `.bss` in $7E, under the checkwram ceiling) that is THE truth
+of the BG3 layer. Every UI module draws into it (outside VBlank) and
+declares the rows it touched through `ui_mark(row, h)`; at VBlank, ONE DMA
+of the dirty row span (`ui_screen_vblank`). `ui_screen_init` clears the
+whole map with the screen off (rows 28-31 of the 32x32 map included).
 
-Conséquences :
+Consequences:
 
-- textbox/ui_overlay/timer perdent leurs shadows et leurs `*_vblank()`
-  propres ; les macros de cellule deviennent ABSOLUES (plus de
-  `UI_SHADOW_ROW` dans l'adressage — il reste la zone à effacer à la
-  fermeture du dialogue).
-- le timer est composé dans le tampon comme le reste : plus de conflit
-  overlay/timer. (Cas assumé : une fenêtre de dialogue qui recouvre la
-  rangée du timer l'efface jusqu'au tick suivant.)
-- coût VBlank : span sale contigu, 64 o/rangée — dialogue type = 512 o
-  (identique à avant), pire cas plein écran = 1792 o (rare, budget OK).
+- textbox/ui_overlay/timer lose their shadows and their own `*_vblank()`;
+  the cell macros become ABSOLUTE (no more `UI_SHADOW_ROW` in the
+  addressing — it survives only as the area to clear when the dialogue
+  closes).
+- the timer is composed into the buffer like everything else: no more
+  overlay/timer conflict. (Accepted case: a dialogue window covering the
+  timer's row erases it until the next tick.)
+- VBlank cost: a contiguous dirty span, 64 bytes per row — a typical
+  dialogue is 512 bytes (as before), the full-screen worst case 1792
+  bytes (rare, within budget).
 
-**Validation** : boot 200 frames pixel-identique ; séquence dialogue
-demo (typewriter, \v[n]) et projet uitest (HUD + parallel + fenêtre
-flottante) comparés IMAGE PAR IMAGE entre le ROM d'avant et d'après —
-aucune différence attendue (refactor pur).
+**Validation**: boot 200 frames pixel-identical; the demo dialogue
+sequence (typewriter, `\v[n]`) and the uitest project (HUD + parallel +
+floating window) compared FRAME BY FRAME between the before and after
+ROMs — no difference expected, this is a pure refactor.
 
-## W1 — widgets HUD à la Zelda (content types v2)
+## W1 — Zelda style HUD widgets (content types v2)
 
-Extension du contexte overlay (uigen `[[overlay]]`) : nouveaux
-`content`, placement LIBRE (M1 aidant) et cadre optionnel.
+An extension of the overlay context (uigen `[[overlay]]`): new `content`
+kinds, FREE placement (thanks to M1) and an optional frame.
 
-- **Placement libre** : `pos` n'importe où dans l'écran 32x28 (plus de
-  zone rangées 0-3). Reste interdit : chevaucher la fenêtre message ou
-  choice du layout (erreur uigen + éditeur). `UI_SHADOW_*` continue de
-  décrire l'union message/choix ; les overlays hors de cette bande ne
-  sont plus contraints.
-- **`frame = false`** (défaut true) : pas de cadre 9-slice ni de fond —
-  le widget se pose sur le jeu comme les cœurs de Zelda (chars
-  transparents autour). Les tailles minimales tombent à 1x1.
-- **Nouveaux `content`** :
-  - `variable_display` (existant) : libellé + valeur.
-  - `gauge` : barre de remplissage liée à `var`, `max` (constante ou
-    seconde variable), `dir = "h"|"v"` — chars de jauge dédiés
-    (pleine/demi/vide) dans la planche d'icônes.
-  - `icon_row` : N icônes répétées (cœurs) — `var` = valeur courante,
-    `max`, 2 unités par icône (pleine/demie/vide, arrondi RM).
-  - `icon_value` : icône + compteur aligné (rubis « 072 », zéros de
-    tête optionnels `pad`).
-- **Planche d'icônes UI** : PNG `8xN` (chars 8x8, palette de la fonte,
-  4 couleurs) importée via le **Gestionnaire de ressources**
-  (catégorie IconSet), appendue par datagen après le windowskin (chars
-  BG3 106+). Les widgets référencent l'icône par index. Budget : la
-  VRAM BG3 tolère ≥ 64 icônes — dbgen valide.
-- Redessin : comme aujourd'hui, uniquement quand `vars16[var]` change ;
-  compose dans `ui_map` + `ui_mark`.
-- Éditeur : la fenêtre UI / Thème gagne les nouveaux types (formulaire
-  par type + preview fidèle, icônes réelles).
+- **Free placement**: `pos` anywhere in the 32x28 screen (no more rows 0-3
+  restriction). Still forbidden: overlapping the layout's message or
+  choice window (a uigen error, and an editor one). `UI_SHADOW_*` still
+  describes the message/choice union; overlays outside that band are no
+  longer constrained by it.
+- **`frame = false`** (default true): no 9-slice frame and no background —
+  the widget sits on the game like Zelda's hearts (transparent chars
+  around it). Minimum sizes drop to 1x1.
+- **New `content` kinds**:
+  - `variable_display` (existing): a label plus a value.
+  - `gauge`: a fill bar bound to `var`, `max` (a constant or a second
+    variable), `dir = "h"|"v"` — with dedicated gauge chars (full, half,
+    empty) in the icon sheet.
+  - `icon_row`: N repeated icons (hearts) — `var` is the current value,
+    `max` the maximum, 2 units per icon (full/half/empty, RM rounding).
+  - `icon_value`: an icon plus an aligned counter (rupees "072", optional
+    leading zeros through `pad`).
+- **UI icon sheet**: an `8xN` PNG (8x8 chars, the font's palette, 4
+  colours) imported through the **resource manager** (IconSet category),
+  appended by datagen after the windowskin (BG3 chars 106+). Widgets
+  reference an icon by index. Budget: BG3 VRAM tolerates >= 64 icons —
+  dbgen validates it.
+- Redraw: as today, only when `vars16[var]` changes; composes into
+  `ui_map` plus `ui_mark`.
+- Editor: the UI / Theme window gains the new types (a form per type and a
+  faithful preview, with the real icons).
 
-## M2 — écrans de menu déclaratifs
+## M2 — declarative menu screens
 
-- `ui/menus/*.toml` (uigen) : un ÉCRAN = fenêtres avec contenus
-  statiques (texte), liaisons (`\v[n]`, timer, champs database via la
-  mécanique DBREAD), widgets W1.
-- Ouverture : commande d'event « Ouvrir le menu » + option projet
-  « bouton X ouvre le menu <id> ». Jeu en PAUSE dessous (modèle
-  sysmenu) ; le HUD overlay est masqué pendant un menu plein écran.
-- Le menu Système actuel (START : sauvegarder/charger) reste tel quel
-  et sera absorbé plus tard (M4+).
+- `ui/menus/*.toml` (uigen): a SCREEN is windows with static contents
+  (text), bindings (`\v[n]`, the timer, database fields through the DBREAD
+  machinery) and W1 widgets.
+- Opening: the "Open the menu" event command, plus a project option
+  "button X opens menu `<id>`". The game is PAUSED underneath (the sysmenu
+  model); the HUD overlay is hidden during a full-screen menu.
+- The current System menu (START: save/load) stays as it is and will be
+  absorbed later (M4+).
 
-## M3 — listes, curseur, pile
+## M3 — lists, cursor, stack
 
-- Fenêtre `list` : entrées verticales, curseur (chars fonte ou icône),
-  A déclenche l'ACTION de l'entrée — `open <écran>` (empile) ou
-  `common_event <n>` ; B dépile, pile vide = retour jeu.
-  Pile de 4 écrans (statique), modèle spec §5.
-- C'est le cran qui rend le menu FF4 faisable : écran racine =
-  fenêtre liste (Item/Magic/…) + fenêtre équipe (liaisons database) +
-  fenêtres temps/or.
+- A `list` window: vertical entries, a cursor (font chars or an icon), A
+  triggers the entry's ACTION — `open <screen>` (pushes) or
+  `common_event <n>`; B pops, and an empty stack returns to the game.
+  A stack of 4 screens (static), following spec §5.
+- This is the step that makes the FF4 menu possible: the root screen is a
+  list window (Item/Magic/…) plus a party window (database bindings) plus
+  time and gold windows.
 
-## M4 — confort FF4
+## M4 — FF4 comfort
 
-- Portraits/images dans une fenêtre (tiles 4bpp dédiées — étude VRAM à
-  faire, probablement budget par écran).
-- Listes PEUPLÉES par une table database (inventaire = table items +
-  quantités en variables), pagination.
-- Jauges HP dans les fiches, `hp_bar` de la spec.
+- Portraits and images inside a window (dedicated 4bpp tiles — a VRAM
+  study is still needed, probably a per-screen budget).
+- Lists POPULATED from a database table (an inventory = the items table
+  plus quantities in variables), with pagination.
+- HP gauges in the records, the spec's `hp_bar`.
 
-## Ordre retenu et état
+## The order taken, and where it stands
 
-| Cran | Contenu | État |
-|------|---------|------|
-| M1 | tampon unifié ui_screen | fait |
-| W1 | widgets Zelda (gauge/icon_row/icon_value, frame, IconSet, placement libre) | fait — détail dans SPEC_SYSTEME_UI.md (appendice) |
-| D1 | designer à canvas (arbre window/vbox/hbox/label/value/image, aplatisseur, palette/arborescence/inspecteur) | fait — demande explicite (modèle UMG/Chrono Trigger), détail dans SPEC_SYSTEME_UI.md |
-| M2 | écrans déclaratifs + ouverture | à faire |
-| M3 | listes + curseur + pile (l'objet liste du designer devient navigable) | à faire |
-| M4 | portraits, listes database, hp_bar | à faire |
+| Step | Content | State |
+|------|---------|-------|
+| M1 | the unified ui_screen buffer | done |
+| W1 | Zelda widgets (gauge/icon_row/icon_value, frame, IconSet, free placement) | done — detail in SPEC_SYSTEME_UI.md (appendix) |
+| D1 | canvas designer (window/vbox/hbox/label/value/image tree, flattener, palette/tree/inspector) | done — an explicit request (the UMG / Chrono Trigger model), detail in SPEC_SYSTEME_UI.md |
+| M2 | declarative screens and opening them | to do |
+| M3 | lists + cursor + stack (the designer's list object becomes navigable) | to do |
+| M4 | portraits, database lists, hp_bar | to do |
 
-Écarts W1 vs le plan ci-dessus : `icon_row` est horizontal seulement
-(un `gauge` vertical couvre le cas colonne) ; les demi-unités suivent
-la règle « 2 unités par tile, troncature » (pas d'arrondi RM) ; le
-timer est refresh comme les widgets après effacement de la bande
-dialogue ; l'IconSet a aussi l'EXPORT PNG (demande utilisateur).
+Where W1 diverged from the plan above: `icon_row` is horizontal only (a
+vertical `gauge` covers the column case); half units follow a "2 units per
+tile, truncate" rule rather than RM rounding; the timer is refreshed like
+the widgets after the dialogue band is cleared; and the IconSet also has
+PNG EXPORT (a user request).

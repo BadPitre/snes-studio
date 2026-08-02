@@ -1,4 +1,4 @@
-// Panneau script : le bytecode de la scène en syntaxe assembleur datagen.
+// Script panel: the scene's bytecode in datagen's assembly syntax.
 
 interface Props {
   script: string[];

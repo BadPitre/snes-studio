@@ -1,27 +1,26 @@
 /*
- * anim.c — animations image par image (A1). Voir anim.h.
+ * anim.c — frame-by-frame animations. See anim.h.
  *
- * Une animation = L CALQUES, chacun tenant un slot de vignette : le
- * calque porte sa cellule et sa position, la vignette porte le chemin
- * graphique (chars OBJ, palette, transfert VBlank). Les L calques
- * partagent la palette de la planche — voir vignette.h, c'est ce qui
- * rend les cellules simultanées abordables.
+ * An animation is L LAYERS, each holding a vignette slot: the layer
+ * carries its cell and position, the vignette carries the graphics path
+ * (OBJ chars, palette, VBlank transfer). The L layers share the sheet's
+ * palette — see vignette.h, that is what makes simultaneous cells
+ * affordable.
  *
- * La piste est APLATIE et de pas FIXE : par frame, L enregistrements de
- * 3 octets [cellule][dx][dy], puis [durée][son]. Le pas vaut donc
- * 3L + 2 et se calcule UNE fois au lancement ; le lecteur l'ajoute à
- * l'offset courant, sans jamais multiplier ni décoder une longueur
- * variable. tcc-816 compile chaque accès indexé en une lecture
- * indirecte longue (~11 instructions, cf. P3) : une frame coûte ici
- * 3L + 2 lectures et rien d'autre, et SEULEMENT au changement de
- * frame — le reste du temps le lecteur décrémente un compteur.
- */
+ * The track is FLATTENED with a FIXED stride: per frame, L records of
+ * 3 bytes [cell][dx][dy], then [duration][sound]. The stride is 3L + 2,
+ * computed ONCE at launch; the player adds it to the current offset,
+ * never multiplying and never decoding a variable length. tcc-816
+ * compiles every indexed access into a long indirect read of about 11
+ * instructions, so a frame costs 3L + 2 reads and nothing else — and
+ * only when the frame changes. The rest of the time the player just
+ * decrements a counter. */
 #include <snes.h>
 #include "vignette.h"
 #include "anim.h"
 #include "audio.h"
 
-/* registre généré (data_anims.c — toujours émis) */
+/* generated registry (data_anims.c — always emitted) */
 extern const u8 anim_count;
 extern const u8 anim_vig[];
 extern const u8 anim_flags[];
@@ -30,30 +29,30 @@ extern const u8 anim_nframes[];
 extern const u16 anim_ofs[];
 extern const u8 anim_track[];
 
-/* Ancrage ÉCRAN : (0,0) = cellule 32x32 centrée sur l'écran 256x224.
-   Le décalage de la frame part de là — même règle dans l'éditeur, dont
-   le canevas montre l'écran entier. */
+/* SCREEN anchoring: (0,0) is a 32x32 cell centred on the 256x224
+   screen. The frame's offset starts from there — the same rule as in
+   the editor, whose canvas shows the whole screen. */
 #define ANIM_SCR_X 112
 #define ANIM_SCR_Y 96
 
-/* slot de vignette du calque l de l'animation s */
+/* vignette slot of layer l of animation s */
 #define A_VS(s, l) a_vs[((s) << 2) + (l)]
 
-static u8 a_id[ANIM_SLOTS]; /* 0xFF = slot libre */
+static u8 a_id[ANIM_SLOTS]; /* 0xFF = free slot */
 static u8 a_frame[ANIM_SLOTS];
-static u8 a_n[ANIM_SLOTS];      /* nombre de frames */
-static u8 a_loop[ANIM_SLOTS];   /* animation en boucle : ne bloque jamais */
-static u8 a_lay[ANIM_SLOTS];    /* nombre de calques (1-4) */
-static u8 a_stride[ANIM_SLOTS]; /* 3*calques + 2 */
+static u8 a_n[ANIM_SLOTS];      /* frame count */
+static u8 a_loop[ANIM_SLOTS];   /* looping animation: never blocks */
+static u8 a_lay[ANIM_SLOTS];    /* layer count (1-4) */
+static u8 a_stride[ANIM_SLOTS]; /* 3*layers + 2 */
 static u8 a_timer[ANIM_SLOTS];
 static u8 a_anc[ANIM_SLOTS];
-static u16 a_base[ANIM_SLOTS]; /* offset de la frame 0 dans anim_track */
-static u16 a_cur[ANIM_SLOTS];  /* offset de la frame COURANTE */
-static u8 a_vs[ANIM_SLOTS * ANIM_LAYERS_MAX]; /* slots empruntés, 0xFF = aucun */
-static u8 a_fresh = 0; /* bitmask : frame posée CETTE frame écran — le
-                          premier tick ne la consomme pas, quel que soit
-                          l'ordre VM / lecteur */
-static u8 a_init = 0;  /* statics posés (init explicite tcc) */
+static u16 a_base[ANIM_SLOTS]; /* offset of frame 0 in anim_track */
+static u16 a_cur[ANIM_SLOTS];  /* offset of the CURRENT frame */
+static u8 a_vs[ANIM_SLOTS * ANIM_LAYERS_MAX]; /* borrowed slots, 0xFF = none */
+static u8 a_fresh = 0; /* bitmask: frame posed THIS screen frame — the
+                          first tick does not consume it, whatever the
+                          VM/player order */
+static u8 a_init = 0;  /* statics set (explicit tcc init) */
 
 static void anim_init_once(void)
 {
@@ -71,9 +70,9 @@ static void anim_init_once(void)
   a_fresh = 0;
 }
 
-/* Rend les slots de vignette d'une animation. hide = 0 quand ils ont été
-   préemptés par un vig_show scripté : le script a repris la main sur ce
-   qu'il affiche, on ne le cache pas sous ses pieds. */
+/* Gives back an animation's vignette slots. hide = 0 when they were
+   preempted by a scripted vig_show: the script has taken over what it
+   shows, so we do not hide it from under its feet. */
 static void anim_free(u8 s, u8 hide)
 {
   u8 l, vs;
@@ -91,8 +90,8 @@ static void anim_free(u8 s, u8 hide)
   a_fresh &= (u8)~(1 << s);
 }
 
-/* Applique la frame courante : cellule et position de CHAQUE calque,
-   puis durée et son (une seule fois pour la frame). */
+/* Applies the current frame: cell and position of EACH layer, then
+   duration and sound (once for the frame). */
 static void anim_enter(u8 s)
 {
   u16 o = a_cur[s];
@@ -112,7 +111,7 @@ static void anim_enter(u8 s)
       continue;
     if (cell == ANIM_CELL_NONE)
     {
-      vig_set_visible(vs, 0); /* calque vide : le slot reste réservé */
+      vig_set_visible(vs, 0); /* empty layer: the slot stays reserved */
       continue;
     }
     vig_set_visible(vs, 1);
@@ -120,7 +119,7 @@ static void anim_enter(u8 s)
     if (a_anc[s] == ANIM_ANC_SCREEN)
       vig_move(vs, (u8)(ANIM_SCR_X + dx), (u8)(ANIM_SCR_Y + dy));
     else
-      vig_move(vs, (u8)dx, (u8)dy); /* offsets signés autour de la cible */
+      vig_move(vs, (u8)dx, (u8)dy); /* signed offsets around the target */
   }
 
   a_timer[s] = anim_track[o];
@@ -142,13 +141,13 @@ void anim_play(u8 anim_id, u8 anchor, u8 target)
   if (nl == 0 || nl > ANIM_LAYERS_MAX)
     nl = 1;
 
-  /* Palette d'abord : les deux palettes OBJ libres peuvent déjà être
-     prises par deux AUTRES planches. Mieux vaut ne rien jouer que de
-     jouer aux couleurs d'une autre image. */
+  /* Palette first: the two free OBJ palettes may already be taken by
+     two OTHER sheets. Better to play nothing than to play in another
+     image's colours. */
   if (!vig_pal_available(vig))
     return;
 
-  /* un emplacement d'animation */
+  /* one animation slot */
   s = 0xFF;
   for (i = 0; i < ANIM_SLOTS; i++)
     if (a_id[i] == 0xFF)
@@ -166,9 +165,9 @@ void anim_play(u8 anim_id, u8 anchor, u8 target)
     s = best;
   }
 
-  /* assez de slots de vignette pour tous les calques ? On les prend au
-     fur et à mesure ; s'il en manque, la plus AVANCÉE des animations en
-     cours cède les siens et on repasse une fois. */
+  /* Enough vignette slots for every layer? We take them as we go; if
+     any are missing, the MOST ADVANCED running animation gives its own
+     up and we try once more. */
   for (i = 0; i < 2; i++)
   {
     for (l = 0; l < nl; l++)
@@ -177,23 +176,23 @@ void anim_play(u8 anim_id, u8 anchor, u8 target)
       if (vs == 0xFF)
         break;
       A_VS(s, l) = vs;
-      vig_show(vs, vig, 0, 0); /* réserve le slot ET la palette */
-      vig_own_anim(vs);        /* APRÈS vig_show, qui remet la propriété à 0 */
+      vig_show(vs, vig, 0, 0); /* reserves the slot AND the palette */
+      vig_own_anim(vs);        /* AFTER vig_show, which resets ownership to 0 */
       if (anchor == ANIM_ANC_ACTOR)
         vig_anchor_actor(vs, target);
       else
         vig_anchor(vs, anchor ? VIG_ANC_HERO : VIG_ANC_SCREEN);
     }
     if (l == nl)
-      break; /* tous les calques sont posés */
-    /* place insuffisante : rendre ce qu'on a pris, libérer une victime */
+      break; /* every layer is posed */
+    /* not enough room: give back what we took, free a victim */
     anim_free(s, 1);
     best = 0xFF;
     for (l = 0; l < ANIM_SLOTS; l++)
       if (a_id[l] != 0xFF && (best == 0xFF || a_frame[l] > a_frame[best]))
         best = l;
     if (best == 0xFF || i)
-      return; /* rien à sacrifier, ou déjà essayé : on renonce */
+      return; /* nothing to sacrifice, or already tried: give up */
     anim_free(best, 1);
   }
 
@@ -202,7 +201,7 @@ void anim_play(u8 anim_id, u8 anchor, u8 target)
   a_n[s] = anim_nframes[anim_id];
   a_loop[s] = anim_flags[anim_id] & 1;
   a_lay[s] = nl;
-  a_stride[s] = (u8)(nl + nl + nl + 2); /* 3L + 2, sans multiplication */
+  a_stride[s] = (u8)(nl + nl + nl + 2); /* 3L + 2, without multiplying */
   a_base[s] = anim_ofs[anim_id];
   a_cur[s] = a_base[s];
   a_anc[s] = anchor;
@@ -234,8 +233,8 @@ u8 anim_busy(void)
   return 0;
 }
 
-/* 1 si TOUS les calques encore alloués appartiennent au lecteur — un
-   vig_show scripté sur l'un d'eux préempte l'animation entière. */
+/* 1 if EVERY still-allocated layer belongs to the player — a scripted
+   vig_show on any one of them preempts the whole animation. */
 static u8 anim_owns(u8 s)
 {
   u8 l, vs;
@@ -261,13 +260,13 @@ void anim_update(void)
       continue;
     if (!anim_owns(s))
     {
-      anim_free(s, 0); /* préempté : on lâche sans rien cacher */
+      anim_free(s, 0); /* preempted: let go without hiding anything */
       continue;
     }
     if (a_fresh & (1 << s))
     {
-      a_fresh &= (u8)~(1 << s); /* frame posée à l'instant : elle a droit
-                                   à sa durée pleine */
+      a_fresh &= (u8)~(1 << s); /* frame just posed: it is entitled
+                                   to its full duration */
       continue;
     }
     if (--a_timer[s])
@@ -278,7 +277,7 @@ void anim_update(void)
     {
       if (!a_loop[s])
       {
-        anim_free(s, 1); /* l'animation se range seule, comme vig_play 1 */
+        anim_free(s, 1); /* the animation puts itself away, like vig_play 1 */
         continue;
       }
       a_frame[s] = 0;
@@ -287,7 +286,7 @@ void anim_update(void)
     else
       a_cur[s] += a_stride[s];
     anim_enter(s);
-    a_fresh &= (u8)~(1 << s); /* changement de frame DANS le tick : la
-                                 durée court dès la frame suivante */
+    a_fresh &= (u8)~(1 << s); /* frame change WITHIN the tick: the
+                                 duration runs from the next frame */
   }
 }

@@ -1,46 +1,46 @@
-//! ui.rs — « uigen » (Phase 11 + Phase 12 W1/D1, docs/SPEC_SYSTEME_UI.md
-//! et docs/PLANNING_SYSTEME_MENUS.md).
+//! "uigen" — see docs/SPEC_SYSTEME_UI.md and
+//! docs/PLANNING_SYSTEME_MENUS.md.
 //!
-//! Lit `<projet>/ui/layout.toml` (positions/tailles EN TILES) :
-//!   [message] / [choice]  pos, size — fenêtres du dialogue
+//! Reads `<project>/ui/layout.toml`, all positions and sizes IN TILES:
+//!   [message] / [choice]  pos, size — the dialogue windows
 //!
-//!   [[node]] — ARBRE de widgets du designer (D1, modèle UMG) :
-//!     type = "window"   cadre 9-slice, size explicite, margin=[1,1],
-//!                       ses enfants s'empilent verticalement dedans
-//!     type = "vbox"     empile ses enfants de haut en bas (gap)
-//!     type = "hbox"     aligne ses enfants de gauche à droite (gap)
-//!     type = "label"    texte statique (text)
-//!     type = "value"    valeur d'une variable (var, width 1-5,
-//!                       alignée à droite)
-//!     type = "image"    suite d'icônes de la planche (icon, w), OU une
-//!                       picture du projet (pic = "nom") : la taille du
-//!                       widget vient alors de l'image, ramenée aux 4
-//!                       couleurs de la couche UI à la compilation
+//!   [[node]] — the designer's widget TREE (UMG model):
+//!     type = "window"   9-slice frame, explicit size, margin=[1,1];
+//!                       its children stack vertically inside
+//!     type = "vbox"     stacks children top to bottom (gap)
+//!     type = "hbox"     lays children left to right (gap)
+//!     type = "label"    static text (text)
+//!     type = "value"    a variable's value (var, width 1-5, right
+//!                       aligned by default)
+//!     type = "image"    a run of icons from the sheet (icon, w), or a
+//!                       project picture (pic = "name"), in which case
+//!                       the widget's size comes from the image, mapped
+//!                       to the UI layer's 4 colours at compile time
 //!     type = "gauge" / "icon_row" / "icon_value" / "variable_display"
-//!     type = "list"     menu à curseur (B6) : items = ["Attaque", ...],
-//!                       frame défaut true, taille AUTO (1 colonne
-//!                       curseur + item le plus long) — piloté par la
-//!                       commande d'event « Choix dans une liste »
-//!                       les widgets W1 (mêmes props), size explicite
-//!     parent = "id"     rattache à un conteneur ; sans parent = RACINE
-//!                       avec pos = [x, y] obligatoire
+//!                       the HUD widgets, same props, explicit size
+//!     type = "list"     cursor menu: items = ["Attack", ...], frame
+//!                       defaults to true, size is AUTO (one cursor
+//!                       column plus the longest item) — driven by the
+//!                       "choose from a list" event command
+//!     parent = "id"     attaches to a container; no parent means a ROOT,
+//!                       which then requires pos = [x, y]
 //!
-//!   [[overlay]] — l'ancien format plat (W1) reste accepté : chaque
-//!   entrée devient une racine feuille (migration transparente).
+//!   [[overlay]] — the older flat format is still accepted: each entry
+//!   becomes a leaf root, migrated transparently.
 //!
-//! L'arbre est APLATI à la compilation en PRIMITIVES positionnées en
-//! tiles (le moteur ne connaît ni vbox ni hbox — zéro coût runtime) :
+//! The tree is FLATTENED at compile time into primitives positioned in
+//! tiles. The engine knows nothing of vbox or hbox — zero runtime cost:
 //!   0 variable_display  1 gauge  2 icon_row  3 icon_value
-//!   4 panel (cadre seul)  5 label (texte statique)  6 image (icônes)
-//!   8 image (picture : rectangle de chars, char de base dans « icon »)
-//!   7 list (menu à curseur B6 — items dans text, séparés par \n)
-//! Les types 4-6 sont STATIQUES (jamais redessinés sur changement de
-//! variable, seulement au refresh).
+//!   4 panel (frame only)  5 label (static text)  6 image (icons)
+//!   7 list (cursor menu; items in `text`, separated by \n)
+//!   8 image (picture: a rectangle of chars, base char in `icon`)
+//! Types 4-6 are STATIC: never redrawn when a variable changes, only on
+//! a refresh.
 //!
-//! Validation à la compilation (règle §9.3) : ids uniques, parents
-//! existants, profondeur bornée, conteneurs non vides, tout tient à
-//! l'écran, ≤ 32 primitives, racines sans chevauchement entre elles ni
-//! avec message/choice, icônes dans la planche, textes ASCII.
+//! Compile-time validation (§9.3): unique ids, existing parents, bounded
+//! depth, non-empty containers, everything on screen, at most 32
+//! primitives, roots overlapping neither each other nor message/choice,
+//! icons within the sheet, ASCII text.
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -48,11 +48,11 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// Écran SNES en tiles : 32 x 28 (256 x 224)
+/// SNES screen in tiles: 32 x 28 (256 x 224).
 const SCREEN_W: i64 = 32;
 const SCREEN_H: i64 = 28;
-/// Primitives aplaties (tables du moteur) — un panneau Chrono Trigger
-/// en consomme une douzaine, 32 laisse de la marge sans gonfler la WRAM
+/// Flattened primitives, the engine's tables. A Chrono Trigger panel uses
+/// about a dozen; 32 leaves room without inflating WRAM.
 const PRIM_MAX: usize = 32;
 const DEPTH_MAX: usize = 6;
 
@@ -62,13 +62,13 @@ pub struct Layout {
     pub message: Option<Win>,
     #[serde(default)]
     pub choice: Option<Win>,
-    /// ancien format plat (W1) — accepté, converti en racines feuilles
+    /// Older flat format, accepted and converted to leaf roots.
     #[serde(default)]
     pub overlay: Vec<Overlay>,
-    /// arbre du designer (D1)
+    /// The designer's tree.
     #[serde(default)]
     pub node: Vec<Node>,
-    /// styles de dialogue supplémentaires (S1) — style 0 = défaut
+    /// Extra dialogue styles; style 0 is the default.
     #[serde(default)]
     pub dialog_style: Vec<DialogStyle>,
 }
@@ -79,16 +79,16 @@ pub struct Win {
     pub size: [i64; 2],
 }
 
-/// Style de boîte de dialogue (S1, Phase 12) — chaque msg/choice peut
-/// choisir son style ; le style 0 (défaut) = thème + [message]/[choice]
+/// A dialogue box style. Each msg/choice may pick one; style 0 is the
+/// theme plus [message]/[choice].
 #[derive(Deserialize, Clone)]
 pub struct DialogStyle {
     pub id: String,
-    /// windowskin PROPRE au style (défaut : celui du thème)
+    /// Windowskin OWNED by the style (default: the theme's).
     #[serde(default)]
     pub windowskin: Option<String>,
-    /// fonte propre (PNG 768x8, défaut : assets.font) — v1 : toutes les
-    /// fontes partagent la PALETTE de la fonte du projet
+    /// Its own font (768x8 PNG, default assets.font). For now every font
+    /// shares the PALETTE of the project font.
     #[serde(default)]
     pub font: Option<String>,
     #[serde(default)]
@@ -97,7 +97,7 @@ pub struct DialogStyle {
     pub choice: Option<Win>,
 }
 
-/// Ancien overlay plat (W1) — voir la doc du module
+/// The old flat overlay — see the module docs.
 #[derive(Deserialize)]
 pub struct Overlay {
     #[serde(default)]
@@ -123,7 +123,7 @@ pub struct Overlay {
     pub pad: Option<u8>,
 }
 
-/// Nœud de l'arbre du designer (D1)
+/// A node of the designer's tree.
 #[derive(Deserialize, Clone)]
 pub struct Node {
     pub id: String,
@@ -155,32 +155,32 @@ pub struct Node {
     pub max_var: Option<u8>,
     #[serde(default)]
     pub icon: Option<u8>,
-    /// image (mode picture) : nom d'une picture du projet. La couche UI
-    /// n'ayant que 4 couleurs, l'image y est ramenée à la palette de la
-    /// fonte à la compilation (voir gfx::to_ui_image).
+    /// Image in picture mode: the name of a project picture. The UI layer
+    /// only has 4 colours, so the image is mapped to the font's palette at
+    /// compile time (gfx::to_ui_image).
     #[serde(default)]
     pub pic: Option<String>,
     #[serde(default)]
     pub dir: Option<String>,
     #[serde(default)]
     pub pad: Option<u8>, // icon_value : zéros de tête
-    /// value : "left" pour coller la valeur à gauche (défaut : droite)
+    /// value: "left" pins the value left; the default is right.
     #[serde(default)]
     pub align: Option<String>,
-    /// racines : visible au démarrage (défaut FALSE — les widgets
-    /// s'affichent par la commande d'event « Afficher un widget UI »)
+    /// Roots: visible at startup. Defaults to FALSE — widgets are shown
+    /// by the "show a UI widget" event command.
     #[serde(default)]
     pub visible: Option<bool>,
-    /// racines : fonte du WIDGET (S2 — PNG 768x8, défaut : assets.font).
-    /// Tout le texte du widget (labels, valeurs, compteurs) l'utilise.
+    /// Roots: the WIDGET's font (768x8 PNG, default assets.font). All the
+    /// widget's text — labels, values, counters — uses it.
     #[serde(default)]
     pub font: Option<String>,
-    /// list (B6) : les items du menu, un par rangée
+    /// list: the menu items, one per row.
     #[serde(default)]
     pub items: Option<Vec<String>>,
 }
 
-/// Primitive aplatie — ce que le moteur dessine
+/// A flattened primitive: what the engine actually draws.
 pub struct Prim {
     pub x: i64,
     pub y: i64,
@@ -217,7 +217,7 @@ impl Node {
     }
 }
 
-/// Convertit un [[overlay]] W1 en nœud racine équivalent
+/// Converts a flat [[overlay]] into the equivalent root node.
 fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
     Node {
         id: if ov.id.is_empty() { format!("overlay{}", i + 1) } else { ov.id.clone() },
@@ -245,7 +245,7 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
     }
 }
 
-/// Aplatisseur : arbre -> primitives. `icon_count` borne les icônes.
+/// The flattener: tree to primitives. `icon_count` bounds the icons.
 struct Flattener<'a> {
     children: Vec<Vec<usize>>,
     nodes: &'a [Node],
@@ -253,17 +253,17 @@ struct Flattener<'a> {
     widget: usize, // index de la racine en cours de placement
     font: Option<String>, // fonte de la racine en cours (S2)
     prims: Vec<Prim>,
-    /// Images UI converties (widget « Image » en mode picture), dans
-    /// l'ordre de première utilisation : (nom, chars 2bpp, largeur,
-    /// hauteur en tuiles). Le CHAR de base définitif n'est pas connu ici
-    /// — il dépend du plan VRAM complet (fontes, cadres, icônes) calculé
-    /// dans main.rs, qui corrige les primitives après coup.
+    /// Converted UI images (the "Image" widget in picture mode), in order
+    /// of first use: (name, 2bpp chars, width, height in tiles). The final
+    /// base CHAR is not known here — it depends on the full VRAM plan
+    /// (fonts, frames, icons) computed in main.rs, which patches the
+    /// primitives afterwards.
     pics: Vec<(String, Vec<u8>, u8, u8)>,
-    /// variante de chaque entrée de `pics` : true = « fond de panneau »
-    /// (pixels transparents remplacés par le fond du cadre)
+    /// Variant of each `pics` entry: true means "panel background", with
+    /// transparent pixels replaced by the frame's background.
     pic_bg: Vec<bool>,
-    /// tailles en tuiles, connues dès la pré-passe (elles ne dépendent
-    /// pas de la variante)
+    /// Sizes in tiles, known from the pre-pass — they do not depend on
+    /// the variant.
     pic_size: HashMap<String, (u8, u8)>,
     pic_dir: &'a Path,
     pic_paths: &'a HashMap<String, String>,
@@ -271,8 +271,8 @@ struct Flattener<'a> {
 }
 
 impl<'a> Flattener<'a> {
-    /// Charge et convertit l'image d'un nœud « image » en mode picture,
-    /// une seule fois par picture. Renvoie (index dans pics, w, h tuiles).
+    /// Loads and converts a picture-mode "image" node, once per picture.
+    /// Returns (index into pics, w, h in tiles).
     fn need_pic(&mut self, n: &Node, name: &str, bg: bool) -> Result<(u8, i64, i64)> {
         if let Some(k) = self
             .pics
@@ -291,11 +291,11 @@ impl<'a> Flattener<'a> {
         })?;
         let img = crate::gfx::load_indexed_png(&self.pic_dir.join(path))
             .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
-        // Dans une window, les pixels TRANSPARENTS de l'image doivent
-        // montrer le cadre, pas le jeu : le compositing SNES est par
-        // tuiles, on résout donc à la compilation en remplaçant la
-        // transparence par le fond du panneau — même recette que les
-        // variantes d'icônes (gfx::to_icons_bg).
+        // Inside a window, an image's TRANSPARENT pixels must show the
+        // frame and not the game. SNES compositing is per tile, so this is
+        // resolved at compile time by replacing transparency with the
+        // panel background — the same recipe as the icon variants
+        // (gfx::to_icons_bg).
         let (chars, w, h) = img
             .to_ui_image_bg(self.ui_pal, bg)
             .with_context(|| format!("nœud « {} » : image « {} »", n.id, name))?;
@@ -310,7 +310,7 @@ impl<'a> Flattener<'a> {
 }
 
 impl<'a> Flattener<'a> {
-    /// Taille intrinsèque d'un nœud (récursive pour les conteneurs)
+    /// A node's intrinsic size, recursive for containers.
     fn size_of(&self, i: usize, depth: usize) -> Result<[i64; 2]> {
         let n = &self.nodes[i];
         if depth > DEPTH_MAX {
@@ -358,7 +358,7 @@ impl<'a> Flattener<'a> {
             }
             "value" => [n.width.unwrap_or(3).clamp(1, 5), 1],
             "image" => match &n.pic {
-                // mode picture : la taille vient de l'image elle-même
+                // picture mode: the size comes from the image itself
                 Some(p) => match self.pic_size.get(p) {
                     Some((w, h)) => [*w as i64, *h as i64],
                     None => [1, 1], /* pré-passe pas encore passée */
@@ -367,8 +367,8 @@ impl<'a> Flattener<'a> {
             },
             "icon_value" => [n.width.unwrap_or(4).max(2), 1],
             "list" => {
-                // taille AUTO : 1 colonne curseur + item le plus long,
-                // une rangée par item, +2 dans chaque sens si cadre
+                // AUTO size: one cursor column plus the longest item, one
+                // row per item, +2 in each direction when framed
                 let items = n.items.clone().unwrap_or_default();
                 let f = if n.frame.unwrap_or(true) { 2 } else { 0 };
                 let wmax = items.iter().map(|t| t.chars().count() as i64).max().unwrap_or(1);
@@ -398,7 +398,7 @@ impl<'a> Flattener<'a> {
         Ok(b)
     }
 
-    /// Place un nœud en (x, y) absolu et émet ses primitives
+    /// Places a node at absolute (x, y) and emits its primitives.
     fn place(&mut self, i: usize, x: i64, y: i64, depth: usize, in_window: bool) -> Result<()> {
         let n = &self.nodes[i].clone();
         let size = self.size_of(i, depth)?;
@@ -413,7 +413,7 @@ impl<'a> Flattener<'a> {
                     kind: 4, frame: true, var: 0, icon: 0, vertical: false,
                     pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
                 })?;
-                // les enfants s'empilent verticalement dans l'intérieur
+                // children stack vertically inside the frame
                 let m = n.margin.unwrap_or([1, 1]);
                 let mut cy = y + m[1];
                 for &c in &kids {
@@ -464,16 +464,16 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: 1,
                     kind: 0, frame: false, var, icon: 0,
-                    // le flag « dir » (inutilisé par le type 0) porte
-                    // l'alignement : 1 = valeur collée à GAUCHE
+                    // the "dir" flag, unused by type 0, carries the
+                    // alignment: 1 pins the value LEFT
                     vertical: n.align.as_deref() == Some("left"),
                     pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
                 })?;
             }
             "image" => {
                 if let Some(name) = n.pic.clone() {
-                    // mode picture : rectangle de chars consécutifs, le
-                    // « icon » porte provisoirement l'index de l'image
+                    // picture mode: a rectangle of consecutive chars;
+                    // "icon" temporarily holds the image's index
                     let (idx, w, h) = self.need_pic(n, &name, in_window)?;
                     self.emit(Prim {
                         x, y, w, h,
@@ -605,7 +605,7 @@ impl<'a> Flattener<'a> {
     }
 }
 
-/// Charge, valide et APLATIT le layout. Renvoie (fenêtres, primitives).
+/// Loads, validates and FLATTENS the layout. Returns (windows, primitives).
 pub fn load(
     proj_dir: &Path,
     icon_count: usize,
@@ -623,7 +623,7 @@ pub fn load(
     let hist = Win { pos: [0, 20], size: [32, 8] };
     let msg = lay.message.clone().unwrap_or_else(|| hist.clone());
     let chc = lay.choice.clone().unwrap_or_else(|| msg.clone());
-    // styles supplémentaires (S1) : 3 max (budget VRAM, 4 styles au total)
+    // Extra styles: at most 3 — a VRAM budget, 4 styles in total.
     if lay.dialog_style.len() > 3 {
         bail!("ui : {} dialog_style (max 3 en plus du défaut)", lay.dialog_style.len());
     }
@@ -651,8 +651,8 @@ pub fn load(
         }
     }
 
-    // toutes les fenêtres de dialogue (défaut + styles) : la bande
-    // shadow les couvre, les widgets ne doivent en chevaucher AUCUNE
+    // Every dialogue window (default plus styles): the shadow band covers
+    // them, so no widget may overlap ANY of them.
     let mut all_wins: Vec<(String, Win)> =
         vec![("message".into(), msg.clone()), ("choice".into(), chc.clone())];
     for st in &lay.dialog_style {
@@ -672,7 +672,7 @@ pub fn load(
         all_wins.push((format!("choice du style « {} »", st.id), c));
     }
 
-    // arbre = [[node]] + les [[overlay]] W1 convertis en racines feuilles
+    // The tree is [[node]] plus the [[overlay]] entries turned into leaf roots.
     let mut nodes: Vec<Node> = lay.node.clone();
     for (i, ov) in lay.overlay.iter().enumerate() {
         nodes.push(overlay_to_node(ov, i));
@@ -686,7 +686,7 @@ pub fn load(
         if by_id.insert(n.id.as_str(), i).is_some() {
             bail!("ui : id « {} » en double", n.id);
         }
-        // fonte par WIDGET (S2) : propriété de la RACINE uniquement
+    // Font per WIDGET: a property of the ROOT only.
         if n.parent.is_some() && n.font.is_some() {
             bail!(
                 "ui : nœud « {} » : font se pose sur la RACINE du widget, pas sur un enfant",
@@ -720,9 +720,9 @@ pub fn load(
         pics: Vec::new(), pic_bg: Vec::new(), pic_size: HashMap::new(),
         pic_dir: proj_dir, pic_paths, ui_pal,
     };
-    // Les images des widgets sont converties AVANT le calcul des tailles :
-    // c'est l'image qui donne la taille du nœud, et size_of ne peut pas
-    // charger de fichier (il est appelé en cascade sur les conteneurs).
+    // Widget images are converted BEFORE sizes are computed: the image is
+    // what gives the node its size, and size_of cannot load files — it is
+    // called recursively down the containers.
     for i in 0..fl.nodes.len() {
         if fl.nodes[i].kind == "image" {
             if let Some(name) = fl.nodes[i].pic.clone() {
@@ -770,12 +770,12 @@ pub fn load(
     Ok((lay, prims, widgets, pics))
 }
 
-/// Defines pour ui_cfg.h (fenêtres message/choix + compteur de prims)
+/// Defines for ui_cfg.h: the message/choice windows and the prim count.
 pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> String {
     let m = lay.message.as_ref().unwrap();
     let c = lay.choice.as_ref().unwrap();
-    // zone shadow de la textbox : l'UNION des rangées de TOUTES les
-    // fenêtres de dialogue (défaut + styles S1)
+    // Textbox shadow area: the UNION of the rows of ALL dialogue windows
+    // (default plus the extra styles).
     let mut top = m.pos[1].min(c.pos[1]);
     let mut bottom = (m.pos[1] + m.size[1]).max(c.pos[1] + c.size[1]);
     for st in &lay.dialog_style {
@@ -797,9 +797,9 @@ pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> 
     )
 }
 
-/// ui_styles.c : tables des styles de dialogue (S1) — une entrée par
-/// style, style 0 = défaut. (msg, chc, base fonte, base skin (0 = boîte
-/// pleine)). Tableaux u8 nus.
+/// ui_styles.c: the dialogue style tables, one entry per style, style 0
+/// the default — (msg, chc, font base, skin base; 0 means a solid box).
+/// Plain u8 arrays.
 pub fn emit_styles(rows: &[(Win, Win, usize, usize)]) -> String {
     let mut s = String::from(crate::emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
@@ -826,10 +826,10 @@ pub fn emit_styles(rows: &[(Win, Win, usize, usize)]) -> String {
     s
 }
 
-/// ui_overlays.c : tables des primitives (u8 nus + max scindé lo/hi) +
-/// table de pointeurs des textes (types 0 et 5). `font_bases` : char de
-/// base du glyphe ' ' de la fonte de chaque prim (1 = fonte 0), résolu
-/// par le plan VRAM de main.rs (S2 — fonte par widget).
+/// ui_overlays.c: the primitive tables (plain u8, with `max` split into
+/// lo/hi) plus the text pointer table (types 0 and 5). `font_bases` holds
+/// the base char of glyph ' ' for each prim's font (1 = font 0), resolved
+/// by the VRAM plan in main.rs.
 pub fn emit_overlays(
     prims: &[Prim],
     widgets: &[(String, bool)],
@@ -862,14 +862,14 @@ pub fn emit_overlays(
     s.push_str(&field("maxvar", &|o| o.max_var.map(|v| v as i64).unwrap_or(0xFF)));
     s.push_str(&field("maxlo", &|o| (o.max & 0xFF) as i64));
     s.push_str(&field("maxhi", &|o| (o.max >> 8) as i64));
-    // base fonte par primitive (S2) — glyphe ' ' (1 = fonte du projet)
+    // Font base per primitive: glyph ' ' (1 is the project font).
     let mut a = format!("const u8 ui_ov_font[{}] = {{ ", n);
     for i in 0..n {
         let _ = write!(a, "{}, ", font_bases.get(i).copied().unwrap_or(1));
     }
     a.push_str("};\n");
     s.push_str(&a);
-    // visibilité initiale par WIDGET (racine) — modifiée par SHOWUI
+    // Initial visibility per WIDGET (root); changed by SHOWUI.
     let wn = widgets.len().max(1);
     let mut a = format!("const u8 ui_widget_vis[{}] = {{ ", wn);
     for i in 0..wn {
@@ -890,4 +890,141 @@ pub fn emit_overlays(
     }
     s.push_str("};\n");
     s
+}
+
+/// BG3 VRAM char plan (budget 256 chars).
+///
+/// Layout: font 0 (97 chars — one transparent plus 96 glyphs) | skins
+/// (9 chars each) | icons (2 x N: the normal ones, then the
+/// panel-background variants) | extra fonts (96 chars each, based on ' ')
+/// | widget images.
+///
+/// Every base char the emitters need comes from here, so the plan and the
+/// data that depends on it cannot drift apart.
+pub struct Plan {
+    /// Fonts in char order; `fonts[0]` is the project font (base 1).
+    pub fonts: Vec<String>,
+    pub skins: Vec<String>,
+    pub icon_count: usize,
+    pub icon_base: usize,
+    /// Chars taken by the widget images, after the extra fonts.
+    pub pic_chars: usize,
+    pub total_chars: usize,
+    theme_skin: Option<String>,
+}
+
+impl Plan {
+    /// Base char of a skin (0 means a solid box); the theme's when absent.
+    pub fn skin_base(&self, path: &Option<String>) -> usize {
+        match path.as_ref().or(self.theme_skin.as_ref()) {
+            Some(p) => self.skins.iter().position(|k| k == p).map(|i| 97 + 9 * i).unwrap_or(0),
+            None => 0,
+        }
+    }
+
+    /// Base char of the ' ' glyph of a font; the project font when absent.
+    pub fn font_base(&self, path: &Option<String>) -> usize {
+        match path {
+            None => 1,
+            Some(p) => {
+                let i = self.fonts.iter().position(|f| f == p).unwrap_or(0);
+                if i == 0 {
+                    1
+                } else {
+                    self.icon_base + 2 * self.icon_count + 96 * (i - 1)
+                }
+            }
+        }
+    }
+
+    /// The fonts loaded IN ADDITION to the project font.
+    pub fn extra_fonts(&self) -> &[String] {
+        &self.fonts[1..]
+    }
+
+    /// Style table rows: style 0 (the theme) then the dialog_style entries,
+    /// each as (message window, choice window, font base, skin base).
+    pub fn style_rows(&self, layout: &Layout) -> Vec<(Win, Win, usize, usize)> {
+        let msg = layout.message.clone().unwrap();
+        let chc = layout.choice.clone().unwrap();
+        let mut rows = vec![(msg.clone(), chc, 1, self.skin_base(&None))];
+        for st in &layout.dialog_style {
+            let m = st.message.clone().unwrap_or_else(|| msg.clone());
+            let c = st.choice.clone().unwrap_or_else(|| m.clone());
+            rows.push((m, c, self.font_base(&st.font), self.skin_base(&st.windowskin)));
+        }
+        rows
+    }
+}
+
+/// Builds the char plan and finishes the primitives: a kind 8 (picture)
+/// primitive arrives carrying the image's INDEX, which only becomes a
+/// char once the fonts before it are placed.
+pub fn plan(
+    layout: &Layout,
+    prims: &mut [Prim],
+    pics: &[(String, Vec<u8>, u8, u8)],
+    project_font: &str,
+    theme_skin: Option<String>,
+    icon_count: usize,
+) -> Result<Plan> {
+    let mut fonts: Vec<String> = vec![project_font.to_string()];
+    let mut skins: Vec<String> = Vec::new();
+    if let Some(skn) = &theme_skin {
+        skins.push(skn.clone());
+    }
+    for st in &layout.dialog_style {
+        if let Some(f) = &st.font {
+            if !fonts.contains(f) {
+                fonts.push(f.clone());
+            }
+        }
+        if let Some(k) = &st.windowskin {
+            if !skins.contains(k) {
+                skins.push(k.clone());
+            }
+        }
+    }
+    // WIDGET fonts, deduplicated against the style fonts
+    for p in prims.iter() {
+        if let Some(f) = &p.font {
+            if !fonts.contains(f) {
+                fonts.push(f.clone());
+            }
+        }
+    }
+
+    let icon_base = 97 + 9 * skins.len();
+    let pic_base = icon_base + 2 * icon_count + 96 * (fonts.len() - 1);
+    let mut offsets: Vec<usize> = Vec::new();
+    let mut pic_chars = 0usize;
+    for (_, chars, _, _) in pics.iter() {
+        offsets.push(pic_chars);
+        pic_chars += chars.len() / 16; /* 16 octets par char 2bpp */
+    }
+    for p in prims.iter_mut() {
+        if p.kind == 8 {
+            p.icon = (pic_base + offsets[p.icon as usize]) as u8;
+        }
+    }
+
+    let total_chars = pic_base + pic_chars;
+    if total_chars > 256 {
+        bail!(
+            "ui : budget de caracteres BG3 depasse ({} > 256) — fonte(s) {} x 96, \
+             skin(s) {} x 9, {} icone(s) x 2, {} image(s) de widget = {} chars. \
+             Retirer un style, une fonte, des icones, ou reduire une image.",
+            total_chars, fonts.len(), skins.len(), icon_count,
+            pics.len(), pic_chars
+        );
+    }
+    Ok(Plan {
+        fonts,
+        skins,
+        icon_count,
+        icon_base,
+        pic_chars,
+        total_chars,
+        theme_skin,
+    })
 }

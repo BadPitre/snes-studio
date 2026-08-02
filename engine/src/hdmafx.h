@@ -1,44 +1,43 @@
 /*
- * hdmafx.h — effets HDMA scriptés (S14+) : ondulation de l'écran
- * (chaleur, sous l'eau, rêve), et bientôt dégradé de ciel et spotlight.
- * Un seul module possède $420C (HDMAEN) : chaque effet programme ses
- * canaux et le masque est écrit en un point unique au VBlank.
+ * hdmafx.h — scripted HDMA effects: screen ripple, sky gradient and
+ * spotlight. One module owns $420C (HDMAEN): each effect programmes
+ * its channels and the mask is written at a single point, at VBlank.
  */
 #ifndef HDMAFX_H
 #define HDMAFX_H
 
 #include <snes.h>
 
-/* Ondulation (WAVE) : power 0-7 px d'amplitude (0 = stop), speed 1-8 =
-   vitesse de la houle. NON bloquant, persiste entre les scènes. */
+/* Ripple (WAVE): power is 0-7 px of amplitude (0 stops it), speed 1-8
+   is the swell rate. NON-blocking, persists across scenes. */
 void hdmafx_wave(u8 power, u8 speed);
 
-/* Dégradé de ciel (SKYGRAD, S15) : teinte VERTICALE — couleur du haut,
-   couleur du bas (0-31 par canal) PUIS le mode (parade tcc : 3 u8 max
-   par appel). mode 0 = off, 1 = addition, 2 = soustraction. La table
-   COLDATA (canal 4) est bâtie ICI, une fois, à la commande — zéro
-   coût par frame. REMPLACE la teinte plate ; TINT/TINTG l'annule.
-   Persiste entre les scènes ; coupé sous mélange/flash/picture. */
+/* Sky gradient (SKYGRAD): a VERTICAL tint — top colour, bottom colour
+   (0-31 per channel) and THEN the mode, because tcc takes at most 3 u8
+   per call. Mode 0 off, 1 additive, 2 subtractive. The COLDATA table
+   (channel 4) is built HERE, once, when the command runs — zero cost
+   per frame. It REPLACES the flat tint; TINT/TINTG cancels it.
+   Persists across scenes; suppressed under blending, flash or picture. */
 void hdmafx_grad_top(u8 r, u8 g, u8 b);
 void hdmafx_grad_bottom(u8 r, u8 g, u8 b);
 void hdmafx_grad(u8 mode);
 
-/* Spotlight (SPOTLIGHT, S16) : cercle de lumière qui SUIT le héros —
-   radius 16-96 px (0 = off), dark 1-31 = obscurité du décor hors du
-   cercle (0 -> 31 = noir). Cercle précalculé à la commande, table
-   fenêtre reconstruite seulement quand le héros/la caméra bouge.
-   REMPLACE teinte et dégradé (même circuit) ; persiste entre les
-   scènes ; sprites et texte restent visibles (limite hardware, comme
-   la teinte). */
+/* Spotlight (SPOTLIGHT): a circle of light that FOLLOWS the hero.
+   radius 16-96 px (0 off), dark 1-31 is how dark the scenery goes
+   outside the circle (31 = black). The circle is precomputed when the
+   command runs and the window table is rebuilt only when the hero or
+   the camera moves. REPLACES tint and gradient (same circuit) and
+   persists across scenes; sprites and text stay visible, a hardware
+   limit it shares with the tint. */
 void hdmafx_spot(u8 radius, u8 dark);
 
-/* Un pas par frame (boucle principale, toujours) : reconstruit les
-   tables d'offsets (bandes de 16 lignes) depuis les scrolls courants. */
+/* One step per frame (main loop, always): rebuilds the offset tables
+   (16-line bands) from the current scrolls. */
 void hdmafx_update(void);
 
-/* Programme les canaux + écrit HDMAEN — VBlank uniquement, branche
-   normale. La branche PICTURE appelle hdmafx_suspend() à la place
-   (l'image plein écran ne doit pas onduler ni être teintée). */
+/* Programmes the channels and writes HDMAEN — VBlank only, normal
+   branch. The PICTURE branch calls hdmafx_suspend() instead: a
+   full-screen image must neither ripple nor be tinted. */
 void hdmafx_vblank(void);
 void hdmafx_suspend(void);
 

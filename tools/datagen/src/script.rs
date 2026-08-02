@@ -1,27 +1,27 @@
-//! Assembleur de scripts VM v0 (spec §2) : texte avec labels → bytecode.
+//! VM script assembler (spec §2): text with labels to bytecode.
 //!
-//! Syntaxe (une instruction par ligne, `;` = commentaire) :
+//! Syntax is one instruction per line, `;` starts a comment:
 //!   label:
 //!     END
-//!     MSG <nom_de_texte>
+//!     MSG <text_name>
 //!     SETVAR v<n> <val>      ADDVAR v<n> <val>      SETGVAR g<n> <val>
 //!     JMP <label>
 //!     JEQ v<n> <val> <label> JNE v<n> <val> <label> JGEQ v<n> <val> <label>
-//!     CHOICE v<n> <texte1> <texte2> [<texte3>] [<texte4>]
-//!     WARP <scene> <x> <y>   ; téléporte le héros — termine le script
-//!     FACE <acteur> <dir>    ; tourne l'acteur n (down/up/left/right)
-//!     SW <n> 0|1             ; switch n (0-511) OFF/ON — v0.9
-//!     JSW <n> 0|1 <label>    ; saute si le switch n vaut 0|1
-//!     SET16 <n> <val>        ; variable 16-bit n (0-255) = val
-//!     ADD16 <n> <val>        ; += val (négatif accepté, wrap 16-bit)
-//!     JCMP16 <n> ==|!=|>= <val> <label> ; saute si comparaison vraie
+//!     CHOICE v<n> <text1> <text2> [<text3>] [<text4>]
+//!     WARP <scene> <x> <y>   ; teleports the hero; ends the script
+//!     FACE <actor> <dir>     ; turns actor n (down/up/left/right)
+//!     SW <n> 0|1             ; switch n (0-511) OFF/ON
+//!     JSW <n> 0|1 <label>    ; jump if switch n equals 0|1
+//!     SET16 <n> <val>        ; 16-bit variable n (0-255) = val
+//!     ADD16 <n> <val>        ; += val (negative allowed, 16-bit wrap)
+//!     JCMP16 <n> ==|!=|>= <val> <label> ; jump if the comparison holds
 //!
-//! Variables (v0.6) : v<n> = variable de scène, g<n> = variable globale
-//! (persistante entre scènes) — acceptées partout où une variable est
-//! attendue (bit 0x80 de l'octet variable = globale). SETGVAR est l'alias
-//! historique de SETVAR g<n>.
+//! Variables: v<n> is a scene variable, g<n> a global one, persistent
+//! across scenes. Both are accepted wherever a variable is expected —
+//! bit 0x80 of the variable byte marks it global. SETGVAR is the
+//! historical alias for SETVAR g<n>.
 //!
-//! Deux passes : tailles/labels puis émission avec offsets résolus.
+//! Two passes: sizes and labels, then emission with resolved offsets.
 
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ pub struct Assembled {
     pub labels: HashMap<String, u16>,
 }
 
-// Opcodes — spec §2 (table contractuelle)
+// Opcodes — spec §2, the contractual table
 const OP_END: u8 = 0x00;
 const OP_MSG: u8 = 0x01;
 const OP_SETVAR: u8 = 0x02;
@@ -95,10 +95,11 @@ const OP_ANIMPLAY: u8 = 0x3B;
 const OP_ANIMSTOP: u8 = 0x3C;
 const OP_CALLF: u8 = 0x3D;
 const OP_RETF: u8 = 0x3E;
+const OP_SETLOC: u8 = 0x3F;
 
-/// Encode un pas d'itinéraire en octets (spec §2 v0.13 — Move Route
-/// complet). swon:/swoff: portent un u16, gfx: un u8 (slot local via
-/// remap bloc projet → sprite set de la scène).
+/// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
+/// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
+/// project block to the scene's sprite set.
 fn route_step(tok: &str, remap: &HashMap<u8, u8>) -> Result<Vec<u8>> {
     Ok(match tok {
         "down" => vec![0x00],
@@ -168,7 +169,7 @@ fn route_step(tok: &str, remap: &HashMap<u8, u8>) -> Result<Vec<u8>> {
     })
 }
 
-/// Taille en octets d'un token de pas (passe 1)
+/// Byte size of a step token (pass 1).
 fn route_step_size(tok: &str) -> u16 {
     if tok.starts_with("swon:") || tok.starts_with("swoff:") {
         3
@@ -179,7 +180,7 @@ fn route_step_size(tok: &str) -> u16 {
     }
 }
 
-/// Bit « variable globale » dans l'octet variable (spec §2 v0.6)
+/// The "global variable" bit of the variable byte (spec §2 v0.6).
 const VAR_GLOBAL: u8 = 0x80;
 
 enum Line<'a> {
@@ -220,8 +221,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SW" | "SET16" | "ADD16" => 4,
         "JSW" => 6,
         "JCMP16" => 10,
-        // RTBLOB <r> <s> <freq> <pas...> : blob de route custom (v0.14)
-        // — [flags][freq][len] + pas, DONNÉES (jamais exécuté)
+        // RTBLOB <r> <s> <freq> <steps...>: a custom route blob —
+        // [flags][freq][len] then the steps. DATA, never executed.
         "RTBLOB" => {
             if argc < 4 {
                 bail!("RTBLOB <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
@@ -240,85 +241,88 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SWAPPOS" => 3,
         "SCRHIDE" | "SCRSHOW" => 3,
         "TINT" | "FLASH" => 5,
-        // TINTG <off|add|sub> <r> <g> <b> <dur> — teinte graduelle (S12)
+        // TINTG <off|add|sub> <r> <g> <b> <dur> — gradual tint
         "TINTG" => 6,
-        // WEATHER <0-2> <1-3> — météo en particules (S13)
+        // WEATHER <0-2> <1-3> — particle weather
         "WEATHER" => 3,
-        // WAVE <power 0-7> <speed 1-8> — ondulation HDMA (S14)
+        // WAVE <power 0-7> <speed 1-8> — HDMA ripple
         "WAVE" => 3,
-        // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> — degrade (S15)
+        // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> — sky gradient
         "SKYGRAD" => 8,
-        // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de lumiere (S16)
+        // SPOTLIGHT <radius 0|16-96> <dark 1-31> — circle of light
         "SPOTLIGHT" => 3,
-        // PLAYSFX <id> — jouer un son BRR (B1)
+        // PLAYSFX <id> — play a BRR sound
         "PLAYSFX" => 2,
-        // PLAYBGM <id|255> — changer la musique, 255 = silence (B1)
+        // PLAYBGM <id|255> — change the music; 255 is silence
         "PLAYBGM" => 2,
-        // STAGEOPEN <pic|255> <dur> <trans> — ecran compose (B3, S18)
+        // STAGEOPEN <pic|255> <dur> <trans> — composed screen
         "STAGEOPEN" => 4,
-        // STAGEPOSE <slot 0-4> <pic> <tx> <ty> — pose une image (B3)
+        // STAGEPOSE <slot 0-4> <pic> <tx> <ty> — pose an image
         "STAGEPOSE" => 5,
-        // STAGECLEAR <slot 0-4> — retire l'image du slot (B3)
+        // STAGECLEAR <slot 0-4> — remove the slot's image
         "STAGECLEAR" => 2,
-        // STAGECLOSE <dur> <trans> — ferme l'ecran compose (B3, S18)
+        // STAGECLOSE <dur> <trans> — close the composed screen
         "STAGECLOSE" => 3,
-        // SLOTFX <slot 0-4> <fx 0-3> <dur> — effet de palette (B4)
+        // SLOTFX <slot 0-4> <fx 0-3> <dur> — palette effect on a slot
         "SLOTFX" => 4,
-        // VIGSHOW <slot 0-1> <vig> <x> <y> <anchor> — vignette (B5)
+        // VIGSHOW <slot 0-1> <vig> <x> <y> <anchor> — vignette
         "VIGSHOW" => 6,
-        // VIGPLAY <slot 0-1> <mode 0-2> <speed> — animation (B5)
+        // VIGPLAY <slot 0-1> <mode 0-2> <speed> — animate it
         "VIGPLAY" => 4,
-        // VIGHIDE <slot 0-1> — cacher la vignette (B5)
+        // VIGHIDE <slot 0-1> — hide the vignette
         "VIGHIDE" => 2,
-        // LISTSEL <widget> <var> <flags> — menu a curseur (B6)
+        // LISTSEL <widget> <var> <flags> — cursor menu
         "LISTSEL" => 4,
-        // ANIMPLAY <anim> <ancre 0-2> <cible> <flags bit0=attendre> (A1)
+        // ANIMPLAY <anim> <anchor 0-2> <target> <flags bit0 = wait>
         "ANIMPLAY" => 5,
-        // ANIMSTOP — arrete toutes les animations en cours (A1)
+        // ANIMSTOP — stop every running animation
         "ANIMSTOP" => 1,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
-        // CALLF <label> <st0> <v0> ... : appel de fonction (F1) —
-        // opcode + label u16 + argc u8, puis 3 octets par argument
+        // CALLF <label> <nslots> <st0> <v0> ...: a function call —
+        // opcode, u16 label, u8 argc, u8 nslots, then 3 bytes per
+        // argument
         "CALLF" => {
-            if argc == 0 || argc % 2 != 1 {
-                bail!("CALLF <label> puis des couples <source> <valeur>");
+            if argc < 2 || argc % 2 != 0 {
+                bail!("CALLF <label> <nslots> puis des couples <source> <valeur>");
             }
-            4 + 3 * ((argc as u16 - 1) / 2)
+            5 + 3 * ((argc as u16 - 2) / 2)
         }
-        // RETF <source> <valeur> : retour avec valeur (F1)
+        // SETLOC <slot> <op> <source> <value>: writes a local
+        "SETLOC" => 6,
+        // RETF <source> <value>: return with a value
         "RETF" => 4,
         "DBREAD" => 7,
-        // SHOWUI <widget> <0|1> : visibilité d'un widget UI (Phase 12)
+        // SHOWUI <widget> <0|1>: visibility of a UI widget
         "SHOWUI" => 3,
-        // KEYIN <wait> <masklo> <maskhi> <var> : Key Input (Ph. 12)
+        // KEYIN <wait> <masklo> <maskhi> <var>: Key Input
         "KEYIN" => 5,
         "SYSMENU" => 1,
-        // DLGSTYLE <n> : style de la prochaine boite de dialogue (S1)
+        // DLGSTYLE <n>: style of the next dialogue box
         "DLGSTYLE" => 2,
         // SHOWPIC <pic> <x> <y> <flags> <dur> / HIDEPIC <dur> /
-        // MOVEPIC <x> <y> <flags> <dur> — pictures (S3/S5/S7)
+        // MOVEPIC <x> <y> <flags> <dur> — pictures
         "SHOWPIC" => 6,
         "HIDEPIC" => 2,
         "MOVEPIC" => 5,
-        // CETAB <a|p> <sw> <lbl> ... : table des common events AUTO et
-        // PARALLEL (v0.16) — [n] puis n x [type u8][switch u16][offset
-        // u16], DONNÉES en TÊTE du bloc scripts (offset 0)
+        // CETAB <a|p> <sw> <lbl> ...: the AUTO and PARALLEL common event
+        // table — [n] then n x [type u8][switch u16][offset u16]. DATA,
+        // and it sits at the HEAD of the script block (offset 0).
         "CETAB" => {
             if argc % 3 != 0 {
                 bail!("CETAB <a|p> <switch> <label> ... (triplets)");
             }
             1 + 5 * (argc as u16 / 3)
         }
-        // ROUTE <acteur> <r> <s> <freq> <pas...> : 5 octets d'en-tête
+        // ROUTE <actor> <r> <s> <freq> <steps...>: 5 header bytes
         "ROUTE" => {
             if argc < 5 {
                 bail!("ROUTE <acteur> <repeat 0|1> <skip 0|1> <freq 1-8> <pas...>");
             }
             5 + args[4..].iter().map(|t| route_step_size(t)).sum::<u16>()
         }
-        // CHOICE v<n> <texte>... : opcode, variable, count, count x u16
+        // CHOICE v<n> <text>...: opcode, variable, count, count x u16
         "CHOICE" => {
             if argc < 3 || argc > 5 {
                 bail!("CHOICE v<n> <texte1> <texte2> [<texte3>] [<texte4>] (2 a 4 choix)");
@@ -341,7 +345,7 @@ fn parse_var(tok: &str, prefix: char) -> Result<u8> {
     Ok(n)
 }
 
-/// Opérande variable : v<n> (scène) ou g<n> (globale, bit 0x80)
+/// A variable operand: v<n> (scene) or g<n> (global, bit 0x80).
 fn parse_any_var(tok: &str) -> Result<u8> {
     if tok.starts_with('g') {
         Ok(parse_var(tok, 'g')? | VAR_GLOBAL)
@@ -355,13 +359,27 @@ fn parse_u8(tok: &str) -> Result<u8> {
         .with_context(|| format!("valeur u8 invalide : '{}'", tok))
 }
 
-/// Type de source d'une valeur 16-bit. Partagé par VAROP, CALLF et RETF :
-/// un argument de fonction se décrit exactement comme le membre droit
-/// d'une affectation, il n'y avait aucune raison d'inventer une seconde
-/// grammaire. « param » et « ret » sont ajoutés par F1 — le premier n'a
-/// de sens que dans le corps d'une fonction, le second qu'après un appel,
-/// et c'est events.rs qui le vérifie (l'assembleur ne connaît pas les
-/// fonctions, seulement des étiquettes).
+/// Source type of a 16-bit value. Shared by VAROP, CALLF and RETF: a
+/// function argument is described exactly like the right-hand side of an
+/// assignment, so there was no reason to invent a second grammar.
+/// "param" and "ret" were added with functions — the first only means
+/// something inside a function body, the second only after a call, and
+/// events.rs is what checks that. The assembler knows nothing about
+/// functions, only labels.
+/// Arithmetic operation, shared by VAROP and SETLOC.
+fn parse_varop(tok: &str) -> Result<u8> {
+    Ok(match tok {
+        "=" => 0,
+        "+" => 1,
+        "-" => 2,
+        "*" => 3,
+        "/" => 4,
+        "%" => 5,
+        "rand" => 6,
+        o => bail!("operation inconnue '{}' (=, +, -, *, /, %, rand)", o),
+    })
+}
+
 fn parse_varsrc(tok: &str) -> Result<u8> {
     Ok(match tok {
         "const" => 0,
@@ -379,8 +397,8 @@ fn parse_varsrc(tok: &str) -> Result<u8> {
     })
 }
 
-/// Valeur associée à une source : une constante signée ou non, un index
-/// de variable, un numéro de paramètre.
+/// The value that goes with a source: a signed or unsigned constant, a
+/// variable index, or a parameter number.
 fn parse_srcval(tok: &str) -> Result<u16> {
     let v: i32 = tok
         .parse()
@@ -399,7 +417,7 @@ pub fn assemble(
 ) -> Result<Assembled> {
     let lines = parse_lines(source)?;
 
-    // Passe 1 : labels
+    // Pass 1: labels
     let mut labels: HashMap<String, u16> = HashMap::new();
     let mut pc: u16 = 0;
     for line in &lines {
@@ -420,7 +438,7 @@ pub fn assemble(
             .with_context(|| format!("label inconnu : '{}'", name))
     };
 
-    // Passe 2 : émission
+    // Pass 2: emission
     let mut code = Vec::new();
     for line in &lines {
         let (op, args) = match line {
@@ -480,7 +498,7 @@ pub fn assemble(
                 code.push(dest);
                 code.push(parse_u8(args[1])?);
                 code.push(parse_u8(args[2])?);
-                // transition (S18) : 0 fondu, 1 instantane, 2 mosaique
+                // transition: 0 fade, 1 instant, 2 mosaic
                 code.push(if argc == 4 { parse_u8(args[3])? } else { 0 });
             }
             "FACE" => {
@@ -524,7 +542,7 @@ pub fn assemble(
                 let n: u8 = args[0]
                     .parse()
                     .with_context(|| format!("variable 16-bit invalide : '{}'", args[0]))?;
-                // négatif accepté (complément à deux, wrap 16-bit)
+                // negative accepted (two's complement, 16-bit wrap)
                 let val: i32 = args[1]
                     .parse()
                     .with_context(|| format!("valeur invalide : '{}'", args[1]))?;
@@ -558,11 +576,7 @@ pub fn assemble(
                 if argc != 4 { bail!("VAROP <dst> <op> <src_type> <src>"); }
                 let dst: u8 = args[0].parse()
                     .with_context(|| format!("variable invalide : '{}'", args[0]))?;
-                let opb = match args[1] {
-                    "=" => 0u8, "+" => 1, "-" => 2, "*" => 3, "/" => 4,
-                    "%" => 5, "rand" => 6,
-                    o => bail!("VAROP : operation inconnue '{}'", o),
-                };
+                let opb = parse_varop(args[1])?;
                 let st = parse_varsrc(args[2])?;
                 let src: i32 = args[3].parse()
                     .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
@@ -603,23 +617,34 @@ pub fn assemble(
                 if argc != 0 { bail!("WAITCAM ne prend pas d'argument"); }
                 code.push(OP_WAITCAM);
             }
-            // CALLF <label> <src> <val> ... / RETF <src> <val> : appel
-            // de FONCTION avec arguments et valeur de retour (F1)
+            // CALLF <label> <src> <val> ... / RETF <src> <val>: a
+            // FUNCTION call with arguments and a return value
             "CALLF" => {
-                if argc == 0 || argc % 2 != 1 {
-                    bail!("CALLF <label> puis des couples <source> <valeur>");
+                if argc < 2 || argc % 2 != 0 {
+                    bail!("CALLF <label> <nslots> puis des couples <source> <valeur>");
                 }
-                let n = (argc - 1) / 2;
+                let n = (argc - 2) / 2;
                 if n > 8 {
                     bail!("CALLF : {} arguments, le maximum est 8", n);
                 }
                 code.push(OP_CALLF);
                 code.extend_from_slice(&label_of(args[0])?.to_le_bytes());
                 code.push(n as u8);
+                code.push(parse_u8(args[1])?); /* arguments + locales */
                 for k in 0..n {
-                    code.push(parse_varsrc(args[1 + 2 * k])?);
-                    code.extend_from_slice(&parse_srcval(args[2 + 2 * k])?.to_le_bytes());
+                    code.push(parse_varsrc(args[2 + 2 * k])?);
+                    code.extend_from_slice(&parse_srcval(args[3 + 2 * k])?.to_le_bytes());
                 }
+            }
+            // SETLOC <slot> <op> <source> <value>: the same arithmetic as
+            // VAROP, with a slot of the current frame as destination
+            "SETLOC" => {
+                if argc != 4 { bail!("SETLOC <slot> <op> <source> <valeur>"); }
+                code.push(OP_SETLOC);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_varop(args[1])?);
+                code.push(parse_varsrc(args[2])?);
+                code.extend_from_slice(&parse_srcval(args[3])?.to_le_bytes());
             }
             "RETF" => {
                 if argc != 2 { bail!("RETF <source> <valeur>"); }
@@ -627,7 +652,7 @@ pub fn assemble(
                 code.push(parse_varsrc(args[0])?);
                 code.extend_from_slice(&parse_srcval(args[1])?.to_le_bytes());
             }
-            // CALL <label> / RET : common events (v0.16)
+            // CALL <label> / RET: common events
             "CALL" => {
                 if argc != 1 { bail!("CALL <label>"); }
                 code.push(OP_CALL);
@@ -637,9 +662,9 @@ pub fn assemble(
                 if argc != 0 { bail!("RET ne prend pas d'argument"); }
                 code.push(OP_RET);
             }
-            // DBREAD <table> <0|1> <entree> <ofs> <taille 1|2> <var dst> :
-            // vars16[dst] = champ de la database (v0.17) — les six
-            // opérandes sont déjà résolus par events.rs (ids symboliques)
+            // DBREAD <table> <0|1> <entry> <ofs> <size 1|2> <dst var>:
+            // vars16[dst] = a database field. All six operands are
+            // already resolved by events.rs, symbolic ids included.
             "DBREAD" => {
                 if argc != 6 { bail!("DBREAD <table> <esrc> <entree> <ofs> <taille> <dst>"); }
                 code.push(OP_DBREAD);
@@ -698,7 +723,7 @@ pub fn assemble(
                         "p" => 1,
                         o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
                     });
-                    // « - » = pas de condition (toujours actif) -> 0xFFFF
+                    // "-" means no condition (always active) -> 0xFFFF
                     let sw: u16 = if args[i + 1] == "-" {
                         0xFFFF
                     } else {
@@ -715,7 +740,7 @@ pub fn assemble(
                     i += 3;
                 }
             }
-            // WARPV <vs> <vx> <vy> [trans] : téléport aux variables (v0.15)
+            // WARPV <vs> <vx> <vy> [trans]: teleport to variables
             "WARPV" => {
                 if argc != 3 && argc != 4 {
                     bail!("WARPV <var scene> <var x> <var y> [trans 0-2]");
@@ -726,8 +751,8 @@ pub fn assemble(
                 code.push(parse_u8(args[2])?);
                 code.push(if argc == 4 { parse_u8(args[3])? } else { 0 });
             }
-            // SETPOS <acteur|self> <c|v> <x> <y> : place un event —
-            // c = constantes, v = numéros de variables 16-bit
+            // SETPOS <actor|self> <c|v> <x> <y>: place an event —
+            // c for constants, v for 16-bit variable numbers
             "SETPOS" => {
                 if argc != 4 { bail!("SETPOS <acteur|self> <c|v> <x> <y>"); }
                 code.push(OP_SETPOS);
@@ -740,15 +765,15 @@ pub fn assemble(
                 code.push(parse_u8(args[2])?);
                 code.push(parse_u8(args[3])?);
             }
-            // SWAPPOS <a|self> <b|self> : échange deux events
+            // SWAPPOS <a|self> <b|self>: swap two events
             "SWAPPOS" => {
                 if argc != 2 { bail!("SWAPPOS <a|self> <b|self>"); }
                 code.push(OP_SWAPPOS);
                 code.push(if args[0] == "self" { 255 } else { parse_u8(args[0])? });
                 code.push(if args[1] == "self" { 255 } else { parse_u8(args[1])? });
             }
-            // Effets d'écran (v0.15) — durée en frames (S18d) + fx
-            // optionnel (S18c) : 0 fondu, 1 instantané, 2 mosaïque,
+            // Screen effects: duration in frames, plus an optional fx —
+            // 0 fade, 1 instant, 2 mosaic, 3-5 wipe down/up/centre
             // 3-5 balayage bas/haut/centre
             "SCRHIDE" | "SCRSHOW" => {
                 if argc != 1 && argc != 2 { bail!("{} <frames 1-255> [fx 0-5]", op); }
@@ -761,7 +786,7 @@ pub fn assemble(
                 code.push(dur);
                 code.push(if argc == 2 { parse_u8(args[1])? } else { 0 });
             }
-            // TINT <off|add|sub> <r> <g> <b> (0-31) ; TINTG + <dur 1-255>
+            // TINT <off|add|sub> <r> <g> <b> (0-31); TINTG adds <dur 1-255>
             "TINT" | "TINTG" => {
                 let want = if op == "TINTG" { 5 } else { 4 };
                 if argc != want {
@@ -793,7 +818,7 @@ pub fn assemble(
                     code.push(d);
                 }
             }
-            // WAVE <power 0-7> <speed 1-8> — ondulation (S14)
+            // WAVE <power 0-7> <speed 1-8> — ripple
             "WAVE" => {
                 if argc != 2 { bail!("WAVE <0-7> <1-8>"); }
                 code.push(OP_WAVE);
@@ -802,7 +827,7 @@ pub fn assemble(
                 }
             }
             // SKYGRAD <off|add|sub> <r0> <g0> <b0> <r1> <g1> <b1> —
-            // degrade de ciel (S15) : teinte verticale haut -> bas
+            // sky gradient: a vertical tint, top to bottom
             "SKYGRAD" => {
                 if argc != 7 { bail!("SKYGRAD <mode> <r0> <g0> <b0> <r1> <g1> <b1>"); }
                 code.push(OP_SKYGRAD);
@@ -819,8 +844,8 @@ pub fn assemble(
                     code.push(v);
                 }
             }
-            // SPOTLIGHT <radius 0|16-96> <dark 1-31> — cercle de
-            // lumiere autour du heros (S16) : radius 0 = off
+            // SPOTLIGHT <radius 0|16-96> <dark 1-31> — circle of light
+            // around the hero; radius 0 turns it off
             "SPOTLIGHT" => {
                 if argc != 2 { bail!("SPOTLIGHT <0|16-96> <1-31>"); }
                 code.push(OP_SPOTLIGHT);
@@ -828,20 +853,20 @@ pub fn assemble(
                     code.push(parse_u8(t)?);
                 }
             }
-            // PLAYSFX <id> — jouer un son (B1)
+            // PLAYSFX <id> — play a sound
             "PLAYSFX" => {
                 if argc != 1 { bail!("PLAYSFX <id>"); }
                 code.push(OP_PLAYSFX);
                 code.push(parse_u8(args[0])?);
             }
-            // PLAYBGM <id|255> — changer la musique (B1)
+            // PLAYBGM <id|255> — change the music
             "PLAYBGM" => {
                 if argc != 1 { bail!("PLAYBGM <id|255>"); }
                 code.push(OP_PLAYBGM);
                 code.push(parse_u8(args[0])?);
             }
-            // STAGEOPEN/STAGEPOSE/STAGECLEAR/STAGECLOSE — ecran
-            // compose (B3) : arguments u8 bruts (valides par events.rs)
+            // STAGEOPEN/STAGEPOSE/STAGECLEAR/STAGECLOSE — composed
+            // screen; raw u8 arguments, validated by events.rs
             "STAGEOPEN" => {
                 if argc != 2 && argc != 3 {
                     bail!("STAGEOPEN <pic|255> <dur> [trans 0-2]");
@@ -868,14 +893,14 @@ pub fn assemble(
                 code.push(parse_u8(args[0])?);
                 code.push(if argc == 2 { parse_u8(args[1])? } else { 0 });
             }
-            // SLOTFX <slot> <fx 0-3> <dur> — effet de palette d'un
-            // slot de l'ecran compose (B4)
+            // SLOTFX <slot> <fx 0-3> <dur> — palette effect on one slot
+            // of the composed screen
             "SLOTFX" => {
                 if argc != 3 { bail!("SLOTFX <slot> <fx> <dur>"); }
                 code.push(OP_SLOTFX);
                 for t in args { code.push(parse_u8(t)?); }
             }
-            // VIGSHOW/VIGPLAY/VIGHIDE — vignettes animees (B5)
+            // VIGSHOW/VIGPLAY/VIGHIDE — animated vignettes
             "VIGSHOW" => {
                 if argc != 5 { bail!("VIGSHOW <slot> <vig> <x> <y> <anchor>"); }
                 code.push(OP_VIGSHOW);
@@ -891,13 +916,13 @@ pub fn assemble(
                 code.push(OP_VIGHIDE);
                 code.push(parse_u8(args[0])?);
             }
-            // ANIMPLAY/ANIMSTOP — animations image par image (A1)
+            // ANIMPLAY/ANIMSTOP — frame-by-frame animations
             "ANIMPLAY" => {
                 if argc != 4 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags>"); }
                 code.push(OP_ANIMPLAY);
                 code.push(parse_u8(args[0])?);
                 code.push(parse_u8(args[1])?);
-                // « cet event » : 255, resolu a l'execution (vm.script_actor)
+                // "this event": 255, resolved at run time (vm.script_actor)
                 code.push(if args[2] == "self" { 255 } else { parse_u8(args[2])? });
                 code.push(parse_u8(args[3])?);
             }
@@ -905,14 +930,14 @@ pub fn assemble(
                 if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }
                 code.push(OP_ANIMSTOP);
             }
-            // LISTSEL <widget> <var> <flags bit0=annulable> — menu a
-            // curseur sur un widget « list » du layout UI (B6, bloquant)
+            // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
+            // menu on a "list" widget of the UI layout; blocking
             "LISTSEL" => {
                 if argc != 3 { bail!("LISTSEL <widget> <var> <flags>"); }
                 code.push(OP_LISTSEL);
                 for t in args { code.push(parse_u8(t)?); }
             }
-            // WEATHER <type 0-2> <intensite 1-3> — meteo (S13)
+            // WEATHER <type 0-2> <intensity 1-3> — weather
             "WEATHER" => {
                 if argc != 2 { bail!("WEATHER <0-2> <1-3>"); }
                 code.push(OP_WEATHER);
@@ -936,7 +961,7 @@ pub fn assemble(
                 if frames == 0 { bail!("FLASH : frames entre 1 et 255"); }
                 code.push(frames);
             }
-            // SHAKE <power 0-8> <vitesse 1-8> <frames> (power 0 = stop)
+            // SHAKE <power 0-8> <speed 1-8> <frames>; power 0 stops it
             "SHAKE" => {
                 if argc != 3 { bail!("SHAKE <power 0-8> <vitesse 1-8> <frames>"); }
                 let power: u8 = args[0]

@@ -1,8 +1,8 @@
-// Palette de tileset façon RPG Maker 2003 : grille verticale de 6 colonnes.
-// Ordre RM2003 : gomme (couche sup), autotiles, puis tiles de la grille.
-// Clic = tile seule, glisser = sélection rectangulaire (tampon multi-tiles).
-// Mode « Passabilité » : les cellules affichent O/X/☆ et un clic fait
-// tourner l'état de la tile (écrit dans le sidecar du tileset).
+// RPG Maker 2003 style tileset palette: a vertical 6-column grid.
+// RM2003 order: eraser (upper layer), autotiles, then the grid tiles.
+// Click = a single tile, drag = a rectangular selection (multi-tile stamp).
+// "Passability" mode: the cells show O/X/☆ and a click cycles the tile's
+// state (written into the tileset's sidecar).
 
 import { useEffect, useRef, useState } from "react";
 import type { Layer, TilesetMeta } from "../types";
@@ -31,8 +31,8 @@ interface Props {
   onCyclePassability: (id: number) => void;
 }
 
-const COLS = 6; // colonnes de la palette, comme RPG Maker 2003
-const CELL = 32; // tile 16x16 affichée x2
+const COLS = 6; // palette columns, like RPG Maker 2003
+const CELL = 32; // a 16x16 tile shown x2
 
 interface Rect {
   x: number;
@@ -45,15 +45,15 @@ export default function TilePalette(props: Props) {
   const { tileset, autotiles, meta, tool, layer, passMode, onTool } = props;
   const ref = useRef<HTMLCanvasElement>(null);
 
-  // Cellules de la palette, dans l'ordre d'affichage (ids logiques).
+  // Cells of the palette, in display order (logical ids).
   const srcCols = tileset ? Math.max(1, Math.floor(tileset.width / 16)) : 1;
   const gridCount = tileset
     ? srcCols * Math.max(1, Math.floor(tileset.height / 16))
     : 0;
   const cells: number[] = [];
-  if (!passMode) cells.push(EMPTY_TILE); // gomme (les DEUX couches — S10)
-  // Chipset RM2003 (upper_start) : la palette filtre les tiles par couche,
-  // comme RPG Maker — sauf en mode passabilité (tout est éditable)
+  if (!passMode) cells.push(EMPTY_TILE); // eraser (BOTH layers — S10)
+  // RM2003 chipset (upper_start): the palette filters the tiles by layer,
+  // like RPG Maker — except in passability mode (everything is editable)
   const us = passMode ? undefined : meta.upper_start;
   if (us === undefined || layer === "lower") {
     for (let k = 0; k < autotiles.length; k++) cells.push(AUTOTILE_BASE + k);
@@ -67,8 +67,8 @@ export default function TilePalette(props: Props) {
   const [drag, setDrag] = useState<Rect | null>(null);
   const dragStart = useRef<[number, number] | null>(null);
 
-  // nouveau tileset (changement de scène / d'assignation) : repartir sur la
-  // première cellule
+  // a new tileset (scene change / reassignment): start again from the
+  // first cell
   useEffect(() => {
     setSel({ x: 0, y: 0, w: 1, h: 1 });
     if (gridCount > 0) onTool({ kind: "tile", tiles: [[cells[0]]] });
@@ -82,7 +82,7 @@ export default function TilePalette(props: Props) {
     x = Math.max(0, Math.min(COLS - 1, x));
     y = Math.max(0, Math.min(rows - 1, y));
     if (y * COLS + x >= cells.length) {
-      // dernière rangée partielle : se recaler sur la dernière cellule
+      // partial last row: fall back on the last cell
       y = Math.floor((cells.length - 1) / COLS);
       x = Math.min(x, (cells.length - 1) % COLS);
     }
@@ -108,7 +108,7 @@ export default function TilePalette(props: Props) {
     return out;
   }
 
-  // rendu de la grille + surbrillance (drag en cours sinon sélection retenue)
+  // grid rendering + highlight (the drag in progress, else the kept selection)
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !tileset) return;
@@ -121,7 +121,7 @@ export default function TilePalette(props: Props) {
       const dx = (i % COLS) * CELL;
       const dy = Math.floor(i / COLS) * CELL;
       if (id === EMPTY_TILE) {
-        // gomme : damier
+        // eraser: a chequerboard
         ctx.fillStyle = "#2a2d33";
         ctx.fillRect(dx, dy, CELL, CELL);
         ctx.fillStyle = "#3a3e46";
@@ -139,7 +139,7 @@ export default function TilePalette(props: Props) {
         ctx.drawImage(tileset, sx, sy, 16, 16, dx, dy, CELL, CELL);
       }
       if (passMode && id !== EMPTY_TILE) {
-        // overlay O/X/☆ (modèle RM2003)
+        // O/X/☆ overlay (RM2003 model)
         ctx.fillStyle = "rgba(0,0,0,0.45)";
         ctx.fillRect(dx, dy, CELL, CELL);
         ctx.font = "bold 18px system-ui";

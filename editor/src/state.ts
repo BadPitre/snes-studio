@@ -1,20 +1,20 @@
-// Outils de l'éditeur + petites opérations pures sur les scènes.
-// Depuis la Phase 5c (modèle RPG Maker 2003) : deux couches de tiles,
-// passabilité portée par le tileset (sidecar), collision dérivée.
+// Editor tools + small pure operations on scenes.
+// Since Phase 5c (the RPG Maker 2003 model): two tile layers,
+// passability carried by the tileset (a sidecar), collision derived.
 
 import type { GameEvent, Layer, Scene, TilesetMeta } from "./types";
 import { AUTOTILE_BASE, EMPTY_TILE } from "./types";
 
-// Un seul outil depuis la couche Événements (A2) : le tampon de tiles.
-// Les events/warps/départ se posent au clic droit sur la couche Événements.
+// A single tool from the Events layer (A2): the tile stamp.
+// Events/warps/start are laid with a right click on the Events layer.
 export type Tool = { kind: "tile"; tiles: number[][] };
 
-// Mode de dessin du tampon (barre d'outils RM2003) : crayon, rectangle,
-// ellipse, pot de peinture
+// Drawing mode of the stamp (RM2003 toolbar): pencil, rectangle,
+// ellipse, paint bucket
 export type DrawMode = "pen" | "rect" | "circle" | "fill";
 
-// Tampon façon RPG Maker : le bloc de la palette se répète en motif aligné
-// sur la première tile posée (ox,oy = origine du drag sur la map).
+// RPG Maker style stamp: the palette's block repeats as a pattern aligned
+// on the first tile laid (ox,oy = the origin of the drag on the map).
 export function paintStamp(
   sc: Scene,
   layer: Layer,
@@ -39,7 +39,7 @@ export function paintStamp(
       const y = ay + dy;
       if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
       let v = tiles[dy][dx];
-      // S10 : la gomme vaut aussi sur la couche inf — cellule VIDE (noir en jeu)
+      // S10: the eraser also applies to the lower layer — EMPTY cell (black in game)
       if (grid[y][x] !== v) {
         grid[y][x] = v;
         changed = true;
@@ -50,9 +50,9 @@ export function paintStamp(
   return layer === "lower" ? { ...sc, tilemap: grid } : { ...sc, upper: grid };
 }
 
-// Applique le motif du tampon sur une liste de cellules (rectangle, ellipse,
-// remplissage), motif ancré en (ax,ay) — même règle d'alignement que le
-// crayon. Une seule entrée d'historique par geste (appelé au relâchement).
+// Applies the stamp's pattern to a list of cells (rectangle, ellipse,
+// fill), pattern anchored at (ax,ay) — the same alignment rule as the
+// pencil. One history entry per gesture (called on release).
 export function paintCells(
   sc: Scene,
   layer: Layer,
@@ -71,7 +71,7 @@ export function paintCells(
   for (const [x, y] of cells) {
     if (x < 0 || y < 0 || x >= sc.width || y >= sc.height) continue;
     let v = tiles[mod(y - ay, h)][mod(x - ax, w)];
-    // S10 : la gomme vaut aussi sur la couche inf — cellule VIDE (noir en jeu)
+    // S10: the eraser also applies to the lower layer — EMPTY cell (black in game)
     if (grid[y][x] !== v) {
       grid[y][x] = v;
       changed = true;
@@ -81,7 +81,7 @@ export function paintCells(
   return layer === "lower" ? { ...sc, tilemap: grid } : { ...sc, upper: grid };
 }
 
-// --- passabilité (modèle RM2003) -----------------------------------------
+// --- passability (RM2003 model) ------------------------------------------
 
 export function isSolidId(meta: TilesetMeta, id: number): boolean {
   return meta.solid.includes(id);
@@ -90,28 +90,28 @@ export function isAboveId(meta: TilesetMeta, id: number): boolean {
   return meta.above.includes(id);
 }
 
-// Cellule bloquante ? Tile sup présente et non-☆ → sa passabilité l'emporte
-// (ponts au-dessus de l'eau) ; sinon celle de la couche inférieure.
-// MÊME RÈGLE que datagen (tileset.rs) — toute évolution synchronisée.
+// Blocking cell? An upper tile present and not ☆ -> its passability wins
+// (bridges over water); otherwise the lower layer's.
+// THE SAME RULE as datagen (tileset.rs) — keep any change in step.
 export function cellSolid(sc: Scene, meta: TilesetMeta, x: number, y: number): boolean {
   const u = sc.upper[y][x];
   if (u !== EMPTY_TILE && !isAboveId(meta, u)) return isSolidId(meta, u);
   return isSolidId(meta, sc.tilemap[y][x]);
 }
 
-// Cycle O → X → ☆ → O d'un id logique dans le sidecar
+// O -> X -> ☆ -> O cycle of a logical id in the sidecar
 export function cyclePassability(meta: TilesetMeta, id: number): TilesetMeta {
   const solid = meta.solid.filter((v) => v !== id);
   const above = meta.above.filter((v) => v !== id);
-  if (isSolidId(meta, id)) above.push(id); // X → ☆
-  else if (!isAboveId(meta, id)) solid.push(id); // O → X
-  // ☆ → O : les deux listes filtrées suffisent
+  if (isSolidId(meta, id)) above.push(id); // X -> ☆
+  else if (!isAboveId(meta, id)) solid.push(id); // O -> X
+  // ☆ -> O: the two filtered lists are enough
   return { ...meta, solid: solid.sort((a, b) => a - b), above: above.sort((a, b) => a - b) };
 }
 
-// --- acteurs / warps / départ ---------------------------------------------
+// --- actors / warps / start -----------------------------------------------
 
-// --- événements (couche Événements, Event Editor) --------------------------
+// --- events (Events layer, Event Editor) ----------------------------------
 
 export function addEvent(sc: Scene, ev: GameEvent): Scene {
   if (sc.events.some((e) => e.x === ev.x && e.y === ev.y)) return sc;
@@ -126,7 +126,7 @@ export function removeEvent(sc: Scene, index: number): Scene {
   return { ...sc, events: sc.events.filter((_, i) => i !== index) };
 }
 
-// nom par défaut d'un nouvel event (EV001, EV002…)
+// default name of a new event (EV001, EV002…)
 export function nextEventName(sc: Scene): string {
   return `EV${String(sc.events.length + 1).padStart(3, "0")}`;
 }
@@ -143,7 +143,7 @@ export function placeWarp(
   defaultTo: string
 ): Scene {
   if (sc.warps.some((w) => w.x === tx && w.y === ty)) return sc;
-  if (cellSolid(sc, meta, tx, ty)) return sc; // warp sur tile libre uniquement
+  if (cellSolid(sc, meta, tx, ty)) return sc; // a warp only on a free tile
   return { ...sc, warps: [...sc.warps, { x: tx, y: ty, to: defaultTo, tx: 3, ty: 3 }] };
 }
 
@@ -156,10 +156,10 @@ export function removeWarp(sc: Scene, index: number): Scene {
   return { ...sc, warps: sc.warps.filter((_, i) => i !== index) };
 }
 
-// --- scènes ----------------------------------------------------------------
+// --- scenes ----------------------------------------------------------------
 
-// Nouvelle scène : herbe (tile 0) + bordure de murs (tile 1) au sol,
-// couche supérieure vide — même convention que les maps du demo.
+// New scene: grass (tile 0) + a wall border (tile 1) on the ground, the
+// upper layer empty — the same convention as the demo's maps.
 export function newScene(name: string, width: number, height: number): Scene {
   const border = (x: number, y: number) =>
     x === 0 || y === 0 || x === width - 1 || y === height - 1;
@@ -182,8 +182,8 @@ export function newScene(name: string, width: number, height: number): Scene {
   };
 }
 
-// Redimensionne : recadre ou étend (herbe libre, couche sup vide),
-// reconstruit la bordure de murs, écarte events/warps hors limites.
+// Resize: crops or extends (free grass, empty upper layer), rebuilds the
+// wall border, pushes out-of-bounds events/warps aside.
 export function resizeScene(sc: Scene, width: number, height: number): Scene {
   const grid = (rows: number[][], fill: number) =>
     Array.from({ length: height }, (_, y) =>
@@ -215,7 +215,7 @@ export function resizeScene(sc: Scene, width: number, height: number): Scene {
   };
 }
 
-// Labels déclarés dans le script d'une scène (cibles valides pour entry)
+// Labels declared in a scene's script (valid targets for entry)
 export function scriptLabels(script: string[]): string[] {
   const labels: string[] = [];
   for (const raw of script) {
@@ -228,5 +228,5 @@ export function scriptLabels(script: string[]): string[] {
   return labels;
 }
 
-// AUTOTILE_BASE réexporté pour les composants (id logique = base + index)
+// AUTOTILE_BASE re-exported for the components (logical id = base + index)
 export { AUTOTILE_BASE, EMPTY_TILE };

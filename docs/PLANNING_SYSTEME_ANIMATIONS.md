@@ -1,56 +1,56 @@
-# Système d'animations (A1) — conception
+# Animation system (A1) — design
 
-Éditeur d'animations image par image, façon « Battle Animation » de
-RPG Maker 2003 : l'auteur compose une suite de frames en choisissant à
-chaque frame l'image affichée et sa position, et pose des sons à des
-moments précis. Puis il la déclenche depuis un event.
+A frame-by-frame animation editor, in the style of RPG Maker 2003's
+"Battle Animation": the author composes a sequence of frames, choosing for
+each one the image shown and its position, and drops sounds at precise
+moments. Then triggers it from an event.
 
-Ce document fixe le format, le lecteur runtime et le découpage du
-travail AVANT d'écrire une ligne de code — la leçon des chantiers
-précédents (database, UI) : un format décidé en cours d'implémentation
-se paie en migrations.
+This document fixes the format, the runtime player and the split of work
+BEFORE a line of code is written — the lesson of the previous projects
+(database, UI): a format decided during implementation is paid for in
+migrations.
 
-## 1. Ce qui existe déjà et qu'on réutilise
+## 1. What already exists and gets reused
 
-Le moteur sait DÉJÀ tout faire, mais seulement à la main dans un script
-d'event (afficher, attendre, déplacer, jouer un son) — insupportable à
-écrire, et chaque opcode coûte ~3 000 cycles dans la VM (mesuré au
-compteur de scanline, cf. P1/P2/P3). Ce qui manque, c'est un FORMAT
-compact, un lecteur dédié, et l'éditeur.
+The engine can ALREADY do all of it, but only by hand in an event script
+(show, wait, move, play a sound) — unbearable to write, and each opcode
+costs ~3,000 cycles in the VM (measured with the scanline counter, see
+P1/P2/P3). What is missing is a compact FORMAT, a dedicated player, and
+the editor.
 
-Briques réemployées telles quelles :
+Bricks reused as they are:
 
-- **Vignettes (B5)** — blocs de 32×32 en 4bpp (16 couleurs), chars OBJ
-  384 + slot×4, entrées OAM 96-97, frames transférées au VBlank. C'est
-  déjà un lecteur d'animation à vitesse constante : le nouveau système
-  en est la généralisation (position et son par frame).
-- **Sons (B1)** — `audio_play_sfx(id)`, échantillons BRR du projet.
-- **Écriture OAM directe** — la recette de P3 (quatre mots de 16 bits,
-  pas d'appel à `oamSet`, mots invariants en cache) : le lecteur
-  d'animation l'utilise, sinon quatre cellules coûteraient une frame.
+- **Vignettes (B5)** — 32×32 blocks in 4bpp (16 colours), OBJ chars
+  384 + slot×4, OAM entries 96-97, frames transferred at VBlank. That is
+  already a constant-speed animation player: the new system is its
+  generalisation (a position and a sound per frame).
+- **Sounds (B1)** — `audio_play_sfx(id)`, the project's BRR samples.
+- **Direct OAM writes** — P3's recipe (four 16-bit words, no call to
+  `oamSet`, invariant words cached): the animation player uses it, or four
+  cells would cost a frame.
 
-## 2. Pourquoi les sprites et pas une image de fond
+## 2. Why sprites and not a background image
 
-Une animation doit passer PAR-DESSUS le décor et garder ses couleurs.
+An animation has to pass OVER the scenery and keep its colours.
 
-- La couche UI est en 2bpp et partage la palette de la fonte : 4
-  couleurs, exclu pour une explosion ou un coup d'épée.
-- Les couches de décor (BG1/BG2) portent la carte : on ne peut pas y
-  poser une cellule sans détruire le rendu de la scène.
-- Les **sprites** ont leurs propres palettes, indépendantes du décor :
-  16 couleurs par cellule sans rien voler au tileset. C'est ce que fait
-  Chrono Trigger pour ses portraits et ses effets.
+- The UI layer is 2bpp and shares the font's palette: 4 colours, out of
+  the question for an explosion or a sword strike.
+- The scenery layers (BG1/BG2) carry the map: a cell cannot be laid there
+  without destroying the scene's rendering.
+- **Sprites** have their own palettes, independent of the scenery: 16
+  colours per cell without stealing anything from the tileset. It is what
+  Chrono Trigger does for its portraits and effects.
 
-Contrepartie assumée : les cellules vivent dans la VRAM OBJ (16 Ko),
-partagée avec les 5 apparences de personnage par scène.
+The accepted trade-off: the cells live in OBJ VRAM (16 KB), shared with
+the 5 character appearances per scene.
 
-## 3. Format des données
+## 3. Data format
 
-### 3.1 Ressource « animation » (projet)
+### 3.1 The "animation" resource (project)
 
-Entrée du registre projet, à côté des vignettes — la planche de
-cellules EST une vignette du projet (décision d'implémentation : zéro
-nouveau chemin graphique, cf. §4) :
+An entry in the project register, next to the vignettes — the cell sheet
+IS a project vignette (an implementation decision: no new graphics path,
+see §4):
 
 ```json
 {
@@ -65,191 +65,186 @@ nouveau chemin graphique, cf. §4) :
 }
 ```
 
-- `vignette` : la planche, une bande horizontale de cellules 32x32
-  (≤ 15 couleurs + index 0 transparent). Une animation = UNE planche,
-  donc UNE palette OBJ.
-- `cell` : index de la cellule dans la planche.
-- `x` / `y` : décalage SIGNÉ en pixels par rapport au point d'ancrage
-  (voir §3.2). C'est ça qui donne le déplacement image par image.
-- `dur` : durée de la frame en frames écran (1-255).
-- `sfx` : son joué À L'ENTRÉE de cette frame (facultatif).
+- `vignette`: the sheet, a horizontal strip of 32x32 cells (<= 15 colours
+  plus index 0 transparent). One animation = ONE sheet, hence ONE OBJ
+  palette.
+- `cell`: the index of the cell in the sheet.
+- `x` / `y`: a SIGNED pixel offset from the anchor point (see §3.2). This
+  is what produces the frame-by-frame movement.
+- `dur`: the frame's duration in screen frames (1-255).
+- `sfx`: a sound played ON ENTERING this frame (optional).
 
-datagen valide tout à la génération, jamais au runtime : nom en
-double, vignette inconnue (avec la liste des vignettes du projet),
-frames absentes ou trop nombreuses, cellule hors planche, durée nulle,
-décalage hors de −128..127, son inconnu.
+datagen validates everything at generation time, never at runtime: a
+duplicate name, an unknown vignette (with the project's vignette list
+quoted), missing or too many frames, a cell outside the sheet, a zero
+duration, an offset outside −128..127, an unknown sound.
 
-### 3.2 Ancrage
+### 3.2 Anchoring
 
-Comme RM2003 : `écran`, `héros`, ou `event n`. Le lecteur ajoute le
-décalage de la frame à la position de la cible, recalculée à chaque
-frame — une animation ancrée sur un PNJ le suit s'il bouge.
+As in RM2003: `screen`, `hero`, or `event n`. The player adds the frame's
+offset to the target's position, recomputed every frame — an animation
+anchored on an NPC follows it as it moves.
 
-Le point d'ancrage `écran` est le CENTRE de l'écran : un décalage
-(0,0) y pose la cellule 32x32 centrée. Pour `héros` et `event`, (0,0)
-pose le coin de la cellule sur le coin du metasprite suivi. Même règle
-dans l'éditeur et dans le moteur — c'est ce qui garantit que le
-canevas de l'éditeur montre ce que le jeu affichera.
+The `screen` anchor point is the CENTRE of the screen: an offset of (0,0)
+puts the 32x32 cell centred there. For `hero` and `event`, (0,0) puts the
+cell's corner on the corner of the metasprite being followed. The same
+rule in the editor and in the engine — that is what guarantees the
+editor's canvas shows what the game will display.
 
-### 3.3 Calques — plusieurs cellules à la fois (A1-e)
+### 3.3 Layers — several cells at once (A1-e)
 
-Une animation déclare **1 à 4 calques** et affiche donc jusqu'à 4
-cellules EN MÊME TEMPS. Le coût réel, mesuré avant d'écrire la
-première ligne :
+An animation declares **1 to 4 layers** and therefore shows up to 4 cells
+AT THE SAME TIME. The real cost, measured before the first line was
+written:
 
-- **palettes : zéro.** Toutes les cellules d'une animation viennent de
-  sa planche, donc de la même palette OBJ. C'est la ressource la plus
-  rare (les sets de personnages prennent 0-4, la météo 7 : il reste
-  DEUX palettes), et les calques n'y touchent pas. Limite qui en
-  découle : 2 planches DISTINCTES à l'écran à la fois.
-- **OAM : zéro souci.** Les vignettes tiennent aux entrées 96-99 ; les
-  entrées 50-95 sont inutilisées.
-- **VRAM : 4 blocs** dans la bande réservée (chars 384-447). Les
-  rangées 28-31 en accepteraient trois de plus (chars 448, 456, 460 —
-  celui à 452 tomberait sur la météo) si on en voulait davantage.
-- **VBlank : le vrai plafond, à UNE cellule par image écran.** Une
-  cellule = 4 DMA de 128 octets (le bloc 32x32 occupe 4 rangées non
-  contiguës de la grille de names). À deux cellules, les DEUX
-  dernières rangées tombent hors fenêtre et la VRAM les IGNORE : la
-  moitié basse de la seconde cellule reste vide (constaté sur dump
-  VRAM, pas déduit). Avancer `vig_vblank` dans la séquence n'en fait
-  passer que 6 sur 8 — c'est un plafond de temps, pas d'ordre.
+- **palettes: zero.** Every cell of an animation comes from its sheet, so
+  from the same OBJ palette. That is the scarcest resource (character sets
+  take 0-4, the weather takes 7: TWO palettes are left), and layers do not
+  touch it. The limit that follows: 2 DISTINCT sheets on screen at once.
+- **OAM: no trouble.** Vignettes sit at entries 96-99; entries 50-95 are
+  unused.
+- **VRAM: 4 blocks** in the reserved band (chars 384-447). Rows 28-31
+  would take three more (chars 448, 456, 460 — the one at 452 would land
+  on the weather) if more were ever wanted.
+- **VBlank: the real ceiling, at ONE cell per screen frame.** A cell is 4
+  DMAs of 128 bytes (the 32x32 block spans 4 non-contiguous rows of the
+  name grid). At two cells, the LAST TWO rows fall outside the window and
+  VRAM IGNORES them: the bottom half of the second cell stays empty (seen
+  on a VRAM dump, not deduced). Moving `vig_vblank` earlier in the
+  sequence only gets 6 of the 8 through — it is a time ceiling, not an
+  ordering one.
 
-Conséquence pour l'auteur, et c'est une RÈGLE VÉRIFIABLE plutôt qu'une
-limite vague : quand K calques changent de cellule à la même frame,
-ils se mettent à jour en K images. datagen et la fenêtre Animations
-préviennent quand la durée d'une frame est plus courte que ça.
+The consequence for the author, and it is a CHECKABLE RULE rather than a
+vague limit: when K layers change cell on the same frame, they update over
+K frames. datagen and the Animations window warn when a frame's duration
+is shorter than that.
 
-Une cellule d'index **-1 n'affiche rien** sur cette frame. C'est ce qui
-donne la souplesse de pistes indépendantes (un calque qui apparaît
-frame 3 et disparaît frame 6) avec une SEULE timeline dans l'éditeur —
-deux timelines parallèles auraient rendu la fenêtre illisible.
+A cell index of **-1 shows nothing** on that frame. That is what gives the
+flexibility of independent tracks (a layer that appears on frame 3 and
+disappears on frame 6) with a SINGLE timeline in the editor — two parallel
+timelines would have made the window unreadable.
 
-Ordre : le calque 1 est au fond, les suivants passent devant.
+Order: layer 1 is at the back, the following ones come in front.
 
-### 3.4 Binaire (bank data)
+### 3.4 Binary (data bank)
 
-Six tables parallèles indexées par animation (`anim_vig`,
-`anim_flags`, `anim_layers`, `anim_nframes`, `anim_ofs`) plus la piste
-aplatie `anim_track`. Une frame porte **L enregistrements de 3 octets**
-(un par calque) puis la durée et le son :
-
-```
-L x [cellule (0xFF = calque vide)][dx signé][dy signé]
-    puis [durée 1-255][son, 0xFF = aucun]
-```
-
-Le pas vaut donc `3L + 2` — FIXE, calculé une fois au lancement. À un
-calque, c'est exactement le format d'origine (5 octets). Le pas fixe
-est un choix de PERFORMANCE, pas de compacité : le lecteur garde
-l'offset de la frame courante et lui ajoute le pas, sans jamais
-multiplier ni décoder une longueur variable. tcc-816 compile chaque
-accès indexé en une lecture indirecte longue (~11 instructions, leçon
-de P3). Une animation de 12 frames à un calque tient en 60 octets.
-
-## 4. Lecteur runtime (`anim.c`)
-
-Une animation image par image, c'est une VIGNETTE dont la cellule, la
-position et le son changent à chaque frame. Le lecteur emprunte donc un
-slot de vignette et pilote l'état existant :
+Six parallel tables indexed by animation (`anim_vig`, `anim_flags`,
+`anim_layers`, `anim_nframes`, `anim_ofs`) plus the flattened track
+`anim_track`. A frame carries **L records of 3 bytes** (one per layer)
+then the duration and the sound:
 
 ```
-anim_play(id, ancre, cible)   anim_stop()   anim_busy()
-anim_update()   (une fois par frame, AVANT vig_update)
+L x [cell (0xFF = empty layer)][signed dx][signed dy]
+    then [duration 1-255][sound, 0xFF = none]
 ```
 
-Une animation à L calques emprunte L slots de vignette (4 en tout).
-Tout le chemin graphique reste celui des vignettes : chars OBJ 32x32,
-palette OBJ, transfert de la cellule au VBlank, écriture du shadow
-OAM. `vig_vblank()` fait déjà le travail — pas de `anim_vblank`.
+The stride is therefore `3L + 2` — FIXED, computed once at start-up. With
+one layer it is exactly the original format (5 bytes). The fixed stride is
+a PERFORMANCE choice, not a compactness one: the player keeps the current
+frame's offset and adds the stride, never multiplying and never decoding a
+variable length. tcc-816 compiles every indexed access into a long
+indirect read (~11 instructions, the lesson of P3). A 12-frame,
+single-layer animation fits in 60 bytes.
 
-Les palettes de vignette sont allouées PAR PLANCHE et comptées en
-références : deux slots qui affichent la même vignette la partagent.
-Sans palette disponible, `anim_play` ne joue RIEN plutôt que de jouer
-aux couleurs d'une autre image. Sans assez de slots, l'animation la
-plus AVANCÉE cède les siens — écourter se voit moins que ne pas
-partir.
+## 4. Runtime player (`anim.c`)
 
-Par frame et par animation active : décrémenter le compteur de durée.
-Au changement de frame SEULEMENT — lire les 5 octets, marquer la
-cellule à transférer, poser la position, jouer le son. Le reste du
-temps, c'est un test et une décrémentation.
+A frame-by-frame animation is a VIGNETTE whose cell, position and sound
+change every frame. So the player borrows a vignette slot and drives the
+existing state:
 
-Propriété du slot : le lecteur pose un drapeau (`vig_own_anim`) qu'un
-`vig_show` scripté retire. Une vignette scriptée PRÉEMPTE donc
-l'animation, qui le voit à sa frame suivante et lâche le slot sans
-rien cacher — le script garde la main sur ce qu'il a affiché.
+```
+anim_play(id, anchor, target)   anim_stop()   anim_busy()
+anim_update()   (once per frame, BEFORE vig_update)
+```
 
-Budget VBlank : un changement de cellule = 4 DMA de 128 octets. La
-règle « un transfert par VBlank » des vignettes s'applique telle
-quelle ; si deux animations changent de cellule la même frame, la
-seconde passe à la frame suivante.
+An animation with L layers borrows L vignette slots (4 in all). The whole
+graphics path stays the vignettes': 32x32 OBJ chars, an OBJ palette, the
+cell transferred at VBlank, the OAM shadow written. `vig_vblank()` already
+does the work — there is no `anim_vblank`.
 
-## 5. Commande d'event
+Vignette palettes are allocated PER SHEET and reference-counted: two slots
+showing the same vignette share it. With no palette available, `anim_play`
+plays NOTHING rather than play in another image's colours. With too few
+slots, the animation that is FURTHEST ALONG gives its own up — cutting
+something short shows less than never starting.
 
-« Jouer une animation » : animation, cible (écran / héros / cet event /
-event n), et une case **attendre la fin**. Sans l'attente, le script
-continue et l'animation vit sa vie — indispensable pour animer pendant
-un dialogue.
+Per frame and per active animation: decrement the duration counter. ON A
+FRAME CHANGE ONLY — read the 5 bytes, mark the cell for transfer, set the
+position, play the sound. The rest of the time it is one test and one
+decrement.
 
-Opcode `ANIMPLAY` (0x3B) : `[anim][ancre][cible][flags]`, cible 0xFF =
-« cet event » (résolu à l'exécution comme pour les itinéraires).
-L'attente réutilise le mécanisme des attentes non-UI de la VM
-(`VM_WAIT_ANIM`), comme l'attente de route ou de caméra. Une animation
-en BOUCLE ne bloque jamais — sinon l'attente ne se terminerait pas.
+Slot ownership: the player sets a flag (`vig_own_anim`) that a scripted
+`vig_show` clears. A scripted vignette therefore PREEMPTS the animation,
+which sees it on its next frame and drops the slot without hiding
+anything — the script keeps control of what it put on screen.
 
-`ANIMSTOP` (0x3C) arrête tout et range les sprites : la sortie d'une
-boucle lancée sans attente.
+VBlank budget: a cell change is 4 DMAs of 128 bytes. The vignettes' "one
+transfer per VBlank" rule applies unchanged; if two animations change cell
+on the same frame, the second goes out on the next one.
 
-## 6. Éditeur
+## 5. Event command
 
-Fenêtre « Animations » (Tools), sur le modèle de l'éditeur d'écrans :
+"Play an animation": the animation, the target (screen / hero / this event
+/ event n), and a **wait for the end** checkbox. Without the wait, the
+script carries on and the animation lives its own life — essential for
+animating during a dialogue.
 
-- **Timeline** en bas : une colonne par frame, la durée en largeur, une
-  pastille sur les frames qui portent un son. Ajouter / dupliquer /
-  supprimer une frame, glisser pour réordonner.
-- **Canevas** au centre : la cellule de la frame courante posée sur un
-  repère au choix (centre de l'écran ou silhouette du héros),
-  déplaçable à la souris — c'est ce qui fixe `x`/`y`. Le canevas
-  applique EXACTEMENT la règle du moteur (§3.2) : ce qu'on place ici
-  est ce que le jeu affiche.
-- **Inspecteur** à droite : cellule (grille de la planche), durée, son.
-- **Lecture** : bouton play qui joue l'animation dans le canevas à la
-  vitesse réelle (60 images/seconde), sons compris.
-- **Avertissements** : ce que datagen refuserait au build (planche
-  absente, cellule hors planche, son disparu, nom en double) est dit
-  DANS la fenêtre, pendant l'édition — l'erreur de génération est un
-  filet, pas le premier retour. La fenêtre « Vérifier le projet » les
-  reprend au niveau projet, et signale les commandes qui pointent une
-  animation supprimée.
+Opcode `ANIMPLAY` (0x3B): `[anim][anchor][target][flags]`, target 0xFF =
+"this event" (resolved at run time as for routes). The wait reuses the
+VM's non-UI wait mechanism (`VM_WAIT_ANIM`), like waiting for a route or
+for the camera. A LOOPING animation never blocks — otherwise the wait
+would never end.
 
-## 7. Limites à annoncer dans l'éditeur
+`ANIMSTOP` (0x3C) stops everything and puts the sprites away: the way out
+of a loop started without a wait.
 
-- Cellules **32×32**, 16 couleurs, une planche par animation.
-- **4 cellules simultanées** au total, partagées entre les calques des
-  animations en cours et les vignettes affichées par script.
-- **2 planches DISTINCTES** à l'écran en même temps (2 palettes OBJ
-  libres). Les calques d'une même animation n'en consomment qu'une.
-- Une cellule transférée par image écran : voir la règle des K
-  changements en §3.3. Viser 6 à 10 images par seconde, comme les jeux
-  de l'époque.
+## 6. Editor
 
-## 8. Découpage
+An "Animations" window (Tools), on the model of the screens editor:
 
-1. **A1-a** — ✅ format + datagen (validation, piste binaire) + lecteur
-   runtime + opcodes `ANIMPLAY`/`ANIMSTOP`, et la commande d'event
-   `anim_play`/`anim_stop` côté datagen. Testable par un projet écrit à
-   la main, sans éditeur — c'est ce qui a servi à valider les trois
-   ancrages, l'attente, la boucle et l'auto-rangement.
-2. **A1-b** — ✅ formulaire « Jouer une animation » dans l'éditeur
-   d'events (animation, cible écran / héros / cet event / event n,
-   case « attendre la fin ») + « Arrêter les animations ».
-3. **A1-c** — ✅ fenêtre Animations (Tools) : timeline, canevas,
-   inspecteur, lecture.
-4. **A1-e** — ✅ calques (plusieurs cellules simultanées) : format,
-   datagen, lecteur, et l'éditeur (onglets de calque, cellule « rien »,
-   glisser n'importe quelle cellule). Absorbe l'ancien A1-d — il fallait
-   de toute façon passer les vignettes à 4 emplacements.
+- **Timeline** at the bottom: one column per frame, the duration as width,
+  a dot on the frames that carry a sound. Add / duplicate / delete a
+  frame, drag to reorder.
+- **Canvas** in the middle: the current frame's cell laid over a reference
+  of your choice (the centre of the screen, or the hero's silhouette),
+  draggable with the mouse — that is what sets `x`/`y`. The canvas applies
+  the engine's rule EXACTLY (§3.2): what you place here is what the game
+  shows.
+- **Inspector** on the right: cell (the sheet's grid), duration, sound.
+- **Playback**: a play button that runs the animation in the canvas at the
+  real speed (60 frames per second), sounds included.
+- **Warnings**: what datagen would refuse at build time (a missing sheet,
+  a cell outside the sheet, a vanished sound, a duplicate name) is said IN
+  the window, while editing — the generation error is a net, not the first
+  feedback. The "Check the project" window repeats them at project level,
+  and flags commands pointing at a deleted animation.
 
-Chaque cran est livrable et vérifiable seul ; la régression pixel
-couvre le moteur à chaque étape.
+## 7. Limits to state in the editor
+
+- **32×32** cells, 16 colours, one sheet per animation.
+- **4 simultaneous cells** in total, shared between the layers of the
+  running animations and the vignettes shown by script.
+- **2 DISTINCT sheets** on screen at the same time (2 free OBJ palettes).
+  The layers of one animation only consume one.
+- One cell transferred per screen frame: see the K-changes rule in §3.3.
+  Aim for 6 to 10 frames per second, like the games of the era.
+
+## 8. Breakdown
+
+1. **A1-a** — ✅ format + datagen (validation, the binary track) + the
+   runtime player + the `ANIMPLAY`/`ANIMSTOP` opcodes, and the
+   `anim_play`/`anim_stop` event command on the datagen side. Testable
+   from a hand-written project, with no editor — which is what validated
+   the three anchors, the wait, the loop and the automatic put-away.
+2. **A1-b** — ✅ the "Play an animation" form in the event editor
+   (animation, target screen / hero / this event / event n, a "wait for
+   the end" box) plus "Stop the animations".
+3. **A1-c** — ✅ the Animations window (Tools): timeline, canvas,
+   inspector, playback.
+4. **A1-e** — ✅ layers (several simultaneous cells): the format, datagen,
+   the player, and the editor (layer tabs, a "nothing" cell, dragging any
+   cell). Absorbs the old A1-d — the vignettes had to go to 4 slots
+   anyway.
+
+Each step is deliverable and checkable on its own; the pixel regression
+covers the engine at every stage.

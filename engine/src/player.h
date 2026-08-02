@@ -1,5 +1,5 @@
 /*
- * player.h — module top-down : joueur (spec §3).
+ * player.h — the top-down player module (spec §3).
  */
 #ifndef PLAYER_H
 #define PLAYER_H
@@ -8,7 +8,7 @@
 
 typedef struct
 {
-  u16 x, y;      /* position en pixels (coin haut-gauche du metasprite) */
+  u16 x, y;      /* position in pixels (top-left of the metasprite) */
   u8 dir;        /* DIR_* */
   u8 moving;
   u8 anim_frame;
@@ -17,37 +17,36 @@ typedef struct
 
 extern Player player;
 
-/* Init depuis les données de scène (position de départ du Scene Header) +
-   chargement du gfx joueur en VRAM. À appeler après scene_load(). */
+/* Init from the scene data (the Scene Header's start position) plus the
+   player graphics into VRAM. Call after scene_load(). */
 void player_init(void);
 
-/* Lecture du pad + mouvement 4 directions (1 px/frame, clamp aux bords de map).
-   La collision arrive en semaine 3. */
+/* Reads the pad and moves in 4 directions, 1 px per frame, clamped to
+   the map edges. */
 void player_update(void);
 
-/* Écrit le metasprite dans le shadow OAM (coordonnées écran via la caméra).
-   Le transfert OAM part automatiquement au VBlank (NMI PVSnesLib). */
+/* Writes the metasprite into the shadow OAM, in screen coordinates via
+   the camera. The OAM transfer leaves at VBlank (PVSnesLib's NMI). */
 void player_draw(void);
 
-/* Place le joueur sur une tile (utilisé à l'arrivée d'un warp) sans
-   redéclencher le warp de la tile d'arrivée. */
+/* Places the player on a tile (used on arriving from a warp) without
+   re-triggering the destination tile's own warp. */
 void player_set_pos(u8 tx, u8 ty);
 
-/* Warp demandé cette frame ? Renvoie 1 et remplit la destination (une
-   seule fois — l'appel consomme la demande). */
+/* Was a warp requested this frame? Returns 1 and fills in the
+   destination — once: the call consumes the request. */
 u8 player_take_warp(u8 *dest_scene, u8 *dest_x, u8 *dest_y);
 
-/* Demande un warp par script (opcode WARP, spec §2 v0.6) — consommé par
-   la boucle principale comme un warp de tile. trans (S18) : 0 fondu,
-   1 instantané, 2 mosaïque. */
+/* Requests a warp from a script (the WARP opcode), consumed by the main
+   loop like a tile warp. trans: 0 fade, 1 instant, 2 mosaic. */
 void player_request_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 trans);
 
-/* Direction d'arrivée du dernier warp consommé (v0.16) : 0 = conserver la
-   direction du héros, 1-4 = DIR_* + 1 (WarpDef.flags bits 0-2). */
+/* Arrival facing of the last consumed warp: 0 keeps the hero's current
+   direction, 1-4 are DIR_* + 1 (WarpDef.flags bits 0-2). */
 u8 player_take_warp_dir(void);
 
-/* Transition du dernier warp consommé (S18) : 0 fondu, 1 instantané,
-   2 mosaïque — consommée, comme la direction. */
+/* Transition of the last consumed warp: 0 fade, 1 instant, 2 mosaic —
+   consumed like the facing. */
 u8 player_take_warp_trans(void);
 
 #endif /* PLAYER_H */

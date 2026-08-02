@@ -1,8 +1,28 @@
-// Lancement de datagen depuis l'éditeur (plugin shell Tauri).
-// Convention de layout repo : <racine>/demo, <racine>/tools, <racine>/engine
-// — la racine est le dossier parent du projet ouvert.
+// Running the toolchain from the editor (the Tauri shell plugin).
+//
+// datagen and snesbuild travel WITH the editor, as Tauri sidecars: the
+// installed app carries its own copies and never needs a Rust toolchain
+// on the author's machine. `Command.sidecar` resolves them next to the
+// executable, whatever the platform named them.
+//
+// The engine sources are found in one of two places, and which one is in
+// play changes nothing else:
+//
+//   a CHECKOUT — <project>/../engine exists, so that is the engine, and it
+//     is built in place exactly as it always was. A contributor editing
+//     engine code sees their edits in the next build.
+//
+//   an INSTALL — no sibling engine, so the bundled copy is staged into
+//     <project>/.build/engine and built there. The bundle itself lives in
+//     a read-only folder (Program Files, /usr/lib) and a build writes .obj
+//     and the ROM next to the sources, so it cannot happen in place.
+//
+// The author never chooses: a project inside a checkout keeps the
+// contributor flow, a project anywhere else gets its own engine.
 
 import { Command } from "@tauri-apps/plugin-shell";
+import { resolveResource } from "@tauri-apps/api/path";
+import { exists } from "@tauri-apps/plugin-fs";
 
 const hasTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -25,55 +45,117 @@ function isWindows(): boolean {
   return typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
 }
 
-// Compile le ROM : make dans <racine>/engine. Sous Windows on passe par le
-// bash de MSYS2 (chemin configurable — réglages ⚙), ailleurs par sh.
-// clean = recompilation complète (make clean d'abord).
-export async function runMake(
-  projectRoot: string,
-  bashPath: string,
-  clean = false
-): Promise<BuildResult> {
-  return runMakeCmd(projectRoot, bashPath, clean ? "make clean && make" : "make");
-}
+const noTauri = (what: string): BuildResult => ({
+  ok: false,
+  output: `mode navigateur : ${what} indisponible`,
+});
 
-// Build « cartouche » : make cart → engine/snesstudio.smc (512 Ko minimum,
-// miroité + checksum recalculé — validé sur Super UFO Pro 8)
-export async function runMakeCart(
-  projectRoot: string,
-  bashPath: string
-): Promise<BuildResult> {
-  return runMakeCmd(projectRoot, bashPath, "make cart");
-}
-
-async function runMakeCmd(
-  projectRoot: string,
-  bashPath: string,
-  mk: string
-): Promise<BuildResult> {
-  if (!hasTauri) return { ok: false, output: "mode navigateur : make indisponible" };
-  const repo = parentDir(projectRoot);
-  const cmd = isWindows()
-    ? Command.create("cmd", [
-        "/C",
-        bashPath,
-        "-lc",
-        `cd "$(cygpath '${repo}')/engine" && ${mk}`,
-      ])
-    : Command.create("sh", ["-lc", `cd '${repo}/engine' && ${mk}`]);
-  const out = await cmd.execute();
+async function sidecar(name: string, args: string[]): Promise<BuildResult> {
+  const out = await Command.sidecar(`binaries/${name}`, args).execute();
   const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
   return { ok: out.code === 0, output };
 }
 
-// Lance l'émulateur (configurable — réglages ⚙) sur le ROM compilé,
-// sans attendre sa fermeture.
+// Where the build happens and what it compiles against.
+interface Workspace {
+  engine: string;
+  args: string[]; // --toolchain, when we know which one
+}
+
+async function workspace(projectRoot: string, toolchain: string): Promise<Workspace> {
+  const sibling = `${parentDir(projectRoot)}/engine`;
+  const inCheckout = await exists(sibling).catch(() => false);
+  // A setting always wins: an author who names a PVSnesLib means it.
+  // Otherwise a checkout falls back to PVSNESLIB_HOME (snesbuild reads it)
+  // and an install uses the copy it carries.
+  let tc = toolchain;
+  if (!tc && !inCheckout) tc = await resolveResource("vendor/pvsneslib");
+  const args = tc ? ["--toolchain", tc] : [];
+
+  if (inCheckout) return { engine: sibling, args };
+
+  const engine = `${projectRoot}/.build/engine`;
+  const src = await resolveResource("vendor/engine");
+  // Cheap (87 files) and always run: it is also how an editor UPDATE
+  // reaches a project built with the previous version's engine.
+  const sync = await sidecar("snesbuild", ["sync", "--from", src, "--to", engine]);
+  if (!sync.ok) throw new Error(sync.output);
+  return { engine, args };
+}
+
+// Where the ROM lands, for the emulator and for the author to find.
+export async function romPath(projectRoot: string): Promise<string> {
+  const sibling = `${parentDir(projectRoot)}/engine`;
+  const dir = (await exists(sibling).catch(() => false))
+    ? sibling
+    : `${projectRoot}/.build/engine`;
+  return `${dir}/snesstudio.sfc`;
+}
+
+// Compiles the ROM. This used to be `make` through a shell — MSYS2 on
+// Windows; snesbuild drives the same toolchain natively instead, and
+// produces a byte-identical ROM (tools/gate-snesbuild.sh).
+// clean = throw the intermediates away first.
+export async function runMake(
+  projectRoot: string,
+  toolchain: string,
+  clean = false
+): Promise<BuildResult> {
+  if (!hasTauri) return noTauri("la compilation");
+  const w = await workspace(projectRoot, toolchain);
+  if (clean) {
+    const c = await sidecar("snesbuild", ["clean", "--engine", w.engine]);
+    if (!c.ok) return c;
+  }
+  return sidecar("snesbuild", ["build", "--engine", w.engine, ...w.args]);
+}
+
+// "Cartridge" build -> engine/snesstudio.smc (512 KB minimum, mirrored +
+// checksum recomputed — validated on a Super UFO Pro 8)
+export async function runMakeCart(
+  projectRoot: string,
+  toolchain: string
+): Promise<BuildResult> {
+  if (!hasTauri) return noTauri("la compilation");
+  const w = await workspace(projectRoot, toolchain);
+  return sidecar("snesbuild", ["cart", "--engine", w.engine, ...w.args]);
+}
+
+// Is the configured emulator actually there? The editor does not ship one
+// — the author downloads Mesen2, bsnes or whatever they prefer — so
+// "missing" is an ORDINARY state, not an edge case, and it has to be said.
+// Neither launch path can report it on its own: `start` returns 0 whether
+// or not it found the program, and the POSIX path is spawned and never
+// waited on.
+async function emulatorFound(emulator: string): Promise<boolean> {
+  if (!emulator.trim()) return false;
+  // A path is checked as a file; a bare name has to be resolved the way
+  // the shell would resolve it against PATH.
+  if (/[\\/]/.test(emulator)) return await exists(emulator).catch(() => false);
+  try {
+    const probe = isWindows()
+      ? Command.create("cmd", ["/C", "where", emulator])
+      : Command.create("sh", ["-c", `command -v '${emulator}'`]);
+    return (await probe.execute()).code === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Launches the emulator (configurable — settings ⚙) on the compiled ROM,
+// without waiting for it to close.
 export async function launchEmulator(
   projectRoot: string,
   emulator: string
 ): Promise<BuildResult> {
-  if (!hasTauri) return { ok: false, output: "mode navigateur : émulateur indisponible" };
-  const repo = parentDir(projectRoot);
-  const rom = `${repo}/engine/snesstudio.sfc`;
+  if (!hasTauri) return noTauri("l'émulateur");
+  if (!(await emulatorFound(emulator))) {
+    return {
+      ok: false,
+      output: `émulateur introuvable : « ${emulator || "(aucun)" } » — indiquez son chemin dans Réglages ⚙ (Mesen2, bsnes, Snes9x…)`,
+    };
+  }
+  const rom = await romPath(projectRoot);
   if (isWindows()) {
     const out = await Command.create("cmd", ["/C", "start", "", emulator, rom]).execute();
     const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
@@ -83,7 +165,7 @@ export async function launchEmulator(
   return { ok: true, output: "" };
 }
 
-// Ouvre le dossier du projet dans l'explorateur de fichiers du système
+// Opens the project folder in the system's file explorer
 export async function openProjectFolder(root: string): Promise<void> {
   if (!hasTauri) return;
   if (isWindows()) {
@@ -93,80 +175,42 @@ export async function openProjectFolder(root: string): Promise<void> {
   }
 }
 
-// Import d'un chipset RPG Maker 2003 (480x256) via datagen import-chipset
+// RPG Maker 2003 chipset import (480x256) through datagen import-chipset
 export async function runImportChipset(
   projectRoot: string,
   chipsetPath: string,
   name: string
 ): Promise<BuildResult> {
-  if (!hasTauri) return { ok: false, output: "mode navigateur : import indisponible" };
-  const repo = parentDir(projectRoot);
-  const cmd = Command.create("cargo", [
-    "run",
-    "--release",
-    "--manifest-path",
-    `${repo}/tools/Cargo.toml`,
-    "-p",
-    "datagen",
-    "--",
-    "import-chipset",
-    chipsetPath,
-    projectRoot,
-    name,
-  ]);
-  const out = await cmd.execute();
-  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
-  return { ok: out.code === 0, output };
+  if (!hasTauri) return noTauri("l'import");
+  return sidecar("datagen", ["import-chipset", chipsetPath, projectRoot, name]);
 }
 
-// Import d'un charset RPG Maker 2003 (288x256 ou 72x128) via
-// datagen import-charset : personnage → bloc de la feuille de sprites
+// RPG Maker 2003 charset import (288x256 or 72x128) through
+// datagen import-charset: a character -> a block of the sprite sheet
 export async function runImportCharset(
   projectRoot: string,
   charsetPath: string,
   perso: number,
   bloc: number
 ): Promise<BuildResult> {
-  if (!hasTauri) return { ok: false, output: "mode navigateur : import indisponible" };
-  const repo = parentDir(projectRoot);
-  const cmd = Command.create("cargo", [
-    "run",
-    "--release",
-    "--manifest-path",
-    `${repo}/tools/Cargo.toml`,
-    "-p",
-    "datagen",
-    "--",
+  if (!hasTauri) return noTauri("l'import");
+  return sidecar("datagen", [
     "import-charset",
     charsetPath,
     projectRoot,
     String(perso),
     String(bloc),
   ]);
-  const out = await cmd.execute();
-  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
-  return { ok: out.code === 0, output };
 }
 
-// debug = ROM de test avec menu Start+Select+R (réglages ⚙, S6) — le
-// build cartouche passe toujours debug=false
+// debug = a test ROM with the Start+Select+R menu (settings ⚙, S6) — the
+// cartridge build always passes debug=false
 export async function runDatagen(projectRoot: string, debug = false): Promise<BuildResult> {
-  if (!hasTauri) return { ok: false, output: "mode navigateur : datagen indisponible" };
-  const repo = parentDir(projectRoot);
-  const args = [
-    "run",
-    "--release",
-    "--manifest-path",
-    `${repo}/tools/Cargo.toml`,
-    "-p",
-    "datagen",
-    "--",
-    projectRoot,
-    `${repo}/engine`,
-  ];
+  if (!hasTauri) return noTauri("datagen");
+  // Generated data goes where the build will look for it, which is the
+  // staged engine when there is no checkout around.
+  const w = await workspace(projectRoot, "");
+  const args = [projectRoot, w.engine];
   if (debug) args.push("--debug");
-  const cmd = Command.create("cargo", args);
-  const out = await cmd.execute();
-  const output = [out.stdout, out.stderr].filter(Boolean).join("\n").trim();
-  return { ok: out.code === 0, output };
+  return sidecar("datagen", args);
 }

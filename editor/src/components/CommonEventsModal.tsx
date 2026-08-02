@@ -1,10 +1,10 @@
-// Fenêtre « Common events » (Tools →) — calquée sur l'onglet Common
-// Events de la Database RM2003 : liste numérotée à gauche, Nom /
-// Déclencheur / Switch de condition / Contenu à droite. Les common
-// events sont des scripts GLOBAUX au projet : appelables depuis
-// n'importe quel event (« Appeler un common event »), ou déclenchés en
-// auto par un switch (relancés tant que le switch est ON — le script
-// doit l'éteindre, modèle Autorun RM2003).
+// "Common events" window (Tools >) — modelled on the Common Events tab
+// of the RM2003 Database: a numbered list on the left, Name / Trigger /
+// Condition switch / Contents on the right. Common events are scripts
+// GLOBAL to the project: callable from any event ("Appeler un common
+// event"), or triggered automatically by a switch (restarted as long as
+// the switch is ON — the script must turn it off, the RM2003 Autorun
+// model).
 
 import { useState } from "react";
 import type { CommonEvent, Scene } from "../types";
@@ -14,23 +14,23 @@ import VarListModal from "./VarListModal";
 
 interface Props {
   commons: CommonEvent[];
-  fnSigs: import("../types").FnSig[]; // fonctions appelables (F1)
+  fnSigs: import("../types").FnSig[]; // callable functions (F1)
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
   varNames: string[];
   charsetNames: string[];
-  db: Database | null; // commande db_read (v0.17)
-  uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
-  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
-  texts: import("../types").TextEntry[]; // catalogue (msg par référence, T2)
-  pictures: string[]; // stems des images (S3) — commande pic_show
-  tintPresets: import("../types").TintPreset[]; // presets de teinte (S12b)
-  soundNames: string[]; // stems des sons (B1)
-  musicNames: string[]; // stems des musiques (B1)
-  vigNames: string[]; // stems des vignettes (B5)
-  animNames: string[]; // noms des animations image par image (A1)
-  screenNames: string[]; // écrans composés (B6bis)
+  db: Database | null; // db_read command (v0.17)
+  uiWidgets: string[]; // layout roots (ui_show command, Ph. 12)
+  uiStyles: string[]; // dialogue styles (S1) — msg/choice style field
+  texts: import("../types").TextEntry[]; // catalogue (msg by reference, T2)
+  pictures: string[]; // picture stems (S3) — pic_show command
+  tintPresets: import("../types").TintPreset[]; // tint presets (S12b)
+  soundNames: string[]; // sound stems (B1)
+  musicNames: string[]; // music stems (B1)
+  vigNames: string[]; // vignette stems (B5)
+  animNames: string[]; // names of the frame-by-frame animations (A1)
+  screenNames: string[]; // composed screens (B6bis)
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;

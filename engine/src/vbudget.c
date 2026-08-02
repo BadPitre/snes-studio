@@ -1,20 +1,19 @@
 /*
- * vbudget.c — arbitrage de la fenêtre VBlank (P5). Voir vbudget.h pour
- * les mesures qui justifient ce module, et vbudgetfast.asm pour la
- * raison pour laquelle la lecture du compteur n'est pas écrite ici.
+ * vbudget.c — the VBlank window arbiter. See vbudget.h for the design
+ * and vbudgetfast.asm for why the counter read is not written here.
  */
 #include <snes.h>
 #include "vbudget.h"
 
-static u8 vbl_rem; /* lignes restantes, tenu par soustraction */
-static u8 vbl_rot; /* tourne d'une frame à l'autre */
+static u8 vbl_rem; /* lines left, kept by subtraction */
+static u8 vbl_rot; /* rotates from one frame to the next */
 
-u16 vbl_v;             /* ligne courante — écrite par vbudgetfast.asm */
+u16 vbl_v;             /* current line, written by vbudgetfast.asm */
 extern void vbl_probe(void);
 
-/* Ce que la sonde dit qu'il reste. Sous 200, le compteur a rebouclé :
-   l'affichage a repris et la VRAM ignore en silence ce qu'on lui
-   envoie — on ne renvoie jamais « il reste de la place » là. */
+/* What the probe says is left. Below 200 the counter has wrapped:
+   display has resumed and VRAM silently ignores what we send it, so we
+   never report room there. */
 static u8 vbl_read(void)
 {
   vbl_probe();

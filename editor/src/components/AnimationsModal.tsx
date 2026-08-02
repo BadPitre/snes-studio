@@ -1,19 +1,19 @@
-// Fenêtre « Animations » (Tools →, A1-c/A1-e) : éditeur image par image
-// façon « Battle Animation » de RPG Maker 2003. L'auteur compose une
-// suite de frames en choisissant à chaque frame les CELLULES affichées
-// (une par CALQUE), leur POSITION (à la souris sur le canevas) et le
-// SON joué.
+// "Animations" window (Tools >, A1-c/A1-e): a frame-by-frame editor in
+// the style of RPG Maker 2003's "Battle Animation". The author composes
+// a sequence of frames, choosing for each one the CELLS shown (one per
+// LAYER), their POSITION (with the mouse on the canvas) and the SOUND
+// played.
 //
-// La planche de cellules est une VIGNETTE du projet : pas de second
-// pipeline graphique côté moteur, l'animation n'ajoute que la piste de
-// frames (voir docs/PLANNING_SYSTEME_ANIMATIONS.md).
+// The cell sheet is a project VIGNETTE: no second graphics pipeline on
+// the engine side, an animation only adds the frame track (see
+// docs/PLANNING_SYSTEME_ANIMATIONS.md).
 //
-// Le canevas applique EXACTEMENT la règle du moteur (anim.c) :
-//   ancrage écran  -> coin de la cellule = (112 + x, 96 + y)
-//   ancrage héros  -> coin de la cellule = (coin de tile du héros + x, y)
-// C'est ce qui garantit que ce qu'on place ici est ce que le jeu affiche.
-// Ordre des calques identique au moteur : le calque 1 est DERRIÈRE, les
-// suivants passent devant (leurs entrées OAM sont plus prioritaires).
+// The canvas applies the engine's rule EXACTLY (anim.c):
+//   screen anchor -> the cell's corner = (112 + x, 96 + y)
+//   hero anchor   -> the cell's corner = (the hero's tile corner + x, y)
+// That is what guarantees what you place here is what the game shows.
+// Layer order identical to the engine: layer 1 is BEHIND, the following
+// ones come in front (their OAM entries have higher priority).
 
 import { useEffect, useRef, useState } from "react";
 import type { AnimationDef, AnimCell, AnimFrame } from "../types";
@@ -21,22 +21,22 @@ import { ANIM_LAYERS_MAX, animFrameCells } from "../types";
 import { loadAssetPng } from "../io";
 import AudioPreviewButton, { previewSound } from "./AudioPreview";
 
-// origine des décalages, en pixels écran (miroir de anim.c)
+// origin of the offsets, in screen pixels (mirrors anim.c)
 const SCR_X = 112;
 const SCR_Y = 96;
-// tile du héros de référence : son centre visuel tombe au milieu de l'écran
+// reference hero tile: its visual centre falls in the middle of the screen
 const HERO_X = 120;
 const HERO_Y = 104;
-const OVERLAP = 8; // SPRITE_Y_OVERLAP — le sprite dépasse au-dessus de sa tile
+const OVERLAP = 8; // SPRITE_Y_OVERLAP — the sprite sticks out above its tile
 
 interface Props {
   root: string;
   animations: AnimationDef[];
-  vigNames: string[]; // stems des vignettes (planches)
-  vigPaths: Record<string, string>; // stem -> chemin assets/
-  soundNames: string[]; // stems des sons
-  soundPaths: Record<string, string>; // stem -> chemin assets/
-  sprites: ImageBitmap | null; // feuille de personnages (silhouette du héros)
+  vigNames: string[]; // vignette stems (sheets)
+  vigPaths: Record<string, string>; // stem -> assets/ path
+  soundNames: string[]; // sound stems
+  soundPaths: Record<string, string>; // stem -> assets/ path
+  sprites: ImageBitmap | null; // character sheet (the hero's silhouette)
   onOk: (list: AnimationDef[]) => void;
   onClose: () => void;
 }
@@ -72,8 +72,8 @@ export default function AnimationsModal(props: Props) {
     if (!cur) return;
     patch({ frames: cur.frames.map((f, i) => (i === fsel ? { ...f, ...p } : f)) });
   };
-  // écrit une cellule posée — normalise TOUJOURS la frame vers la forme
-  // multi-calques, la forme héritée n'est jamais réécrite
+  // writes a laid cell — ALWAYS normalises the frame to the multi-layer
+  // shape, the inherited shape is never written back
   const patchCell = (l: number, p: Partial<AnimCell>) => {
     if (!frame) return;
     const list = animFrameCells(frame, nl);
@@ -81,7 +81,7 @@ export default function AnimationsModal(props: Props) {
     patchFrame({ cells: list, cell: undefined, x: undefined, y: undefined });
   };
 
-  // planches des animations (cache par stem de vignette)
+  // animation sheets (cached by vignette stem)
   useEffect(() => {
     for (const a of draft) {
       const rel = props.vigPaths[a.vignette];
@@ -92,7 +92,7 @@ export default function AnimationsModal(props: Props) {
     }
   }, [draft, bmps, props.root, props.vigPaths]);
 
-  // ---- lecture à la vitesse réelle (60 images/seconde) -----------------
+  // ---- playback at the real speed (60 frames per second) ---------------
   useEffect(() => {
     if (!playing || !cur || cur.frames.length === 0) return;
     playRef.current = { i: 0, left: cur.frames[0].dur };
@@ -120,8 +120,8 @@ export default function AnimationsModal(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, sel]);
 
-  // toute modification pendant la lecture l'arrête (sinon le playhead se
-  // bat avec la sélection de l'auteur)
+  // any edit during playback stops it (otherwise the playhead fights the
+  // author's selection)
   const stopPlay = () => {
     if (playing) setPlaying(false);
   };
@@ -129,13 +129,13 @@ export default function AnimationsModal(props: Props) {
   const cellPos = (c: AnimCell, r: "screen" | "hero"): [number, number] =>
     r === "hero" ? [HERO_X + c.x, HERO_Y + c.y] : [SCR_X + c.x, SCR_Y + c.y];
 
-  // ---- canevas ---------------------------------------------------------
+  // ---- canvas ----------------------------------------------------------
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
-    // fond : damier sombre (l'animation passe par-dessus le décor du jeu)
+    // background: a dark chequerboard (the animation plays over the game)
     ctx.fillStyle = "#20222a";
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.fillStyle = "#282b34";
@@ -154,7 +154,7 @@ export default function AnimationsModal(props: Props) {
         ctx.fillRect(HERO_X * 2, (HERO_Y - OVERLAP) * 2, 32, 48);
       }
     }
-    // croix d'ancrage
+    // anchor cross
     const [ax, ay] = ref === "hero" ? [HERO_X, HERO_Y] : [SCR_X + 16, SCR_Y + 16];
     ctx.strokeStyle = "rgba(255,210,74,.6)";
     ctx.beginPath();
@@ -165,7 +165,7 @@ export default function AnimationsModal(props: Props) {
     ctx.stroke();
 
     if (!frame) return;
-    // calque 1 au fond, les suivants par-dessus — comme le moteur
+    // layer 1 at the back, the following ones on top — as in the engine
     posed.forEach((c, l) => {
       if (c.cell < 0) return;
       const [cx, cy] = cellPos(c, ref);
@@ -181,7 +181,7 @@ export default function AnimationsModal(props: Props) {
 
   const clamp = (v: number) => Math.max(-128, Math.min(127, v));
 
-  // ---- opérations sur la liste ----------------------------------------
+  // ---- operations on the list -----------------------------------------
   const addAnim = () => {
     let i = 1;
     while (draft.some((a) => a.name === `animation${i}`)) i++;
@@ -201,8 +201,8 @@ export default function AnimationsModal(props: Props) {
   const setLayers = (n: number) => {
     if (!cur) return;
     stopPlay();
-    // toutes les frames sont normalisées d'un coup : un calque ajouté
-    // arrive VIDE partout, l'auteur le remplit là où il le veut
+    // every frame is normalised in one go: an added layer arrives EMPTY
+    // everywhere, the author fills it in where they want it
     patch({
       layers: n,
       frames: cur.frames.map((f) => ({
@@ -247,7 +247,7 @@ export default function AnimationsModal(props: Props) {
     setFsel(j);
   };
 
-  // ---- ce que datagen refusera (ou signalera) : dit ICI, pas au build ---
+  // ---- what datagen will refuse (or flag): said HERE, not at build ------
   const problems: string[] = [];
   const warnings: string[] = [];
   if (cur) {
@@ -263,7 +263,7 @@ export default function AnimationsModal(props: Props) {
     if (bad) problems.push(`Le son « ${bad.sfx} » n'existe plus dans le projet.`);
     if (cur.frames.some((f) => animFrameCells(f, nl).every((c) => c.cell < 0)))
       warnings.push("Une frame n'affiche aucune cellule : l'animation aura un blanc.");
-    // budget VBlank : une seule cellule est transférée par image écran
+    // VBlank budget: only one cell is transferred per screen frame
     for (let i = 1; i < cur.frames.length; i++) {
       const a = animFrameCells(cur.frames[i - 1], nl);
       const b = animFrameCells(cur.frames[i], nl);
@@ -433,8 +433,8 @@ export default function AnimationsModal(props: Props) {
                       const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
                       const px = Math.floor((e.clientX - r.left) / 2);
                       const py = Math.floor((e.clientY - r.top) / 2);
-                      // du calque le plus en AVANT vers l'arrière, comme
-                      // à l'écran : on attrape ce qu'on voit
+                      // from the FRONTMOST layer backwards, as on screen:
+                      // you grab what you can see
                       for (let l = posed.length - 1; l >= 0; l--) {
                         const c = posed[l];
                         if (c.cell < 0) continue;
@@ -597,7 +597,7 @@ export default function AnimationsModal(props: Props) {
                   </div>
                 </div>
 
-                {/* timeline : une colonne par frame, largeur ∝ durée */}
+                {/* timeline: one column per frame, width ∝ duration */}
                 <div className="anim-tl-head">
                   <span className="palette-title" style={{ margin: 0 }}>
                     Timeline — {cur.frames.length} frame(s), {total} images
@@ -684,7 +684,7 @@ export default function AnimationsModal(props: Props) {
   );
 }
 
-// Vignette d'une cellule (32x32 réduit) — timeline et grille de l'inspecteur
+// Thumbnail of a cell (32x32 scaled down) — timeline and inspector grid
 function CellThumb(props: { sheet: ImageBitmap | undefined; cell: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {

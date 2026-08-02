@@ -1,6 +1,6 @@
 /*
- * camera.c — caméra top-down.
- * Clamp AVANT tout calcul dépendant de la caméra (piège kit §8 : bords de map).
+ * camera.c — the top-down camera.
+ * Clamp BEFORE any camera-dependent computation: map edges bite.
  */
 #include <snes.h>
 #include "formats.h"
@@ -8,23 +8,23 @@
 #include "player.h"
 #include "camera.h"
 
-/* Dimensions écran SNES (constantes hardware, pas des données de jeu) */
+/* SNES screen dimensions (hardware constants, not game data) */
 #define SCREEN_W 256
 #define SCREEN_H 224
 
 Camera camera;
 
-/* Caméra scriptée (v0.13) : 0 = suit le joueur, 1 = pan vers la cible,
-   2 = tenue sur la cible. Le pan de retour (CAMRET) repasse en mode 0
-   à l'arrivée. */
+/* Scripted camera: 0 follows the player, 1 pans to the target, 2 holds
+   on the target. The return pan (CAMRET) goes back to mode 0 on
+   arrival. */
 static u8 cam_mode;
 static u8 cam_returning;
-static u16 cam_tx, cam_ty; /* cible en pixels (coin haut-gauche) */
+static u16 cam_tx, cam_ty; /* target in pixels (top-left corner) */
 static u8 cam_speed;
 
-/* Position « suivi joueur » clampée aux bords de map. Résultat dans
-   cam_fx/cam_fy : PAS de paramètres multi-pointeurs (piège tcc-816
-   documenté — save_read l'a payé avant nous). */
+/* "Follow the player" position, clamped to the map edges. The result
+   goes into cam_fx/cam_fy: NO multiple pointer parameters, see
+   docs/ENGINE_CONSTRAINTS.md §1.7 — save_read paid for that one. */
 static u16 cam_fx, cam_fy;
 
 static void cam_follow_target(void)
@@ -46,7 +46,7 @@ static void cam_follow_target(void)
   cam_fy = y;
 }
 
-/* Avance v vers cible d'au plus speed px — renvoie la nouvelle valeur */
+/* Advances v towards the target by at most speed px; returns the new value */
 static u16 cam_step(u16 v, u16 target, u8 speed)
 {
   if (v < target)
@@ -67,7 +67,7 @@ void camera_init(void)
   cam_speed = 2;
 }
 
-/* Pan scripté vers la tile (tx,ty), centrée à l'écran (opcode CAMPAN) */
+/* Scripted pan to tile (tx,ty), centred on screen (the CAMPAN opcode) */
 void camera_pan_to(u8 tx, u8 ty, u8 speed)
 {
   u16 max_x, max_y;
@@ -91,7 +91,7 @@ void camera_pan_to(u8 tx, u8 ty, u8 speed)
   cam_returning = 0;
 }
 
-/* Pan de retour vers le joueur puis reprise du suivi (opcode CAMRET) */
+/* Return pan to the player, then following resumes (the CAMRET opcode) */
 void camera_return(u8 speed)
 {
   cam_speed = speed ? speed : 1;
@@ -99,7 +99,7 @@ void camera_return(u8 speed)
   cam_returning = 1;
 }
 
-/* 1 tant qu'un pan est en cours (opcode WAITCAM) */
+/* 1 while a pan is in progress (the WAITCAM opcode) */
 u8 camera_busy(void)
 {
   return cam_mode == 1;
@@ -117,9 +117,9 @@ void camera_update(void)
     return;
   }
   if (cam_mode == 2)
-    return; /* tenue sur la cible du dernier pan */
+    return; /* held on the last pan's target */
 
-  /* pan en cours — la cible du retour suit le joueur en continu */
+  /* pan in progress — the return target keeps following the player */
   if (cam_returning)
   {
     cam_follow_target();

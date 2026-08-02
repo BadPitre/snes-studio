@@ -1,20 +1,78 @@
-// Event Editor façon RPG Maker 2003 : nom + pages (P4), conditions (P4),
-// apparence (charset + direction + aperçu), déclencheur, mouvement (P4),
-// et la liste de commandes « Contenu » (@>) avec branches imbriquées
-// (choix, conditions). Les commandes sont compilées par datagen vers la VM.
+// Event Editor, RPG Maker 2003 style: name + pages (P4), conditions (P4),
+// appearance (charset + direction + preview), trigger, movement (P4), and
+// the "Contenu" command list (@>) with nested branches (choices,
+// conditions). The commands are compiled by datagen down to the VM.
 
 import { useEffect, useRef, useState } from "react";
-import type { TextEntry, Command, Direction, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarOp, VarSource, TintPreset, FnSig, ValueSrc } from "../types";
-import { DIRECTIONS, TRANS_OPTIONS, eventFrame } from "../types";
+import type { TextEntry, Command, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarSource, TintPreset, FnSig, ValueSrc } from "../types";
+import { TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
 import GraphicPickerModal from "./GraphicPickerModal";
 import type { Database } from "../db";
+import {
+  formAnimPlay,
+  formAnimStop,
+  formBgm,
+  formBreak,
+  formCall,
+  formCallFn,
+  formCamReturn,
+  formCampan,
+  formChoice,
+  formDbRead,
+  formFace,
+  formFlash,
+  formHeroLocWarpVar,
+  formIf,
+  formIfSw,
+  formIfVar,
+  formKeyInput,
+  formListSelect,
+  formLoop,
+  formMsg,
+  formPicHide,
+  formPicMove,
+  formPicShow,
+  formRem,
+  formRetFn,
+  formRoute,
+  formScrHideScrShow,
+  formScreen,
+  formScreenCall,
+  formSetAdd,
+  formSetpos,
+  formSfx,
+  formShake,
+  formSkygrad,
+  formSlotFx,
+  formSpotlight,
+  formStageClear,
+  formStageClose,
+  formStageOpen,
+  formStagePose,
+  formSwappos,
+  formSwitch,
+  formSysmenu,
+  formTimer,
+  formTint,
+  formUiShow,
+  formVar,
+  formVigHide,
+  formVigPlay,
+  formVigShow,
+  formWait,
+  formWaitCam,
+  formWaitRoute,
+  formWarp,
+  formWave,
+  formWeather,
+} from "./CommandForms";
 
-// Sélecteur de transition d'écran (S18) — warps et écrans composés.
-// « fade » (défaut) n'est pas écrit dans le JSON (champ absent).
-function TransSelect(props: {
+// Screen transition selector (S18) — warps and composed screens.
+// "fade" (the default) is not written to the JSON (the field is absent).
+export function TransSelect(props: {
   value?: ScreenTrans;
   onChange: (t?: ScreenTrans) => void;
 }) {
@@ -44,68 +102,69 @@ interface Props {
   sceneNames: string[];
   scenes: Record<string, Scene>;
   blockCount: number;
-  // T4 — apparence tile : chipset de la scène + ids de la couche haute
+  // T4 — tile appearance: the scene's chipset + upper-layer ids
   tilesetBmp?: ImageBitmap | null;
   upperCells?: number[];
   blockNames: string[];
-  // charsets déjà affichés par la scène (héros + AUTRES events) : sert à
-  // avertir dès qu'une apparence ferait dépasser les 5 charsets/scène
+  // charsets already shown by the scene (hero + OTHER events): used to
+  // warn as soon as an appearance would exceed the 5 charsets per scene
   usedBlocks: number[];
   sprites: ImageBitmap | null;
-  labels: string[]; // labels du script manuel (champ avancé)
-  switchNames: string[]; // noms des switches (project.json)
-  varNames: string[]; // noms des variables 16-bit
-  // libellés des ENTRÉES acteur de la scène (une par page d'event) —
-  // cibles de « Déplacer un event » et « Tourner un event »
+  labels: string[]; // labels of the manual script (advanced field)
+  switchNames: string[]; // switch names (project.json)
+  varNames: string[]; // names of the 16-bit variables
+  // labels of the scene's actor ENTRIES (one per event page) — the
+  // targets of "Déplacer un event" and "Tourner un event"
   entryNames: string[];
-  charsetNames: string[]; // noms des blocs (pas gfx des itinéraires)
-  commonNames: string[]; // noms des common events (v0.16)
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Absent
-  // ailleurs : c'est ce qui décide si « Paramètre » est une source
-  // proposée, et sur quels noms.
+  charsetNames: string[]; // block names (not the routes' gfx)
+  commonNames: string[]; // common event names (v0.16)
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Absent
+  // elsewhere: this is what decides whether "Paramètre" is an offered
+  // source, and under which names.
   fnParams?: string[];
-  // F1-c — corps d'une fonction : liste de commandes restreinte à la
-  // logique et au calcul (une fonction calcule, elle ne met pas en scène)
+  fnLocals?: string[]; // F2b — locals of the function being edited
+  // F1-c — a function body: a command list restricted to logic and
+  // computation (a function computes, it does not stage anything)
   inFunction?: boolean;
-  db: Database | null; // database du projet (commande db_read, v0.17)
-  uiWidgets: string[]; // racines du layout (commande ui_show, Ph. 12)
-  uiStyles: string[]; // styles de dialogue (S1) — champ style de msg/choice
-  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
-  pictures: string[]; // stems des images (S3) — commande pic_show
-  tintPresets: TintPreset[]; // presets de teinte du projet (S12b)
-  soundNames: string[]; // stems des sons du projet (B1)
-  musicNames: string[]; // stems des musiques du projet (B1)
-  vigNames: string[]; // stems des vignettes (B5)
-  animNames: string[]; // noms des animations image par image (A1)
-  screenNames: string[]; // écrans composés (B6bis)
-  screenScriptNames?: string[]; // scripts de l'écran courant (B6bis-2)
-  onTintPresets: (list: TintPreset[]) => void; // remplace la liste (créer/supprimer)
+  db: Database | null; // the project's database (db_read command, v0.17)
+  uiWidgets: string[]; // layout roots (ui_show command, Ph. 12)
+  uiStyles: string[]; // dialogue styles (S1) — msg/choice style field
+  texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
+  pictures: string[]; // picture stems (S3) — pic_show command
+  tintPresets: TintPreset[]; // the project's tint presets (S12b)
+  soundNames: string[]; // the project's sound stems (B1)
+  musicNames: string[]; // the project's music stems (B1)
+  vigNames: string[]; // vignette stems (B5)
+  animNames: string[]; // names of the frame-by-frame animations (A1)
+  screenNames: string[]; // composed screens (B6bis)
+  screenScriptNames?: string[]; // scripts of the current screen (B6bis-2)
+  onTintPresets: (list: TintPreset[]) => void; // replaces the list (create/delete)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
   onClose: () => void;
 }
 
-// Une ligne affichée de la liste Contenu. path = adresse de la commande
-// dans l'arbre ("2", "2.o0.1", "3.t.0", "3.e.1") ; les lignes "fin de
-// liste" (insertion en queue) ont l'index length.
+// One displayed row of the Contenu list. path = the command's address in
+// the tree ("2", "2.o0.1", "3.t.0", "3.e.1"); the "end of list" rows
+// (append) carry the index length.
 interface Line {
   path: string;
   depth: number;
   label: string;
-  branch?: boolean; // ligne de branche ( : Quand [Oui] ) — non éditable
-  comment?: boolean; // commande « Commentaire » — style vert RM2003
+  branch?: boolean; // branch row ( : Quand [Oui] ) — not editable
+  comment?: boolean; // "Commentaire" command — RM2003 green style
 }
 
-// suffixe de transition des commandes picture (S7) : dur 0 / fade false
-// = instantané, 16 = défaut (rien à dire), sinon la durée
+// transition suffix of the picture commands (S7): dur 0 / fade false =
+// instant, 16 = the default (nothing to say), otherwise the duration
 function picDurLabel(dur?: number, fade?: boolean): string {
   const d = fade === false && dur === undefined ? 0 : dur ?? 16;
   if (d === 0) return " (instantané)";
   return d === 16 ? "" : ` (fondu ${d}f)`;
 }
 
-// F1 — libellé court d'une valeur d'entrée, pour les résumés de ligne.
+// F1 — short label of an input value, for the row summaries.
 function srcLabel(v: { from?: VarSource; value: number }): string {
   switch (v.from) {
     case "var": return `variable [${v.value}]`;
@@ -140,14 +199,12 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "switch":
       return `Switch [${c.n}] ${c.on ? "ON" : "OFF"}`;
     case "var": {
-      const src = c.from === "var" ? `variable [${c.value}]`
-        : c.from === "hero_x" ? "X du héros"
-        : c.from === "hero_y" ? "Y du héros"
-        : c.from === "timer" ? "le timer"
-        : c.from === "scene" ? "n° de scène" : String(c.value);
+      const src = srcLabel(c);
+      const dst =
+        c.dst === "local" ? `Locale ${c.n + 1}` : `Variable [${c.n}]`;
       return c.op === "rand"
-        ? `Variable [${c.n}] = hasard 0..${src}`
-        : `Variable [${c.n}] ${c.op}= ${src}`;
+        ? `${dst} = hasard 0..${src}`
+        : `${dst} ${c.op}= ${src}`;
     }
     case "if_sw":
       return `Condition : si switch [${c.n}] est ${c.on ? "ON" : "OFF"}`;
@@ -322,8 +379,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
   }
 }
 
-// Titre de la fenêtre d'options d'une commande (mêmes libellés que le
-// sélecteur par onglets)
+// Title of a command's options window (the same labels as the tabbed
+// selector)
 function cmdTitle(c: Command["c"]): string {
   const titles: Partial<Record<Command["c"], string>> = {
     msg: "Afficher un message",
@@ -402,10 +459,10 @@ function flatten(cmds: Command[], base: string, depth: number, out: Line[], ceNa
       flatten(c.else, `${path}.e.`, depth + 2, out, ceNames, fnNames);
     }
   });
-  out.push({ path: base + cmds.length, depth, label: "" }); // queue de liste
+  out.push({ path: base + cmds.length, depth, label: "" }); // end of list
 }
 
-// Résout la LISTE contenant la commande désignée par path, et son index.
+// Resolves the LIST containing the command named by path, and its index.
 function resolve(root: Command[], path: string): { list: Command[]; index: number } {
   const parts = path.split(".");
   let list = root;
@@ -421,7 +478,7 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
       const sel = parts[i + 1];
       if (c.c === "choice" && sel.startsWith("o")) {
         list = c.options[parseInt(sel.slice(1), 10)].do;
-        i++; // consomme le sélecteur de branche
+        i++; // consumes the branch selector
       } else if (
         (c.c === "if" || c.c === "if_sw" || c.c === "if_var") &&
         (sel === "t" || sel === "e")
@@ -437,16 +494,16 @@ function resolve(root: Command[], path: string): { list: Command[]; index: numbe
   return { list, index: parseInt(parts[parts.length - 1], 10) };
 }
 
-// Éditeur de liste de commandes — la colonne « Contenu » (@>) avec ses
-// fenêtres (sélecteur par onglets, options, listes de variables, menu
-// contextuel, Ctrl+C/V/Suppr). Partagé entre l'Event Editor et la fenêtre
-// Common events (v0.16). La liste reçue est MUTÉE EN PLACE ; commit()
-// prévient le parent après chaque changement. Remonter le composant
-// (key=) quand la liste affichée change d'identité.
+// Command list editor — the "Contenu" column (@>) with its windows
+// (tabbed selector, options, variable lists, context menu, Ctrl+C/V/Del).
+// Shared between the Event Editor and the Common events window (v0.16).
+// The list it receives is MUTATED IN PLACE; commit() tells the parent
+// after every change. Remount the component (key=) when the displayed
+// list changes identity.
 export function CommandListEditor(props: {
   cmds: Command[];
   commit: () => void;
-  shortcutsOff?: boolean; // sous-fenêtre du parent ouverte : couper le clavier
+  shortcutsOff?: boolean; // a parent sub-window is open: cut the keyboard
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
@@ -454,16 +511,17 @@ export function CommandListEditor(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
-  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
-  // source proposée, et sur quels noms.
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Empty or
+  // absent elsewhere: this is what decides whether "Paramètre" is an
+  // offered source, and under which names.
   fnParams?: string[];
+  fnLocals?: string[]; // F2b — locals of the function being edited
   inFunction?: boolean;
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
-  texts: TextEntry[]; // catalogue Tools > Textes (msg par référence, T2)
+  texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
   pictures: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
@@ -477,7 +535,7 @@ export function CommandListEditor(props: {
 }) {
   const { cmds } = props;
   const [sel, setSel] = useState<string>(String(cmds.length));
-  const [form, setForm] = useState<Command | null>(null); // en cours d'édition
+  const [form, setForm] = useState<Command | null>(null); // being edited
   const [formIsNew, setFormIsNew] = useState(false);
   const [picking, setPicking] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -487,7 +545,7 @@ export function CommandListEditor(props: {
   const lines: Line[] = [];
   flatten(cmds, "", 0, lines, props.commonNames, (props.fnSigs ?? []).map((f) => f.name));
 
-  // Commande à ce chemin, ou null si la ligne est vide (queue de liste)
+  // Command at this path, or null when the row is empty (end of list)
   function cmdAt(path: string): Command | null {
     const line = lines.find((l) => l.path === path);
     if (!line || line.branch) return null;
@@ -495,14 +553,14 @@ export function CommandListEditor(props: {
     return list[index] ?? null;
   }
 
-  // Ouvre le sélecteur de commandes pour insérer AVANT la ligne visée
+  // Opens the command selector to insert BEFORE the targeted row
   function openPicker(path: string) {
     setSel(path);
     setForm(null);
     setPicking(true);
   }
 
-  // Ouvre la fenêtre d'options de la commande de cette ligne
+  // Opens the options window of this row's command
   function openEditor(path: string) {
     const c = cmdAt(path);
     if (!c) return;
@@ -512,9 +570,9 @@ export function CommandListEditor(props: {
     setFormIsNew(false);
   }
 
-  // Ctrl+C copie la commande sélectionnée, Ctrl+V l'insère à la ligne
-  // courante, Suppr la supprime — inactifs quand un champ a le focus ou
-  // qu'une sous-fenêtre est ouverte (demande utilisateur).
+  // Ctrl+C copies the selected command, Ctrl+V inserts it at the current
+  // row, Del removes it — inactive while a field has focus or a
+  // sub-window is open.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (props.shortcutsOff || form || picking || menu || varPick) return;
@@ -696,9 +754,9 @@ export function CommandListEditor(props: {
       case "call":
         return { c: "call", n: 0 };
       case "call_fn":
-        // Un argument par parametre des le depart : datagen refuse un
-        // appel mal dimensionne, autant ne pas laisser l'auteur
-        // fabriquer ce cas.
+        // One argument per parameter from the start: datagen refuses a
+        // mis-sized call, so there is no point letting the author build
+        // that case.
         return {
           c: "call_fn",
           n: 0,
@@ -739,8 +797,8 @@ export function CommandListEditor(props: {
             }}
             onDoubleClick={() => {
               if (l.branch) return;
-              // ligne pleine : on édite ; ligne vide : on choisit une
-              // commande à insérer (comme RM2003)
+              // a filled row: we edit it; an empty row: we choose a
+              // command to insert (like RM2003)
               if (cmdAt(l.path)) openEditor(l.path);
               else openPicker(l.path);
             }}
@@ -771,6 +829,7 @@ export function CommandListEditor(props: {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -892,7 +951,7 @@ export function CommandListEditor(props: {
 
 export default function EventEditorModal(props: Props) {
   const [draft, setDraft] = useState<GameEvent>(() => structuredClone(props.event));
-  // page éditée : 0 = champs plats de l'event (page 1), k>0 = extraPages[k-1]
+  // edited page: 0 = the event's flat fields (page 1), k>0 = extraPages[k-1]
   const [page, setPage] = useState(0);
   const pageCount = 1 + (draft.extraPages?.length ?? 0);
   const cur: EventPage =
@@ -919,11 +978,11 @@ export default function EventEditorModal(props: Props) {
     }
   }
   const cmds = cur.commands;
-  // fenêtre Switches/Variables ouverte depuis les conditions de page (…)
+  // Switches/Variables window opened from the page conditions (…)
   const [varPick, setVarPick] = useState<{ kind: VarKind; current: number; cb: (n: number) => void } | null>(null);
-  // fenêtre Itinéraire de la ROUTE CUSTOM de la page (v0.14)
+  // Route window of the page's CUSTOM route (v0.14)
   const [pageRouteOpen, setPageRouteOpen] = useState(false);
-  // fenêtre Apparence façon RM2003 (T3)
+  // RM2003-style Appearance window (T3)
   const [graphicOpen, setGraphicOpen] = useState(false);
   const previewRef = useRef<HTMLCanvasElement>(null);
 
@@ -1201,6 +1260,7 @@ export default function EventEditorModal(props: Props) {
               commonNames={props.commonNames}
               fnSigs={props.fnSigs}
               fnParams={props.fnParams}
+              fnLocals={props.fnLocals}
               inFunction={props.inFunction}
               db={props.db}
               uiWidgets={props.uiWidgets}
@@ -1290,20 +1350,22 @@ export default function EventEditorModal(props: Props) {
   );
 }
 
-// Formulaire des paramètres d'une commande (zone sous la liste, façon
-// F1 — « source + valeur », le même bloc partout : argument d'appel,
-// valeur rendue. « Paramètre » n'apparaît que dans le corps d'une
-// fonction, sinon il désignerait un cadre qui n'existe pas (datagen le
-// refuse aussi, mais mieux vaut ne pas le proposer du tout).
-function ValueSourceFields(props: {
+// Parameter form of a command (the area under the list, in the style of
+// F1 — "source + value", the same block everywhere: a call argument, a
+// returned value. "Paramètre" only appears inside a function body,
+// otherwise it would name a frame that does not exist (datagen refuses
+// it too, but better not to offer it at all).
+export function ValueSourceFields(props: {
   v: ValueSrc;
   fnParams?: string[];
+  fnLocals?: string[];
   varNames?: string[];
   onPickVar?: (kind: VarKind, current: number, cb: (n: number) => void) => void;
   onChange: (v: ValueSrc) => void;
 }) {
   const { v } = props;
   const params = props.fnParams ?? [];
+  const locals = props.fnLocals ?? [];
   const from = v.from ?? "const";
   const numeric = from === "const" || from === "var";
   return (
@@ -1324,17 +1386,18 @@ function ValueSourceFields(props: {
           <option value="timer">Timer (secondes)</option>
           <option value="scene">N° de la scène courante</option>
           {params.length > 0 && <option value="param">Un paramètre</option>}
+          {locals.length > 0 && <option value="local">Une variable locale</option>}
           <option value="ret">Résultat du dernier appel</option>
         </select>
       </label>
-      {from === "param" ? (
+      {from === "param" || from === "local" ? (
         <label>
-          Paramètre
+          {from === "local" ? "Variable locale" : "Paramètre"}
           <select
             value={v.value}
             onChange={(e) => props.onChange({ ...v, value: Number(e.target.value) })}
           >
-            {params.map((pname, k) => (
+            {(from === "local" ? locals : params).map((pname, k) => (
               <option key={k} value={k}>
                 {k + 1}. {pname || "sans nom"}
               </option>
@@ -1371,8 +1434,28 @@ function ValueSourceFields(props: {
   );
 }
 
-// double-clic RM2003)
-function CommandForm(props: {
+// Everything a per-command form needs: the props of the window plus
+// the shared fields and the bits of local state a few commands drive.
+// One object rather than twenty parameters, and one place to look
+// when a form needs something new.
+export type FormCtx = {
+  p: CommandFormProps;
+  varField: (v: string, set: (s: string) => void) => JSX.Element;
+  varOk: (v: string) => boolean;
+  styleField: (
+    c: { style?: string },
+    set: (s: string | undefined) => void
+  ) => JSX.Element | false;
+  routeOpen: boolean;
+  setRouteOpen: (b: boolean) => void;
+  presetName: string;
+  setPresetName: (s: string) => void;
+};
+
+// What a form contributes: its fields, and whether OK may be pressed.
+export type FormBody = { body: JSX.Element | null; valid: boolean };
+
+export type CommandFormProps = {
   cmd: Command;
   sceneNames: string[];
   scenes: Record<string, Scene>;
@@ -1381,11 +1464,12 @@ function CommandForm(props: {
   entryNames: string[];
   charsetNames: string[];
   commonNames: string[];
-  fnSigs?: FnSig[]; // F1 — fonctions du projet (Tools > Fonctions)
-  // F1 — paramètres de la FONCTION dont on édite le corps. Vide ou
-  // absent ailleurs : c'est ce qui décide si « Paramètre » est une
-  // source proposée, et sur quels noms.
+  fnSigs?: FnSig[]; // F1 — the project's functions (Tools > Fonctions)
+  // F1 — parameters of the FUNCTION whose body is being edited. Empty or
+  // absent elsewhere: this is what decides whether "Paramètre" is an
+  // offered source, and under which names.
   fnParams?: string[];
+  fnLocals?: string[]; // F2b — locals of the function being edited
   inFunction?: boolean;
   uiWidgets: string[];
   uiStyles: string[];
@@ -1404,11 +1488,16 @@ function CommandForm(props: {
   onChange: (c: Command) => void;
   onOk: () => void;
   onCancel: () => void;
-}) {
-  const { cmd, onChange } = props;
-  // fenêtre Itinéraire (commande « Déplacer un event »)
+};
+
+// Options form of one command (the window opened by a double-click).
+// The body is chosen by the dispatch table below; every branch lives
+// in CommandForms.tsx, one function per command.
+function CommandForm(props: CommandFormProps) {
+  const { cmd } = props;
+  // Route window (the "Déplacer un event" command)
   const [routeOpen, setRouteOpen] = useState(false);
-  // nom du preset de teinte à enregistrer (S12b)
+  // name of the tint preset to save (S12b)
   const [presetName, setPresetName] = useState("");
   const varField = (v: string, set: (s: string) => void) => (
     <label>
@@ -1424,8 +1513,8 @@ function CommandForm(props: {
   const varOk = (v: string) =>
     /^[vg]\d{1,2}$/.test(v) && Number(v.slice(1)) <= 63;
 
-  // sélecteur de boîte de dialogue (S1) — affiché seulement si le projet
-  // a des styles ; absent = la boîte par défaut (toujours là)
+  // dialogue box selector (S1) — shown only when the project has styles;
+  // absent = the default box (always there)
   const styleField = (c: { style?: string }, set: (s: string | undefined) => void) =>
     props.uiStyles.length > 0 && (
       <label>
@@ -1445,2225 +1534,189 @@ function CommandForm(props: {
       </label>
     );
 
-  let body = null;
+  const x: FormCtx = {
+    p: props,
+    varField,
+    varOk,
+    styleField,
+    routeOpen,
+    setRouteOpen,
+    presetName,
+    setPresetName,
+  };
+  let body: JSX.Element | null = null;
   let valid = true;
   switch (cmd.c) {
-    case "msg": {
-      const fromCat = cmd.text_ref !== undefined;
-      const catEntry = fromCat
-        ? props.texts.find((t) => t.name === cmd.text_ref)
-        : undefined;
-      valid = fromCat ? !!catEntry : cmd.text.trim().length > 0;
-      body = (
-        <>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={fromCat}
-              onChange={(e) => {
-                if (e.target.checked)
-                  onChange({ ...cmd, text_ref: props.texts[0]?.name ?? "" });
-                else {
-                  const { text_ref: _drop, ...rest } = cmd;
-                  onChange(rest);
-                }
-              }}
-            />
-            Texte du catalogue (Tools → Textes) — modifiable au catalogue
-            sans retoucher l'event
-          </label>
-          {fromCat ? (
-            <>
-              <label>
-                Texte
-                <select
-                  value={cmd.text_ref ?? ""}
-                  onChange={(e) => onChange({ ...cmd, text_ref: e.target.value })}
-                >
-                  {props.texts.length === 0 && (
-                    <option value="">(catalogue vide)</option>
-                  )}
-                  {props.texts.map((t) => (
-                    <option key={t.name} value={t.name}>
-                      {t.name}
-                      {t.cat ? ` — ${t.cat}` : ""}
-                    </option>
-                  ))}
-                  {cmd.text_ref && !catEntry && (
-                    <option value={cmd.text_ref}>{cmd.text_ref} (?)</option>
-                  )}
-                </select>
-              </label>
-              {catEntry ? (
-                <span className="hint">« {catEntry.text} »</span>
-              ) : cmd.text_ref ? (
-                <span className="hint">
-                  ⚠ texte « {cmd.text_ref} » introuvable au catalogue
-                </span>
-              ) : null}
-            </>
-          ) : (
-            <label>
-              Texte du message
-              <textarea
-                rows={3}
-                value={cmd.text}
-                autoFocus
-                onChange={(e) => onChange({ ...cmd, text: e.target.value })}
-              />
-            </label>
-          )}
-          <span className="hint">
-            {"Codes : \\v[n] variable · \\s[n] vitesse (frames/caractère, 0 = instantané) · \\. pause courte · \\| pause longue · \\! attendre A · \\^ ferme sans appui · \\>…\\< bloc instantané · \\\\ backslash"}
-          </span>
-          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
-        </>
-      );
+    case "msg":
+      ({ body, valid } = formMsg(cmd, x));
       break;
-    }
     case "choice":
-      valid = cmd.options.length >= 2 && cmd.options.every((o) => o.text.trim());
-      body = (
-        <>
-          {cmd.options.map((o, i) => (
-            <div className="row" key={i}>
-              <label style={{ flex: 1 }}>
-                Choix {i + 1}
-                <input
-                  value={o.text}
-                  onChange={(e) => {
-                    const options = cmd.options.map((x, j) =>
-                      j === i ? { ...x, text: e.target.value } : x
-                    );
-                    onChange({ ...cmd, options });
-                  }}
-                />
-              </label>
-              <button
-                className="browse danger"
-                disabled={cmd.options.length <= 2}
-                title="Retirer ce choix (et ses commandes)"
-                onClick={() => onChange({ ...cmd, options: cmd.options.filter((_, j) => j !== i) })}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          <button
-            disabled={cmd.options.length >= 4}
-            onClick={() => onChange({ ...cmd, options: [...cmd.options, { text: "", do: [] }] })}
-          >
-            + Ajouter un choix
-          </button>
-          <p className="hint">Les commandes de chaque branche s'ajoutent ensuite sous « : Quand […] ».</p>
-          {styleField(cmd, (s) => onChange({ ...cmd, style: s }))}
-        </>
-      );
+      ({ body, valid } = formChoice(cmd, x));
       break;
     case "set":
     case "add":
-      valid = varOk(cmd.var);
-      body = (
-        <div className="row">
-          {varField(cmd.var, (v) => onChange({ ...cmd, var: v }))}
-          <label>
-            {cmd.c === "set" ? "Valeur (=)" : "Ajouter (+)"}
-            <input
-              type="number"
-              min={0}
-              max={255}
-              value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-            />
-          </label>
-        </div>
-      );
+      ({ body, valid } = formSetAdd(cmd, x));
       break;
     case "if":
-      valid = varOk(cmd.var);
-      body = (
-        <div className="row">
-          {varField(cmd.var, (v) => onChange({ ...cmd, var: v }))}
-          <label>
-            Opérateur
-            <select
-              value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })}
-            >
-              <option value="==">=</option>
-              <option value="!=">≠</option>
-              <option value=">=">≥</option>
-            </select>
-          </label>
-          <label>
-            Valeur
-            <input
-              type="number"
-              min={0}
-              max={255}
-              value={cmd.value}
-              onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
-            />
-          </label>
-        </div>
-      );
+      ({ body, valid } = formIf(cmd, x));
       break;
     case "switch":
-      valid = cmd.n >= 0 && cmd.n < 512;
-      body = (
-        <div className="row">
-          <label>
-            Switch (0-511)
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={511} value={cmd.n} autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              />
-              <button className="browse" title="Choisir dans la liste"
-                onClick={() => props.onPickVar("switch", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
-            </span>
-            <span className="hint">{props.switchNames[cmd.n] || ""}</span>
-          </label>
-          <label>
-            État
-            <select
-              value={cmd.on ? "on" : "off"}
-              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
-            >
-              <option value="on">ON</option>
-              <option value="off">OFF</option>
-            </select>
-          </label>
-        </div>
-      );
+      ({ body, valid } = formSwitch(cmd, x));
       break;
     case "var":
-      valid = cmd.n >= 0 && cmd.n < 256 && cmd.value >= -32768 && cmd.value <= 65535;
-      body = (
-        // alignItems flex-start : sans ça, un libellé qui passe sur deux
-        // lignes décale son champ vers le bas et la rangée part en
-        // escalier — c'est ce qui arrivait à « N° de variable source »
-        <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-          <label>
-            Variable
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={255} value={cmd.n} autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              />
-              <button className="browse" title="Choisir dans la liste"
-                onClick={() => props.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
-            </span>
-            <span className="hint">{props.varNames[cmd.n] || ""}</span>
-          </label>
-          <label>
-            Opération
-            <select
-              value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as VarOp })}
-            >
-              <option value="=">= (affecter)</option>
-              <option value="+">+ (ajouter)</option>
-              <option value="-">− (soustraire)</option>
-              <option value="*">× (multiplier)</option>
-              <option value="/">÷ (diviser)</option>
-              <option value="%">mod (reste)</option>
-              <option value="rand">hasard 0..N</option>
-            </select>
-          </label>
-          {/* Le bloc « source + valeur » PARTAGE, et pas une copie locale.
-              La copie qui vivait ici changeait `from` sans remettre
-              `value` a zero : passer de « variable n° 1 » a « un
-              paramètre » laissait la valeur 1, donc la commande
-              demandait le 2e paramètre d'une fonction qui n'en a qu'un.
-              Le build echouait, et le formulaire ne montrait rien
-              d'anormal. Une seule implementation, un seul comportement. */}
-          <ValueSourceFields
-            v={{ from: cmd.from, value: cmd.value }}
-            fnParams={props.fnParams}
-            varNames={props.varNames}
-            onPickVar={props.onPickVar}
-            onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
-          />
-        </div>
-      );
+      ({ body, valid } = formVar(cmd, x));
       break;
     case "if_sw":
-      valid = cmd.n >= 0 && cmd.n < 512;
-      body = (
-        <div className="row">
-          <label>
-            Switch (0-511)
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={511} value={cmd.n} autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              />
-              <button className="browse" title="Choisir dans la liste"
-                onClick={() => props.onPickVar("switch", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
-            </span>
-            <span className="hint">{props.switchNames[cmd.n] || ""}</span>
-          </label>
-          <label>
-            Est
-            <select
-              value={cmd.on ? "on" : "off"}
-              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
-            >
-              <option value="on">ON</option>
-              <option value="off">OFF</option>
-            </select>
-          </label>
-        </div>
-      );
+      ({ body, valid } = formIfSw(cmd, x));
       break;
-    case "if_var": {
-      // Les deux membres passent par le même bloc « source + valeur » que
-      // partout ailleurs : comparer un paramètre à une constante, ou deux
-      // variables entre elles, ne demande plus de recopier quoi que ce
-      // soit dans une variable globale au préalable.
-      const left = cmd.left ?? { from: "var" as const, value: cmd.n };
-      const right = cmd.right ?? { value: cmd.value };
-      valid =
-        (left.from !== "var" || (left.value >= 0 && left.value < 256)) &&
-        (right.from !== "var" || (right.value >= 0 && right.value < 256));
-      body = (
-        <>
-          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>Si</span>
-            <ValueSourceFields
-              v={left}
-              fnParams={props.fnParams}
-              varNames={props.varNames}
-              onPickVar={props.onPickVar}
-              onChange={(v) => onChange({ ...cmd, left: v })}
-            />
-            <label style={{ flex: "0 0 auto" }}>
-              Opérateur
-              <select
-                value={cmd.op}
-                onChange={(e) =>
-                  onChange({ ...cmd, op: e.target.value as "==" | "!=" | ">=" })
-                }
-              >
-                <option value="==">=</option>
-                <option value="!=">≠</option>
-                <option value=">=">≥</option>
-              </select>
-            </label>
-          </div>
-          <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-            <span style={{ alignSelf: "center", flex: "0 0 auto" }}>à</span>
-            <ValueSourceFields
-              v={right}
-              fnParams={props.fnParams}
-              varNames={props.varNames}
-              onPickVar={props.onPickVar}
-              onChange={(v) => onChange({ ...cmd, right: v })}
-            />
-          </div>
-        </>
-      );
+    case "if_var":
+      ({ body, valid } = formIfVar(cmd, x));
       break;
-    }
     case "route":
-      valid = cmd.steps.length > 0;
-      body = (
-        <>
-          <span className="hint">
-            {cmd.event < 0 ? "Cet event" : props.entryNames[cmd.event] ?? `event ${cmd.event}`} —{" "}
-            {cmd.steps.length} pas{cmd.repeat ? ", répété" : ""}
-            {cmd.skip ? ", ignore si bloqué" : ""}. L'itinéraire part en
-            tâche de fond : le séquencer avec « Attendre la fin des
-            déplacements ».
-          </span>
-          <button onClick={() => setRouteOpen(true)}>Modifier l'itinéraire…</button>
-          {routeOpen && (
-            <MoveRouteModal
-              cmd={cmd}
-              eventNames={props.entryNames}
-              switchNames={props.switchNames}
-              charsetNames={props.charsetNames}
-              onClose={() => setRouteOpen(false)}
-              onOk={(c) => {
-                onChange(c);
-                setRouteOpen(false);
-              }}
-            />
-          )}
-        </>
-      );
+      ({ body, valid } = formRoute(cmd, x));
       break;
     case "wait_route":
-      body = (
-        <span className="hint">
-          Bloque le script jusqu'à la fin de tous les itinéraires (les
-          itinéraires « répétés » ne sont pas attendus).
-        </span>
-      );
+      ({ body, valid } = formWaitRoute(cmd, x));
       break;
     case "wait":
-      valid = cmd.frames >= 1 && cmd.frames <= 255;
-      body = (
-        <label>
-          Durée (frames, 60 = 1 seconde)
-          <input
-            type="number" min={1} max={255} value={cmd.frames} autoFocus
-            onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
-          />
-        </label>
-      );
+      ({ body, valid } = formWait(cmd, x));
       break;
     case "timer":
-      valid = cmd.op !== "start" || ((cmd.secs ?? 0) >= 1 && (cmd.secs ?? 0) <= 5999);
-      body = (
-        <div className="row">
-          <label>
-            Action
-            <select
-              value={cmd.op}
-              onChange={(e) => onChange({ ...cmd, op: e.target.value as "start" | "stop" | "show" | "hide" })}
-            >
-              <option value="start">Régler et démarrer</option>
-              <option value="stop">Arrêter</option>
-              <option value="show">Afficher (coin haut-droit)</option>
-              <option value="hide">Cacher</option>
-            </select>
-          </label>
-          {cmd.op === "start" && (
-            <label>
-              Secondes (1-5999)
-              <input
-                type="number" min={1} max={5999} value={cmd.secs ?? 60}
-                onChange={(e) => onChange({ ...cmd, secs: Number(e.target.value) })}
-              />
-            </label>
-          )}
-        </div>
-      );
+      ({ body, valid } = formTimer(cmd, x));
       break;
     case "campan":
-      body = (
-        <div className="row">
-          <label>
-            Tile x
-            <input type="number" min={0} max={254} value={cmd.x}
-              onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
-          </label>
-          <label>
-            Tile y
-            <input type="number" min={0} max={254} value={cmd.y}
-              onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
-          </label>
-          <label>
-            Vitesse (px/frame)
-            <input type="number" min={1} max={8} value={cmd.speed}
-              onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
-          </label>
-          <span className="hint">Non bloquant — enchaîner avec « Attendre la caméra ».</span>
-        </div>
-      );
+      ({ body, valid } = formCampan(cmd, x));
       break;
     case "cam_return":
-      body = (
-        <label>
-          Vitesse (px/frame)
-          <input type="number" min={1} max={8} value={cmd.speed}
-            onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })} />
-        </label>
-      );
+      ({ body, valid } = formCamReturn(cmd, x));
       break;
     case "wait_cam":
-      body = <span className="hint">Bloque le script jusqu'à la fin du pan caméra.</span>;
+      ({ body, valid } = formWaitCam(cmd, x));
       break;
     case "loop":
-      body = (
-        <span className="hint">
-          Les commandes ajoutées entre « Boucle » et « : Fin de boucle »
-          se répètent pour toujours — en sortir avec « Sortir de la
-          boucle » (ou Téléporter le héros).
-        </span>
-      );
+      ({ body, valid } = formLoop(cmd, x));
       break;
     case "break":
-      body = (
-        <span className="hint">
-          Saute à la fin de la boucle la plus proche. Hors d'une boucle,
-          datagen refusera la scène.
-        </span>
-      );
+      ({ body, valid } = formBreak(cmd, x));
       break;
     case "rem":
-      body = (
-        <label>
-          Commentaire (jamais affiché en jeu)
-          <textarea
-            rows={3}
-            value={cmd.text}
-            autoFocus
-            onChange={(e) => onChange({ ...cmd, text: e.target.value })}
-          />
-        </label>
-      );
+      ({ body, valid } = formRem(cmd, x));
       break;
     case "hero_loc":
-    case "warp_var": {
-      const triple: { key: "vs" | "vx" | "vy"; label: string }[] = [
-        { key: "vs", label: "Variable scène" },
-        { key: "vx", label: "Variable X (tiles)" },
-        { key: "vy", label: "Variable Y (tiles)" },
-      ];
-      valid = triple.every((t) => cmd[t.key] >= 0 && cmd[t.key] < 256);
-      body = (
-        <>
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            {triple.map((t) => (
-              <label key={t.key}>
-                {t.label}
-                <span className="row" style={{ gap: 4 }}>
-                  <input
-                    type="number" min={0} max={255} value={cmd[t.key]}
-                    onChange={(e) => onChange({ ...cmd, [t.key]: Number(e.target.value) })}
-                  />
-                  <button className="browse" title="Choisir dans la liste"
-                    onClick={() => props.onPickVar("var", cmd[t.key], (n) => onChange({ ...cmd, [t.key]: n }))}>…</button>
-                </span>
-                <span className="hint">{props.varNames[cmd[t.key]] || ""}</span>
-              </label>
-            ))}
-            {cmd.c === "warp_var" && (
-              <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-            )}
-          </div>
-          <span className="hint">
-            {cmd.c === "hero_loc"
-              ? "Écrit la scène courante et la tile du héros dans ces trois variables (à rappeler avec « Téléporter aux variables »)."
-              : "Téléporte le héros à la scène et la tile lues dans ces trois variables — termine le script, comme un warp."}
-          </span>
-        </>
-      );
+    case "warp_var":
+      ({ body, valid } = formHeroLocWarpVar(cmd, x));
       break;
-    }
     case "setpos":
-      valid = cmd.x >= 0 && cmd.x <= 254 && cmd.y >= 0 && cmd.y <= 254;
-      body = (
-        <div className="row" style={{ flexWrap: "wrap" }}>
-          <label style={{ flex: 2 }}>
-            Event
-            <select
-              value={cmd.event}
-              onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
-            >
-              <option value={-1}>Cet event</option>
-              {props.entryNames.map((n, i) => (
-                <option key={i} value={i}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Coordonnées
-            <select
-              value={cmd.from}
-              onChange={(e) => onChange({ ...cmd, from: e.target.value as "const" | "vars" })}
-            >
-              <option value="const">Constantes (tiles)</option>
-              <option value="vars">Dans des variables</option>
-            </select>
-          </label>
-          <label>
-            {cmd.from === "vars" ? "Variable X" : "x"}
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.x}
-                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
-              />
-              {cmd.from === "vars" && (
-                <button className="browse" title="Choisir dans la liste"
-                  onClick={() => props.onPickVar("var", cmd.x, (n) => onChange({ ...cmd, x: n }))}>…</button>
-              )}
-            </span>
-          </label>
-          <label>
-            {cmd.from === "vars" ? "Variable Y" : "y"}
-            <span className="row" style={{ gap: 4 }}>
-              <input
-                type="number" min={0} max={cmd.from === "vars" ? 255 : 254} value={cmd.y}
-                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
-              />
-              {cmd.from === "vars" && (
-                <button className="browse" title="Choisir dans la liste"
-                  onClick={() => props.onPickVar("var", cmd.y, (n) => onChange({ ...cmd, y: n }))}>…</button>
-              )}
-            </span>
-          </label>
-        </div>
-      );
+      ({ body, valid } = formSetpos(cmd, x));
       break;
     case "swappos":
-      valid = cmd.a !== cmd.b;
-      body = (
-        <div className="row">
-          {(["a", "b"] as const).map((k) => (
-            <label key={k} style={{ flex: 1 }}>
-              {k === "a" ? "Event A" : "Event B"}
-              <select
-                value={cmd[k]}
-                onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
-              >
-                <option value={-1}>Cet event</option>
-                {props.entryNames.map((n, i) => (
-                  <option key={i} value={i}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      );
+      ({ body, valid } = formSwappos(cmd, x));
       break;
-    case "key_input": {
-      valid = cmd.keys.length > 0;
-      const KEY_NAMES: [number, string][] = [
-        [1, "Bas (1)"], [2, "Gauche (2)"], [3, "Droite (3)"], [4, "Haut (4)"],
-        [5, "A — valider (5)"], [6, "B — annuler (6)"], [7, "Y (7)"], [8, "X (8)"],
-        [9, "L (9)"], [10, "R (10)"], [11, "Select (11)"], [12, "Start (12)"],
-      ];
-      body = (
-        <>
-          <label>
-            Variable destination (reçoit le code, 0 = aucune touche)
-            <div className="row" style={{ gap: 4 }}>
-              <input type="number" min={0} max={255} value={cmd.var} autoFocus
-                onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
-              <button className="browse"
-                onClick={() => props.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
-                …
-              </button>
-            </div>
-            <span className="hint">{props.varNames[cmd.var] || ""}</span>
-          </label>
-          <label className="checkline">
-            <input type="checkbox" checked={cmd.wait}
-              onChange={(e) => onChange({ ...cmd, wait: e.target.checked })} />
-            Attendre l'appui d'une touche (sinon : lecture immédiate)
-          </label>
-          <fieldset className="evedit-box">
-            <legend>Touches autorisées</legend>
-            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-              {KEY_NAMES.map(([code, name]) => (
-                <label className="checkline" key={code}>
-                  <input type="checkbox" checked={cmd.keys.includes(code)}
-                    onChange={(e) =>
-                      onChange({
-                        ...cmd,
-                        keys: e.target.checked
-                          ? [...cmd.keys, code].sort((a, b) => a - b)
-                          : cmd.keys.filter((k) => k !== code),
-                      })
-                    } />
-                  {name}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <span className="hint">
-            Façon RM2003 : le code de la touche est écrit dans la variable.
-            En « attendre », le script bloque jusqu'à un appui NEUF d'une
-            touche cochée.
-          </span>
-        </>
-      );
+    case "key_input":
+      ({ body, valid } = formKeyInput(cmd, x));
       break;
-    }
     case "sysmenu":
-      body = (
-        <span className="hint">
-          Ouvre le menu Système (sauvegarder/charger) quand le script se
-          termine. Le mapping START en dur a été retiré : mappe ta touche
-          avec « Touche pressée » + une condition, ou appelle cette
-          commande où tu veux.
-        </span>
-      );
+      ({ body, valid } = formSysmenu(cmd, x));
       break;
-    case "pic_show": {
-      valid = cmd.pic_var !== undefined || cmd.pic !== "";
-      const posMode =
-        cmd.x_var !== undefined
-          ? "vars"
-          : cmd.x !== undefined || cmd.y !== undefined
-            ? "xy"
-            : "center";
-      const cut = (cmd.fade === false && cmd.dur === undefined) || cmd.dur === 0;
-      body = (
-        <>
-          <label>
-            Image (Gestionnaire de ressources → Picture)
-            <select
-              value={cmd.pic} autoFocus
-              onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
-            >
-              <option value="">(choisir)</option>
-              {props.pictures.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-              {cmd.pic && !props.pictures.includes(cmd.pic) && (
-                <option value={cmd.pic}>{cmd.pic} (?)</option>
-              )}
-            </select>
-          </label>
-          <label>
-            Position à l'écran
-            <select
-              value={posMode}
-              onChange={(e) => {
-                const m = e.target.value;
-                if (m === "center")
-                  onChange({ ...cmd, x: undefined, y: undefined, x_var: undefined, y_var: undefined });
-                else if (m === "xy")
-                  onChange({ ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0, x_var: undefined, y_var: undefined });
-                else
-                  onChange({ ...cmd, x: undefined, y: undefined, x_var: cmd.x_var ?? 0, y_var: cmd.y_var ?? 1 });
-              }}
-            >
-              <option value="center">Centrée</option>
-              <option value="xy">Position X/Y (pixels)</option>
-              <option value="vars">Position lue dans des variables</option>
-            </select>
-          </label>
-          {posMode === "xy" && (
-            <div className="row">
-              <label>
-                X (0-255)
-                <input type="number" min={0} max={255} value={cmd.x ?? 0}
-                  onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
-              </label>
-              <label>
-                Y (0-216)
-                <input type="number" min={0} max={216} value={cmd.y ?? 0}
-                  onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
-              </label>
-            </div>
-          )}
-          {posMode === "vars" && (
-            <div className="row">
-              <label>
-                Variable X (0-255)
-                <input type="number" min={0} max={255} value={cmd.x_var ?? 0}
-                  onChange={(e) => onChange({ ...cmd, x_var: Number(e.target.value) })} />
-              </label>
-              <label>
-                Variable Y (0-255)
-                <input type="number" min={0} max={255} value={cmd.y_var ?? 1}
-                  onChange={(e) => onChange({ ...cmd, y_var: Number(e.target.value) })} />
-              </label>
-            </div>
-          )}
-          <label>
-            Transition
-            <select
-              value={cut ? "cut" : "fade"}
-              onChange={(e) =>
-                onChange({ ...cmd, fade: undefined, dur: e.target.value === "cut" ? 0 : 16 })
-              }
-            >
-              <option value="fade">Fondu</option>
-              <option value="cut">Instantanée</option>
-            </select>
-          </label>
-          {!cut && (
-            <label>
-              Durée du fondu (frames — 60 = 1 seconde)
-              <input type="number" min={1} max={255} value={cmd.dur ?? 16}
-                onChange={(e) =>
-                  onChange({ ...cmd, fade: undefined, dur: Number(e.target.value) })
-                } />
-            </label>
-          )}
-          <label>
-            Mélange avec le décor
-            <select
-              value={cmd.blend ?? "none"}
-              onChange={(e) =>
-                onChange({
-                  ...cmd,
-                  blend:
-                    e.target.value === "none"
-                      ? undefined
-                      : (e.target.value as "half" | "add" | "sub"),
-                })
-              }
-            >
-              <option value="none">Normal (opaque)</option>
-              <option value="half">Semi-transparent (50 %)</option>
-              <option value="add">Additif (lueur)</option>
-              <option value="sub">Soustractif (ombre)</option>
-            </select>
-          </label>
-          <span className="hint">
-            Les messages et choix se jouent PAR-DESSUS l'image et restent
-            nets même en mélange. Le mélange fond l'image avec le décor
-            (circuit couleur de la console) et suspend la teinte d'écran
-            le temps de l'image. Refermer avec « Effacer l'image » dans le
-            même script.
-          </span>
-        </>
-      );
+    case "pic_show":
+      ({ body, valid } = formPicShow(cmd, x));
       break;
-    }
-    case "pic_move": {
-      const posMode = cmd.x_var !== undefined ? "vars" : "xy";
-      body = (
-        <>
-          <label>
-            Nouvelle position
-            <select
-              value={posMode}
-              onChange={(e) =>
-                onChange(
-                  e.target.value === "vars"
-                    ? { ...cmd, x: undefined, y: undefined, x_var: cmd.x_var ?? 0, y_var: cmd.y_var ?? 1 }
-                    : { ...cmd, x: cmd.x ?? 0, y: cmd.y ?? 0, x_var: undefined, y_var: undefined }
-                )
-              }
-            >
-              <option value="xy">Position X/Y (pixels)</option>
-              <option value="vars">Position lue dans des variables</option>
-            </select>
-          </label>
-          {posMode === "xy" ? (
-            <div className="row">
-              <label>
-                X (0-255)
-                <input type="number" min={0} max={255} value={cmd.x ?? 0} autoFocus
-                  onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
-              </label>
-              <label>
-                Y (0-216)
-                <input type="number" min={0} max={216} value={cmd.y ?? 0}
-                  onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
-              </label>
-            </div>
-          ) : (
-            <div className="row">
-              <label>
-                Variable X (0-255)
-                <input type="number" min={0} max={255} value={cmd.x_var ?? 0}
-                  onChange={(e) => onChange({ ...cmd, x_var: Number(e.target.value) })} />
-              </label>
-              <label>
-                Variable Y (0-255)
-                <input type="number" min={0} max={255} value={cmd.y_var ?? 1}
-                  onChange={(e) => onChange({ ...cmd, y_var: Number(e.target.value) })} />
-              </label>
-            </div>
-          )}
-          <label>
-            Durée du déplacement (frames — 0 = immédiat, 60 = 1 seconde)
-            <input type="number" min={0} max={255} value={cmd.dur ?? 30}
-              onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })} />
-          </label>
-          <span className="hint">
-            Glisse l'image affichée vers la cible SANS bloquer le script
-            (façon Move Picture RM2003) — enchaîne avec « Attendre » si tu
-            veux attendre la fin. Sans image affichée : ignoré.
-          </span>
-        </>
-      );
+    case "pic_move":
+      ({ body, valid } = formPicMove(cmd, x));
       break;
-    }
-    case "pic_hide": {
-      const cut = (cmd.fade === false && cmd.dur === undefined) || cmd.dur === 0;
-      body = (
-        <>
-          <label>
-            Transition
-            <select
-              value={cut ? "cut" : "fade"}
-              onChange={(e) =>
-                onChange({ ...cmd, fade: undefined, dur: e.target.value === "cut" ? 0 : 16 })
-              }
-            >
-              <option value="fade">Fondu</option>
-              <option value="cut">Instantanée</option>
-            </select>
-          </label>
-          {!cut && (
-            <label>
-              Durée du fondu (frames — 60 = 1 seconde)
-              <input type="number" min={1} max={255} value={cmd.dur ?? 16}
-                onChange={(e) =>
-                  onChange({ ...cmd, fade: undefined, dur: Number(e.target.value) })
-                } />
-            </label>
-          )}
-          <span className="hint">
-            Referme l'image et rend l'écran au jeu — carte, personnages et
-            états inchangés. Sans image affichée : ignoré.
-          </span>
-        </>
-      );
+    case "pic_hide":
+      ({ body, valid } = formPicHide(cmd, x));
       break;
-    }
     case "ui_show":
-      valid = cmd.widget !== "";
-      body = (
-        <>
-          <label>
-            Widget (racines de ui/layout.toml — fenêtre UI)
-            <select
-              value={cmd.widget} autoFocus
-              onChange={(e) => onChange({ ...cmd, widget: e.target.value })}
-            >
-              <option value="">(choisir)</option>
-              {props.uiWidgets.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Action
-            <select
-              value={cmd.on ? "on" : "off"}
-              onChange={(e) => onChange({ ...cmd, on: e.target.value === "on" })}
-            >
-              <option value="on">Afficher</option>
-              <option value="off">Cacher</option>
-            </select>
-          </label>
-          <span className="hint">
-            Les widgets sont CACHÉS au démarrage (sauf « Visible au démarrage »
-            dans la fenêtre UI) — cette commande les affiche ou les cache.
-          </span>
-        </>
-      );
+      ({ body, valid } = formUiShow(cmd, x));
       break;
     case "list_select":
-      valid = cmd.widget !== "";
-      body = (
-        <>
-          <label>
-            Widget liste (fenêtre UI — type « Liste (curseur) »)
-            <select
-              value={cmd.widget} autoFocus
-              onChange={(e) => onChange({ ...cmd, widget: e.target.value })}
-            >
-              <option value="">(choisir)</option>
-              {props.uiWidgets.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Variable destination (index choisi, 0 = premier item)
-            <div className="row" style={{ gap: 4 }}>
-              <input type="number" min={0} max={255} value={cmd.var}
-                onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
-              <button className="browse"
-                onClick={() => props.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
-                …
-              </button>
-            </div>
-            <span className="hint">{props.varNames[cmd.var] || ""}</span>
-          </label>
-          <label className="checkline">
-            <input type="checkbox" checked={cmd.cancel}
-              onChange={(e) => onChange({ ...cmd, cancel: e.target.checked })} />
-            B annule (la variable reçoit 255)
-          </label>
-          <label className="checkline">
-            <input type="checkbox" checked={cmd.keep ?? false}
-              onChange={(e) => onChange({ ...cmd, keep: e.target.checked || undefined })} />
-            Laisser le widget affiché à la fermeture (multi-panneaux)
-          </label>
-          <label className="checkline">
-            <input type="checkbox" checked={cmd.lr ?? false}
-              onChange={(e) => onChange({ ...cmd, lr: e.target.checked || undefined })} />
-            Gauche/Droite quittent la liste (254 = gauche, 253 = droite)
-          </label>
-          <span className="hint">
-            BLOQUANT : le menu s'ouvre (le widget est affiché), haut/bas
-            naviguent avec bouclage, A valide (index : 0 = premier item).
-            Multi-panneaux : cocher les deux cases, tester 253/254 dans une
-            condition et enchaîner sur la liste voisine — le widget resté
-            affiché n'a plus de curseur, cacher avec « Afficher/cacher un
-            widget UI » quand le menu se ferme pour de bon.
-          </span>
-        </>
-      );
+      ({ body, valid } = formListSelect(cmd, x));
       break;
     case "scr_hide":
-    case "scr_show": {
-      const fr = cmd.frames ?? Math.ceil(15 / (cmd.speed || 15));
-      valid = fr >= 1 && fr <= 255;
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Durée (frames, 60 = 1 seconde)
-              <input
-                type="number" min={1} max={255} value={fr} autoFocus
-                onChange={(e) =>
-                  onChange({ ...cmd, frames: Number(e.target.value), speed: undefined })
-                }
-              />
-            </label>
-            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-          </div>
-          <span className="hint">
-            {cmd.c === "scr_hide"
-              ? "Cache l'écran — bloque le script jusqu'au noir complet. L'écran reste caché jusqu'à « Montrer l'écran » (un téléport le rallume)."
-              : "Montre l'écran — bloque le script jusqu'à la pleine luminosité."}
-          </span>
-        </>
-      );
+    case "scr_show":
+      ({ body, valid } = formScrHideScrShow(cmd, x));
       break;
-    }
     case "tint":
-      valid = [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31);
-      body = (
-        <>
-          <label>
-            Preset (remplit les champs)
-            <select
-              value=""
-              onChange={(e) => {
-                const std: Record<string, { mode: "off" | "add" | "sub"; r: number; g: number; b: number }> = {
-                  "*jour": { mode: "off", r: 0, g: 0, b: 0 },
-                  "*matin": { mode: "sub", r: 6, g: 3, b: 0 },
-                  "*soir": { mode: "sub", r: 0, g: 6, b: 14 },
-                  "*nuit": { mode: "sub", r: 16, g: 12, b: 4 },
-                };
-                const v = e.target.value;
-                if (std[v]) {
-                  onChange({ ...cmd, ...std[v] });
-                  return;
-                }
-                const p = props.tintPresets.find((t) => t.name === v);
-                if (p) onChange({ ...cmd, mode: p.mode, r: p.r, g: p.g, b: p.b });
-              }}
-            >
-              <option value="">(choisir un preset…)</option>
-              <optgroup label="Standards">
-                <option value="*matin">Matin (bleuté pâle)</option>
-                <option value="*jour">Jour (normale)</option>
-                <option value="*soir">Soir (orangé)</option>
-                <option value="*nuit">Nuit (bleu sombre)</option>
-              </optgroup>
-              {props.tintPresets.length > 0 && (
-                <optgroup label="Du projet">
-                  {props.tintPresets.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </label>
-          <div className="row">
-            <label>
-              Enregistrer les valeurs comme preset
-              <input
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                placeholder="ex. Crépuscule violet"
-                maxLength={24}
-              />
-            </label>
-            <button
-              disabled={presetName.trim() === ""}
-              title="Enregistre mode + RGB actuels sous ce nom (écrase un preset du même nom) — stocké dans le projet"
-              onClick={() => {
-                const name = presetName.trim();
-                props.onTintPresets([
-                  ...props.tintPresets.filter((t) => t.name !== name),
-                  { name, mode: cmd.mode, r: cmd.r, g: cmd.g, b: cmd.b },
-                ]);
-                setPresetName("");
-              }}
-            >
-              💾 Enregistrer
-            </button>
-          </div>
-          {props.tintPresets.length > 0 && (
-            <div className="row" style={{ flexWrap: "wrap", gap: 4 }}>
-              {props.tintPresets.map((p) => (
-                <button
-                  key={p.name}
-                  title={`Supprimer le preset « ${p.name} » du projet`}
-                  onClick={() =>
-                    props.onTintPresets(props.tintPresets.filter((t) => t.name !== p.name))
-                  }
-                >
-                  🗑 {p.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            <label>
-              Mode
-              <select
-                value={cmd.mode}
-                onChange={(e) => onChange({ ...cmd, mode: e.target.value as "off" | "add" | "sub" })}
-              >
-                <option value="off">Normale (retirer la teinte)</option>
-                <option value="add">Éclaircir (+)</option>
-                <option value="sub">Assombrir (−)</option>
-              </select>
-            </label>
-            {cmd.mode !== "off" &&
-              (["r", "g", "b"] as const).map((k) => (
-                <label key={k}>
-                  {k.toUpperCase()} (0-31)
-                  <input
-                    type="number" min={0} max={31} value={cmd[k]}
-                    onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
-                  />
-                </label>
-              ))}
-          </div>
-          <label>
-            Transition (frames — 0 = immédiate, 180 = 3 secondes)
-            <input
-              type="number" min={0} max={255} value={cmd.dur ?? 0}
-              onChange={(e) =>
-                onChange({ ...cmd, dur: Number(e.target.value) || undefined })
-              }
-            />
-          </label>
-          <span className="hint">
-            Persiste entre les scènes ; la transition graduelle (S12) est
-            NON bloquante — enchaîner avec « Attendre » pour la laisser
-            finir. Teinte le décor, pas les personnages ni le texte
-            (limite hardware). Suspendue à l'écran pendant un mélange de
-            couche d'effet ou d'image.
-          </span>
-        </>
-      );
+      ({ body, valid } = formTint(cmd, x));
       break;
-    case "wave": {
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Amplitude (px — 0 = arrêter)
-              <select
-                value={cmd.power}
-                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
-              >
-                {[0, 1, 2, 3, 4, 5, 6, 7].map((v) => (
-                  <option key={v} value={v}>{v === 0 ? "0 (stop)" : v}</option>
-                ))}
-              </select>
-            </label>
-            {cmd.power > 0 && (
-              <label>
-                Vitesse de la houle (1-8)
-                <input
-                  type="number" min={1} max={8} value={cmd.speed ?? 2}
-                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </div>
-          <span className="hint">
-            L'écran ondule ligne par ligne (chaleur du désert, sous l'eau,
-            rêve) — non bloquant, persiste entre les scènes jusqu'à
-            « 0 (stop) ». Le DÉCOR ondule ; les personnages, le texte
-            et le HUD restent droits (les sprites ne passent pas par les
-            scrolls — matériel). Suspendue pendant une image plein
-            écran.
-          </span>
-        </>
-      );
+    case "wave":
+      ({ body, valid } = formWave(cmd, x));
       break;
-    }
     case "skygrad":
-      body = (
-        <>
-          <label>
-            Mode
-            <select
-              value={cmd.mode}
-              onChange={(e) => onChange({ ...cmd, mode: e.target.value as "off" | "add" | "sub" })}
-            >
-              <option value="off">Retirer le dégradé</option>
-              <option value="add">Éclaircir (+)</option>
-              <option value="sub">Assombrir (−)</option>
-            </select>
-          </label>
-          {cmd.mode !== "off" && (
-            <>
-              <div className="row">
-                <span style={{ alignSelf: "center", minWidth: 110 }}>Haut de l'écran</span>
-                {(["r", "g", "b"] as const).map((k) => (
-                  <label key={k}>
-                    {k.toUpperCase()} (0-31)
-                    <input
-                      type="number" min={0} max={31} value={cmd[k]}
-                      onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="row">
-                <span style={{ alignSelf: "center", minWidth: 110 }}>Bas de l'écran</span>
-                {(["r2", "g2", "b2"] as const).map((k) => (
-                  <label key={k}>
-                    {k[0].toUpperCase()} (0-31)
-                    <input
-                      type="number" min={0} max={31} value={cmd[k]}
-                      onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
-                    />
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-          <span className="hint">
-            Teinte VERTICALE (coucher de soleil, aube, profondeur) : la
-            couleur évolue du haut vers le bas de l'écran, ligne par
-            ligne. Remplace la teinte plate — et « Teinter l'écran »
-            retire le dégradé (même circuit console). Le décor est
-            teinté, pas les personnages ni le texte. Persiste entre les
-            scènes ; en pause pendant un mélange (couche d'effet /
-            image) ou un flash. Immédiat, non bloquant, aucun coût en
-            jeu (table calculée à la commande).
-          </span>
-        </>
-      );
+      ({ body, valid } = formSkygrad(cmd, x));
       break;
     case "spotlight":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Rayon du cercle (px — 0 = arrêter)
-              <select
-                value={cmd.radius}
-                onChange={(e) => onChange({ ...cmd, radius: Number(e.target.value) })}
-              >
-                <option value={0}>0 (arrêter)</option>
-                {[24, 32, 40, 48, 64, 80, 96].map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            {cmd.radius > 0 && (
-              <label>
-                Obscurité (1-31 — 31 = noir total)
-                <input
-                  type="number" min={1} max={31} value={cmd.dark ?? 31}
-                  onChange={(e) => onChange({ ...cmd, dark: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </div>
-          <span className="hint">
-            Cercle de lumière qui SUIT le héros (grotte, nuit, torche) :
-            le décor est assombri hors du cercle. Remplace la teinte et
-            le dégradé — et « Teinter l'écran » retire le spotlight
-            (même circuit console). Les personnages et le texte restent
-            visibles partout (limite matérielle, comme la teinte).
-            Immédiat, non bloquant, persiste entre les scènes.
-          </span>
-        </>
-      );
+      ({ body, valid } = formSpotlight(cmd, x));
       break;
     case "screen":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Écran (Tools → Écrans composés)
-              <select
-                value={cmd.name}
-                onChange={(e) => onChange({ ...cmd, name: e.target.value })}
-              >
-                <option value="">(choisir un écran…)</option>
-                {props.screenNames.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fondu (frames par sens)
-              <input
-                type="number" min={0} max={255} value={cmd.dur ?? 20}
-                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
-              />
-            </label>
-            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-          </div>
-          <span className="hint">
-            Ouvre l'écran composé dessiné dans Tools → Écrans composés :
-            son fond, ses images posées, puis son script. Équivaut à la
-            suite Ouvrir + Poser + … écrite à la main — mais composée à
-            la souris. L'écran se referme par « Fermer l'écran
-            composé » (dans son script, ou après).
-          </span>
-        </>
-      );
+      ({ body, valid } = formScreen(cmd, x));
       break;
     case "screen_call":
-      body = (
-        <>
-          <label>
-            Script de l'écran
-            {props.screenScriptNames ? (
-              <select
-                value={cmd.script}
-                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
-              >
-                <option value="">(choisir…)</option>
-                {props.screenScriptNames.slice(1).map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={cmd.script}
-                placeholder="nom du script"
-                onChange={(e) => onChange({ ...cmd, script: e.target.value })}
-              />
-            )}
-          </label>
-          <span className="hint">
-            Joue un AUTRE script du même écran composé (tes
-            sous-routines locales : tour_joueur, victoire…) — comme
-            « Appeler un common event », mais rangé dans l'écran.
-            Valable uniquement depuis un script d'écran (le build le
-            vérifie).
-          </span>
-        </>
-      );
+      ({ body, valid } = formScreenCall(cmd, x));
       break;
     case "stage_open":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Fond (image plein écran, opaque de préférence)
-              <select
-                value={cmd.pic}
-                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
-              >
-                <option value="">(aucun — fond noir)</option>
-                {props.pictures.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fondu (frames par sens — 0 = instantané)
-              <input
-                type="number" min={0} max={255} value={cmd.dur ?? 20}
-                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
-              />
-            </label>
-            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-          </div>
-          <span className="hint">
-            Remplace la vue de la scène par un ÉCRAN COMPOSÉ : le fond
-            sur une couche, jusqu'à 5 images posées par-dessus (slots),
-            les dialogues et widgets par-dessus tout. C'est l'écran de
-            combat façon FF (fond + monstres) — ou un plateau, une carte,
-            une scène illustrée. Les personnages de la map sont cachés
-            le temps de l'écran. Fermer l'écran restaure la scène ET sa
-            musique (les PNJ déplacés reviennent à leur position de
-            page, comme après une téléportation).
-          </span>
-        </>
-      );
+      ({ body, valid } = formStageOpen(cmd, x));
       break;
     case "stage_pose":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Slot (1-5)
-              <select
-                value={cmd.slot}
-                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-              >
-                {[1, 2, 3, 4, 5].map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Image (à transparence pour un monstre)
-              <select
-                value={cmd.pic}
-                onChange={(e) => onChange({ ...cmd, pic: e.target.value })}
-              >
-                <option value="">(choisir une image…)</option>
-                {props.pictures.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="row">
-            <label>
-              X (px, arrondi à 8)
-              <input
-                type="number" min={0} max={255} step={8} value={cmd.x}
-                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              Y (px, arrondi à 8)
-              <input
-                type="number" min={0} max={216} step={8} value={cmd.y}
-                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-          <span className="hint">
-            Pose l'image sur l'écran composé, avec SA palette (une par
-            slot — le clignotement d'un monstre ne touche pas les
-            autres). L'image apparaît en quelques frames (transfert
-            progressif), le script attend la fin. Re-poser la même
-            image dans le même slot = déplacement instantané. Budget
-            partagé : ~511 tuiles pour l'écran — au-delà, la pose est
-            ignorée (simplifier les images, ou fermer/rouvrir).
-            Éviter le chevauchement de deux images (couche unique).
-          </span>
-        </>
-      );
+      ({ body, valid } = formStagePose(cmd, x));
       break;
     case "stage_clear":
-      body = (
-        <>
-          <label>
-            Slot à retirer (1-5)
-            <select
-              value={cmd.slot}
-              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-            >
-              {[1, 2, 3, 4, 5].map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </label>
-          <span className="hint">
-            Efface l'image du slot (mort d'un monstre, objet ramassé).
-            Re-poser la même image plus tard ne recoûte rien.
-          </span>
-        </>
-      );
+      ({ body, valid } = formStageClear(cmd, x));
       break;
     case "slot_fx":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Slot (1-5)
-              <select
-                value={cmd.slot}
-                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-              >
-                {[1, 2, 3, 4, 5].map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Effet
-              <select
-                value={cmd.fx}
-                onChange={(e) =>
-                  onChange({ ...cmd, fx: e.target.value as "restore" | "flash" | "fadeout" | "dark" })
-                }
-              >
-                <option value="flash">Flash blanc (attaque)</option>
-                <option value="fadeout">Fondu au noir (mort)</option>
-                <option value="dark">Assombrir (état)</option>
-                <option value="restore">Restaurer les couleurs</option>
-              </select>
-            </label>
-            {(cmd.fx === "flash" || cmd.fx === "fadeout") && (
-              <label>
-                Durée (frames)
-                <input
-                  type="number" min={1} max={255}
-                  value={cmd.frames ?? (cmd.fx === "flash" ? 6 : 30)}
-                  onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </div>
-          <span className="hint">
-            Manipule la PALETTE de l'image du slot — les autres images
-            et le fond ne bougent pas (une palette par slot). Flash =
-            le monstre attaque ou encaisse ; fondu au noir = mort
-            (enchaîner avec « Retirer une image ») ; assombrir =
-            poison, pierre (cumulable) ; restaurer = fin d'état. Non
-            bloquant — enchaîner avec « Attendre ».
-          </span>
-        </>
-      );
+      ({ body, valid } = formSlotFx(cmd, x));
       break;
     case "stage_close":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Fondu (frames par sens — 0 = instantané)
-              <input
-                type="number" min={0} max={255} value={cmd.dur ?? 20}
-                onChange={(e) => onChange({ ...cmd, dur: Number(e.target.value) })}
-              />
-            </label>
-            <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-          </div>
-          <span className="hint">
-            Referme l'écran composé et restaure la scène complète :
-            décor, personnages, ambiances et musique de la scène.
-          </span>
-        </>
-      );
+      ({ body, valid } = formStageClose(cmd, x));
       break;
     case "vig_show":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Slot (1-2)
-              <select
-                value={cmd.slot}
-                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-              >
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-              </select>
-            </label>
-            <label>
-              Vignette (bande de frames 32x32)
-              <select
-                value={cmd.vig}
-                onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
-              >
-                <option value="">(choisir une vignette…)</option>
-                {props.vigNames.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ancrage
-              <select
-                value={cmd.anchor}
-                onChange={(e) =>
-                  onChange({ ...cmd, anchor: e.target.value as "screen" | "hero" })
-                }
-              >
-                <option value="screen">Position écran</option>
-                <option value="hero">Sur le héros</option>
-              </select>
-            </label>
-          </div>
-          <div className="row">
-            <label>
-              {cmd.anchor === "hero" ? "Décalage X (-128 à 127)" : "X (0-255)"}
-              <input
-                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
-                value={cmd.x}
-                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              {cmd.anchor === "hero" ? "Décalage Y (-128 à 127)" : "Y (0-216)"}
-              <input
-                type="number" min={cmd.anchor === "hero" ? -128 : 0} max={255}
-                value={cmd.y}
-                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-          <span className="hint">
-            Petite image en SPRITE (32x32), affichée frame 1 — les
-            personnages restent visibles (contrairement aux pictures).
-            « Sur le héros » : la vignette le suit (émoticône « ! » :
-            X -8, Y -32). 2 vignettes à l'écran max. Marche sur la map
-            ET sur l'écran composé (animations d'attaque par-dessus
-            les monstres). Persiste entre les scènes.
-          </span>
-        </>
-      );
+      ({ body, valid } = formVigShow(cmd, x));
       break;
     case "vig_play":
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Slot (1-2)
-              <select
-                value={cmd.slot}
-                onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-              >
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-              </select>
-            </label>
-            <label>
-              Mode
-              <select
-                value={cmd.mode}
-                onChange={(e) =>
-                  onChange({ ...cmd, mode: e.target.value as "loop" | "once" | "stop" })
-                }
-              >
-                <option value="once">Une fois (puis se cache)</option>
-                <option value="loop">En boucle</option>
-                <option value="stop">Figer</option>
-              </select>
-            </label>
-            {cmd.mode !== "stop" && (
-              <label>
-                Vitesse (frames par image)
-                <input
-                  type="number" min={1} max={60} value={cmd.speed ?? 8}
-                  onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
-                />
-              </label>
-            )}
-          </div>
-          <span className="hint">
-            Joue les frames de la planche. « Une fois » se cache tout
-            seul à la fin — parfait pour un coup d'épée ou une
-            explosion (8 frames/image = ~2 images par seconde ; 4 =
-            rapide). Non bloquant — enchaîner avec « Attendre ».
-          </span>
-        </>
-      );
+      ({ body, valid } = formVigPlay(cmd, x));
       break;
     case "anim_play":
-      valid = cmd.anim !== "";
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Animation
-              <select
-                value={cmd.anim}
-                onChange={(e) => onChange({ ...cmd, anim: e.target.value })}
-              >
-                <option value="">(choisir une animation…)</option>
-                {props.animNames.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Sur quoi
-              <select
-                value={cmd.anchor}
-                onChange={(e) =>
-                  onChange({ ...cmd, anchor: e.target.value as "screen" | "hero" | "event" })
-                }
-              >
-                <option value="screen">L'écran</option>
-                <option value="hero">Le héros</option>
-                <option value="event">Un event</option>
-              </select>
-            </label>
-            {cmd.anchor === "event" && (
-              <label>
-                Event
-                <select
-                  value={cmd.event ?? -1}
-                  onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
-                >
-                  <option value={-1}>Cet event</option>
-                  {props.entryNames.map((n, i) => (
-                    <option key={i} value={i}>{n}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-          <label className="checkline">
-            <input
-              type="checkbox"
-              checked={!!cmd.wait}
-              onChange={(e) => onChange({ ...cmd, wait: e.target.checked })}
-            />
-            Attendre la fin de l'animation
-          </label>
-          {props.animNames.length === 0 && (
-            <span className="hint">
-              Aucune animation dans le projet — Tools → Animations… pour
-              en composer une.
-            </span>
-          )}
-          <span className="hint">
-            Suite de cellules 32x32 avec position et son par image
-            (Tools → Animations…). Passe PAR-DESSUS le décor et les
-            personnages. Posée sur le héros ou sur un event, elle le
-            SUIT s'il se déplace. Sans « attendre la fin », le script
-            continue et l'animation vit sa vie — c'est ce qui permet
-            d'animer pendant un dialogue. Une animation en boucle ne
-            s'arrête jamais toute seule : « Arrêter les animations ».
-          </span>
-        </>
-      );
+      ({ body, valid } = formAnimPlay(cmd, x));
       break;
     case "anim_stop":
-      body = (
-        <span className="hint">
-          Arrête TOUTES les animations en cours et range leurs sprites.
-          Sert à sortir d'une animation lancée en boucle.
-        </span>
-      );
+      ({ body, valid } = formAnimStop(cmd, x));
       break;
     case "vig_hide":
-      body = (
-        <>
-          <label>
-            Slot à cacher (1-2)
-            <select
-              value={cmd.slot}
-              onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
-            >
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-            </select>
-          </label>
-        </>
-      );
+      ({ body, valid } = formVigHide(cmd, x));
       break;
     case "sfx":
-      body = (
-        <>
-          <label>
-            Son
-            <select
-              value={cmd.sound}
-              onChange={(e) => onChange({ ...cmd, sound: e.target.value })}
-            >
-              <option value="">(choisir un son…)</option>
-              {props.soundNames.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </label>
-          <span className="hint">
-            Joue l'effet sonore par-dessus la musique (coffre, porte,
-            coup…) — immédiat, non bloquant. Les sons s'importent dans
-            le Gestionnaire de ressources (WAV, ~2 secondes max). Un
-            son vide ou supprimé est signalé au build.
-          </span>
-        </>
-      );
+      ({ body, valid } = formSfx(cmd, x));
       break;
     case "bgm":
-      body = (
-        <>
-          <label>
-            Musique
-            <select
-              value={cmd.music}
-              onChange={(e) => onChange({ ...cmd, music: e.target.value })}
-            >
-              <option value="">(silence)</option>
-              {props.musicNames.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </label>
-          <span className="hint">
-            Change la musique de fond (combat, boss, moment calme) —
-            non bloquant, sans effet si c'est déjà la musique courante.
-            Le changement n'est PAS instantané : le module est envoyé
-            au processeur audio (jusqu'à quelques secondes pour un gros
-            morceau). Au prochain changement de scène, la musique de la
-            scène reprend ses droits.
-          </span>
-        </>
-      );
+      ({ body, valid } = formBgm(cmd, x));
       break;
     case "weather":
-      body = (
-        <>
-          <label>
-            Météo
-            <select
-              value={cmd.kind}
-              onChange={(e) =>
-                onChange({ ...cmd, kind: e.target.value as "off" | "rain" | "snow" })
-              }
-            >
-              <option value="off">Aucune (arrêter)</option>
-              <option value="rain">Pluie</option>
-              <option value="snow">Neige</option>
-            </select>
-          </label>
-          {cmd.kind !== "off" && (
-            <label>
-              Intensité
-              <select
-                value={cmd.power ?? 2}
-                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
-              >
-                <option value={1}>Légère (8 particules)</option>
-                <option value={2}>Normale (16)</option>
-                <option value={3}>Forte (24)</option>
-              </select>
-            </label>
-          )}
-          <span className="hint">
-            Non bloquant — persiste entre les scènes jusqu'au prochain
-            changement (modèle RM2003). Les particules tombent DEVANT la
-            couche d'effet : orage complet = nuages sombres (soustractif)
-            + Pluie + « Flash d'écran » pour les éclairs.
-          </span>
-        </>
-      );
+      ({ body, valid } = formWeather(cmd, x));
       break;
     case "flash":
-      valid =
-        [cmd.r, cmd.g, cmd.b].every((v) => v >= 0 && v <= 31) &&
-        cmd.frames >= 1 && cmd.frames <= 255;
-      body = (
-        <>
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            {(["r", "g", "b"] as const).map((k) => (
-              <label key={k}>
-                {k.toUpperCase()} (0-31)
-                <input
-                  type="number" min={0} max={31} value={cmd[k]}
-                  onChange={(e) => onChange({ ...cmd, [k]: Number(e.target.value) })}
-                />
-              </label>
-            ))}
-            <label>
-              Durée (frames)
-              <input
-                type="number" min={1} max={255} value={cmd.frames}
-                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-          <span className="hint">
-            Éclair qui décroît sur la durée — non bloquant (enchaîner avec
-            « Attendre »). Blanc plein : 31,31,31.
-          </span>
-        </>
-      );
+      ({ body, valid } = formFlash(cmd, x));
       break;
-    case "call_fn": {
-      const fns = props.fnSigs ?? [];
-      const sig = fns[cmd.n];
-      valid =
-        !!sig &&
-        cmd.args.length === sig.params.length &&
-        (cmd.dst === undefined || (sig.returns && cmd.dst >= 0 && cmd.dst < 256));
-      body = (
-        <>
-          {fns.length === 0 ? (
-            <span className="hint" style={{ color: "#ff7070" }}>
-              Aucune fonction dans le projet — les créer via
-              Tools → Fonctions…
-            </span>
-          ) : (
-            <>
-              <label>
-                Fonction
-                <select
-                  value={cmd.n}
-                  autoFocus
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    const want = fns[n]?.params.length ?? 0;
-                    // le nombre d'arguments SUIT la fonction choisie :
-                    // datagen refuse un appel mal dimensionné, autant ne
-                    // pas laisser l'auteur fabriquer ce cas
-                    const args: ValueSrc[] = [];
-                    for (let k = 0; k < want; k++)
-                      args.push(cmd.args[k] ?? { value: 0 });
-                    onChange({
-                      ...cmd,
-                      n,
-                      args,
-                      dst: fns[n]?.returns ? cmd.dst : undefined,
-                    });
-                  }}
-                >
-                  {fns.map((sg, i) => (
-                    <option key={i} value={i}>
-                      {String(i + 1).padStart(4, "0")}: {sg.name}(
-                      {sg.params.join(", ")}){sg.returns ? " → résultat" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {sig?.params.map((pname, k) => (
-                <div
-                  className="row"
-                  key={k}
-                  style={{ flexWrap: "wrap", alignItems: "flex-start" }}
-                >
-                  <span
-                    style={{
-                      alignSelf: "center",
-                      flex: "0 0 auto",
-                      minWidth: 70,
-                      textAlign: "right",
-                    }}
-                  >
-                    {pname || `paramètre ${k + 1}`}
-                  </span>
-                  <ValueSourceFields
-                    v={cmd.args[k] ?? { value: 0 }}
-                    fnParams={props.fnParams}
-                    varNames={props.varNames}
-                    onPickVar={props.onPickVar}
-                    onChange={(v) => {
-                      const args = cmd.args.slice();
-                      args[k] = v;
-                      onChange({ ...cmd, args });
-                    }}
-                  />
-                </div>
-              ))}
-              {sig?.returns && (
-                <div
-                  className="row"
-                  style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}
-                >
-                  {/* flexDirection en clair : `.modal label` force une
-                      colonne, et la case se retrouvait au-dessus de son
-                      libellé */}
-                  <label
-                    style={{
-                      flexDirection: "row",
-                      gap: 6,
-                      alignItems: "center",
-                      flex: "0 0 auto",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      style={{ flex: "0 0 auto", width: 14, height: 14, boxShadow: "none" }}
-                      checked={cmd.dst !== undefined}
-                      onChange={(e) =>
-                        onChange({ ...cmd, dst: e.target.checked ? 0 : undefined })
-                      }
-                    />
-                    Stocker le résultat
-                  </label>
-                  <label style={{ flex: "1 1 160px" }}>
-                    Variable
-                    <span className="row" style={{ gap: 4 }}>
-                      <input
-                        type="number" min={0} max={255}
-                        disabled={cmd.dst === undefined}
-                        value={cmd.dst ?? 0}
-                        onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
-                      />
-                      <button className="browse" title="Choisir dans la liste"
-                        disabled={cmd.dst === undefined}
-                        onClick={() =>
-                          props.onPickVar("var", cmd.dst ?? 0, (n) =>
-                            onChange({ ...cmd, dst: n })
-                          )
-                        }>…</button>
-                    </span>
-                    <span className="hint">{props.varNames[cmd.dst ?? 0] || ""}</span>
-                  </label>
-                </div>
-              )}
-              <span className="hint">
-                Sans « Stocker le résultat », la valeur rendue reste lisible
-                par la source « Résultat du dernier appel » — c'est ainsi
-                qu'on passe le retour d'une fonction en argument d'une
-                autre.
-              </span>
-            </>
-          )}
-        </>
-      );
+    case "call_fn":
+      ({ body, valid } = formCallFn(cmd, x));
       break;
-    }
     case "ret_fn":
-      valid = cmd.value >= -32768 && cmd.value <= 65535;
-      body = (
-        <>
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            <span style={{ alignSelf: "center", minWidth: 90 }}>Valeur rendue</span>
-            <ValueSourceFields
-              v={cmd}
-              fnParams={props.fnParams}
-              varNames={props.varNames}
-              onPickVar={props.onPickVar}
-              onChange={(v) => onChange({ ...cmd, from: v.from, value: v.value })}
-            />
-          </div>
-          <span className="hint">
-            Sort de la fonction immédiatement. À n'utiliser que dans le
-            corps d'une fonction déclarée « rend une valeur ».
-          </span>
-        </>
-      );
+      ({ body, valid } = formRetFn(cmd, x));
       break;
     case "call":
-      valid = props.commonNames.length > 0 && cmd.n >= 0 && cmd.n < props.commonNames.length;
-      body = (
-        <>
-          {props.commonNames.length === 0 ? (
-            <span className="hint" style={{ color: "#ff7070" }}>
-              Aucun common event dans le projet — les créer via
-              Tools → Common events…
-            </span>
-          ) : (
-            <label>
-              Common event
-              <select
-                value={cmd.n}
-                autoFocus
-                onChange={(e) => onChange({ ...cmd, n: Number(e.target.value) })}
-              >
-                {props.commonNames.map((n, i) => (
-                  <option key={i} value={i}>
-                    {String(i + 1).padStart(4, "0")}: {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <span className="hint">
-            Exécute les commandes du common event puis reprend ici (8
-            niveaux d'appels max). « Cet event » y désigne l'event
-            appelant.
-          </span>
-        </>
-      );
+      ({ body, valid } = formCall(cmd, x));
       break;
-    case "db_read": {
-      const sc = props.db?.schemas.find((s) => s.name === cmd.table);
-      const entries = props.db?.entries[cmd.table] ?? [];
-      valid =
-        !!sc &&
-        sc.fields.some((f) => f.name === cmd.field) &&
-        cmd.dst >= 0 && cmd.dst < 256 &&
-        (cmd.from === "var"
-          ? Number(cmd.entry) >= 0 && Number(cmd.entry) < 256
-          : entries.some((e) => e.id === cmd.entry));
-      body = !props.db ? (
-        <span className="hint" style={{ color: "#ff7070" }}>
-          Le projet n'a pas de database — créer une table via
-          Tools → Database…
-        </span>
-      ) : (
-        <>
-          <div className="row" style={{ flexWrap: "wrap" }}>
-            <label>
-              Table
-              <select
-                value={cmd.table}
-                autoFocus
-                onChange={(e) => {
-                  const ns = props.db!.schemas.find((s) => s.name === e.target.value)!;
-                  onChange({
-                    ...cmd,
-                    table: ns.name,
-                    entry: cmd.from === "var" ? cmd.entry
-                      : props.db!.entries[ns.name]?.[0]?.id ?? "",
-                    field: ns.fields[0]?.name ?? "",
-                  });
-                }}
-              >
-                {props.db.schemas.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.title || s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fiche
-              <select
-                value={cmd.from ?? "const"}
-                onChange={(e) => {
-                  const from = e.target.value as "const" | "var";
-                  onChange({
-                    ...cmd,
-                    from: from === "const" ? undefined : from,
-                    entry: from === "var" ? 0 : entries[0]?.id ?? "",
-                  });
-                }}
-              >
-                <option value="const">Fixe (choisir)</option>
-                <option value="var">Depuis une variable</option>
-              </select>
-            </label>
-            {cmd.from === "var" ? (
-              <label>
-                Variable (n° de fiche)
-                <span className="row" style={{ gap: 4 }}>
-                  <input
-                    type="number" min={0} max={255} value={Number(cmd.entry)}
-                    onChange={(e) => onChange({ ...cmd, entry: Number(e.target.value) })}
-                  />
-                  <button className="browse" title="Choisir dans la liste"
-                    onClick={() => props.onPickVar("var", Number(cmd.entry), (n) => onChange({ ...cmd, entry: n }))}>…</button>
-                </span>
-              </label>
-            ) : (
-              <label>
-                Entrée
-                <select
-                  value={String(cmd.entry)}
-                  onChange={(e) => onChange({ ...cmd, entry: e.target.value })}
-                >
-                  {entries.map((en) => (
-                    <option key={en.id} value={en.id}>
-                      {en.name || en.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              Champ
-              <select
-                value={cmd.field}
-                onChange={(e) => onChange({ ...cmd, field: e.target.value })}
-              >
-                {(sc?.fields ?? []).map((f) => (
-                  <option key={f.name} value={f.name}>
-                    {f.name} ({f.type})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              → Variable destination
-              <span className="row" style={{ gap: 4 }}>
-                <input
-                  type="number" min={0} max={255} value={cmd.dst}
-                  onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
-                />
-                <button className="browse" title="Choisir dans la liste"
-                  onClick={() => props.onPickVar("var", cmd.dst, (n) => onChange({ ...cmd, dst: n }))}>…</button>
-              </span>
-              <span className="hint">{props.varNames[cmd.dst] || ""}</span>
-            </label>
-          </div>
-          <span className="hint">
-            Copie la valeur du champ dans la variable (flags8 : l'octet des
-            bits ; ref : l'index de la fiche visée ; « depuis une
-            variable » : le n° de fiche est lu dans la variable, hors
-            table → 0).
-          </span>
-        </>
-      );
+    case "db_read":
+      ({ body, valid } = formDbRead(cmd, x));
       break;
-    }
     case "shake":
-      valid = cmd.power >= 0 && cmd.power <= 8 && cmd.speed >= 1 && cmd.speed <= 8 &&
-        cmd.frames >= 0 && cmd.frames <= 255;
-      body = (
-        <>
-          <div className="row">
-            <label>
-              Force (px, 0 = arrêter)
-              <input
-                type="number" min={0} max={8} value={cmd.power} autoFocus
-                onChange={(e) => onChange({ ...cmd, power: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              Vitesse (frames par va-et-vient)
-              <input
-                type="number" min={1} max={8} value={cmd.speed}
-                onChange={(e) => onChange({ ...cmd, speed: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              Durée (frames)
-              <input
-                type="number" min={0} max={255} value={cmd.frames}
-                onChange={(e) => onChange({ ...cmd, frames: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-          <span className="hint">
-            Secousse horizontale — non bloquante (enchaîner avec
-            « Attendre »).
-          </span>
-        </>
-      );
+      ({ body, valid } = formShake(cmd, x));
       break;
-    case "warp": {
-      const dest = props.scenes[cmd.to];
-      valid =
-        !!dest && cmd.x >= 0 && cmd.y >= 0 && cmd.x < (dest?.width ?? 0) && cmd.y < (dest?.height ?? 0);
-      body = (
-        <div className="row">
-          <label style={{ flex: 2 }}>
-            Scène cible
-            <select
-              value={cmd.to}
-              onChange={(e) => {
-                const d = props.scenes[e.target.value];
-                onChange({
-                  ...cmd,
-                  to: e.target.value,
-                  x: d?.player_start[0] ?? 3,
-                  y: d?.player_start[1] ?? 3,
-                });
-              }}
-            >
-              {props.sceneNames.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            x
-            <input type="number" min={0} value={cmd.x} onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })} />
-          </label>
-          <label>
-            y
-            <input type="number" min={0} value={cmd.y} onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })} />
-          </label>
-          <TransSelect value={cmd.trans} onChange={(t) => onChange({ ...cmd, trans: t })} />
-        </div>
-      );
+    case "warp":
+      ({ body, valid } = formWarp(cmd, x));
       break;
-    }
     case "face":
-      body = (
-        <div className="row">
-          <label>
-            Event n° (ordre de la scène)
-            <input
-              type="number"
-              min={0}
-              max={254}
-              value={cmd.event}
-              onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            Direction
-            <select value={cmd.dir} onChange={(e) => onChange({ ...cmd, dir: e.target.value as Direction })}>
-              {DIRECTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      );
+      ({ body, valid } = formFace(cmd, x));
       break;
   }
 

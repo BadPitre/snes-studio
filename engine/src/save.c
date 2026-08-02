@@ -1,17 +1,17 @@
 /*
- * save.c — sauvegardes SRAM (spec §4bis v2).
+ * save.c — SRAM saves (spec §4bis v2).
  *
- * SRAM LoROM : bank $70, 8 Ko (hdr.asm : SRAMSIZE $03, cartouche à
- * batterie). 4 slots de 2048 octets :
- *   0-1   magie "SG"    2 version=2   3 scène   4 x   5 y   6 dir  7 rés.
+ * LoROM SRAM: bank $70, 8 KB (hdr.asm sets SRAMSIZE $03, a battery
+ * cartridge). Four slots of 2048 bytes:
+ *   0-1   magic "SG"   2 version=2   3 scene   4 x   5 y   6 dir  7 rsv
  *   8-71    gvars[64]
- *   72-135  switches (512 bits — v0.9)
- *   136-647 variables 16-bit [256] little-endian (v0.9)
- *   648-649 checksum (somme 16-bit des octets 0-647, little-endian)
- *   650+    réservé (non couvert par le checksum)
- * Les sauvegardes v1 (2 Ko, slots de 128 octets) ne sont pas migrées :
- * magie/version au même offset pour le slot 0, mais version != 2 ⇒ slot
- * vu comme vide.
+ *   72-135  switches (512 bits)
+ *   136-647 16-bit variables [256], little-endian
+ *   648-649 checksum (16-bit sum of bytes 0-647, little-endian)
+ *   650+    reserved, not covered by the checksum
+ * v1 saves (2 KB, 128-byte slots) are not migrated: magic and version
+ * sit at the same offset for slot 0, but a version other than 2 makes
+ * the slot read as empty.
  */
 #include <snes.h>
 #include "formats.h"
@@ -24,9 +24,9 @@
 #define SAVE_MAGIC0 'S'
 #define SAVE_MAGIC1 'G'
 #define SAVE_VERSION 2
-#define SAVE_DATA_END 648 /* octets couverts par le checksum */
+#define SAVE_DATA_END 648 /* bytes covered by the checksum */
 
-/* Base SRAM d'un slot (écriture : on caste le pointeur far en non-const) */
+/* SRAM base of a slot (for writing, the far pointer is cast non-const) */
 static u8 *slot_base(u8 slot)
 {
   return (u8 *)make_far(0x70, (u16)slot << 11);

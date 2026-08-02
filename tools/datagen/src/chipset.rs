@@ -1,21 +1,21 @@
-//! chipset.rs — import d'un chipset RPG Maker 2003 (480x256, PNG indexé)
-//! vers les assets d'un projet SNES Studio.
+//! Importing an RPG Maker 2003 chipset (480x256 indexed PNG) into a SNES
+//! Studio project's assets.
 //!
-//! Layout RM2003 (LCF) :
-//!   x 0-95            eau/animations (3 frames par colonne de 16 px)
-//!   x 96-191          12 autotiles de sol 48x64 (format gabarit natif)
-//!   x 192-287         tiles couche basse 1 (6x16 = 96)
-//!   x 288-383 y 0-127 tiles couche basse 2 (6x8 = 48)
-//!   x 288-383 y 128+  tiles couche haute 1 (6x8 = 48)
-//!   x 384-479         tiles couche haute 2 (6x16 = 96)
+//! RM2003 (LCF) layout:
+//!   x 0-95            water and animations, 3 frames per 16 px column
+//!   x 96-191          12 ground autotiles, 48x64, native template format
+//!   x 192-287         lower layer tiles, set 1 (6x16 = 96)
+//!   x 288-383 y 0-127 lower layer tiles, set 2 (6x8 = 48)
+//!   x 288-383 y 128+  upper layer tiles, set 1 (6x8 = 48)
+//!   x 384-479         upper layer tiles, set 2 (6x16 = 96)
 //!
-//! Sorties dans <projet>/assets/ :
-//!   <nom>.png         grille 6 colonnes : 144 tiles basses puis 144 hautes
-//!   <nom>_water.png   autotile eau A converti (statique, frame 0)
-//!   <nom>_a{k}.png    les 12 autotiles de sol (copie directe)
-//!   <nom>.json        sidecar : autotiles + upper_start (144)
-//! et ajoute le tileset à project.json. La couleur « transparente » du
-//! chipset (fond de la première tile haute) devient l'index 0.
+//! Written to <project>/assets/tilesets/:
+//!   <name>.png         6-column grid: 144 lower tiles, then 144 upper
+//!   <name>_water.png   water autotile A, flattened to frame 0
+//!   <name>_a{k}.png    the 12 ground autotiles, copied verbatim
+//!   <name>.json        sidecar: autotiles and upper_start (144)
+//! and registers the tileset in project.json. The chipset's transparent
+//! colour — the background of its first upper tile — becomes index 0.
 
 use crate::gfx;
 use anyhow::{bail, Context, Result};
@@ -24,7 +24,7 @@ use std::path::Path;
 const W: usize = 480;
 const H: usize = 256;
 
-/// Grille de travail : indices dans la palette de SORTIE (0 = transparent)
+/// Working grid, holding indices into the OUTPUT palette (0 = transparent).
 struct Sheet {
     px: Vec<u8>,
     pal: Vec<u8>, // triplets RGB
@@ -63,9 +63,9 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         );
     }
 
-    // Couleur transparente = fond de la première tile de la couche haute
-    // (convention RM2003 : cette tile est la tile vide). Elle passe à
-    // l'index 0 par échange avec l'ancien index 0.
+    // The transparent colour is the background of the first upper-layer
+    // tile: by RM2003 convention that tile is the empty one. It is moved
+    // to index 0 by swapping with whatever was there.
     let ti = img.pixels[129 * W + 289] as usize;
     let mut pal = img.palette_rgb.clone();
     pal.resize(256 * 3, 0);
@@ -84,10 +84,10 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         .collect();
     let sheet = Sheet { px, pal };
 
-    let assets = proj_dir.join("assets");
+    let assets = proj_dir.join("assets/tilesets");
     std::fs::create_dir_all(&assets)?;
 
-    // --- grille 6 colonnes : 144 basses puis 144 hautes ------------------
+    // --- 6-column grid: 144 lower tiles, then 144 upper ------------------
     let blocks: [(usize, usize, usize, usize); 4] = [
         (192, 0, 6, 16), // basses 1
         (288, 0, 6, 8),  // basses 2
@@ -120,7 +120,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
     }
     write_indexed_png(&assets.join(format!("{}.png", name)), 96, rows_out * 16, &grid, &sheet.pal)?;
 
-    // --- 12 autotiles de sol : copie directe (format natif) --------------
+    // --- the 12 ground autotiles, copied verbatim ------------------------
     let ground: [(usize, usize); 12] = [
         (96, 0), (144, 0), (96, 64), (144, 64),
         (0, 128), (48, 128), (96, 128), (144, 128),
@@ -137,10 +137,10 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         out
     };
 
-    // Eau A (statique, frame 0) : synthèse du gabarit depuis la colonne
-    // x0-15 (tile0 bords T+G+D, tile1 bords G+D+B, tile2 bord T, tile3
-    // pleine eau). Bordures recomposées en bandes de 4 px sur la tile
-    // pleine — approximation correcte pour les rives RM2003.
+    // Water A, flattened to frame 0: the template is synthesised from
+    // column x0-15 (tile 0 has top/left/right edges, tile 1 left/right/
+    // bottom, tile 2 top, tile 3 is open water). Edges are recomposed as
+    // 4 px bands over the open-water tile — close enough for RM2003 shores.
     {
         let tile = |ty: usize| -> [u8; 256] {
             let mut t = [0u8; 256];
@@ -154,7 +154,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         let t0 = tile(0);
         let t1 = tile(1);
         let center = tile(3);
-        // îlot : moitié haute de t0 + moitié basse de t1
+        // island: top half of t0 over bottom half of t1
         let mut island = [0u8; 256];
         island[..128].copy_from_slice(&t0[..128]);
         island[128..].copy_from_slice(&t1[128..]);
@@ -203,13 +203,13 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
                 }
             }
         }
-        let rel = format!("assets/{}_water.png", name);
+        let rel = format!("assets/tilesets/{}_water.png", name);
         write_indexed_png(&assets.join(format!("{}_water.png", name)), 48, 64, &out, &sheet.pal)?;
         auto_paths.push(rel);
     }
 
     for (k, &(bx, by)) in ground.iter().enumerate() {
-        let rel = format!("assets/{}_a{}.png", name, k);
+        let rel = format!("assets/tilesets/{}_a{}.png", name, k);
         write_indexed_png(
             &assets.join(format!("{}_a{}.png", name, k)),
             48,
@@ -220,7 +220,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
         auto_paths.push(rel);
     }
 
-    // --- sidecar : eau solide par défaut, le reste se règle dans l'éditeur
+    // --- sidecar: water is solid by default, the rest is set in the editor
     let sidecar = format!(
         "{{\n  \"autotiles\": [{}],\n  \"solid\": [1000],\n  \"above\": [],\n  \"upper_start\": 144\n}}\n",
         auto_paths
@@ -233,7 +233,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
     std::fs::write(&sidecar_path, sidecar)?;
     println!("  {}", sidecar_path.display());
 
-    // --- project.json : ajout du tileset -------------------------------
+    // --- project.json: register the tileset ------------------------------
     let pj_path = proj_dir.join("project.json");
     let mut pj: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&pj_path).context("project.json")?)?;
@@ -244,7 +244,7 @@ pub fn import(chipset: &Path, proj_dir: &Path, name: &str) -> Result<()> {
     } else {
         list
     };
-    let rel = format!("assets/{}.png", name);
+    let rel = format!("assets/tilesets/{}.png", name);
     if !list.iter().any(|v| v.as_str() == Some(rel.as_str())) {
         list.push(serde_json::Value::String(rel));
     }

@@ -1,9 +1,9 @@
-// Fenêtre « Écrans composés » (Tools →, B6bis) : compositions
-// visuelles jouées par la commande « Aller à l'écran ». Un écran =
-// un fond (picture) + jusqu'à 5 images posées À LA SOURIS (slots) +
-// un script (les mêmes commandes que les events) lancé à l'ouverture.
-// Sucre d'éditeur : datagen déroule le tout en commandes stage (B3)
-// — le moteur ne voit rien de nouveau.
+// "Écrans composés" window (Tools >, B6bis): visual compositions played
+// by the "Aller à l'écran" command. A screen = a background (picture) +
+// up to 5 images laid out WITH THE MOUSE (slots) + a script (the same
+// commands as the events) run when it opens.
+// Editor sugar: datagen unrolls the whole thing into stage commands (B3)
+// — the engine sees nothing new.
 
 import { useEffect, useRef, useState } from "react";
 import type { Scene, Screen, ScreenSlot } from "../types";
@@ -13,9 +13,9 @@ import { loadAssetPng } from "../io";
 
 interface Props {
   root: string;
-  screenNames: string[]; // ordre du projet
+  screenNames: string[]; // project order
   screens: Record<string, Screen>;
-  picturePaths: Record<string, string>; // stem -> chemin assets/
+  picturePaths: Record<string, string>; // stem -> assets/ path
   sceneNames: string[];
   scenes: Record<string, Scene>;
   switchNames: string[];
@@ -24,7 +24,7 @@ interface Props {
   db: Database | null;
   uiWidgets: string[];
   uiStyles: string[];
-  texts: import("../types").TextEntry[]; // catalogue (msg par référence, T2)
+  texts: import("../types").TextEntry[]; // catalogue (msg by reference, T2)
   pictures: string[];
   tintPresets: import("../types").TintPreset[];
   soundNames: string[];
@@ -59,7 +59,7 @@ export default function ScreensModal(props: Props) {
     setDraft({ ...draft, [name]: { ...draft[name], ...p } });
   };
 
-  // charge les bitmaps du fond et des images posées (cache par stem)
+  // loads the bitmaps of the background and the laid images (cached by stem)
   useEffect(() => {
     if (!cur) return;
     const want = [cur.backdrop, ...cur.slots.map((s) => s.pic)].filter(
@@ -72,7 +72,7 @@ export default function ScreensModal(props: Props) {
     }
   }, [cur, bmps, props.root, props.picturePaths]);
 
-  // rendu du canvas (échelle 2, comme la console)
+  // canvas rendering (scale 2, like the console)
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !cur || tab !== "compo") return;

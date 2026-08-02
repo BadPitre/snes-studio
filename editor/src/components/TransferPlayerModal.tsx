@@ -1,9 +1,9 @@
-// Fenêtre « Téléporter » — calquée sur le dialogue Transfer Player de
-// RM2003 : arbre des scènes à gauche, aperçu de la scène sélectionnée à
-// droite (clic = tile d'arrivée, carré blanc), radios Direction
-// (Conserver / Haut / Droite / Bas / Gauche) et zoom 1/1, 1/2, 1/4.
-// Utilisée pour créer/éditer les WARPS de tile (v0.16 : direction
-// d'arrivée dans WarpDef.flags).
+// "Téléporter" window — modelled on RM2003's Transfer Player dialogue:
+// the scene tree on the left, a preview of the selected scene on the
+// right (click = the arrival tile, a white square), Direction radios
+// (Keep / Up / Right / Down / Left) and zoom 1/1, 1/2, 1/4.
+// Used to create and edit the tile WARPS (v0.16: the arrival direction
+// lives in WarpDef.flags).
 
 import { useEffect, useRef, useState } from "react";
 import type { Direction, Scene, ScreenTrans, TilesetMeta, Warp } from "../types";
@@ -11,13 +11,13 @@ import { AUTOTILE_BASE, EMPTY_TILE, TRANS_OPTIONS, assetStem } from "../types";
 import { drawAutotileCell } from "../autotile";
 
 interface Props {
-  warp: Warp; // valeurs initiales (to/tx/ty/dir/trans)
-  sceneNames: string[]; // ordre du projet
+  warp: Warp; // initial values (to/tx/ty/dir/trans)
+  sceneNames: string[]; // project order
   scenes: Record<string, Scene>;
-  tilesets: Record<string, ImageBitmap>; // par stem
-  autoImgs: Record<string, ImageBitmap[]>; // autotiles par stem
+  tilesets: Record<string, ImageBitmap>; // by stem
+  autoImgs: Record<string, ImageBitmap[]>; // autotiles by stem
   tilesetMeta: Record<string, TilesetMeta>;
-  defaultTileset: string; // stem du tileset par défaut du projet
+  defaultTileset: string; // stem of the project's default tileset
   onOk: (patch: Pick<Warp, "to" | "tx" | "ty" | "dir" | "trans">) => void;
   onClose: () => void;
 }
@@ -36,12 +36,12 @@ export default function TransferPlayerModal(props: Props) {
   const [ty, setTy] = useState(props.warp.ty);
   const [dir, setDir] = useState<Direction | "">(props.warp.dir ?? "");
   const [trans, setTrans] = useState<ScreenTrans>(props.warp.trans ?? "fade");
-  const [zoom, setZoom] = useState(0.5); // 1/2 par défaut, comme RM2003
+  const [zoom, setZoom] = useState(0.5); // 1/2 by default, like RM2003
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dest = props.scenes[to];
 
-  // arbre : scènes racines puis enfants (une profondeur, comme la barre
-  // latérale) — l'indentation suffit à lire la hiérarchie
+  // tree: root scenes then children (one level deep, like the sidebar) —
+  // the indentation is enough to read the hierarchy
   const ordered: { name: string; depth: number }[] = [];
   for (const n of props.sceneNames) {
     if (!props.scenes[n]?.parent) {
@@ -96,7 +96,7 @@ export default function TransferPlayerModal(props: Props) {
       drawLayer(dest.tilemap);
       drawLayer(dest.upper);
     }
-    // tile d'arrivée : carré blanc (repère RM2003)
+    // arrival tile: a white square (an RM2003 cue)
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = 2;
     ctx.strokeRect(tx * TS + 1, ty * TS + 1, TS - 2, TS - 2);
@@ -216,7 +216,7 @@ export default function TransferPlayerModal(props: Props) {
   );
 }
 
-// stem du tileset par défaut d'un projet (première entrée)
+// stem of a project's default tileset (the first entry)
 export function defaultTilesetStem(paths: string[]): string {
   return assetStem(paths[0] ?? "");
 }

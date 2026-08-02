@@ -1,11 +1,11 @@
 /*
- * ui_screen.c — tampon unique de la couche UI (BG3, Phase 12 cran M1).
+ * ui_screen.c — the single buffer of the UI layer (BG3).
  *
- * Avant M1, BG3 avait trois écrivains à shadows disjoints (textbox,
- * ui_overlay, timer) qui pouvaient s'écraser mutuellement et figeaient
- * les fenêtres permanentes dans la bande du haut. Ici : un tampon WRAM
- * de tout l'écran, chacun y compose sa zone, et le VBlank transfère le
- * span contigu des rangées sales (64 octets par rangée).
+ * BG3 used to have three writers with disjoint shadows (textbox,
+ * ui_overlay, timer) that could overwrite one another, which is why
+ * the permanent windows were frozen into the top band. Here: one WRAM
+ * buffer for the whole screen, each module composes its area, and the
+ * VBlank transfers the contiguous span of dirty rows (64 bytes each).
  */
 #include <snes.h>
 #include "vram.h"
@@ -13,18 +13,18 @@
 #include "vbudget.h"
 
 u16 ui_map[32 * UI_ROWS];
-static u8 ui_lo, ui_hi; /* span sale — lo > hi = rien à transférer */
+static u8 ui_lo, ui_hi; /* dirty span — lo > hi means nothing to transfer */
 
 void ui_screen_init(void)
 {
   u16 i;
 
-  for (i = 0; i < 32 * UI_ROWS; i++) /* init EXPLICITE (statics tcc) */
+  for (i = 0; i < 32 * UI_ROWS; i++) /* EXPLICIT init (tcc statics) */
     ui_map[i] = 0;
   ui_lo = 255;
   ui_hi = 0;
-  /* Map VRAM entière transparente : les 28 rangées du tampon, puis les
-     4 rangées hors écran de la map 32x32 (recopie du début — zéros) */
+  /* Whole VRAM map transparent: the buffer's 28 rows, then the 4
+     off-screen rows of the 32x32 map (a copy of the start — zeros) */
   dmaCopyVram((u8 *)ui_map, VRAM_BG3_MAP, 32 * UI_ROWS * 2);
   dmaCopyVram((u8 *)ui_map, VRAM_BG3_MAP + 32 * UI_ROWS, 32 * 4 * 2);
 }
@@ -63,19 +63,18 @@ void ui_screen_vblank(void)
 
   if (ui_lo > ui_hi)
     return;
-  /* Seul consommateur qui n'avait AUCUN plafond : un dialogue qui
-     repeint toute la couche pousse 28 rangees = 1792 octets d'un coup,
-     soit une douzaine de lignes, juste avant les vignettes. Il se
-     DECOUPE plutot que de renoncer — le texte reste lisible s'il
-     apparait par tranches, il ne le serait pas s'il sautait une frame
-     entiere de temps en temps. */
+  /* The only consumer that had NO ceiling: a dialogue repainting the
+     whole layer pushes 28 rows, 1792 bytes at once — about a dozen
+     lines, right before the vignettes. It SPLITS itself rather than
+     give up: text stays readable arriving in slices, and would not if
+     it skipped a whole frame now and then. */
   want = (u8)(ui_hi - ui_lo + 1);
   fit = VBL_UI_ROWS(vbl_left());
   if (fit == 0)
-    return; /* rien ne tient : le span reste sale, on repassera */
+    return; /* nothing fits: the span stays dirty, we come back */
   if (fit < want)
     want = fit;
-  ofs = (u16)ui_lo << 5; /* 32 entrées par rangée */
+  ofs = (u16)ui_lo << 5; /* 32 entries per row */
   dmaCopyVram((u8 *)ui_map + (ofs << 1), VRAM_BG3_MAP + ofs,
               (u16)want << 6);
   (void)vbl_take(VBL_COST_UI(want));

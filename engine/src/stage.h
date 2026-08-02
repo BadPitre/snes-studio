@@ -1,19 +1,19 @@
 /*
- * stage.h — ÉCRAN COMPOSÉ (B3) : fond plein écran + images posées.
+ * stage.h — the COMPOSED SCREEN: a full-screen background plus posed
+ * images.
  *
- * Un « écran composé » remplace la vue de la scène par un fond (une
- * picture opaque sur BG2) sur lequel l'auteur POSE jusqu'à 5 images à
- * transparence (pictures) sur BG1, chacune avec SA palette — l'écran
- * de combat façon FF (fond + monstres), mais générique : plateau de
- * jeu, carte du monde, visual novel. Les dialogues, choix et widgets
- * (BG3) continuent de fonctionner par-dessus ; les sprites de la
- * scène (héros, PNJ) sont cachés le temps de l'écran (les vignettes
- * B5 fourniront les sprites libres).
+ * A composed screen replaces the scene's view with a background — an
+ * opaque picture on BG2 — on which the author POSES up to 5
+ * transparent images on BG1, each with ITS OWN palette. That is the
+ * FF-style battle screen (background plus monsters), but generic: a
+ * game board, a world map, a visual novel. Dialogues, choices and
+ * widgets (BG3) keep working on top; the scene's sprites (hero, NPCs)
+ * are hidden for the duration, and vignettes provide the free sprites.
  *
- * Fermer l'écran = WARP INTERNE vers la scène courante (recette
- * do_warp éprouvée) : décor, sprites, palettes, ambiances et musique
- * de la scène reviennent d'un bloc. Les positions des PNJ déplacés
- * reviennent à leurs pages (comme après un warp — documenté).
+ * Closing the screen is an INTERNAL WARP to the current scene, reusing
+ * the proven do_warp recipe: scenery, sprites, palettes, ambience and
+ * music all come back at once. Moved NPCs return to their pages, just
+ * as after a warp — documented behaviour.
  */
 #ifndef STAGE_H
 #define STAGE_H
@@ -22,36 +22,36 @@
 
 #define STAGE_SLOTS 5
 
-/* L'écran composé est affiché (les *_draw de la boucle sont gelés). */
+/* The composed screen is up (the loop's *_draw calls are frozen). */
 u8 stage_active(void);
 
-/* Un transfert de pose/retrait est en cours (la VM attend dessus). */
+/* A pose or clear transfer is in progress (the VM waits on it). */
 u8 stage_busy(void);
 
-/* Commandes VM (différées/étalées — jamais de gros DMA hors VBlank).
-   trans (S18) : 0 fondu, 1 instantané, 2 mosaïque. */
-void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans); /* 0xFF = noir */
+/* VM commands, deferred and spread out — never a large DMA outside the
+   VBlank. trans: 0 fade, 1 instant, 2 mosaic. */
+void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans); /* 0xFF = black */
 void stage_request_close(u8 fade_dur, u8 trans);
-/* Transition de la dernière fermeture — pour le warp interne (do_warp) */
+/* Transition of the last close, for the internal warp (do_warp) */
 u8 stage_close_trans(void);
-void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty); /* position en TILES */
+void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty); /* position in TILES */
 void stage_clear(u8 slot);
 
-/* Effet de PALETTE sur une image posée (B4) — NON bloquant :
-   fx 0 = restaurer, 1 = flash blanc (dur frames), 2 = fondu vers noir
-   (mort, dur frames, demi-teintes), 3 = assombrir d'un cran
-   (persistant). Seul CE slot est touché (une palette par slot). */
+/* PALETTE effect on a posed image — NON-blocking. fx 0 restores, 1 is a
+   white flash (dur frames), 2 fades to black (death; dur frames, half
+   tints), 3 darkens one notch and persists. Only THAT slot is touched:
+   one palette per slot. */
 void stage_slotfx(u8 slot, u8 fx, u8 dur);
 
-/* Ouverture/fermeture depuis la BOUCLE PRINCIPALE (recette picture) */
+/* Opening and closing from the MAIN LOOP (the picture recipe) */
 void stage_apply(void);
-/* Fermeture demandée : la boucle exécute le warp interne (do_warp) */
+/* Close requested: the loop runs the internal warp (do_warp) */
 u8 stage_take_close(void);
-/* Reset sans restauration (un vrai warp pendant l'écran) — recette
-   picture_reset : scene_load recharge tout derrière */
+/* Reset without restoring (a real warp during the screen) — the
+   picture_reset recipe: scene_load reloads everything behind it */
 void stage_reset(void);
 
-/* Un pas des transferts étalés (boucle principale) + écritures VBlank */
+/* One step of the spread-out transfers (main loop) plus VBlank writes */
 void stage_update(void);
 void stage_vblank(void);
 

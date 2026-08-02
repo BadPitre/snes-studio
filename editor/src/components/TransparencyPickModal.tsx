@@ -1,8 +1,8 @@
-// Sélecteur de couleur transparente à l'import (S4, demande Bertrand) :
-// l'image choisie s'affiche, on CLIQUE la couleur à traiter comme
-// transparente — l'aperçu la remplace par un damier. « Aucune » importe
-// l'image telle quelle. La transformation (pixels → alpha 0) est faite
-// par applyTransparency ; datagen reconnaît l'alpha (index 0 réservé).
+// Transparent colour picker at import (S4): the chosen image is shown,
+// you CLICK the colour to treat as transparent — the preview replaces it
+// with a chequerboard. "Aucune" imports the image as is. The transform
+// (pixels -> alpha 0) is done by applyTransparency; datagen recognises
+// the alpha (index 0 reserved).
 
 import { useEffect, useRef, useState } from "react";
 
@@ -10,12 +10,12 @@ export type Rgb = [number, number, number];
 
 interface Props {
   bmp: ImageBitmap;
-  // couleur cliquée (ou null = sans transparence) — Valider envoie l'état
+  // clicked colour (or null = no transparency) — Valider sends the state
   onOk: (color: Rgb | null) => void;
-  onClose: () => void; // annule l'import
+  onClose: () => void; // cancels the import
 }
 
-// damier « pixel transparent » (même rendu que les éditeurs d'image)
+// "transparent pixel" chequerboard (the same look as image editors)
 function checker(ctx: CanvasRenderingContext2D, x: number, y: number, s: number) {
   ctx.fillStyle = "#9a9a9a";
   ctx.fillRect(x, y, s, s);
@@ -40,7 +40,7 @@ export default function TransparencyPickModal(props: Props) {
     if (!cv) return;
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
-    // pixels source (une seule lecture)
+    // source pixels (a single read)
     if (!dataRef.current) {
       const tmp = document.createElement("canvas");
       tmp.width = w;
@@ -72,7 +72,7 @@ export default function TransparencyPickModal(props: Props) {
     const dd = dataRef.current;
     if (!dd || x < 0 || y < 0 || x >= w || y >= h) return null;
     const i = (y * w + x) * 4;
-    if (dd.data[i + 3] < 128) return null; // déjà transparent
+    if (dd.data[i + 3] < 128) return null; // already transparent
     return [dd.data[i], dd.data[i + 1], dd.data[i + 2]];
   };
 
@@ -129,9 +129,9 @@ export default function TransparencyPickModal(props: Props) {
   );
 }
 
-// Réécrit un PNG avec la couleur donnée percée en alpha 0 (le format de
-// sortie est un PNG RGBA — datagen indexe automatiquement, alpha < 128 =
-// index 0 transparent). Retourne les octets du nouveau PNG.
+// Rewrites a PNG with the given colour punched to alpha 0 (the output
+// format is an RGBA PNG — datagen indexes automatically, alpha < 128 =
+// index 0, transparent). Returns the bytes of the new PNG.
 export async function applyTransparency(
   bytes: Uint8Array,
   color: Rgb

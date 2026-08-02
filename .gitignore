@@ -19,6 +19,7 @@ engine/src/data/*.ps
 # ... sauf les .asm ECRITS A LA MAIN, qui n'ont pas de .c du meme nom
 !engine/src/actorsfast.asm
 !engine/src/vbudgetfast.asm
+!engine/src/vramfast.asm
 linkfile
 soundbank.asm
 soundbank.bnk
@@ -30,3 +31,6 @@ editor/public/project
 tools/regress/snes9x_libretro.*
 tools/regress/harness
 tools/regress/out/
+
+# captures du smoke test de l'editeur (tools/gate-editor.sh)
+editor/tools/smoke-out/

@@ -1,17 +1,18 @@
 /*
- * map.c — fenêtre VRAM + streaming des tilemaps des deux couches.
+ * map.c — the VRAM window and the streaming of both tilemap layers.
  *
- * BG2 = couche inférieure (sol), BG1 = couche supérieure. Les deux couches
- * partagent charset, palette, fenêtre et scroll ; seule la couche sup
- * applique la table de priorités (☆ → bit 0x2000, devant les sprites).
+ * BG2 is the lower layer (ground), BG1 the upper one. Both share the
+ * charset, the palette, the window and the scroll; only the upper layer
+ * applies the priority table (bit 0x2000, in front of the sprites).
  *
- * Adressage SC_64x64 : 4 écrans consécutifs de 32x32 mots
- * (0=haut-gauche, 1=haut-droit, 2=bas-gauche, 3=bas-droit).
- * Char (X,Y) 0..63 → écran (X>>5) + ((Y>>5)<<1), offset (Y&31)*32 + (X&31).
+ * SC_64x64 addressing: 4 consecutive screens of 32x32 words
+ * (0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right).
+ * Char (X,Y) in 0..63 maps to screen (X>>5) + ((Y>>5)<<1), at offset
+ * (Y&31)*32 + (X&31).
  *
- * Le BG hardware boucle sur 512 px : la fenêtre est exactement la zone de
- * wrap, donc char VRAM = coordonnée map (mod 64) et les registres de scroll
- * reçoivent la position caméra telle quelle.
+ * The BG hardware wraps at 512 px and the window is exactly that wrap
+ * area: a VRAM char equals the map coordinate mod 64, and the scroll
+ * registers take the camera position as it is.
  */
 #include <snes.h>
 #include "formats.h"
@@ -20,51 +21,51 @@
 #include "map.h"
 #include "vbudget.h"
 #include "vram.h"
+#include "vramjob.h"
 #include "effectlayer.h"
 
-#define WIN_W 32     /* fenêtre en metatiles = tilemap SC_64x64 complet */
+#define WIN_W 32     /* window in metatiles = one full SC_64x64 tilemap */
 #define WIN_H 32
-#define WIN_MARGIN 8 /* avance de la fenêtre sur le bord visible */
+#define WIN_MARGIN 8 /* how far ahead of the visible edge the window runs */
 
-/* Bit de priorité d'une entrée BG ($2105) — tiles ☆ de la couche sup */
+/* BG priority bit of a map entry ($2105) — upper-layer tiles drawn in front */
 #define BG_PRIO 0x2000
 
-/* $2115 : incrément VRAM après octet haut, +1 mot (lignes) / +32 mots
-   (colonnes). $4300/01 : mode 1 (2 registres), gate $2118 (cf dmaCopyVram) */
-#define VMAIN_INC1 0x80
-#define VMAIN_INC32 0x81
-#define DMA_VRAM_CTRL 0x1801
+/* Transfer plans, built by map_queue_col/row and fired by map_vblank.
+   Defined further down, next to map_vblank. */
+static void map_plan_col(u16 j, u16 base_vram, u16 bx, u16 *buf);
+static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf);
 
-/* Tables courantes du tileset (voir map_set_metatiles) */
+/* Current tileset tables (see map_set_metatiles) */
 static const u16 *mt_table;
 static const u8 *prio_table;
 
-/* Priorité forcée de la couche basse (S17) : BG_PRIO quand un panorama
-   est actif — la couche basse (BG2.1) couvre alors le motif BG1 basse
-   priorité, sauf sur les tuiles gommées. 0 sinon (rendu inchangé). */
+/* Forced priority of the lower layer: BG_PRIO when a panorama is
+   active, so the lower layer covers the low-priority BG1 pattern behind
+   it — except on erased tiles. 0 leaves the rendering unchanged. */
 static u16 lo_prio;
 
-/* Coin haut-gauche de la fenêtre, en metatiles */
+/* Top-left corner of the window, in metatiles */
 static u16 win_x, win_y;
 
-/* Fenêtre complète pour le remplissage initial (écran éteint) — réutilisée
-   pour les deux couches, un DMA à la fois */
+/* Full window for the initial fill (screen off), reused for both
+   layers, one DMA at a time */
 static u16 bg_map_buffer[4096];
 
-/* Buffers de streaming, indexés par coordonnée char VRAM absolue (0..63).
-   Une colonne/ligne de metatiles = 2 colonnes/lignes de chars DISTINCTS
-   (table de metatiles) : un buffer par colonne/ligne de chars, par couche
-   (lo = inférieure/BG2, up = supérieure/BG1). */
+/* Streaming buffers, indexed by absolute VRAM char coordinate (0..63).
+   One metatile column or row is 2 columns or rows of DISTINCT chars (the
+   metatile table), so there is one buffer per char column or row, per
+   layer (lo = lower/BG2, up = upper/BG1). */
 static u16 col_lo[2][64], col_up[2][64];
 static u16 row_lo[2][64], row_up[2][64];
 static u8 col_pending, row_pending;
-static u16 col_vram_x; /* colonne char VRAM (paire, 0..62) */
-static u16 row_vram_y; /* ligne char VRAM (paire, 0..62) */
+static u16 col_vram_x; /* VRAM char column (even, 0..62) */
+static u16 row_vram_y; /* VRAM char row (even, 0..62) */
 
-/* Position cible de la fenêtre pour une caméra donnée (caméra déjà clampée
-   aux bords de map par camera_update — piège kit §8). Une map plus petite
-   que la fenêtre (min 20x15 depuis la v0.4) tient entièrement dedans :
-   fenêtre fixe à 0, pas de streaming sur cet axe. */
+/* Target window position for a given camera. The camera is already
+   clamped to the map edges by camera_update. A map smaller than the
+   window fits entirely inside it: the window stays at 0 and that axis
+   never streams. */
 static u16 map_win_target(u16 cam, u8 map_size)
 {
   u16 t;
@@ -87,8 +88,8 @@ void map_set_metatiles(const u16 *table, const u8 *prio)
   prio_table = prio;
 }
 
-/* Remplit bg_map_buffer avec la fenêtre d'une couche et la transfère.
-   prio = 0 pour la couche inf, 1 pour appliquer la table de priorités. */
+/* Fills bg_map_buffer with one layer's window and transfers it.
+   with_prio = 0 for the lower layer, 1 to apply the priority table. */
 static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
 {
   u16 mx, my, amx, amy, bx, by, entry, screen, ofs, pr;
@@ -101,8 +102,8 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
     for (mx = 0; mx < WIN_W; mx++)
     {
       amx = win_x + mx;
-      /* hors map (map plus petite que la fenêtre) : char 0 transparent —
-         jamais visible, la caméra est clampée aux bords de map */
+      /* Off-map (map smaller than the window): char 0, transparent and
+         never visible — the camera is clamped to the map edges. */
       if (amy >= scene_ctx.map_h || amx >= scene_ctx.map_w)
       {
         for (by = (amy << 1) & 63; by <= ((amy << 1) & 63) + 1; by++)
@@ -116,8 +117,8 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
         }
         continue;
       }
-      entry = (u16)(*src) << 2; /* base dans la table de metatiles */
-      pr = with_prio ? 0 : lo_prio; /* couche basse : priorité si panorama */
+      entry = (u16)(*src) << 2; /* base in the metatile table */
+      pr = with_prio ? 0 : lo_prio; /* lower layer: priority when a panorama is up */
       if (with_prio && prio_table[*src])
         pr = BG_PRIO;
       src++;
@@ -138,9 +139,9 @@ static void map_fill_layer(const u8 *tilemap, u16 vram, u8 with_prio)
 
 void map_init(void)
 {
-  /* Panorama (S17) : la couche basse passe en priorité pour couvrir le
-     motif BG1 (basse priorité) derrière elle — sauf sur les tuiles
-     gommées, qui laissent voir le panorama. 0 = rendu inchangé. */
+  /* Panorama: the lower layer switches to priority so it covers the
+     low-priority BG1 pattern behind it — except on erased tiles, which
+     let the panorama show. 0 leaves the rendering unchanged. */
   lo_prio = effect_is_back() ? BG_PRIO : 0;
   win_x = map_win_target(camera.x, scene_ctx.map_w);
   win_y = map_win_target(camera.y, scene_ctx.map_h);
@@ -148,13 +149,13 @@ void map_init(void)
   row_pending = 0;
 
   map_fill_layer(scene_ctx.tilemap, VRAM_BG2_MAP, 0);
-  /* Couche d'effet (S9) : la région VRAM de la carte BG1 porte le motif
-     — la couche sup n'existe pas dans ces scènes, NE PAS y écrire */
+  /* Effect layer: the BG1 map region carries the pattern. The upper
+     layer does not exist in those scenes — do NOT write there. */
   if (!effect_active())
     map_fill_layer(scene_ctx.tilemap_upper, VRAM_BG1_MAP, 1);
 }
 
-/* Prépare la colonne de metatiles mx (rangées win_y..win_y+31), 2 couches */
+/* Prepares metatile column mx (rows win_y..win_y+31), both layers */
 static void map_queue_col(u16 mx)
 {
   u16 my, y, pr;
@@ -166,10 +167,10 @@ static void map_queue_col(u16 mx)
     const u16 *mt;
     const u16 *um;
 
-    y = ((win_y + my) << 1) & 63; /* paire : y+1 <= 63 */
+    y = ((win_y + my) << 1) & 63; /* even, so y+1 <= 63 */
     if (win_y + my >= scene_ctx.map_h)
     {
-      /* hors map (hauteur < fenêtre) : char 0, jamais visible */
+      /* off-map (height < window): char 0, never visible */
       col_lo[0][y] = 0;
       col_lo[0][y + 1] = 0;
       col_lo[1][y] = 0;
@@ -195,10 +196,17 @@ static void map_queue_col(u16 mx)
     usrc += scene_ctx.map_w;
   }
   col_vram_x = (mx << 1) & 63;
+  /* The transfer plan is built HERE, outside the VBlank window: the
+     VBlank block only has to fire it. BG1 comes LAST — the effect layer
+     stops at the fourth transfer. */
+  map_plan_col(VJ_MAP_COL + 0, VRAM_BG2_MAP, col_vram_x, col_lo[0]);
+  map_plan_col(VJ_MAP_COL + 2, VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
+  map_plan_col(VJ_MAP_COL + 4, VRAM_BG1_MAP, col_vram_x, col_up[0]);
+  map_plan_col(VJ_MAP_COL + 6, VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
   col_pending = 1;
 }
 
-/* Prépare la ligne de metatiles my (colonnes win_x..win_x+31), 2 couches */
+/* Prepares metatile row my (columns win_x..win_x+31), both layers */
 static void map_queue_row(u16 my)
 {
   u16 mx, x, pr;
@@ -213,7 +221,7 @@ static void map_queue_row(u16 my)
     x = ((win_x + mx) << 1) & 63;
     if (win_x + mx >= scene_ctx.map_w)
     {
-      /* hors map (largeur < fenêtre) : char 0, jamais visible */
+      /* off-map (width < window): char 0, never visible */
       row_lo[0][x] = 0;
       row_lo[0][x + 1] = 0;
       row_lo[1][x] = 0;
@@ -239,6 +247,10 @@ static void map_queue_row(u16 my)
     usrc++;
   }
   row_vram_y = (my << 1) & 63;
+  map_plan_row(VJ_MAP_ROW + 0, VRAM_BG2_MAP, row_vram_y, row_lo[0]);
+  map_plan_row(VJ_MAP_ROW + 2, VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
+  map_plan_row(VJ_MAP_ROW + 4, VRAM_BG1_MAP, row_vram_y, row_up[0]);
+  map_plan_row(VJ_MAP_ROW + 6, VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
   row_pending = 1;
 }
 
@@ -247,9 +259,9 @@ void map_update(void)
   u16 tx = map_win_target(camera.x, scene_ctx.map_w);
   u16 ty = map_win_target(camera.y, scene_ctx.map_h);
 
-  /* 1 pas max par frame et par axe (caméra à 1 px/frame : garanti).
-     Les deux fenêtres sont mises à jour AVANT de préparer les buffers,
-     pour que colonne et ligne couvrent la fenêtre finale. */
+  /* At most one step per frame and per axis — guaranteed, the camera
+     moves 1 px per frame. Both windows are updated BEFORE the buffers
+     are prepared, so column and row cover the final window. */
   if (ty > win_y)
   {
     win_y++;
@@ -273,53 +285,59 @@ void map_update(void)
   }
 }
 
-/* Une colonne char : 2 segments verticaux (écran haut : rangées 0-31,
-   écran bas : rangées 32-63), incrément VRAM +32 mots */
-static void map_col_dma(u16 base_vram, u16 bx, u16 *buf)
+/* Queues the TWO vertical segments of a char column. Top screen is rows
+   0-31, bottom screen rows 32-63; the VRAM address advances by 32 words
+   between two rows. */
+static void map_plan_col(u16 j, u16 base_vram, u16 bx, u16 *buf)
 {
   u16 base = base_vram + ((bx >> 5) << 10) + (bx & 31);
 
-  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC32, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&buf[32], base + (2 << 10), 32 * 2, VMAIN_INC32,
-               DMA_VRAM_CTRL);
+  vj_set(j, (const u8 *)&buf[0], base, 32 * 2);
+  vj_set(j + 1, (const u8 *)&buf[32], base + (2 << 10), 32 * 2);
 }
 
-/* Une ligne char : 2 segments horizontaux (écran gauche, écran droit),
-   incrément VRAM +1 mot */
-static void map_row_dma(u16 base_vram, u16 by, u16 *buf)
+/* Same for a char row: 2 horizontal segments (left screen, right
+   screen), consecutive words. */
+static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf)
 {
   u16 base = base_vram + (((by >> 5) << 1) << 10) + ((by & 31) << 5);
 
-  dmaCopyVram7((u8 *)&buf[0], base, 32 * 2, VMAIN_INC1, DMA_VRAM_CTRL);
-  dmaCopyVram7((u8 *)&buf[32], base + (1 << 10), 32 * 2, VMAIN_INC1,
-               DMA_VRAM_CTRL);
+  vj_set(j, (const u8 *)&buf[0], base, 32 * 2);
+  vj_set(j + 1, (const u8 *)&buf[32], base + (1 << 10), 32 * 2);
 }
 
 void map_vblank(void)
 {
-  /* Colonne et rangee se demandent leur place separement : quand la
-     fenetre est courte, en poser une vaut mieux que n'en poser aucune.
-     Ce qui n'est pas transfere reste marque et repassera. */
-  if (col_pending && vbl_take(VBL_COST_MAPHALF))
+  u16 n;
+
+  /* Most frames have nothing to post: leave before even asking where
+     the effect layer stands. */
+  if (!col_pending && !row_pending)
+    return;
+  /* When the effect layer runs, the BG1 VRAM region carries the pattern
+     and not the upper layer. The plan's last four transfers are exactly
+     the BG1 ones, so it is enough to stop before them. */
+  n = effect_active() ? 4 : 8;
+
+  /* Column and row ask for their room separately: when the window is
+     short, posting one beats posting neither. What is not transferred
+     stays marked and comes back. */
+  if (col_pending && vbl_take(VBL_COST_MAPHALF(n)))
   {
-    map_col_dma(VRAM_BG2_MAP, col_vram_x, col_lo[0]);
-    map_col_dma(VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
-    if (!effect_active()) /* S9 : la région BG1 porte le motif d'effet */
-    {
-      map_col_dma(VRAM_BG1_MAP, col_vram_x, col_up[0]);
-      map_col_dma(VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
-    }
+    vj_first = VJ_MAP_COL;
+    vj_n = n;
+    vj_vmain = VJ_INC32;
+    vj_ctrl = VJ_CTRL_VRAM;
+    vram_burst();
     col_pending = 0;
   }
-  if (row_pending && vbl_take(VBL_COST_MAPHALF))
+  if (row_pending && vbl_take(VBL_COST_MAPHALF(n)))
   {
-    map_row_dma(VRAM_BG2_MAP, row_vram_y, row_lo[0]);
-    map_row_dma(VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
-    if (!effect_active())
-    {
-      map_row_dma(VRAM_BG1_MAP, row_vram_y, row_up[0]);
-      map_row_dma(VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
-    }
+    vj_first = VJ_MAP_ROW;
+    vj_n = n;
+    vj_vmain = VJ_INC1;
+    vj_ctrl = VJ_CTRL_VRAM;
+    vram_burst();
     row_pending = 0;
   }
 }

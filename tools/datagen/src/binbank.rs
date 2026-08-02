@@ -1,11 +1,11 @@
-//! Émission du format binaire byte-exact (spec §1) : blobs de banks ROM
-//! épinglées. LoROM : 32 Ko utiles par bank, adresse CPU $8000-$FFFF.
+//! Emitting the byte-exact binary format (spec §1): blobs of pinned ROM
+//! banks. LoROM gives 32 KB per bank at CPU address $8000-$FFFF.
 //!
-//! - Bank $82 (`scenes.bin`) : Scene Table à $82:8000 + données de scènes.
-//! - Bank $86 (`texts.bin`)  : table d'offsets + chaînes terminées par 0.
+//! - Bank $82 (`scenes.bin`): the Scene Table at $82:8000, then scene data.
+//! - Bank $86 (`texts.bin`):  an offset table, then NUL-terminated strings.
 //!
-//! Pointeur far 24-bit dans les structures : [bank][addr lo][addr hi]
-//! (même ordre que les entrées de la Scene Table, addr little-endian).
+//! A 24-bit far pointer inside a structure is [bank][addr lo][addr hi] —
+//! the same order as the Scene Table entries, address little-endian.
 
 use crate::project;
 use crate::script;
@@ -16,19 +16,19 @@ use std::collections::HashMap;
 pub const BANK_BASE: u16 = 0x8000;
 pub const BANK_CAPACITY: usize = 0x8000;
 
-/// Multi-bank (M1) — banks WLA (CPU = $80 + n) : la TABLE des scènes vit
-/// en bank 2 ($82) et l'en-tête des textes en bank 6 ($86), adresses que
-/// le moteur connaît (rom_layout.h). Les DONNÉES débordent dans des banks
-/// supplémentaires allouées à partir de EXTRA_WLA_FIRST — leurs numéros
-/// voyagent dans les pointeurs far des tables, le moteur les suit sans
-/// rien connaître du découpage. Tenir WLA_BANK_COUNT en phase avec le
-/// ROMBANKS de engine/hdr.asm.
+/// Multi-bank. WLA banks map to CPU $80 + n. The scene TABLE lives in
+/// bank 2 ($82) and the text header in bank 6 ($86) — addresses the
+/// engine knows (rom_layout.h). The DATA spills into extra banks
+/// allocated from EXTRA_WLA_FIRST; their numbers travel inside the far
+/// pointers of the tables, so the engine follows them without knowing
+/// anything about the split. Keep WLA_BANK_COUNT in step with ROMBANKS
+/// in engine/hdr.asm.
 pub const SCENE_WLA_BANK0: u8 = 2;
 pub const TEXT_WLA_BANK0: u8 = 6;
 pub const EXTRA_WLA_FIRST: u8 = 8;
 pub const WLA_BANK_COUNT: u8 = 32; /* ROM 1 Mo */
 
-/// Un pool de banks : blobs parallèles à leurs numéros de bank WLA.
+/// A bank pool: blobs parallel to their WLA bank numbers.
 pub struct BankPool {
     pub blobs: Vec<Vec<u8>>,
     pub wla_banks: Vec<u8>,
@@ -43,7 +43,7 @@ impl BankPool {
     }
 }
 
-/// Alloue une bank supplémentaire du pool commun (scènes puis textes).
+/// Allocates one extra bank from the common pool (scenes, then texts).
 fn alloc_extra(next_extra: &mut u8, what: &str) -> Result<u8> {
     let b = *next_extra;
     if b >= WLA_BANK_COUNT {
@@ -56,9 +56,9 @@ fn alloc_extra(next_extra: &mut u8, what: &str) -> Result<u8> {
     Ok(b)
 }
 
-/// Scene Table v0.2 (spec §1.1) :
+/// Scene Table v0.2 (spec §1.1):
 /// [u16 scene_count][u8 boot_scene_id][u8 reserved]
-/// puis par scène : { u8 bank, u16 addr, u8 reserved }
+/// then per scene: { u8 bank, u16 addr, u8 reserved }
 pub fn build_scene_bank(
     scenes: &[project::Scene],
     grids: &[tileset::SceneGrids],
@@ -75,9 +75,9 @@ pub fn build_scene_bank(
         .enumerate()
         .map(|(i, s)| (s.name.as_str(), i as u8))
         .collect();
-    // Multi-bank (M1) : la bank 0 du pool ($82) porte la Scene Table,
-    // les scènes se placent à la suite (first-fit séquentiel — une scène
-    // est ATOMIQUE : elle tient entière dans une bank)
+    // Bank 0 of the pool ($82) carries the Scene Table and the scenes
+    // follow, placed sequentially first-fit. A scene is ATOMIC: it fits
+    // whole inside one bank.
     let table_size = 4 + scenes.len() * 4;
     let mut pool = BankPool {
         blobs: vec![vec![0u8; table_size]],
@@ -95,9 +95,9 @@ pub fn build_scene_bank(
         let h = sc.height as usize;
         let g = &grids[i];
 
-        // v0.7 : les trois grilles voyagent compressées (RLE) et sont
-        // décompressées au chargement vers les buffers WRAM du moteur —
-        // d'où la limite de cellules par scène.
+        // The three grids travel RLE-compressed and are expanded at load
+        // time into the engine's WRAM buffers — hence the per-scene cell
+        // limit.
         if w * h > MAP_BUF_CELLS {
             bail!(
                 "scene '{}' : {}x{} = {} tiles > {} (budget WRAM de \
@@ -105,8 +105,8 @@ pub fn build_scene_bank(
                 sc.name, w, h, w * h, MAP_BUF_CELLS
             );
         }
-        // Collision dérivée du tileset (spec §1.4) ; les tiles de warp
-        // sont marquées 0x02 par l'outil — et doivent être traversables
+        // Collision derived from the tileset (spec §1.4). Warp tiles are
+        // marked 0x02 by the tool, and must be walkable.
         let mut collision = g.collision.clone();
         for wp in &sc.warps {
             let ofs = wp.y as usize * w + wp.x as usize;
@@ -124,9 +124,9 @@ pub fn build_scene_bank(
         grids_raw += 3 * w * h;
         grids_rle += rle_lower.len() + rle_upper.len() + rle_col.len();
 
-        // Layout de la scène : header 28 o (v0.3), puis tilemap (couche
-        // inf) RLE, tilemap sup RLE, collision RLE, acteurs (8 o),
-        // warps (8 o), scripts
+        // Scene layout: 28-byte header, then the lower tilemap RLE, the
+        // upper tilemap RLE, the collision RLE, actors (8 B), warps (8 B)
+        // and scripts.
         let chunk_len = 28
             + rle_lower.len() + rle_upper.len() + rle_col.len()
             + sc.actors.len() * 16 + sc.warps.len() * 8
@@ -137,7 +137,7 @@ pub fn build_scene_bank(
                 sc.name, chunk_len
             );
         }
-        // first-fit séquentiel : bank courante, sinon une neuve du pool
+        // Sequential first-fit: current bank, else a fresh one from the pool.
         if pool.blobs.last().unwrap().len() + chunk_len > BANK_CAPACITY {
             pool.wla_banks.push(alloc_extra(next_extra, "banks scenes")?);
             pool.blobs.push(Vec::new());
@@ -145,7 +145,7 @@ pub fn build_scene_bank(
         let cpu_bank = 0x80 + *pool.wla_banks.last().unwrap();
         let header_ofs = pool.blobs.last().unwrap().len();
 
-        // Entrée de la Scene Table (bank 0 du pool) : far vers le header
+        // Scene Table entry (pool bank 0): a far pointer to the header.
         let entry = 4 + i * 4;
         pool.blobs[0][entry] = cpu_bank;
         pool.blobs[0][entry + 1..entry + 3]
@@ -159,7 +159,7 @@ pub fn build_scene_bank(
         let warps_ofs = actors_ofs + sc.actors.len() * 16;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
-        // Scene Header (spec §1.2 v0.3 — 28 octets)
+        // Scene Header (spec §1.2 v0.3 — 28 bytes)
         let mut header = [0u8; 28];
         header[0] = 0x01; // scene_type TOP_DOWN
         header[1] = set_ids[i]; // gfx_set_id (v0.4 — gfx compilés par scène)
@@ -188,7 +188,7 @@ pub fn build_scene_bank(
         blob.extend_from_slice(&rle_upper);
         blob.extend_from_slice(&rle_col);
 
-        // Entrées acteurs (spec §1.3 v0.14, 16 octets)
+        // Actor entries (spec §1.3 v0.14, 16 bytes)
         for a in &sc.actors {
             let ofs = match &a.entry {
                 None => 0xFFFFu16,
@@ -196,7 +196,7 @@ pub fn build_scene_bank(
                     format!("scene '{}' : entry '{}' introuvable", sc.name, label)
                 })?,
             };
-            // actor_type (spec §1.3) : 0x01 npc, 0x02 contact, 0x03 auto
+            // actor_type (spec §1.3): 0x01 npc, 0x02 touch, 0x03 auto
             blob.push(match a.kind.as_str() {
                 "npc" => 0x01,
                 "trigger" => 0x02,
@@ -204,9 +204,9 @@ pub fn build_scene_bank(
             });
             blob.push(a.x);
             blob.push(a.y);
-            // sprite_id binaire = SLOT LOCAL dans le sprite set de la
-            // scène (v0.5) — le bloc global du JSON est remappé ici.
-            // 255 = invisible (spec §1.3 v0.8), quel que soit le type.
+            // The binary sprite_id is the LOCAL SLOT in the scene's sprite
+            // set; the JSON's global block is remapped here. 255 means
+            // invisible (spec §1.3 v0.8), whatever the type.
             blob.push(if a.sprite == 255 {
                 255
             } else {
@@ -214,12 +214,12 @@ pub fn build_scene_bank(
             });
             blob.extend_from_slice(&ofs.to_le_bytes());
             blob.push(project::dir_code(&a.dir)?);
-            // v0.10 : flags (bit 7 = page de continuation, bits 0-2 =
-            // type de condition) + condition (spec §1.3)
+            // flags (bit 7 = continuation page, bits 0-2 = condition type)
+            // plus the condition itself (spec §1.3)
             blob.push(if a.cont { 0x80 } else { 0 } | a.cond_type | (a.move_type << 3));
             blob.extend_from_slice(&a.cond_idx.to_le_bytes());
             blob.extend_from_slice(&a.cond_val.to_le_bytes());
-            // v0.14 : priorité | vitesse<<4, réservé, route custom
+            // priority | speed<<4, reserved, custom route
             blob.push(a.priority | (a.speed << 4));
             blob.push(0);
             let rofs = match &a.route_label {
@@ -231,7 +231,7 @@ pub fn build_scene_bank(
             blob.extend_from_slice(&rofs.to_le_bytes());
         }
 
-        // Entrées warps (spec §1.5, 8 octets)
+        // Warp entries (spec §1.5, 8 bytes)
         for wp in &sc.warps {
             let dest = *scene_ids.get(wp.to.as_str()).with_context(|| {
                 format!("scene '{}' : warp vers scene inconnue '{}'", sc.name, wp.to)
@@ -248,13 +248,13 @@ pub fn build_scene_bank(
             blob.push(dest);
             blob.push(wp.tx);
             blob.push(wp.ty);
-            // flags (v0.16) : bits 0-2 = direction d'arrivée du héros
-            // (0 = conserver, 1-4 = DIR_* + 1)
+            // flags bits 0-2 hold the hero's arrival direction:
+            // 0 keeps the current one, 1-4 are DIR_* + 1.
             blob.push(match &wp.dir {
                 None => 0,
                 Some(d) => crate::project::dir_code(d)? + 1,
             });
-            // trans (S18) : 0 fondu, 1 instantané, 2 mosaïque
+            // trans: 0 fade, 1 instant, 2 mosaic
             blob.push(crate::project::trans_code(&wp.trans)?);
             blob.push(0);
         }
@@ -277,8 +277,8 @@ fn write_far(dst: &mut [u8], bank: u8, offset: usize) {
     dst[1..3].copy_from_slice(&addr.to_le_bytes());
 }
 
-/// Grilles de scène compressées en RLE (v0.7) : paires [count 1-255][valeur],
-/// décodées au chargement de scène vers les buffers WRAM du moteur.
+/// Scene grids RLE-compressed as [count 1-255][value] pairs, expanded at
+/// scene load into the engine's WRAM buffers.
 fn rle_encode(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -295,22 +295,23 @@ fn rle_encode(data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Budget WRAM du moteur pour une grille décompressée (scene.c)
+/// The engine's WRAM budget for one expanded grid (scene.c).
 pub const MAP_BUF_CELLS: usize = 8192;
 
-/// Codes speciaux des textes (modele RM2003, spec §2) — encodes en octets
-/// de controle < 0x20 AVANT le DTE (opaques pour le dictionnaire) :
-///   \v[n] -> [0x01][n+1]  afficher la variable n (0-254) en decimal
-///   \s[n] -> [0x02][n+1]  vitesse : n frames par caractere (0-19,
-///                          0 = instantane jusqu'a la fin)
-///   \.    -> [0x03]       pause courte (1/4 s)
-///   \|    -> [0x04]       pause longue (1 s)
-///   \!    -> [0x05]       attendre un appui sur A avant de continuer
-///   \^    -> [0x06]       le message se ferme sans appui a la fin
-///   \>    -> [0x07]       debut d'affichage instantane
-///   \<    -> [0x08]       fin d'affichage instantane
-///   \\    -> '\\'          backslash litteral
-/// (n+1 : jamais d'octet nul dans une chaine.)
+/// Special text codes (RM2003 model, spec §2), encoded as control bytes
+/// below 0x20 BEFORE the DTE pass so the dictionary treats them as
+/// opaque:
+///   \v[n] -> [0x01][n+1]  print variable n (0-254) in decimal
+///   \s[n] -> [0x02][n+1]  speed: n frames per character (0-19; 0 runs
+///                          instantly to the end)
+///   \.    -> [0x03]       short pause (1/4 s)
+///   \|    -> [0x04]       long pause (1 s)
+///   \!    -> [0x05]       wait for A before continuing
+///   \^    -> [0x06]       the message closes without a keypress
+///   \>    -> [0x07]       start of instant display
+///   \<    -> [0x08]       end of instant display
+///   \\    -> '\\'          a literal backslash
+/// The +1 on the parameter byte is what keeps a NUL out of the string.
 fn escape_codes(name: &str, s: &str) -> Result<Vec<u8>> {
     let b = s.as_bytes();
     let mut out = Vec::new();
@@ -372,8 +373,8 @@ fn escape_codes(name: &str, s: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Un octet de controle et son parametre eventuel : 0x01/0x02 sont suivis
-/// d'un octet (qui peut valoir n'importe quoi — jamais une paire DTE).
+/// A control byte and its optional parameter: 0x01 and 0x02 are followed
+/// by one byte, which may hold anything — it is never a DTE pair.
 fn ctrl_len(b: u8) -> usize {
     match b {
         0x01 | 0x02 => 2,
@@ -382,11 +383,11 @@ fn ctrl_len(b: u8) -> usize {
     }
 }
 
-/// Bank textes (spec §2 v0.7) — chaînes compressées par dictionnaire de
-/// bigrammes (DTE) : les codes 0x80-0xFF désignent une PAIRE de caractères
-/// ASCII de la table (256 octets), décodée à la volée par la textbox.
-/// [u16 text_count][u16 offset × N (relatifs au debut de bank)]
-/// [table de paires : 128 × 2 octets][chaines encodees \0]
+/// Text bank (spec §2 v0.7). Strings are compressed with a bigram
+/// dictionary (DTE): codes 0x80-0xFF stand for a PAIR of ASCII characters
+/// from a 256-byte table, decoded on the fly by the textbox.
+/// [u16 text_count][u16 offset x N, relative to the bank start]
+/// [pair table: 128 x 2 bytes][encoded strings, NUL-terminated]
 pub fn build_text_bank(
     texts: &[project::TextEntry],
     next_extra: &mut u8,
@@ -397,17 +398,17 @@ pub fn build_text_bank(
         }
     }
 
-    // Codes speciaux -> octets de controle AVANT le DTE (opaques pour le
-    // dictionnaire — le decodeur/machine a ecrire les interprete)
+    // Special codes become control bytes BEFORE the DTE pass, so the
+    // dictionary never sees them; the typewriter interprets them.
     let encoded: Vec<Vec<u8>> = texts
         .iter()
         .map(|t| escape_codes(&t.name, &t.text))
         .collect::<Result<_>>()?;
 
-    // Dictionnaire : les 128 bigrammes ASCII les plus fréquents (une seule
-    // passe, paires de caractères BRUTS — le décodeur moteur n'est pas
-    // récursif). Ordre déterministe : fréquence puis valeur. Les octets
-    // d'échappement (< 0x20) ne forment jamais de paire.
+    // Dictionary: the 128 most frequent ASCII bigrams, in a single pass
+    // over RAW character pairs — the engine's decoder is not recursive.
+    // Deterministic order: frequency, then value. Escape bytes (< 0x20)
+    // never form a pair.
     let mut freq: HashMap<[u8; 2], usize> = HashMap::new();
     for b in &encoded {
         let mut j = 0;
@@ -435,10 +436,10 @@ pub fn build_text_bank(
         code_of.insert(*p, 0x80 | k as u8);
     }
 
-    // Multi-bank (M1) : la bank 0 du pool ($86) porte l'en-tête —
-    // [u16 count][entrées 3 o : ofs lo, ofs hi, bank CPU][paires 256 o] —
-    // puis les chaînes se placent à la suite (first-fit séquentiel dans
-    // des banks supplémentaires quand la bank d'en-tête est pleine)
+    // Bank 0 of the pool ($86) carries the header —
+    // [u16 count][3-byte entries: ofs lo, ofs hi, CPU bank][256 B of pairs]
+    // — and the strings follow, spilling first-fit into extra banks once
+    // the header bank is full.
     let header_size = 2 + texts.len() * 3 + 256;
     if header_size > BANK_CAPACITY {
         bail!(
@@ -456,7 +457,7 @@ pub fn build_text_bank(
 
     let mut raw = 0usize;
     for (i, b) in encoded.iter().enumerate() {
-        // encodage DTE dans un tampon : la taille décide du placement
+        // DTE-encode into a buffer: its size decides the placement
         let mut enc = Vec::new();
         raw += b.len() + 1;
         let mut j = 0;
@@ -502,14 +503,14 @@ pub fn build_text_bank(
     Ok(pool)
 }
 
-/// L'asm qui épingle les blobs dans leurs banks (LoROM : bank ROM n =
-/// CPU $80+n). Multi-bank (M1) : une section FORCE par bank de chaque
-/// pool — les fichiers s'appellent scenes.bin, scenes1.bin, … (idem
-/// textes), la bank 0 de chaque pool garde son nom historique.
+/// The asm that pins the blobs into their banks (LoROM: ROM bank n is
+/// CPU $80+n). One FORCE section per bank of each pool; the files are
+/// scenes.bin, scenes1.bin, … and likewise for texts, with bank 0 of
+/// each pool keeping its historical name.
 pub fn databanks_asm(scene_pool: &BankPool, text_pool: &BankPool) -> String {
     let mut s = String::from(
-        "; FICHIER GENERE par tools/datagen — NE PAS EDITER A LA MAIN.\n\
-         ; Epingle les blobs binaires dans leurs banks ROM (spec kit §3).\n\
+        "; GENERATED by tools/datagen — DO NOT EDIT BY HAND.\n\
+         ; Pins the binary blobs into their ROM banks (kit spec §3).\n\
          .include \"hdr.asm\"\n",
     );
     for (pool, base, label) in
@@ -527,7 +528,7 @@ pub fn databanks_asm(scene_pool: &BankPool, text_pool: &BankPool) -> String {
     s
 }
 
-/// Nom du fichier .bin de la bank k d'un pool ("scenes.bin", "scenes1.bin"…)
+/// File name of bank k of a pool ("scenes.bin", "scenes1.bin", …).
 pub fn pool_bin_name(base: &str, k: usize) -> String {
     if k == 0 {
         format!("{}.bin", base)

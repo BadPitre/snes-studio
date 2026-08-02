@@ -1,45 +1,45 @@
 /*
- * hdmafx.c — effets HDMA scriptés : ONDULATION de l'écran (S14) et
- * DÉGRADÉ DE CIEL (S15).
+ * hdmafx.c — scripted HDMA effects: screen RIPPLE (S14) and SKY
+ * GRADIENT (S15).
  *
- * Ondulation : le HDMA réécrit les scrolls horizontaux BG1/BG2 par
- * bandes de scanlines depuis des tables WRAM — l'écran ondule
- * (chaleur du désert, sous l'eau, rêve). Non bloquant, persiste entre
- * les scènes jusqu'à WAVE 0 (modèle des ambiances RM2003).
- * Dégradé : le canal 4 réécrit la couleur fixe du color math ligne à
- * ligne — teinte verticale (ciel de coucher de soleil, aube).
+ * Ripple: the HDMA rewrites the BG1/BG2 horizontal scrolls in bands of
+ * scanlines from WRAM tables — the screen undulates (desert heat,
+ * underwater, a dream). Non-blocking, persists across scenes until
+ * WAVE 0 (the RM2003 ambience model).
+ * Gradient: channel 4 rewrites the color math's fixed colour line by
+ * line — a vertical tint (sunset sky, dawn).
  *
- * Canaux réservés : 4 (COLDATA $2132, mode 00), 5 (BG2HOFS $210F) et
- * 6 (BG1HOFS $210D) en mode 02 (un registre écrit deux fois — les
- * scrolls sont des registres à double écriture). JAMAIS le canal 7 :
- * le NMI PVSnesLib y fait le DMA général de l'OAM à chaque VBlank
- * (vblank.asm écrit $4370-75) et écrase la config HDMA — sur une
- * frame en dépassement, le canal partait avec les réglages OAM
- * (vague plate + écritures parasites, observé au combo pluie+vague).
- * CE MODULE EST LE SEUL PROPRIÉTAIRE de $420C (HDMAEN) : les effets
- * HDMA composent un masque unique (le spotlight s'ajoutera ICI). Les
- * canaux sont reprogrammés à CHAQUE VBlank (robuste face aux DMA
- * généraux).
+ * Reserved channels: 4 (COLDATA $2132, mode 00), 5 (BG2HOFS $210F) and
+ * 6 (BG1HOFS $210D) in mode 02 (one register written twice — the
+ * scrolls are double-write registers). NEVER channel 7: the PVSnesLib
+ * NMI does the general OAM DMA there on every VBlank (vblank.asm
+ * writes $4370-75) and overwrites the HDMA config — on an overrunning
+ * frame the channel would start with the OAM settings (flat wave plus
+ * stray writes, seen on the rain+wave combination).
+ * THIS MODULE IS THE SOLE OWNER of $420C (HDMAEN): the HDMA effects
+ * compose a single mask (the spotlight will be added HERE). The
+ * channels are reprogrammed on EVERY VBlank (robust against general
+ * DMAs).
  *
- * Tables : 14 entrées de [count=16][lo][hi] + terminateur — un pas de
- * sinus par bande, phase qui avance chaque frame. La table intègre la
- * BASE de scroll de chaque couche (caméra + secousse pour le décor,
- * dérive du motif pour la couche d'effet) : le HDMA écrit des valeurs
- * ABSOLUES. Reconstruction par frame : 14 itérations, ni division ni
- * multiplication (leçon du panneau S6 — budget serré, voir WV_BANDS).
+ * Tables: 14 entries of [count=16][lo][hi] + terminator — one sine step
+ * per band, the phase advancing every frame. The table folds in each
+ * layer's scroll BASE (camera + shake for the scenery, pattern drift
+ * for the effect layer): the HDMA writes ABSOLUTE values. Rebuilt every
+ * frame: 14 iterations, no division and no multiplication (the S6 panel
+ * lesson — a tight budget, see WV_BANDS).
  *
- * La table de sinus est une CONSTANTE MATHÉMATIQUE du moteur (comme
- * les masques de registres) — pas une donnée de jeu.
+ * The sine table is a MATHEMATICAL CONSTANT of the engine (like the
+ * register masks) — not game data.
  */
 #include <snes.h>
 #include "hdmafx.h"
 #include "camera.h"
 #include "screenfx.h"
 #include "effectlayer.h"
-#include "player.h" /* le spotlight (S16) suit le héros */
+#include "player.h" /* the spotlight (S16) follows the hero */
 
-/* registres des canaux 3 / 4 / 5 / 6 (le 7 appartient au DMA OAM du
-   NMI) */
+/* registers of channels 3 / 4 / 5 / 6 (7 belongs to the NMI's OAM
+   DMA) */
 #define DMAP3 (*(vuint8 *)0x4330)
 #define BBAD3 (*(vuint8 *)0x4331)
 #define A1T3L (*(vuint8 *)0x4332)
@@ -61,32 +61,32 @@
 #define A1T6H (*(vuint8 *)0x4363)
 #define A1B6 (*(vuint8 *)0x4364)
 
-/* sinus 64 pas, 0..64 (32 = centre) — constante mathématique */
+/* 64-step sine, 0..64 (32 = centre) — a mathematical constant */
 static const u8 wv_sin[64] = {
     32, 35, 38, 41, 44, 47, 49, 52, 54, 56, 58, 60, 61, 62, 63, 63,
     64, 63, 63, 62, 61, 60, 58, 56, 54, 52, 49, 47, 44, 41, 38, 35,
     32, 28, 25, 22, 19, 16, 14, 11, 9,  7,  5,  3,  2,  1,  0,  0,
     0,  0,  0,  1,  2,  3,  5,  7,  9,  11, 14, 16, 19, 22, 25, 28};
 
-#define WV_BANDS 14 /* 224 lignes en bandes de 16 — mesuré au panneau
-   S6 : 56 itérations = 30 FPS seul, 28 = 60 seul mais 30 cumulé à la
-   pluie ; 14 redonne la marge (la houle reste douce, pas ≤ 3 px
-   entre bandes voisines à amplitude max) */
-#define WV_LINES 16 /* hauteur d'une bande (count HDMA) */
-#define WV_STEP 6   /* pas de phase par bande (64 pas ~= 2 écrans) */
+#define WV_BANDS 14 /* 224 lines in bands of 16 — measured on the S6
+   panel: 56 iterations = 30 FPS on its own, 28 = 60 alone but 30 once
+   the rain is added; 14 gives the margin back (the swell stays gentle,
+   no more than 3 px between neighbouring bands at full amplitude) */
+#define WV_LINES 16 /* height of a band (HDMA count) */
+#define WV_STEP 6   /* phase step per band (64 steps ~= 2 screens) */
 
 static u8 wv_pow = 0;
 static u8 wv_spd = 1;
 static u8 wv_phase = 0;
-static u8 wv_hdr = 0; /* en-têtes de tables posés (une fois) */
-static u8 hx_on = 0;  /* masque HDMAEN actuellement armé */
-static u8 wv_t1[WV_BANDS * 3 + 1]; /* BG1 : [count][lo][hi] par bande + 0 */
+static u8 wv_hdr = 0; /* table headers laid down (once) */
+static u8 hx_on = 0;  /* HDMAEN mask currently armed */
+static u8 wv_t1[WV_BANDS * 3 + 1]; /* BG1: [count][lo][hi] per band + 0 */
 static u8 wv_t2[WV_BANDS * 3 + 1]; /* BG2 */
-/* offsets PRÉCALCULÉS (sin x amplitude, >>5) — bâtis à hdmafx_wave :
-   la reconstruction par frame ne fait AUCUNE multiplication (56 mults
-   logicielles/frame = 21 FPS mesurés au panneau S6, leçon retenue).
-   256 entrées (4 copies du cycle de 64) : la phase u8 indexe SANS
-   masque `& 63` — chaque cycle compte dans les boucles chargées */
+/* PRECOMPUTED offsets (sin x amplitude, >>5) — built in hdmafx_wave: the
+   per-frame rebuild does NO multiplication at all (56 software mults per
+   frame = 21 FPS measured on the S6 panel, lesson learned). 256 entries
+   (4 copies of the 64-step cycle): the u8 phase indexes WITHOUT a
+   `& 63` mask — every cycle counts in the loaded loops */
 static u8 wv_off[256];
 
 void hdmafx_wave(u8 power, u8 speed)
@@ -110,9 +110,9 @@ void hdmafx_wave(u8 power, u8 speed)
   }
 }
 
-/* spotlight (S16) — définis plus bas, utilisés par hdmafx_update */
+/* spotlight (S16) — defined below, used by hdmafx_update */
 static u8 sp_rad;
-static u8 sp_phase = 0; /* 0 = repos, 1 = moitié basse à finir */
+static u8 sp_phase = 0; /* 0 = idle, 1 = bottom half still to do */
 static void sp_build_high(void);
 static void sp_build_low(void);
 
@@ -129,16 +129,16 @@ void hdmafx_update(void)
     wv_phase += wv_spd;
     b2 = camera.x + screenfx_shake_x();
     b1 = effect_active() ? effect_hofs() : b2;
-    b1 -= wv_pow; /* le -amplitude sort de la boucle */
+    b1 -= wv_pow; /* the -amplitude leaves the loop */
     b2 -= wv_pow;
     ph = wv_phase;
     q1 = wv_t1 + 1;
     q2 = wv_t2 + 1;
     for (i = 0; i < WV_BANDS; i++)
     {
-      /* offset 0..2*power autour de la base — table précalculée, phase
-         u8 en index direct : ni division, ni multiplication, ni masque
-         (budget frame des boucles chargées, panneau S6) */
+      /* offset 0..2*power around the base — precomputed table, the u8
+         phase used as a direct index: no division, no multiplication
+         and no mask (frame budget of the loaded loops, S6 panel) */
       o = wv_off[ph];
       v1 = b1 + o;
       v2 = b2 + o;
@@ -148,16 +148,16 @@ void hdmafx_update(void)
       q2[1] = (u8)(v2 >> 8);
       q1 += 3;
       q2 += 3;
-      ph += WV_STEP; /* un pas de houle par bande */
+      ph += WV_STEP; /* one swell step per band */
     }
   }
   if (sp_rad && screenfx_spot_active())
   {
-    /* spotlight : reconstruction étalée sur DEUX frames (moitié haute
-       puis moitié basse, centre gelé — le cercle a au plus 2-3 px de
-       retard sur le héros, invisible) et seulement si le héros ou la
-       caméra a bougé. Immobile : coût nul. La reconstruction en une
-       passe faisait retomber la marche de 60 à 30 FPS (panneau S6). */
+    /* spotlight: the rebuild is SPREAD over TWO frames (top half then
+       bottom half, the centre frozen — the circle is at most 2-3 px
+       behind the hero, invisible) and only when the hero or the camera
+       has moved. Standing still: zero cost. Rebuilding in a single pass
+       dropped walking from 60 to 30 FPS (S6 panel). */
     if (sp_phase)
       sp_build_low();
     else
@@ -166,23 +166,23 @@ void hdmafx_update(void)
 }
 
 /*
- * Dégradé de ciel (S15) : TEINTE VERTICALE — le canal 4 réécrit la
- * couleur fixe ($2132) ligne à ligne (mode 0, un octet par entrée)
- * depuis une table run-length STATIQUE bâtie ICI à la commande :
- * zéro coût CPU par frame. Une entrée par CHANGEMENT de canal R/G/B
- * (≤ 31 pas par canal), les plages stables sont sautées par le champ
- * count. CGWSEL/CGADSUB restent la propriété de screenfx (le mode du
- * dégradé y vit — même circuit que la teinte, qui l'annule).
+ * Sky gradient (S15): a VERTICAL TINT — channel 4 rewrites the fixed
+ * colour ($2132) line by line (mode 0, one byte per entry) from a
+ * STATIC run-length table built HERE when the command runs: zero CPU
+ * cost per frame. One entry per CHANGE of an R/G/B channel (<= 31 steps
+ * per channel), the stable ranges are skipped through the count field.
+ * CGWSEL/CGADSUB stay screenfx's property (the gradient's mode lives
+ * there — the same circuit as the tint, which cancels it).
  */
-static u8 gr_tr = 0, gr_tg = 0, gr_tb = 0; /* couleur du HAUT */
-static u8 gr_br = 0, gr_bg = 0, gr_bb = 0; /* couleur du BAS */
-static u8 gr_tab[256]; /* ≤ ~100 entrées de [count][sel|val] + 0 */
-static u8 *gr_q;       /* curseur d'écriture (construction) */
-static u8 *gr_cnt;     /* octet count de l'entrée ouverte */
-static u8 gr_run;      /* lignes couvertes par l'entrée ouverte */
+static u8 gr_tr = 0, gr_tg = 0, gr_tb = 0; /* colour at the TOP */
+static u8 gr_br = 0, gr_bg = 0, gr_bb = 0; /* colour at the BOTTOM */
+static u8 gr_tab[256]; /* <= ~100 entries of [count][sel|val] + 0 */
+static u8 *gr_q;       /* write cursor (construction) */
+static u8 *gr_cnt;     /* count byte of the open entry */
+static u8 gr_run;      /* lines covered by the open entry */
 
-/* ferme l'entrée ouverte — coupe les plages > 127 lignes (limite du
-   champ count HDMA hors mode repeat) en entrées de bourrage */
+/* closes the open entry — splits ranges over 127 lines (the limit of the
+   HDMA count field outside repeat mode) into padding entries */
 static void gr_close(void)
 {
   u8 v;
@@ -209,8 +209,8 @@ static void gr_emit(u8 byte)
   gr_q += 2;
 }
 
-/* pas 8.8 d'un canal du haut vers le bas — même parade que tg_step
-   (pas de signés) : magnitude + sens. Divisions à la COMMANDE. */
+/* 8.8 step of a channel from top to bottom — same workaround as tg_step
+   (no signed steps): magnitude + direction. Divisions AT command time. */
 static u16 gr_step(u8 top, u8 bot, u8 *neg)
 {
   if (bot >= top)
@@ -239,14 +239,14 @@ void hdmafx_grad_bottom(u8 r, u8 g, u8 b)
 void hdmafx_grad(u8 mode)
 {
   u16 ar, ag, ab, sr, sg, sb;
-  u8 nr, ng, nb; /* sens du pas (1 = décroît) */
-  u8 lr, lg, lb; /* dernière valeur émise par canal */
+  u8 nr, ng, nb; /* step direction (1 = decreasing) */
+  u8 lr, lg, lb; /* last value emitted per channel */
   u8 v;
   u16 line;
 
   if (mode == 0 || mode > 2)
   {
-    screenfx_skygrad(0); /* canal 4 coupé au prochain VBlank */
+    screenfx_skygrad(0); /* channel 4 cut at the next VBlank */
     return;
   }
   ar = (u16)gr_tr << 8;
@@ -258,13 +258,13 @@ void hdmafx_grad(u8 mode)
   gr_q = gr_tab;
   gr_cnt = 0;
   gr_run = 0;
-  lr = 255; /* invalide : force l'émission des 3 canaux en haut d'écran */
+  lr = 255; /* invalid: forces all 3 channels at the top of the screen */
   lg = 255;
   lb = 255;
   for (line = 0; line < 224; line++)
   {
-    /* UNE écriture COLDATA par ligne (mode 0) : un canal qui change en
-       même temps qu'un autre est décalé d'une ligne — invisible */
+    /* ONE COLDATA write per line (mode 0): a channel changing on the same
+       line as another is pushed one line down — invisible */
     v = (u8)(ar >> 8);
     if (v != lr)
     {
@@ -295,39 +295,39 @@ void hdmafx_grad(u8 mode)
     ab = nb ? ab - sb : ab + sb;
   }
   gr_close();
-  *gr_q = 0; /* terminateur */
-  screenfx_skygrad(mode); /* arme le circuit (et remplace la teinte) */
+  *gr_q = 0; /* terminator */
+  screenfx_skygrad(mode); /* arms the circuit (and replaces the tint) */
 }
 
 /*
- * Spotlight (S16) : cercle de lumière autour du héros — le canal 3
- * réécrit WH0/WH1 ($2126-27, mode 1 : deux registres adjacents) ligne
- * à ligne pour tracer le cercle de la fenêtre couleur W1 ; screenfx
- * assombrit le décor HORS fenêtre (même circuit que la teinte). Les
- * demi-largeurs du cercle sont précalculées À LA COMMANDE (méthode
- * incrémentale, ni multiplication ni racine) ; la table n'est
- * reconstruite QUE quand le héros ou la caméra bouge — immobile,
- * le spotlight ne coûte RIEN par frame.
+ * Spotlight (S16): a circle of light around the hero — channel 3
+ * rewrites WH0/WH1 ($2126-27, mode 1: two adjacent registers) line by
+ * line to trace the circle of the W1 colour window; screenfx darkens
+ * the scenery OUTSIDE the window (the same circuit as the tint). The
+ * circle's half-widths are precomputed AT COMMAND TIME (incremental
+ * method, no multiplication and no square root); the table is rebuilt
+ * ONLY when the hero or the camera moves — standing still, the
+ * spotlight costs NOTHING per frame.
  */
-#define SP_RMAX 96 /* rayon max : le cercle tient dans les 224 lignes */
+#define SP_RMAX 96 /* max radius: the circle fits in the 224 lines */
 
-/* sp_rad (rayon, 0 = jamais commandé) est déclaré plus haut, au-dessus
-   de hdmafx_update qui l'utilise */
-static u8 sp_hw[SP_RMAX + 1]; /* demi-largeur du cercle par |dy| */
-static u16 sp_cx = 0xFFFF;    /* centre de la dernière table bâtie */
+/* sp_rad (radius, 0 = never commanded) is declared further up, above
+   hdmafx_update which uses it */
+static u8 sp_hw[SP_RMAX + 1]; /* half-width of the circle per |dy| */
+static u16 sp_cx = 0xFFFF;    /* centre of the last table built */
 static u16 sp_cy = 0xFFFF;
-static u8 sp_tab[SP_RMAX * 6 + 24]; /* [1][WH0][WH1] par ligne du
-   cercle (2r+1 max) + bandes vides [count][255][0] + terminateur */
+static u8 sp_tab[SP_RMAX * 6 + 24]; /* [1][WH0][WH1] per line of the
+   circle (2r+1 max) + empty bands [count][255][0] + terminator */
 
 void hdmafx_spot(u8 radius, u8 dark)
 {
   u16 t, w2;
   u8 dy, w;
 
-  sp_phase = 0; /* une commande en pleine construction repart de zéro */
+  sp_phase = 0; /* a command mid-build starts over from zero */
   if (radius == 0)
   {
-    screenfx_spot(0); /* canal 3 coupé au prochain VBlank */
+    screenfx_spot(0); /* channel 3 cut at the next VBlank */
     return;
   }
   if (radius < 16)
@@ -335,10 +335,10 @@ void hdmafx_spot(u8 radius, u8 dark)
   if (radius > SP_RMAX)
     radius = SP_RMAX;
   sp_rad = radius;
-  /* demi-largeurs : w = plancher de racine(r^2 - dy^2), maintenu par
-     DIFFÉRENCES (t perd 2dy+1 par ligne, w^2 perd 2w-1 par pas) —
-     aucune multiplication, aucune racine ; r^2 par additions (une
-     fois à la commande) */
+  /* half-widths: w = floor of sqrt(r^2 - dy^2), maintained by
+     DIFFERENCES (t loses 2dy+1 per line, w^2 loses 2w-1 per step) — no
+     multiplication and no square root; r^2 by additions (once, at
+     command time) */
   t = 0;
   for (dy = 0; dy < radius; dy++)
     t += radius;
@@ -354,22 +354,22 @@ void hdmafx_spot(u8 radius, u8 dark)
     sp_hw[dy] = w;
     t -= ((u16)dy << 1) + 1;
   }
-  sp_cx = 0xFFFF; /* force la reconstruction à la prochaine frame */
+  sp_cx = 0xFFFF; /* forces a rebuild on the next frame */
   sp_cy = 0xFFFF;
   screenfx_spot(dark ? dark : 31);
 }
 
-/* Reconstruction de la table WH0/WH1 étalée sur DEUX frames :
-   sp_build_high (bande sombre du haut + moitié haute du cercle) puis
-   sp_build_low (moitié basse + bande du bas + terminateur), centre
-   GELÉ entre les deux (sp_cx/sp_cy) pour une table cohérente. La
-   caméra centre le héros : dans le cas courant le cercle ne touche
-   pas les bords -> CHEMIN RAPIDE en arithmétique u8 pure, sans
-   clamp, demi-largeurs par POINTEUR. Une reconstruction en une seule
-   passe (97 lignes + clamps indexés) faisait retomber la marche de
-   60 à 30 FPS — leçon panneau S6. */
-static u8 *sp_q;    /* curseur d'écriture entre les deux phases */
-static u16 sp_line; /* ligne écran atteinte par la phase haute */
+/* Rebuilding the WH0/WH1 table is SPREAD over TWO frames:
+   sp_build_high (the dark band on top + the circle's top half) then
+   sp_build_low (the bottom half + the bottom band + the terminator),
+   with the centre FROZEN between the two (sp_cx/sp_cy) so the table
+   stays coherent. The camera centres the hero: in the common case the
+   circle does not touch the edges -> FAST PATH in pure u8 arithmetic,
+   no clamps, half-widths by POINTER. Rebuilding in a single pass
+   (97 lines + indexed clamps) dropped walking from 60 to 30 FPS —
+   the S6 panel lesson. */
+static u8 *sp_q;    /* write cursor between the two phases */
+static u16 sp_line; /* screen line reached by the top phase */
 
 static void sp_build_high(void)
 {
@@ -379,33 +379,33 @@ static void sp_build_high(void)
   u8 *q;
   u8 *hw;
 
-  cx = player.x - camera.x + 8; /* centre du metasprite 16x24 */
+  cx = player.x - camera.x + 8; /* centre of the 16x24 metasprite */
   cy = player.y - camera.y + 12;
   if (cx == sp_cx && cy == sp_cy)
     return;
   sp_cx = cx;
   sp_cy = cy;
   q = sp_tab;
-  top = cy - sp_rad; /* wrap u16 si le cercle dépasse en haut */
+  top = cy - sp_rad; /* u16 wrap if the circle runs off the top */
   line = 0;
-  if (top < 224) /* pas de wrap : bande sombre au-dessus du cercle */
+  if (top < 224) /* no wrap: dark band above the circle */
     while (line < top)
     {
       n = (u8)(top - line) > 127 ? 127 : (u8)(top - line);
       q[0] = n;
-      q[1] = 255; /* fenêtre vide : tout est « dehors » -> sombre */
+      q[1] = 255; /* empty window: everything is "outside" -> dark */
       q[2] = 0;
       q += 3;
       line += n;
     }
-  /* cercle en BANDES DE 2 LIGNES ([count=2][WH0][WH1]) : moitié
-     d'entrées — la marche de 2 px sur le bord du masque est
-     invisible, et le budget frame est tenu (panneau S6) */
+  /* the circle in BANDS OF 2 LINES ([count=2][WH0][WH1]): half the
+     entries — the 2 px step on the mask's edge is invisible, and the
+     frame budget holds (S6 panel) */
   if (cx >= sp_rad && cx + sp_rad <= 255)
   {
-    /* chemin rapide : cx ± hw reste dans 0-255 — tout en u8 */
+    /* fast path: cx ± hw stays inside 0-255 — everything in u8 */
     c8 = (u8)cx;
-    hw = sp_hw + (u8)(cy - line); /* dy de la première rangée */
+    hw = sp_hw + (u8)(cy - line); /* dy of the first row */
     while (line < cy)
     {
       w = *hw;
@@ -420,12 +420,12 @@ static void sp_build_high(void)
   }
   else
   {
-    /* près d'un bord de map : clamps (rare — caméra en butée) */
+    /* near a map edge: clamps (rare — the camera is against a stop) */
     while (line < cy)
     {
       w = sp_hw[cy - line];
       l = cx - w;
-      if (l > 255) /* wrap u16 : bord gauche hors écran */
+      if (l > 255) /* u16 wrap: left edge off screen */
         l = 0;
       r = cx + w;
       if (r > 255)
@@ -440,7 +440,7 @@ static void sp_build_high(void)
   }
   sp_q = q;
   sp_line = line;
-  sp_phase = 1; /* la moitié basse suit à la prochaine frame */
+  sp_phase = 1; /* the bottom half follows on the next frame */
 }
 
 static void sp_build_low(void)
@@ -451,7 +451,7 @@ static void sp_build_low(void)
   u8 *q;
   u8 *hw;
 
-  cx = sp_cx; /* centre GELÉ par la phase haute */
+  cx = sp_cx; /* centre FROZEN by the top phase */
   cy = sp_cy;
   q = sp_q;
   line = sp_line;
@@ -461,11 +461,11 @@ static void sp_build_low(void)
   if (cx >= sp_rad && cx + sp_rad <= 255)
   {
     c8 = (u8)cx;
-    hw = sp_hw; /* dy = 0 à la ligne du centre */
+    hw = sp_hw; /* dy = 0 on the centre line */
     while (line <= bot)
     {
       w = *hw;
-      n = (u16)(bot - line) >= 1 ? 2 : 1; /* bandes de 2 lignes */
+      n = (u16)(bot - line) >= 1 ? 2 : 1; /* bands of 2 lines */
       hw += n;
       q[0] = n;
       q[1] = c8 - w;
@@ -493,7 +493,7 @@ static void sp_build_low(void)
       line += n;
     }
   }
-  while (line < 224) /* bande sombre sous le cercle */
+  while (line < 224) /* dark band below the circle */
   {
     n = (u8)(224 - line) > 127 ? 127 : (u8)(224 - line);
     q[0] = n;
@@ -502,7 +502,7 @@ static void sp_build_low(void)
     q += 3;
     line += n;
   }
-  *q = 0; /* terminateur */
+  *q = 0; /* terminator */
   sp_phase = 0;
 }
 
@@ -513,7 +513,7 @@ void hdmafx_vblank(void)
 
   if (wv_pow)
   {
-    DMAP6 = 0x02; /* un registre, écrit deux fois (scroll double write) */
+    DMAP6 = 0x02; /* one register, written twice (scroll double write) */
     BBAD6 = 0x0D; /* BG1HOFS */
     a = (u16)(u8 *)wv_t1;
     A1T6L = (u8)a;
@@ -530,9 +530,9 @@ void hdmafx_vblank(void)
   if (screenfx_skygrad_mode() && !screenfx_cm_held() &&
       !screenfx_flash_active())
   {
-    /* dégradé de ciel : coupé quand un mélange tient le circuit ou
-       qu'un flash l'emprunte (screenfx écrit COLDATA ces frames-là) */
-    DMAP4 = 0x00; /* un registre, un octet par entrée */
+    /* sky gradient: cut when a blend holds the circuit or a flash
+       borrows it (screenfx writes COLDATA on those frames) */
+    DMAP4 = 0x00; /* one register, one byte per entry */
     BBAD4 = 0x32; /* COLDATA */
     a = (u16)(u8 *)gr_tab;
     A1T4L = (u8)a;
@@ -542,10 +542,10 @@ void hdmafx_vblank(void)
   }
   if (sp_rad && screenfx_spot_active() && !screenfx_cm_held())
   {
-    /* spotlight : cercle WH0/WH1 — inerte pendant un flash (CGWSEL
-       passe la fenêtre en « jamais » : tout l'écran flashe), coupé
-       sous mélange comme la teinte */
-    DMAP3 = 0x01; /* deux registres adjacents ($2126 puis $2127) */
+    /* spotlight: the WH0/WH1 circle — inert during a flash (CGWSEL puts
+       the window on "never": the whole screen flashes), cut under a
+       blend, like the tint */
+    DMAP3 = 0x01; /* two adjacent registers ($2126 then $2127) */
     BBAD3 = 0x26; /* WH0 */
     a = (u16)(u8 *)sp_tab;
     A1T3L = (u8)a;
@@ -553,9 +553,9 @@ void hdmafx_vblank(void)
     A1B3 = 0x7E;
     m |= 0x08;
   }
-  /* balayage scripté (S18c, scr_hide/scr_show) : canal 2 de screenfx —
-     ses registres sont posés par screenfx_wipe_step, seul le masque est
-     composé ICI (ce module reste le propriétaire de $420C) */
+  /* scripted wipe (S18c, scr_hide/scr_show): screenfx's channel 2 — its
+     registers are set by screenfx_wipe_step, only the mask is composed
+     HERE (this module stays the owner of $420C) */
   if (screenfx_wipe_active())
     m |= 0x04;
   if (m || hx_on)
@@ -565,10 +565,10 @@ void hdmafx_vblank(void)
 
 void hdmafx_suspend(void)
 {
-  /* branche PICTURE/STAGE du VBlank : l'image plein écran ne doit ni
-     onduler ni recevoir le dégradé — HDMA coupé tant qu'elle est là.
-     Le balayage scripté (S18c), lui, reste actif : un scr_hide/scr_show
-     peut rideauter une picture ou un écran composé. */
+  /* the PICTURE/STAGE branch of the VBlank: a full-screen image must
+     neither ripple nor take the gradient — HDMA cut while it is up. The
+     scripted wipe (S18c) does stay active: a scr_hide/scr_show can
+     curtain a picture or a composed screen. */
   if (screenfx_wipe_active())
   {
     REG_HDMAEN = 0x04;

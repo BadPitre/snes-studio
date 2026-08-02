@@ -1,30 +1,28 @@
-//! charset.rs — import d'un charset RPG Maker 2003 (feuille de personnages
-//! 288x256) vers la feuille de sprites 16x24 d'un projet SNES Studio.
+//! Importing an RPG Maker 2003 charset (a 288x256 character sheet) into a
+//! SNES Studio project's 16x24 sprite sheet.
 //!
-//! Layout RM2003 : 8 personnages de 72x128 (4 colonnes x 2 rangées), chaque
-//! personnage = 3 colonnes x 4 rangées de frames 24x32. Ordre RM des
-//! rangées : haut, droite, bas, gauche ; colonnes : pas gauche, repos,
-//! pas droit. Notre bloc de 12 frames (bas, haut, gauche, droite x repos,
-//! pas A, pas B) est recomposé, et chaque frame 24x32 est recadrée en 16x24
-//! (centre-bas : x 4..20, y 8..32 — les persos RM2003 tiennent dedans).
+//! RM2003 layout: 8 characters of 72x128 (4 columns x 2 rows); each
+//! character is 3 columns x 4 rows of 24x32 frames. RM row order is
+//! up, right, down, left; column order is left step, idle, right step.
+//! Our 12-frame block (down, up, left, right x idle, step A, step B) is
+//! recomposed from that, and each 24x32 frame is cropped to 16x24
+//! (bottom-centre, x 4..20, y 8..32 — RM2003 characters fit inside).
 //!
-//! La frame arrive dans <assets.sprites> (PNG RGBA, bande de frames 16x24)
-//! au bloc demandé — datagen build ré-indexe ensuite par bloc (une palette
-//! OBJ par bloc). Couleur transparente : alpha (PNG truecolor) ou index 0
-//! de la palette (convention des ressources RM2003).
+//! Transparency comes from alpha (truecolor PNG) or palette index 0, the
+//! RM2003 resource convention.
 
 use crate::gfx;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
-/// Nos directions dans l'ordre des blocs → rangée RM2003 correspondante
-const RM_ROW: [usize; 4] = [2, 0, 3, 1]; // bas, haut, gauche, droite
-/// Nos pas (repos, pas A, pas B) → colonne RM2003
+/// Our directions, in block order, to the matching RM2003 row.
+const RM_ROW: [usize; 4] = [2, 0, 3, 1]; // down, up, left, right
+/// Our steps (idle, step A, step B) to the RM2003 column.
 const RM_COL: [usize; 3] = [1, 0, 2];
 
 const FRAME_W: usize = 16;
 const FRAME_H: usize = 24;
-// Limite PROJET (les sets par scène restent limités à 5 blocs — v0.5)
+// Project-wide limit; per-scene sets stay capped at 5 blocks.
 const MAX_BLOCKS: usize = 64;
 
 fn write_rgba_png(path: &Path, w: usize, h: usize, rgba: &[u8]) -> Result<()> {
@@ -39,7 +37,7 @@ fn write_rgba_png(path: &Path, w: usize, h: usize, rgba: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// IndexedImage → tampon RGBA (index 0 = transparent)
+/// IndexedImage to an RGBA buffer; index 0 is transparent.
 fn to_rgba(img: &gfx::IndexedImage) -> Vec<u8> {
     let mut out = vec![0u8; img.width * img.height * 4];
     for (i, &p) in img.pixels.iter().enumerate() {
@@ -53,20 +51,20 @@ fn to_rgba(img: &gfx::IndexedImage) -> Vec<u8> {
     out
 }
 
-pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Result<()> {
-    if bloc >= MAX_BLOCKS {
-        bail!("bloc {} : 0-{} (limite projet)", bloc, MAX_BLOCKS - 1);
+pub fn import(charset: &Path, proj_dir: &Path, character: usize, block: usize) -> Result<()> {
+    if block >= MAX_BLOCKS {
+        bail!("bloc {} : 0-{} (limite projet)", block, MAX_BLOCKS - 1);
     }
     let img = gfx::load_indexed_png(charset)?;
-    // Feuille complète (8 personnages) ou personnage seul
+    // Either a full sheet (8 characters) or a single character.
     let (px0, py0) = if img.width == 288 && img.height == 256 {
-        if perso > 7 {
-            bail!("personnage {} : 0-7 sur un charset 288x256", perso);
+        if character > 7 {
+            bail!("personnage {} : 0-7 sur un charset 288x256", character);
         }
-        ((perso % 4) * 72, (perso / 4) * 128)
+        ((character % 4) * 72, (character / 4) * 128)
     } else if img.width == 72 && img.height == 128 {
-        if perso != 0 {
-            bail!("personnage {} : un PNG 72x128 n'en contient qu'un (0)", perso);
+        if character != 0 {
+            bail!("personnage {} : un PNG 72x128 n'en contient qu'un (0)", character);
         }
         (0, 0)
     } else {
@@ -79,11 +77,11 @@ pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Res
         );
     };
 
-    // Les 12 frames 16x24 du bloc, en RGBA
+    // The block's twelve 16x24 frames, as RGBA.
     let mut frames_rgba = vec![0u8; 12 * FRAME_W * FRAME_H * 4];
     for d in 0..4 {
         for s in 0..3 {
-            let fx = px0 + RM_COL[s] * 24 + 4; // recadrage 24x32 → 16x24
+            let fx = px0 + RM_COL[s] * 24 + 4; // 24x32 cropped to 16x24
             let fy = py0 + RM_ROW[d] * 32 + 8;
             let f = d * 3 + s;
             for y in 0..FRAME_H {
@@ -101,7 +99,7 @@ pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Res
         }
     }
 
-    // Feuille de sprites du projet : lue si présente, étendue au besoin
+    // The project's sprite sheet: read if present, grown as needed.
     let pj: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(proj_dir.join("project.json")).context("project.json")?,
     )?;
@@ -130,10 +128,10 @@ pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Res
         old_rgba = Vec::new();
     }
 
-    let new_frames = old_frames.max((bloc + 1) * 12);
+    let new_frames = old_frames.max((block + 1) * 12);
     let new_w = new_frames * FRAME_W;
     let mut out = vec![0u8; new_w * FRAME_H * 4];
-    // copie de l'existant
+    // carry the existing frames over
     if old_frames > 0 {
         let old_w = old_frames * FRAME_W;
         for y in 0..FRAME_H {
@@ -142,8 +140,8 @@ pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Res
         }
         old_rgba.clear();
     }
-    // collage du bloc (efface l'ancien contenu du bloc)
-    let bx = bloc * 12 * FRAME_W;
+    // paste the block, overwriting whatever was in that slot
+    let bx = block * 12 * FRAME_W;
     for y in 0..FRAME_H {
         let src = y * 12 * FRAME_W * 4;
         let dst = (y * new_w + bx) * 4;
@@ -157,10 +155,10 @@ pub fn import(charset: &Path, proj_dir: &Path, perso: usize, bloc: usize) -> Res
     write_rgba_png(&sprites_path, new_w, FRAME_H, &out)?;
     println!(
         "import-charset : personnage {} → bloc {} (frames {}-{}) de {}",
-        perso,
-        bloc,
-        bloc * 12,
-        bloc * 12 + 11,
+        character,
+        block,
+        block * 12,
+        block * 12 + 11,
         sprites_rel
     );
     Ok(())

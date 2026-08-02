@@ -1,11 +1,11 @@
-// Fenêtre « Switches / Variables » — calquée sur les dialogues Switch et
-// Variable de RPG Maker 2003 : tranches de 20 à gauche, liste numérotée à
-// droite, champ Nom sous la liste. Deux usages :
-//  - gestion (menu Tools) : renommer librement, onglets Switches/Variables ;
-//  - sélection (bouton « … » des formulaires de commande) : double-clic ou
-//    OK renvoie le numéro choisi (le type est verrouillé), renommage permis.
-// Les noms vivent dans project.json (éditeur seulement — datagen les lit
-// au besoin pour ses messages d'erreur).
+// "Switches / Variables" window — modelled on RPG Maker 2003's Switch
+// and Variable dialogues: slices of 20 on the left, a numbered list on
+// the right, a Name field under the list. Two uses:
+//  - management (Tools menu): rename freely, Switches/Variables tabs;
+//  - selection (the "…" button of the command forms): a double-click or
+//    OK returns the chosen number (the type is locked), renaming allowed.
+// The names live in project.json (editor only — datagen reads them when
+// it needs them for its error messages).
 
 import { useState } from "react";
 import { SWITCH_COUNT, VAR16_COUNT } from "../types";
@@ -13,11 +13,11 @@ import { SWITCH_COUNT, VAR16_COUNT } from "../types";
 export type VarKind = "switch" | "var";
 
 interface Props {
-  kind: VarKind; // onglet initial (verrouillé en mode sélection)
+  kind: VarKind; // initial tab (locked in selection mode)
   switches: string[];
   variables: string[];
-  pick?: boolean; // mode sélection
-  initial?: number; // numéro présélectionné (mode sélection)
+  pick?: boolean; // selection mode
+  initial?: number; // preselected number (selection mode)
   onOk: (r: { switches: string[]; variables: string[]; picked?: number; kind: VarKind }) => void;
   onClose: () => void;
 }

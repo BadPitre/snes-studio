@@ -1,8 +1,8 @@
-// SNES Studio — éditeur.
-// Ouvre un dossier projet (les JSON/PNG que tools/datagen consomme) et
-// édite maps (2 couches + autotiles + passabilité, modèle RPG Maker 2003),
-// acteurs, warps, textes, scripts ; undo/redo, gestion des scènes,
-// sauvegarde, génération des données moteur.
+// SNES Studio — the editor.
+// Opens a project folder (the JSON/PNG files tools/datagen consumes) and
+// edits maps (2 layers + autotiles + passability, RPG Maker 2003 model),
+// actors, warps, texts, scripts; undo/redo, scene management, saving,
+// generation of the engine data.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta } from "./types";
@@ -22,8 +22,8 @@ import {
 } from "./types";
 import {
   canWriteFiles,
+  ensureProjectDir,
   importTilesetPng,
-  pickFile,
   loadAssetPng,
   loadAutotiles,
   loadPngBitmap,
@@ -38,6 +38,8 @@ import {
   writeBinaryFile,
   writeProjectText,
 } from "./io";
+import type { ResCtx, ResKind } from "./resources";
+import { RESOURCES, runDelete, runExport, runImport, runRename } from "./resources";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
@@ -95,9 +97,9 @@ import type { Diag } from "./diagnostics";
 import { scaffoldProject } from "./template";
 import pkg from "../package.json";
 
-// Acteurs / Warps / Textes ont quitté la sidebar (demande Bertrand) :
-// events et warps se gèrent sur la carte (double-clic, clic droit),
-// les textes dans Tools → Textes… (fenêtre à catégories)
+// Actors / Warps / Texts have left the sidebar: events and warps are
+// handled on the map (double-click, right-click), and the texts live in
+// Tools > Textes… (a window with categories)
 type Tab = "scene" | "effect" | "script";
 
 export default function App() {
@@ -112,25 +114,25 @@ export default function App() {
   const [passMode, setPassMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [playCfg, setPlayCfg] = useState<PlayConfig>(() => ({
-    bash: localStorage.getItem("snesstudio.bash") ?? "C:\\msys64\\usr\\bin\\bash.exe",
+    toolchain: localStorage.getItem("snesstudio.toolchain") ?? "",
     emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
     debug: localStorage.getItem("snesstudio.debug") === "1",
   }));
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("scene");
   const [selEvent, setSelEvent] = useState<number | null>(null);
-  // menu contextuel de la couche Événements + Event Editor + mini-modal warp
+  // context menu of the Events layer + Event Editor + warp mini-modal
   const [evMenu, setEvMenu] = useState<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const [evEdit, setEvEdit] = useState<{ index: number; ev: GameEvent } | null>(null);
   const [warpEdit, setWarpEdit] = useState<number | null>(null);
   const [showCollision, setShowCollision] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [hoverPos, setHoverPos] = useState<[number, number] | null>(null);
-  // zoom façon RM2003 : 1/1, 1/2, 1/4, 1/8 (taille de tile à l'écran)
+  // RM2003-style zoom: 1/1, 1/2, 1/4, 1/8 (tile size on screen)
   const [zoomIdx, setZoomIdx] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState("Ouvre un dossier projet (ex. demo/)");
-  // Thème de l'éditeur (clair D par défaut / sombre E) — mémorisé
+  // Editor theme (light D by default / dark E) — remembered
   const [theme, setTheme] = useState<"light" | "dark">(
     () => (localStorage.getItem("snesstudio-theme") === "dark" ? "dark" : "light")
   );
@@ -140,9 +142,9 @@ export default function App() {
   }, [theme]);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newSceneParent, setNewSceneParent] = useState<string | null>(null);
-  // import de charset en cours (fichier choisi, en attente du personnage/bloc)
-  // Picker de couleur transparente à l'import (S4) : l'image validée
-  // attend le choix de la couleur (ou « sans transparence »)
+  // charset import in progress (file chosen, awaiting the character/block)
+  // Transparent colour picker at import (S4): the validated image waits
+  // for the colour to be chosen (or "sans transparence")
   const [transPick, setTransPick] = useState<null | {
     kind: "iconset" | "picture" | "charset";
     file: string;
@@ -152,40 +154,40 @@ export default function App() {
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
-  // gestionnaire de ressources (façon RM2003)
+  // resource manager (RM2003 style)
   const [showResources, setShowResources] = useState(false);
-  // menu Aide → À propos
+  // Aide > À propos menu
   const [showAbout, setShowAbout] = useState(false);
-  // fenêtre de diagnostic (Tools → Vérifier le projet)
+  // diagnostics window (Tools > Vérifier le projet)
   const [diags, setDiags] = useState<Diag[] | null>(null);
-  const [varMgr, setVarMgr] = useState(false); // fenêtre Switches/Variables
+  const [varMgr, setVarMgr] = useState(false); // Switches/Variables window
   const [commonEvOpen, setCommonEvOpen] = useState(false); // Common events (v0.16)
   const [fnOpen, setFnOpen] = useState(false); // Fonctions (F1)
-  const [screensOpen, setScreensOpen] = useState(false); // Écrans composés (B6bis)
-  // prefabs (v0.16) : enregistrement (event source), création (position
-  // cible) et gestionnaire (Tools)
+  const [screensOpen, setScreensOpen] = useState(false); // Composed screens (B6bis)
+  // prefabs (v0.16): saving (the source event), creating (the target
+  // position) and managing (Tools)
   const [prefabSave, setPrefabSave] = useState<GameEvent | null>(null);
   const [prefabPickAt, setPrefabPickAt] = useState<{ tx: number; ty: number } | null>(null);
   const [prefabMgr, setPrefabMgr] = useState(false);
-  // curseur de CELLULE de la couche Événements (v0.16) : cible du Ctrl+V
+  // CELL cursor of the Events layer (v0.16): the target of Ctrl+V
   const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
-  // Database (Phase 10) : schémas + instances (null = pas de schemas/)
+  // Database (Phase 10): schemas + instances (null = no schemas/)
   const [db, setDb] = useState<Database | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
-  const [tilesetsOpen, setTilesetsOpen] = useState(false); // fenêtre Tilesets (T1)
-  const [animsOpen, setAnimsOpen] = useState(false); // fenêtre Animations (A1-c)
-  // fenêtre Textes (Tools →) — remplace l'onglet de la sidebar
+  const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
+  const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
+  // Textes window (Tools >) — replaces the sidebar tab
   const [textsOpen, setTextsOpen] = useState(false);
-  // fenêtre UI (Phase 12) : null = fermée, sinon le mode demandé
+  // UI window (Phase 12): null = closed, otherwise the requested mode
   const [uiMode, setUiMode] = useState<null | "widgets" | "dialogs">(null);
-  // widgets du layout (racines) — pour la commande « Afficher un widget UI »
+  // widgets of the layout (roots) — for the "Afficher un widget UI" command
   const [uiWidgets, setUiWidgets] = useState<string[]>([]);
-  // styles de dialogue (S1) — pour le champ « Boîte de dialogue » de msg/choice
+  // dialogue styles (S1) — for the msg/choice "Boîte de dialogue" field
   const [uiStyles, setUiStyles] = useState<string[]>([]);
   const [diagReport, setDiagReport] = useState<DatagenReport | null>(null);
-  // presse-papier d'événement (menu Edit + clic droit)
+  // event clipboard (Edit menu + right-click)
   const [evClipboard, setEvClipboard] = useState<GameEvent | null>(null);
-  // hauteur de la palette (séparateur palette / arborescence, persisté)
+  // palette height (palette / tree splitter, persisted)
   const [paletteH, setPaletteH] = useState(() =>
     Number(localStorage.getItem("snesstudio.paletteH") ?? 460)
   );
@@ -198,12 +200,12 @@ export default function App() {
 
   const history = useHistory();
   const scene: Scene | null = data && sceneName ? data.scenes[sceneName] ?? null : null;
-  // tileset de la scène : stem déclaré, sinon le premier du projet
+  // the scene's tileset: the declared stem, otherwise the project's first
   const tilesetPaths = data ? projectTilesets(data.project) : [];
   const tilesetNames = tilesetPaths.map(assetStem);
   const tsStem = scene ? scene.tileset ?? tilesetNames[0] : "";
-  // T2 — entrées tileset nommées (fenêtre Tilesets, RM2003) : les scènes
-  // stockent le STEM du fichier, l'entrée est le visage éditeur
+  // T2 — named tileset entries (Tilesets window, RM2003): the scenes
+  // store the FILE's STEM, the entry is the editor-side face of it
   const tsDefs = data ? projectTilesetDefs(data.project) : [];
   const tsChoices = tsDefs.filter((d) => d.file);
   const tsCurrentDef =
@@ -213,19 +215,19 @@ export default function App() {
   const meta = (data && data.tilesetMeta[tsStem]) || emptyMeta;
   const autotiles = autoImgs[tsStem] ?? [];
 
-  // Blocs de personnage de la feuille de sprites (v0.5 : le projet n'est
-  // plus limité — datagen compile un set par scène, 5 blocs max chacune)
+  // Character blocks of the sprite sheet (v0.5: the project is no longer
+  // limited — datagen compiles one set per scene, 5 blocks each at most)
   const spriteBlocks = spriteBlockCount(sprites);
   const blockNames = data
     ? Array.from({ length: spriteBlocks }, (_, b) => charsetName(data.project, b))
     : [];
-  // ressource → scènes qui l'utilisent (suppression bloquée si utilisé)
+  // resource -> scenes using it (deletion blocked while it is used)
   const usedCharsets: Record<number, string[]> = {};
   const usedChipsets: Record<string, string[]> = {};
   if (data) {
     for (const [n, sc] of Object.entries(data.scenes)) {
       for (const e of sc.events) {
-        if (e.sprite < 0) continue; // invisibles
+        if (e.sprite < 0) continue; // invisible ones
         (usedCharsets[e.sprite] ??= []).includes(n) || usedCharsets[e.sprite].push(n);
       }
       const stem = sc.tileset ?? tilesetNames[0];
@@ -233,7 +235,7 @@ export default function App() {
     }
   }
 
-  // (re)chargement complet du projet depuis le disque
+  // full (re)load of the project from disk
   async function reloadProject(root: string, keepScene?: string) {
     const d = migrateFunctions(await loadProject(root));
     const bitmaps: Record<string, ImageBitmap> = {};
@@ -248,7 +250,7 @@ export default function App() {
     setTilesets(bitmaps);
     setAutoImgs(autos);
     setSprites(await loadAssetPng(root, d.project.assets.sprites));
-    // Database (Phase 10) : schémas + instances, si le projet en a une
+    // Database (Phase 10): schemas + instances, if the project has one
     try {
       setDb(await loadDatabase(root));
     } catch (e) {
@@ -282,10 +284,10 @@ export default function App() {
     }
   }
 
-  // ---- Menu Projet ---------------------------------------------------------
+  // ---- Projet menu ---------------------------------------------------------
 
-  // Nouveau projet : dossier choisi (vide) → projet minimal généré (une
-  // scène 30x20, tileset/personnages/fonte de démarrage embarqués)
+  // New project: a chosen (empty) folder -> a minimal project generated (a
+  // 30x20 scene, with a starter tileset/characters/font embedded)
   async function newProject() {
     const root = await pickProjectDir();
     if (!root) return;
@@ -295,7 +297,7 @@ export default function App() {
         await readBinaryFile(`${root}/project.json`);
         taken = true;
       } catch {
-        /* pas de project.json : dossier libre */
+        /* no project.json: a free folder */
       }
       if (taken) {
         setStatus("Ce dossier contient déjà un projet — l'ouvrir plutôt");
@@ -329,11 +331,11 @@ export default function App() {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().close();
     } catch {
-      window.close(); // mode navigateur
+      window.close(); // browser mode
     }
   }
 
-  // ---- Tools : vérification du projet --------------------------------------
+  // ---- Tools: project check ------------------------------------------------
 
   async function openDiagnostics() {
     if (!data) return;
@@ -344,7 +346,7 @@ export default function App() {
     }
     setDiagReport({ running: true, compression: [], warnings: [] });
     try {
-      await saveProject(data); // datagen lit le disque
+      await saveProject(data); // datagen reads the disk
       const res = await runDatagen(data.root);
       const rep: DatagenReport = {
         running: false,
@@ -356,7 +358,7 @@ export default function App() {
         const l = line.trim();
         if (l.startsWith("attention :")) rep.warnings.push(l.replace("attention :", "").trim());
         if (l.startsWith("grilles :") || l.startsWith("textes :")) rep.compression.push(l);
-        // multi-bank (M1) : datagen imprime les totaux des pools
+        // multi-bank (M1): datagen prints the pool totals
         const ms = l.match(/banks scenes : (\d+)\/(\d+) octets \((\d+) bank/);
         if (ms) {
           rep.scenesBytes = Number(ms[1]);
@@ -373,7 +375,7 @@ export default function App() {
         const repo = data.root.replace(/[\\/][^\\/]+$/, "");
         rep.romBytes = (await readBinaryFile(`${repo}/engine/snesstudio.sfc`)).length;
       } catch {
-        /* pas encore de ROM compilé */
+        /* no ROM compiled yet */
       }
       setDiagReport(rep);
     } catch (e) {
@@ -387,7 +389,7 @@ export default function App() {
     }
   }
 
-  // ---- Menu Edit + clic droit : presse-papier d'événement -------------------
+  // ---- Edit menu + right-click: the event clipboard -------------------------
 
   const selectedEvent = scene && selEvent !== null ? scene.events[selEvent] ?? null : null;
 
@@ -406,7 +408,7 @@ export default function App() {
     deleteSelEvent();
   }
 
-  // colle sur (tx,ty) si fourni, sinon première tile libre autour de l'origine
+  // pastes on (tx,ty) when given, otherwise the first free tile near the origin
   function pasteEvent(tx?: number, ty?: number) {
     if (!scene || !evClipboard) return;
     const free = (x: number, y: number) => eventAt(scene, x, y) < 0;
@@ -435,7 +437,7 @@ export default function App() {
     setSelEvent(count);
   }
 
-  // ---- couche Événements : création / édition / prefabs --------------------
+  // ---- Events layer: creation / editing / prefabs --------------------------
 
   function newEventAt(tx: number, ty: number, base?: Omit<GameEvent, "x" | "y">) {
     if (!scene) return;
@@ -456,8 +458,8 @@ export default function App() {
     setEvEdit({ index, ev });
   }
 
-  // Enregistre l'event comme prefab (nom + catégorie choisis dans la
-  // fenêtre SavePrefabModal — v0.16)
+  // Saves the event as a prefab (name + category chosen in the
+  // SavePrefabModal window — v0.16)
   function doSavePrefab(ev: GameEvent, name: string, category: string | undefined) {
     const cp = structuredClone(ev) as Partial<GameEvent>;
     delete cp.x;
@@ -475,8 +477,8 @@ export default function App() {
     setStatus(`Prefab « ${name} » enregistré${category ? ` (${category})` : ""}.`);
   }
 
-  // Ctrl+C / Ctrl+X / Ctrl+V / Suppr sur la COUCHE ÉVÉNEMENTS de la carte
-  // (v0.16) — inactifs dès qu'une fenêtre ou un champ a le focus
+  // Ctrl+C / Ctrl+X / Ctrl+V / Del on the map's EVENTS LAYER (v0.16) —
+  // inactive as soon as a window or a field has focus
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!data || !scene || layer !== "events") return;
@@ -495,8 +497,8 @@ export default function App() {
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (evClipboard) {
-          // colle sur la cellule sélectionnée (curseur), sinon près de
-          // l'origine de la copie
+          // pastes on the selected cell (the cursor), otherwise near the
+          // origin of the copy
           pasteEvent(evCursor?.[0], evCursor?.[1]);
           e.preventDefault();
         }
@@ -511,8 +513,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Import d'un chipset RPG Maker 2003 (480x256) : découpe via datagen
-  // puis rechargement du projet (project.json et assets modifiés sur disque)
+  // Import of an RPG Maker 2003 chipset (480x256): sliced through datagen
+  // then the project is reloaded (project.json and assets changed on disk)
   async function importChipset() {
     if (!data) return;
     const file = await pickPngFile("Importer un chipset RPG Maker 2003 (480x256)");
@@ -525,7 +527,7 @@ export default function App() {
     const root = data.root;
     const scene = sceneName;
     try {
-      await saveProject(data); // l'import réécrit project.json sur disque
+      await saveProject(data); // the import rewrites project.json on disk
       setStatus("Import du chipset…");
       const res = await runImportChipset(root, file, name);
       if (!res.ok) {
@@ -539,8 +541,8 @@ export default function App() {
     }
   }
 
-  // Import d'un charset RPG Maker 2003 : choix du fichier, puis modal
-  // d'aperçu (personnage + bloc de destination) → datagen import-charset
+  // Import of an RPG Maker 2003 charset: file choice, then a preview modal
+  // (character + destination block) -> datagen import-charset
   async function importCharset() {
     if (!data) return;
     const file = await pickPngFile("Importer un charset RPG Maker 2003 (288x256 ou 72x128)");
@@ -569,8 +571,8 @@ export default function App() {
     const scene = sceneName;
     setCharsetImport(null);
     try {
-      // le nom du personnage part dans project.json (charsets[bloc]) avant
-      // la sauvegarde — l'import CLI ne réécrit que assets/sprites.png
+      // the character's name goes into project.json (charsets[block]) before
+      // saving — the CLI import only rewrites assets/sprites.png
       const charsets = Array.from(
         { length: Math.max(spriteBlocks, bloc + 1) },
         (_, i) => data.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
@@ -591,7 +593,7 @@ export default function App() {
     }
   }
 
-  // ---- Gestionnaire de ressources (façon RM2003) --------------------------
+  // ---- Resource manager (RM2003 style) ------------------------------------
 
   async function exportCharset(b: number) {
     if (!data || !sprites) return;
@@ -601,9 +603,9 @@ export default function App() {
     );
     if (!path) return;
     try {
-      // recomposition d'une feuille RM2003 d'un personnage : nos frames
-      // 16x24 recollées au centre-bas des cases 24x32, ordre RM des
-      // rangées (haut, droite, bas, gauche) et colonnes (gauche, repos, droit)
+      // recomposing an RM2003 sheet for a character: our 16x24 frames
+      // glued back to the bottom-centre of the 24x32 cells, in RM's row
+      // order (up, right, down, left) and column order (left, idle, right)
       const RM_ROW = [2, 0, 3, 1];
       const RM_COL = [1, 0, 2];
       const cv = new OffscreenCanvas(72, 128);
@@ -664,8 +666,8 @@ export default function App() {
     const oldRel = tilesetPaths[tilesetNames.indexOf(oldStem)];
     const newRel = oldRel.replace(/[^\\/]+$/, `${newStem}.png`);
     try {
-      // fichiers : la grille est renommée, l'ancien sidecar retiré (le
-      // nouveau est réécrit par la sauvegarde), les refs mises à jour
+      // files: the grid is renamed, the old sidecar removed (the new one
+      // is rewritten by the save), and the references updated
       const scenes = Object.fromEntries(
         Object.entries(data.scenes).map(([n, sc]) => [
           n,
@@ -697,7 +699,7 @@ export default function App() {
       try {
         await removePath(`${root}/${oldRel.replace(/\.[^.]+$/, ".json")}`);
       } catch {
-        /* pas de sidecar */
+        /* no sidecar */
       }
       await saveProject(d2);
       await reloadProject(root, keep);
@@ -718,7 +720,7 @@ export default function App() {
     const root = data.root;
     const keep = sceneName;
     try {
-      // bande réécrite sans les 12 frames du bloc
+      // strip rewritten without the block's 12 frames
       const cut0 = b * 12 * 16;
       const cut1 = Math.min((b + 1) * 12 * 16, sprites.width);
       const w2 = sprites.width - (cut1 - cut0);
@@ -762,7 +764,7 @@ export default function App() {
     try {
       const rel = tilesetPaths[tilesetNames.indexOf(stem)];
       const tsMeta = data.tilesetMeta[stem];
-      // autotiles partagés avec un autre tileset : conservés
+      // autotiles shared with another tileset: kept
       const shared = new Set(
         Object.entries(data.tilesetMeta)
           .filter(([k]) => k !== stem)
@@ -788,7 +790,7 @@ export default function App() {
         try {
           await removePath(`${root}/${f}`);
         } catch {
-          /* déjà absent */
+          /* already gone */
         }
       }
       for (const a of tsMeta?.autotiles ?? []) {
@@ -796,7 +798,7 @@ export default function App() {
         try {
           await removePath(`${root}/${a}`);
         } catch {
-          /* déjà absent */
+          /* already gone */
         }
       }
       await reloadProject(root, keep);
@@ -806,7 +808,7 @@ export default function App() {
     }
   }
 
-  // import d'un PNG : copié dans assets/, ajouté à project.tilesets
+  // import of a PNG: copied into assets/, added to project.tilesets
   async function importTileset() {
     if (!data) return;
     try {
@@ -817,7 +819,7 @@ export default function App() {
       setTilesets((t) => ({ ...t, [stem]: bmp }));
       mutate((d) => {
         const cur = projectTilesets(d.project);
-        if (cur.includes(rel)) return d; // ré-import : bitmap rafraîchie, liste inchangée
+        if (cur.includes(rel)) return d; // re-import: bitmap refreshed, list unchanged
         return { ...d, project: { ...d.project, tilesets: [...cur, rel] } };
       });
       setStatus(`Tileset importé : ${stem}`);
@@ -826,345 +828,60 @@ export default function App() {
     }
   }
 
-  // Windowskins (Phase 11) : PNG 24x24 9-slice importés via le
-  // Gestionnaire de ressources — registre project.windowskins (éditeur
-  // seulement), le thème actif se choisit dans Tools → UI / Thème.
-  async function importWindowskin() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer un windowskin (PNG 24x24, 9-slice)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.width !== 24 || bmp.height !== 24) {
-        setStatus(`Windowskin : attendu 24x24 (9 tiles 8x8), reçu ${bmp.width}x${bmp.height}`);
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectWindowskins(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: {
-            ...d.project,
-            windowskins: [...projectWindowskins(d.project), rel],
-          },
-        }));
-      }
-      setStatus(`Windowskin importé : ${name}`);
-    } catch (e) {
-      setStatus(`Import windowskin : ${e}`);
-    }
+  // ---- Resources: windowskins, icon sheets, fonts, pictures, sounds,
+  // music, vignettes ---------------------------------------------------
+  // Seven registers, four actions each. The flows live once in
+  // resources.ts; what is left here is the context they need and the two
+  // reference rewrites that do not fit in project.json.
+  function resCtx(): ResCtx | null {
+    if (!data) return null;
+    return {
+      data,
+      sceneName,
+      setStatus,
+      mutate,
+      reload: reloadProject,
+      beginTransPick: setTransPick,
+      // A font is also named by the dialogue styles and by the widgets
+      // (S2), and those live in ui/layout.toml, not project.json.
+      renameInLayout: async (root, oldRel, newRel) => {
+        const l = await loadUiLayout2(root);
+        if (
+          l.styles.some((s) => s.font === oldRel) ||
+          l.nodes.some((n) => n.font === oldRel)
+        ) {
+          l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
+          l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
+          await writeProjectText(root, "ui/layout.toml", layoutToToml(l));
+        }
+      },
+      layoutUsers: async (root, rel) => {
+        const l = await loadUiLayout2(root);
+        return [
+          ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
+          ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
+        ];
+      },
+    };
   }
 
-  async function exportWindowskin(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter le windowskin (PNG 24x24)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Windowskin exporté : ${path}`);
-    } catch (e) {
-      setStatus(`Export windowskin : ${e}`);
-    }
+  function resAction(
+    kind: ResKind,
+    act: "import" | "export" | "rename" | "delete",
+    rel?: string,
+    name?: string
+  ) {
+    const ctx = resCtx();
+    if (!ctx) return;
+    const res = RESOURCES[kind];
+    if (act === "import") void runImport(ctx, res);
+    else if (act === "export") void runExport(ctx, res, rel!);
+    else if (act === "rename") void runRename(ctx, res, rel!, name!);
+    else void runDelete(ctx, res, rel!);
   }
 
-  async function renameWindowskin(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectWindowskins(data.project).includes(newRel)) {
-      setStatus(`Renommage : le windowskin « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      // fichier renommé + refs (registre et thème actif) dans le même
-      // geste, projet sauvegardé pour que le disque reste cohérent
-      const windowskins = projectWindowskins(data.project).map((r) =>
-        r === oldRel ? newRel : r
-      );
-      const ui =
-        data.project.ui?.windowskin === oldRel
-          ? { ...data.project.ui, windowskin: newRel }
-          : data.project.ui;
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, windowskins, ui },
-      };
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Windowskin renommé : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteWindowskin(rel: string) {
-    if (!data || data.project.ui?.windowskin === rel) return; // thème actif
-    if (!confirm(`Supprimer le windowskin « ${assetStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const windowskins = projectWindowskins(data.project).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: {
-          ...data.project,
-          windowskins: windowskins.length ? windowskins : undefined,
-        },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Windowskin supprimé : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Planches d'icônes des widgets (W1) : PNG bande Nx8 (largeur multiple
-  // de 8, max 64 icônes) — même modèle de registre que les windowskins.
-  async function importIconset() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une planche d'icônes (PNG Nx8, largeur multiple de 8)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.height !== 8 || bmp.width % 8 !== 0 || bmp.width === 0 || bmp.width > 512) {
-        setStatus(
-          `Planche d'icônes : attendu une bande Nx8 (largeur multiple de 8, max 64 icônes), reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      setTransPick({ kind: "iconset", file, bytes, bmp });
-    } catch (e) {
-      setStatus(`Import planche d'icônes : ${e}`);
-    }
-  }
-
-  async function exportIconset(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la planche d'icônes (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Planche d'icônes exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export planche d'icônes : ${e}`);
-    }
-  }
-
-  async function renameIconset(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectIconsets(data.project).includes(newRel)) {
-      setStatus(`Renommage : la planche « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const iconsets = projectIconsets(data.project).map((r) => (r === oldRel ? newRel : r));
-      const ui =
-        data.project.ui?.icons === oldRel
-          ? { ...data.project.ui, icons: newRel }
-          : data.project.ui;
-      const d2: ProjectData = { ...data, project: { ...data.project, iconsets, ui } };
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Planche d'icônes renommée : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteIconset(rel: string) {
-    if (!data || data.project.ui?.icons === rel) return; // planche active
-    if (!confirm(`Supprimer la planche d'icônes « ${assetStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const iconsets = projectIconsets(data.project).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, iconsets: iconsets.length ? iconsets : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Planche d'icônes supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Fontes (S1) : PNG bande 768x8 (96 glyphes ASCII 32-127) — même modèle
-  // de registre. assets.font est la fonte du projet (★) ; les autres
-  // servent aux styles de dialogue. Export demandé explicitement par
-  // Bertrand (« la font soit exportable depuis le ressource »).
-  async function importFont() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une fonte (PNG 768x8 — 96 glyphes 8x8)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (bmp.width !== 768 || bmp.height !== 8) {
-        setStatus(
-          `Fonte : attendu une bande 768x8 (96 glyphes 8x8, ASCII 32-127), reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      if (!projectFonts(data.project).includes(rel)) {
-        mutate((d) => ({
-          ...d,
-          project: { ...d.project, fonts: [...(d.project.fonts ?? []), rel] },
-        }));
-      }
-      setStatus(`Fonte importée : ${name}`);
-    } catch (e) {
-      setStatus(`Import fonte : ${e}`);
-    }
-  }
-
-  async function exportFont(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la fonte (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Fonte exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export fonte : ${e}`);
-    }
-  }
-
-  async function renameFont(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectFonts(data.project).includes(newRel)) {
-      setStatus(`Renommage : la fonte « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const fonts = (data.project.fonts ?? []).map((r) => (r === oldRel ? newRel : r));
-      const assets =
-        data.project.assets.font === oldRel
-          ? { ...data.project.assets, font: newRel }
-          : data.project.assets;
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      // les styles de dialogue ET les widgets qui pointaient l'ancienne
-      // fonte suivent (S2)
-      const l = await loadUiLayout2(data.root);
-      if (
-        l.styles.some((s) => s.font === oldRel) ||
-        l.nodes.some((n) => n.font === oldRel)
-      ) {
-        l.styles = l.styles.map((s) => (s.font === oldRel ? { ...s, font: newRel } : s));
-        l.nodes = l.nodes.map((n) => (n.font === oldRel ? { ...n, font: newRel } : n));
-        await writeProjectText(data.root, "ui/layout.toml", layoutToToml(l));
-      }
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, fonts: fonts.length ? fonts : undefined, assets },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Fonte renommée : ${assetStem(oldRel)} → ${newStem}`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteFont(rel: string) {
-    if (!data || data.project.assets.font === rel) return; // fonte du projet ★
-    try {
-      // refusé si un style de dialogue OU un widget l'utilise
-      const l = await loadUiLayout2(data.root);
-      const users = [
-        ...l.styles.filter((s) => s.font === rel).map((s) => `style ${s.id}`),
-        ...l.nodes.filter((n) => n.font === rel).map((n) => `widget ${n.id}`),
-      ];
-      if (users.length) {
-        setStatus(`Fonte utilisée par : ${users.join(", ")} — changer d'abord dans Tools → UI.`);
-        return;
-      }
-      if (!confirm(`Supprimer la fonte « ${assetStem(rel)} » et son fichier ?`)) return;
-      const keep = sceneName;
-      const fonts = (data.project.fonts ?? []).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, fonts: fonts.length ? fonts : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Fonte supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-
-  // Pictures (S3) : PNG indexé <= 16 couleurs, <= 256x224 (multiples de
-  // 8) — affichées plein écran par « Afficher une image ». Registre
-  // project.pictures LU par datagen (l'ordre donne les pic_id).
-  async function importPicture() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une image (PNG indexé ≤ 16 couleurs, ≤ 256x224)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(
-        new Blob([bytes as BlobPart], { type: "image/png" })
-      );
-      if (
-        bmp.width === 0 || bmp.height === 0 ||
-        bmp.width > 256 || bmp.height > 224 ||
-        bmp.width % 8 !== 0 || bmp.height % 8 !== 0
-      ) {
-        setStatus(
-          `Image : attendu ≤ 256x224 avec dimensions multiples de 8, reçu ${bmp.width}x${bmp.height}`
-        );
-        return;
-      }
-      setTransPick({ kind: "picture", file, bytes, bmp });
-    } catch (e) {
-      setStatus(`Import image : ${e}`);
-    }
-  }
-
-  // Phase 2 des imports à picker (S4) : la couleur transparente est
-  // connue — transformer (alpha 0), valider, écrire, enregistrer
+  // Phase 2 of the picker imports (S4): the transparent colour is known
+  // — transform it (alpha 0), validate, write, save
   async function finishTransPick(color: Rgb | null) {
     const t = transPick;
     setTransPick(null);
@@ -1174,22 +891,20 @@ export default function App() {
       const name = t.file.split(/[\\/]/).pop()!;
       const rel = `assets/${name}`;
       if (t.kind === "iconset") {
+        const res = RESOURCES.iconset;
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        if (!projectIconsets(data.project).includes(rel)) {
-          mutate((d) => ({
-            ...d,
-            project: { ...d.project, iconsets: [...projectIconsets(d.project), rel] },
-          }));
+        if (!res.list(data.project).includes(rel)) {
+          mutate((d) => ({ ...d, project: res.add(d.project, rel) }));
         }
-        setStatus(`Planche d'icônes importée : ${name} (${t.bmp.width / 8} icônes)`);
+        setStatus(res.imported(assetStem(rel), t.bmp));
       } else if (t.kind === "picture") {
-        // comptage des couleurs OPAQUES restantes : ≤ 16 sans
-        // transparence (PNG indexé conservé tel quel), ≤ 15 avec (le
-        // PNG réécrit passe par l'indexation alpha de datagen, index 0
-        // réservé au transparent). Un PNG DÉJÀ troué (pixels alpha)
-        // est une image à transparence même sans couleur cliquée —
-        // sinon le drapeau trans manquait et la couche d'effet (S9) ou
-        // le décor-au-travers refusaient l'image au build.
+        // counting the remaining OPAQUE colours: <= 16 without
+        // transparency (the indexed PNG is kept as is), <= 15 with it (the
+        // rewritten PNG goes through datagen's alpha indexing, index 0
+        // reserved for transparent). A PNG that ALREADY has holes (alpha
+        // pixels) is a transparent image even without a clicked colour —
+        // otherwise the trans flag was missing and the effect layer (S9)
+        // or the see-through scenery refused the image at build time.
         let trans = !!color;
         {
           const cv = document.createElement("canvas");
@@ -1201,7 +916,7 @@ export default function App() {
           const seen = new Set<number>();
           for (let i = 0; i < d4.length; i += 4) {
             if (d4[i + 3] < 128) {
-              trans = true; // trou alpha : transparence automatique
+              trans = true; // alpha hole: automatic transparency
               continue;
             }
             const c = (d4[i] << 16) | (d4[i + 1] << 8) | d4[i + 2];
@@ -1217,22 +932,20 @@ export default function App() {
             return;
           }
         }
+        const res = RESOURCES.picture;
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
-        const entry = trans ? { path: rel, trans: true } : rel;
-        if (!projectPictures(data.project).some((e) => picPath(e) === rel)) {
-          mutate((d) => ({
-            ...d,
-            project: { ...d.project, pictures: [...projectPictures(d.project), entry] },
-          }));
+        if (!res.list(data.project).includes(rel)) {
+          mutate((d) => ({ ...d, project: res.add(d.project, rel, { trans }) }));
         }
-        setStatus(
-          `Image importée : ${name} (${t.bmp.width}x${t.bmp.height}${trans ? ", avec transparence — le décor se verra à travers" : ""})`
-        );
+        setStatus(res.imported(assetStem(rel), t.bmp, { trans }));
       } else {
-        // charset : datagen import-charset lit un FICHIER — copie
-        // temporaire avec la transparence percée, consommée par la
-        // fenêtre d'import (remplacée à chaque import)
-        const tmp = `${data.root}/assets/_charset_import.png`;
+        // charset: datagen import-charset reads a FILE — a temporary copy
+        // with the transparency punched, consumed by the import window
+        // (replaced on every import)
+        // A scratch file, not an asset: kept under assets/charsets so the
+        // assets/ root stays one folder per resource type.
+        await ensureProjectDir(data.root, "assets/charsets");
+        const tmp = `${data.root}/assets/charsets/_charset_import.png`;
         await writeBinaryFile(tmp, bytes);
         const bmp2 = color ? await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" })) : t.bmp;
         setCharsetImport({ path: tmp, bmp: bmp2 });
@@ -1242,273 +955,8 @@ export default function App() {
     }
   }
 
-  async function exportPicture(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter l'image (PNG)", `${assetStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Image exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export image : ${e}`);
-    }
-  }
-
-  async function renamePicture(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === assetStem(oldRel)) return;
-    const newRel = `assets/${newStem}.png`;
-    if (projectPictures(data.project).some((e) => picPath(e) === newRel)) {
-      setStatus(`Renommage : l'image « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const pictures = projectPictures(data.project).map((e) =>
-        picPath(e) !== oldRel ? e : typeof e === "string" ? newRel : { ...e, path: newRel }
-      );
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, pictures },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(
-        `Image renommée : ${assetStem(oldRel)} → ${newStem} — corriger les « Afficher une image » qui l'utilisaient (le build les signale)`
-      );
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deletePicture(rel: string) {
-    if (!data) return;
-    if (!confirm(`Supprimer l'image « ${assetStem(rel)} » et son fichier ? Les commandes « Afficher une image » qui l'utilisent seront signalées au build.`)) return;
-    const keep = sceneName;
-    try {
-      const pictures = projectPictures(data.project).filter((e) => picPath(e) !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, pictures: pictures.length ? pictures : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Image supprimée : ${assetStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Sons & musiques (B1) : fichiers copiés dans assets/, listes du
-  // project.json (l'ordre donne les sfx_id / music_id)
-  async function importAudio(kind: "sound" | "music") {
-    if (!data) return;
-    try {
-      const file =
-        kind === "sound"
-          ? await pickFile("Importer un son (WAV, ~2 s max — converti en BRR au build)", "WAV", ["wav"])
-          : await pickFile("Importer une musique (module Impulse Tracker)", "IT", ["it"]);
-      if (!file) return;
-      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
-      const rel = kind === "sound" ? `assets/sounds/${name}` : `assets/music/${name}`;
-      const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
-      if (list.includes(rel)) {
-        setStatus(`Import : « ${musicStem(rel)} » existe déjà dans le projet`);
-        return;
-      }
-      await writeBinaryFile(`${data.root}/${rel}`, await readBinaryFile(file));
-      mutate((d) => ({
-        ...d,
-        project:
-          kind === "sound"
-            ? { ...d.project, sounds: [...(d.project.sounds ?? []), rel] }
-            : { ...d.project, musics: [...(d.project.musics ?? []), rel] },
-      }));
-      setStatus(
-        kind === "sound"
-          ? `Son importé : ${musicStem(rel)} — à jouer via la commande « Jouer un son »`
-          : `Musique importée : ${musicStem(rel)} — à choisir dans l'onglet Scène ou « Changer la musique »`
-      );
-    } catch (e) {
-      setStatus(`Import audio : ${e}`);
-    }
-  }
-
-  async function exportAudio(kind: "sound" | "music", rel: string) {
-    if (!data) return;
-    const ext = kind === "sound" ? "wav" : "it";
-    const path = await pickSavePath(
-      kind === "sound" ? "Exporter le son (WAV)" : "Exporter la musique (IT)",
-      `${musicStem(rel)}.${ext}`
-    );
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Exporté : ${path}`);
-    } catch (e) {
-      setStatus(`Export : ${e}`);
-    }
-  }
-
-  async function renameAudio(kind: "sound" | "music", oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === musicStem(oldRel)) return;
-    const ext = kind === "sound" ? "wav" : "it";
-    const dir = kind === "sound" ? "assets/sounds" : "assets/music";
-    const newRel = `${dir}/${newStem}.${ext}`;
-    const list = kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []);
-    if (list.includes(newRel)) {
-      setStatus(`Renommage : « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const next = list.map((r) => (r === oldRel ? newRel : r));
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = {
-        ...data,
-        project:
-          kind === "sound"
-            ? { ...data.project, sounds: next }
-            : { ...data.project, musics: next },
-      };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(
-        `Renommé : ${musicStem(oldRel)} → ${newStem}` +
-          (kind === "sound"
-            ? " — corriger les « Jouer un son » qui l'utilisaient (le build les signale)"
-            : " — corriger les scènes et « Changer la musique » qui l'utilisaient")
-      );
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteAudio(kind: "sound" | "music", rel: string) {
-    if (!data) return;
-    const what = kind === "sound" ? "le son" : "la musique";
-    if (!confirm(`Supprimer ${what} « ${musicStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const list = (kind === "sound" ? (data.project.sounds ?? []) : (data.project.musics ?? []))
-        .filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project:
-          kind === "sound"
-            ? { ...data.project, sounds: list.length ? list : undefined }
-            : { ...data.project, musics: list.length ? list : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Supprimé : ${musicStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
-  // Vignettes (B5) : bandes de frames 32x32 (PNG à transparence)
-  async function importVignette() {
-    if (!data) return;
-    try {
-      const file = await pickPngFile("Importer une vignette (bande de frames 32x32, PNG à transparence)");
-      if (!file) return;
-      const bytes = await readBinaryFile(file);
-      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
-      if (bmp.height !== 32 || bmp.width % 32 !== 0 || bmp.width === 0 || bmp.width > 256) {
-        setStatus(`Vignette : attendu une bande 32 px de haut, largeur multiple de 32 (1-8 frames) — reçu ${bmp.width}x${bmp.height}`);
-        return;
-      }
-      const name = file.split(/[\\/]/).pop()!.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
-      const rel = `assets/vignettes/${name}`;
-      if ((data.project.vignettes ?? []).includes(rel)) {
-        setStatus(`Vignette « ${musicStem(rel)} » : existe déjà`);
-        return;
-      }
-      await writeBinaryFile(`${data.root}/${rel}`, bytes);
-      mutate((d) => ({
-        ...d,
-        project: { ...d.project, vignettes: [...(d.project.vignettes ?? []), rel] },
-      }));
-      setStatus(`Vignette importée : ${musicStem(rel)} (${bmp.width / 32} frame(s))`);
-    } catch (e) {
-      setStatus(`Import vignette : ${e}`);
-    }
-  }
-
-  async function exportVignette(rel: string) {
-    if (!data) return;
-    const path = await pickSavePath("Exporter la vignette (PNG)", `${musicStem(rel)}.png`);
-    if (!path) return;
-    try {
-      await writeBinaryFile(path, await readBinaryFile(`${data.root}/${rel}`));
-      setStatus(`Vignette exportée : ${path}`);
-    } catch (e) {
-      setStatus(`Export : ${e}`);
-    }
-  }
-
-  async function renameVignette(oldRel: string, newName: string) {
-    if (!data) return;
-    const newStem = newName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-    if (!newStem || newStem === musicStem(oldRel)) return;
-    const newRel = `assets/vignettes/${newStem}.png`;
-    if ((data.project.vignettes ?? []).includes(newRel)) {
-      setStatus(`Renommage : « ${newStem} » existe déjà`);
-      return;
-    }
-    const keep = sceneName;
-    try {
-      const list = (data.project.vignettes ?? []).map((r) => (r === oldRel ? newRel : r));
-      await renamePath(`${data.root}/${oldRel}`, `${data.root}/${newRel}`);
-      const d2: ProjectData = { ...data, project: { ...data.project, vignettes: list } };
-      await saveProject(d2);
-      await reloadProject(data.root, keep);
-      setStatus(`Vignette renommée : ${musicStem(oldRel)} → ${newStem} — corriger les « Afficher une vignette » qui l'utilisaient (le build les signale)`);
-    } catch (e) {
-      setStatus(`Renommage : ${e}`);
-    }
-  }
-
-  async function deleteVignette(rel: string) {
-    if (!data) return;
-    if (!confirm(`Supprimer la vignette « ${musicStem(rel)} » et son fichier ?`)) return;
-    const keep = sceneName;
-    try {
-      const list = (data.project.vignettes ?? []).filter((r) => r !== rel);
-      const d2: ProjectData = {
-        ...data,
-        project: { ...data.project, vignettes: list.length ? list : undefined },
-      };
-      await saveProject(d2);
-      try {
-        await removePath(`${data.root}/${rel}`);
-      } catch {
-        /* déjà absent */
-      }
-      await reloadProject(data.root, keep);
-      setStatus(`Vignette supprimée : ${musicStem(rel)}`);
-    } catch (e) {
-      setStatus(`Suppression : ${e}`);
-    }
-  }
-
   function setSceneTileset(stem: string) {
-    // le premier tileset du projet est le défaut : on ne sérialise pas le champ
+    // the project's first tileset is the default: the field is not serialised
     setScene((sc) => ({
       ...sc,
       tileset: stem === tilesetNames[0] ? undefined : stem,
@@ -1535,7 +983,7 @@ export default function App() {
       const res = await runDatagen(data.root, playCfg.debug);
       setStatus(
         res.ok
-          ? "Données moteur regénérées — reste « make » dans engine/."
+          ? "Données moteur regénérées — reste à compiler la ROM."
           : `datagen a échoué : ${res.output.slice(-400)}`
       );
     } catch (e) {
@@ -1545,8 +993,8 @@ export default function App() {
     }
   }
 
-  // mutation avec enregistrement dans l'historique — record=false pour les
-  // pas suivants d'un même geste (un tracé au crayon = une entrée d'undo)
+  // mutation recorded in the history — record=false for the following
+  // steps of one gesture (a pencil stroke = one undo entry)
   const mutate = useCallback(
     (updater: (d: ProjectData) => ProjectData, record = true) => {
       setData((d) => {
@@ -1575,25 +1023,25 @@ export default function App() {
   );
 
   function handlePaint(tx: number, ty: number, ox: number, oy: number, first: boolean) {
-    if (layer === "events") return; // la couche Événements ne se peint pas
-    if (layer === "upper" && scene?.effect) return; // couche d'effet (S9)
+    if (layer === "events") return; // the Events layer is not painted
+    if (layer === "upper" && scene?.effect) return; // effect layer (S9)
     setScene((sc) => paintStamp(sc, layer, tx, ty, ox, oy, tool.tiles), first);
   }
 
-  // rectangle / ellipse / pot de peinture : un geste = une entrée d'undo
+  // rectangle / ellipse / paint bucket: one gesture = one undo entry
   function applyPattern(cells: Array<[number, number]>, ax: number, ay: number) {
     if (layer === "events") return;
     if (layer === "upper" && scene?.effect) return;
     setScene((sc) => paintCells(sc, layer, cells, ax, ay, tool.tiles));
   }
 
-  // pipette (clic droit) : le bloc copié depuis la map devient le tampon
+  // eyedropper (right-click): the block copied from the map becomes the stamp
   function pickBlock(tiles: number[][]) {
     if (tiles.length === 0 || tiles[0].length === 0) return;
     setTool({ kind: "tile", tiles });
   }
 
-  // Jouer : sauvegarde → datagen → make (MSYS2) → émulateur
+  // Play: save -> datagen -> snesbuild -> emulator
   async function play() {
     if (!data || playing) return;
     setPlaying(true);
@@ -1605,10 +1053,10 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Compilation du ROM (make)…");
-      const mk = await runMake(data.root, playCfg.bash);
+      setStatus("Compilation du ROM…");
+      const mk = await runMake(data.root, playCfg.toolchain);
       if (!mk.ok) {
-        setStatus(`make a échoué : ${mk.output.slice(-400)}`);
+        setStatus(`La compilation a échoué : ${mk.output.slice(-400)}`);
         return;
       }
       setStatus("Lancement de l'émulateur…");
@@ -1621,8 +1069,8 @@ export default function App() {
     }
   }
 
-  // Build « cartouche » : .smc prêt pour flashcart (Super UFO Pro 8 & co) —
-  // miroité à 512 Ko minimum, checksum recalculé (tools/mkcart.sh)
+  // "Cartridge" build: a .smc ready for a flashcart (Super UFO Pro 8 & co)
+  // — mirrored to 512 KB minimum, checksum recomputed (tools/mkcart.sh)
   async function buildCart() {
     if (!data || building || playing) return;
     setBuilding(true);
@@ -1634,12 +1082,12 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Build cartouche (make cart)…");
-      const mk = await runMakeCart(data.root, playCfg.bash);
+      setStatus("Build cartouche…");
+      const mk = await runMakeCart(data.root, playCfg.toolchain);
       setStatus(
         mk.ok
           ? "Cartouche prête : engine/snesstudio.smc (512 Ko, à copier sur la flashcart)."
-          : `make cart a échoué : ${mk.output.slice(-400)}`
+          : `Le build cartouche a échoué : ${mk.output.slice(-400)}`
       );
     } catch (e) {
       setStatus(`Build cartouche : ${e}`);
@@ -1648,8 +1096,8 @@ export default function App() {
     }
   }
 
-  // Recompilation complète : make clean + make (à utiliser après une mise à
-  // jour du moteur — évite tout mélange d'objets compilés obsolètes)
+  // Full rebuild: clean + build (to be used after an engine update —
+  // avoids any mix of stale compiled objects)
   async function rebuildAll() {
     if (!data || building || playing) return;
     setBuilding(true);
@@ -1661,9 +1109,9 @@ export default function App() {
         setStatus(`datagen a échoué : ${gen.output.slice(-300)}`);
         return;
       }
-      setStatus("Recompilation complète du ROM (make clean + make)…");
-      const mk = await runMake(data.root, playCfg.bash, true);
-      setStatus(mk.ok ? "ROM recompilé de zéro." : `make a échoué : ${mk.output.slice(-400)}`);
+      setStatus("Recompilation complète du ROM…");
+      const mk = await runMake(data.root, playCfg.toolchain, true);
+      setStatus(mk.ok ? "ROM recompilé de zéro." : `La compilation a échoué : ${mk.output.slice(-400)}`);
     } catch (e) {
       setStatus(`Recompilation : ${e}`);
     } finally {
@@ -1673,13 +1121,13 @@ export default function App() {
 
   function savePlayCfg(c: PlayConfig) {
     setPlayCfg(c);
-    localStorage.setItem("snesstudio.bash", c.bash);
+    localStorage.setItem("snesstudio.toolchain", c.toolchain);
     localStorage.setItem("snesstudio.emulator", c.emulator);
     localStorage.setItem("snesstudio.debug", c.debug ? "1" : "0");
     setShowSettings(false);
   }
 
-  // cycle O → X → ☆ du sidecar du tileset courant (undo/redo comme le reste)
+  // O -> X -> ☆ cycle of the current tileset's sidecar (undo/redo like the rest)
   function cyclePass(id: number) {
     if (!tsStem) return;
     mutate((d) => ({
@@ -1703,7 +1151,7 @@ export default function App() {
     setShowNewScene(false);
   }
 
-  // déplacement dans l'arborescence (organisationnel — datagen l'ignore)
+  // move within the tree (organisational — datagen ignores it)
   function reparentScene(name: string, parent: string | null) {
     mutate((d) => ({
       ...d,
@@ -1727,7 +1175,7 @@ export default function App() {
       const scenes: Record<string, Scene> = {};
       for (const [n, sc] of Object.entries(d.scenes)) {
         if (n === name) continue;
-        // les enfants de la scène supprimée remontent d'un cran
+        // the children of the deleted scene move up one level
         scenes[n] = sc.parent === name ? { ...sc, parent: dead.parent } : sc;
       }
       return { ...d, project: { ...d.project, scenes: remaining }, scenes };
@@ -1761,7 +1209,7 @@ export default function App() {
     });
   }, [history]);
 
-  // raccourcis clavier
+  // keyboard shortcuts
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
@@ -1770,7 +1218,7 @@ export default function App() {
         e.preventDefault();
         void save();
       } else if (e.key === "z" && !e.shiftKey) {
-        // pas d'interception dans les champs texte (ils gèrent leur propre undo)
+        // no interception inside text fields (they handle their own undo)
         const t = e.target as HTMLElement;
         if (t.tagName === "TEXTAREA" || t.tagName === "INPUT") return;
         e.preventDefault();
@@ -1790,8 +1238,8 @@ export default function App() {
     localStorage.setItem("snesstudio.paletteH", String(paletteH));
   }, [paletteH]);
 
-  // Ctrl + molette sur la map : zoom RM2003 (listener non-passif pour
-  // pouvoir bloquer le zoom du navigateur)
+  // Ctrl + wheel on the map: RM2003 zoom (a non-passive listener so the
+  // browser's own zoom can be blocked)
   useEffect(() => {
     const el = mapColRef.current;
     if (!el) return;
@@ -1804,7 +1252,7 @@ export default function App() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [data, sceneName]);
 
-  // garde-fou : la scène affichée peut avoir disparu après un undo
+  // guard: the displayed scene may have vanished after an undo
   useEffect(() => {
     if (data && !data.scenes[sceneName]) {
       setSceneName(data.project.boot_scene);
@@ -1812,12 +1260,12 @@ export default function App() {
     }
   }, [data, sceneName]);
 
-  // changement de scène : le curseur de cellule ne survit pas
+  // scene change: the cell cursor does not survive it
   useEffect(() => {
     setEvCursor(null);
   }, [sceneName]);
 
-  // Barre de menus (façon RM2003)
+  // Menu bar (RM2003 style)
   const menus = [
     {
       label: "Projet",
@@ -1901,7 +1349,7 @@ export default function App() {
         { sep: true },
         {
           label: "Réglages du projet…",
-          tip: "Réglages de cette machine : bash MSYS2, émulateur, menu de debug",
+          tip: "Réglages de cette machine : dossier PVSnesLib, émulateur, menu de debug",
           action: () => setShowSettings(true),
           disabled: !canBuild(),
         },
@@ -1909,24 +1357,29 @@ export default function App() {
     },
     {
       label: "Tools",
+      // Nine flat entries were a LIST, not a menu: nothing in it said
+      // what went with what. They are now filed by what you are DOING —
+      // holding the game's state, building a map, staging a scene,
+      // dressing the interface, filling tables. No group of one: a
+      // submenu holding a single entry groups nothing, it just adds a
+      // click.
       items: [
         {
-          label: "Switches et variables…",
-          tip: "Nommer les 512 switches (ON/OFF) et 256 variables (nombres) du jeu",
-          action: () => setVarMgr(true),
-          disabled: !data,
-        },
-        {
-          // Les deux sont des SCRIPTS GLOBAUX au projet, opposés par ce
-          // qu'on en fait : un common event se déclenche, une fonction
-          // se calcule. Les réunir sous une entrée les présente comme
-          // les deux faces d'une même idée plutôt que comme deux
-          // outils sans rapport perdus dans une liste de dix.
-          label: "Scripts globaux",
-          tip: "Scripts partagés par tout le projet : common events (déclenchés) et fonctions (appelées avec des paramètres)",
+          label: "Logique",
+          tip: "Ce que le jeu retient et ce qu'il exécute : switches, variables, scripts partagés",
           disabled: !data,
           sub: [
             {
+              label: "Switches et variables…",
+              tip: "Nommer les 512 switches (ON/OFF) et 256 variables (nombres) du jeu",
+              action: () => setVarMgr(true),
+              disabled: !data,
+            },
+            {
+              // A common event and a function are two faces of the same
+              // idea — a script belonging to no map — and differ by what
+              // you do with them: one is triggered, the other is
+              // computed.
               label: "Common events…",
               tip: "Blocs de commandes appelés depuis n'importe quel event, ou lancés en auto par un switch",
               action: () => setCommonEvOpen(true),
@@ -1941,44 +1394,46 @@ export default function App() {
           ],
         },
         {
-          label: "Écrans composés…",
-          tip: "Écrans hors carte (combat, titre, carte du monde…) : fond + images posées + scripts, joués par « Aller à l'écran »",
-          action: () => setScreensOpen(true),
+          label: "Cartes",
+          tip: "De quoi bâtir une carte : comportement des tiles et modèles d'events",
           disabled: !data,
+          sub: [
+            {
+              label: "Tilesets…",
+              tip: "Passabilité, côtés fermés et tiles animées des chipsets (façon Database RM2003)",
+              action: () => setTilesetsOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Prefabs…",
+              tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
+              action: () => setPrefabMgr(true),
+              disabled: !data,
+            },
+          ],
         },
         {
-          label: "Animations…",
-          tip: "Animations image par image (coup d'épée, explosion, soin) : cellule, position et son par frame — jouées par « Jouer une animation »",
-          action: () => setAnimsOpen(true),
+          label: "Mise en scène",
+          tip: "Ce qui se joue hors de la carte : écrans composés et animations",
           disabled: !data,
+          sub: [
+            {
+              label: "Écrans composés…",
+              tip: "Écrans hors carte (combat, titre, carte du monde…) : fond + images posées + scripts, joués par « Aller à l'écran »",
+              action: () => setScreensOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Animations…",
+              tip: "Animations image par image (coup d'épée, explosion, soin) : cellule, position et son par frame — jouées par « Jouer une animation »",
+              action: () => setAnimsOpen(true),
+              disabled: !data,
+            },
+          ],
         },
         {
-          label: "Prefabs…",
-          tip: "Modèles d'events réutilisables (coffre, porte, PNJ…) à poser sur les cartes",
-          action: () => setPrefabMgr(true),
-          disabled: !data,
-        },
-        {
-          label: "Tilesets…",
-          tip: "Passabilité, côtés fermés et tiles animées des chipsets (façon Database RM2003)",
-          action: () => setTilesetsOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "Database…",
-          tip: "Tables de données du jeu (monstres, objets…) : schémas et valeurs, lues en jeu par « Lire la database »",
-          action: () => setDbOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "Textes…",
-          tip: "Catalogue des textes du jeu par catégories — utilisés par les commandes Message",
-          action: () => setTextsOpen(true),
-          disabled: !data,
-        },
-        {
-          label: "UI",
-          tip: "Interface en jeu : widgets HUD et styles de dialogue",
+          label: "Interface",
+          tip: "Ce que le joueur a sous les yeux : HUD et boîtes de dialogue",
           disabled: !data,
           sub: [
             {
@@ -1995,6 +1450,25 @@ export default function App() {
             },
           ],
         },
+        {
+          label: "Données",
+          tip: "Les tables du projet : valeurs chiffrées et textes",
+          disabled: !data,
+          sub: [
+            {
+              label: "Database…",
+              tip: "Tables de données du jeu (monstres, objets…) : schémas et valeurs, lues en jeu par « Lire la database »",
+              action: () => setDbOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Textes…",
+              tip: "Catalogue des textes du jeu par catégories — utilisés par les commandes Message",
+              action: () => setTextsOpen(true),
+              disabled: !data,
+            },
+          ],
+        },
       ],
     },
     {
@@ -2002,7 +1476,7 @@ export default function App() {
       items: [
         {
           label: "▶ Lancer le jeu",
-          tip: "Compiler le projet (datagen + make) et lancer la ROM de test dans l'émulateur",
+          tip: "Compiler le projet et lancer la ROM de test dans l'émulateur",
           action: play,
           disabled: !data || !canBuild() || playing || building,
         },
@@ -2028,7 +1502,7 @@ export default function App() {
         {
           label: "Recompiler tout (clean)",
           hint: "après mise à jour",
-          tip: "make clean puis rebuild complet du moteur — utile après une mise à jour de SNES Studio",
+          tip: "Rebuild complet du moteur, intermédiaires jetés — utile après une mise à jour de SNES Studio",
           action: () => void rebuildAll(),
           disabled: !data || !canBuild() || playing || building,
         },
@@ -2057,7 +1531,7 @@ export default function App() {
         >
           💾{dirty ? " *" : ""}
         </button>
-        {/* gestion des scènes : arborescence sous la palette (façon RM2003) */}
+        {/* scene management: the tree under the palette (RM2003 style) */}
         {data && scene && (
           <span className="layer-switch" title="Couche éditée (modèle RPG Maker 2003)">
             <button
@@ -2278,7 +1752,7 @@ export default function App() {
         </div>
       ) : (
         <div className="empty">
-          <p>SNES Studio — éditeur (Phase 3b)</p>
+          <p>SNES Studio {__APP_VERSION__}</p>
           <button onClick={openProject}>Ouvrir un projet…</button>
         </div>
       )}
@@ -2325,47 +1799,20 @@ export default function App() {
           sounds={data.project.sounds ?? []}
           musics={data.project.musics ?? []}
           onImportTilesetPng={importTileset}
-          onImportSound={() => void importAudio("sound")}
-          onImportMusic={() => void importAudio("music")}
-          onExportSound={(rel) => void exportAudio("sound", rel)}
-          onExportMusic={(rel) => void exportAudio("music", rel)}
-          onRenameSound={(rel, n) => void renameAudio("sound", rel, n)}
-          onRenameMusic={(rel, n) => void renameAudio("music", rel, n)}
-          onDeleteSound={(rel) => void deleteAudio("sound", rel)}
-          onDeleteMusic={(rel) => void deleteAudio("music", rel)}
           vignettes={data.project.vignettes ?? []}
-          onImportVignette={() => void importVignette()}
-          onExportVignette={(rel) => void exportVignette(rel)}
-          onRenameVignette={(rel, n) => void renameVignette(rel, n)}
-          onDeleteVignette={(rel) => void deleteVignette(rel)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
           canWrite={canWriteFiles()}
           onImportCharset={importCharset}
           onImportChipset={importChipset}
-          onImportWindowskin={() => void importWindowskin()}
-          onImportIconset={() => void importIconset()}
-          onImportFont={() => void importFont()}
-          onImportPicture={() => void importPicture()}
           onExportCharset={exportCharset}
           onExportChipset={exportChipset}
-          onExportWindowskin={(rel) => void exportWindowskin(rel)}
-          onExportIconset={(rel) => void exportIconset(rel)}
-          onExportFont={(rel) => void exportFont(rel)}
-          onExportPicture={(rel) => void exportPicture(rel)}
           onRenameCharset={renameCharset}
           onRenameChipset={renameChipset}
-          onRenameWindowskin={(rel, n) => void renameWindowskin(rel, n)}
-          onRenameIconset={(rel, n) => void renameIconset(rel, n)}
-          onRenameFont={(rel, n) => void renameFont(rel, n)}
-          onRenamePicture={(rel, n) => void renamePicture(rel, n)}
           onDeleteCharset={deleteCharset}
           onDeleteChipset={deleteChipset}
-          onDeleteWindowskin={(rel) => void deleteWindowskin(rel)}
-          onDeleteIconset={(rel) => void deleteIconset(rel)}
-          onDeleteFont={(rel) => void deleteFont(rel)}
-          onDeletePicture={(rel) => void deletePicture(rel)}
+          onRes={resAction}
           onClose={() => setShowResources(false)}
         />
       )}
@@ -2847,7 +2294,7 @@ export default function App() {
           sprites={sprites}
           tilesetBmp={tilesets[scene.tileset ?? tilesetNames[0] ?? ""] ?? null}
           upperCells={(() => {
-            // T4 : tiles de la section couche haute du chipset de la scène
+            // T4: tiles from the upper-layer section of the scene's chipset
             const stem = scene.tileset ?? tilesetNames[0] ?? "";
             const us = data.tilesetMeta[stem]?.upper_start;
             const bmp = tilesets[stem];
@@ -2895,7 +2342,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* rendu APRÈS le gestionnaire de ressources : s'empile au-dessus */}
+      {/* rendered AFTER the resource manager: stacks above it */}
       {charsetImport && (
         <CharsetImportModal
           bitmap={charsetImport.bmp}
@@ -2910,11 +2357,11 @@ export default function App() {
   );
 }
 
-// Icônes de couches façon RM2003 (deux tuiles empilées en perspective —
-// la couche éditée est surlignée ; la couche Événements porte un
-// petit personnage)
+// RM2003-style layer icons (two tiles stacked in perspective — the
+// edited layer is highlighted; the Events layer carries a little
+// character)
 function LayerIcon({ kind }: { kind: "lower" | "upper" | "events" }) {
-  const on = "#ffd76a"; // couche active (jaune RM2003)
+  const on = "#ffd76a"; // active layer (RM2003 yellow)
   const off = "#5a6472";
   const top = kind === "upper" ? on : off;
   const bottom = kind === "lower" ? on : kind === "events" ? "#7fb0e0" : off;

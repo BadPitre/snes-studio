@@ -1,9 +1,9 @@
-// Fenêtre « Database » (Tools →, Phase 10) — l'expérience Database de
-// RPG Maker : tables à gauche, instances au centre, formulaire à droite.
-// UNE SEULE UI générique pilotée par les schémas : le formulaire se
-// dessine depuis schemas/*.toml, AUCUN champ codé en dur ici (règle 1
-// de docs/INTEGRATION_DATABASE_EDITEUR.md). Ajouter une table = ajouter
-// un schéma, zéro code React.
+// "Database" window (Tools >, Phase 10) — RPG Maker's Database
+// experience: tables on the left, instances in the middle, a form on the
+// right. ONE generic UI driven by the schemas: the form is drawn from
+// schemas/*.toml, NO field hard-coded here (rule 1 of
+// docs/INTEGRATION_DATABASE_EDITEUR.md). Adding a table = adding a
+// schema, zero React code.
 
 import { useState } from "react";
 import type { Database, DbEntry, DbField, DbSchema } from "../db";
@@ -14,18 +14,18 @@ import { assetStem } from "../types";
 
 interface Props {
   db: Database;
-  textNames: string[]; // banque de textes (champs text_id)
-  // B7 — ressources du projet (chemins) : champs picture/sound/music
+  textNames: string[]; // text bank (text_id fields)
+  // B7 — the project's resources (paths): picture/sound/music fields
   root: string;
   pictures: string[];
   sounds: string[];
   musics: string[];
-  // removed : tables supprimées (leurs fichiers seront retirés du disque)
+  // removed: deleted tables (their files will be taken off the disk)
   onOk: (db: Database, removed: string[]) => void;
   onClose: () => void;
 }
 
-// libellé affiché d'une entrée (liste + menus ref:)
+// displayed label of an entry (list + ref: menus)
 function label(e: DbEntry): string {
   return e.name || e.id;
 }
@@ -35,8 +35,8 @@ export default function DatabaseModal(props: Props) {
   const [table, setTable] = useState(0);
   const [sel, setSel] = useState(0);
   const [confirmDel, setConfirmDel] = useState<string[] | null>(null);
-  // création de table (l'utilisateur crée SES databases) + édition de
-  // structure + tables supprimées (fichiers retirés à la sauvegarde)
+  // table creation (the user creates THEIR databases) + structure
+  // editing + deleted tables (files removed on save)
   const [newTable, setNewTable] = useState<{ name: string; title: string } | null>(null);
   const [schemaEdit, setSchemaEdit] = useState(false);
   const [removed, setRemoved] = useState<string[]>([]);
@@ -46,7 +46,7 @@ export default function DatabaseModal(props: Props) {
   const cur: DbEntry | undefined = list[sel];
   const commit = () => setDraft({ ...draft });
 
-  // tables dont des champs ref: visent celle-ci (suppression bloquée)
+  // tables whose ref: fields target this one (deletion blocked)
   const tableRefs = (name: string) =>
     draft.schemas
       .filter((s) => s.name !== name && s.fields.some((f) => f.type === `ref:${name}`))
@@ -62,8 +62,8 @@ export default function DatabaseModal(props: Props) {
     commit();
   }
 
-  // applique une nouvelle structure : renommages migrés, champs
-  // supprimés purgés des entrées
+  // applies a new structure: renames migrated, deleted fields purged
+  // from the entries
   function applySchema(next: DbSchema, renames: [string, string][]) {
     const keep = new Set(next.fields.map((f) => f.name));
     for (const e of draft.entries[next.name] ?? []) {
@@ -82,7 +82,7 @@ export default function DatabaseModal(props: Props) {
     commit();
   }
 
-  // id libre le plus proche (nouvel/dupliqué)
+  // nearest free id (new/duplicated)
   function freeId(base: string): string {
     const ids = new Set(list.map((e) => e.id));
     let stem = base.replace(/[^a-z0-9_]/g, "") || "entree";
@@ -111,7 +111,7 @@ export default function DatabaseModal(props: Props) {
     if (!sc || !cur) return;
     const usages = refUsages(draft, sc.name, cur.id);
     if (usages.length && !confirmDel) {
-      // suppression protégée : lister les usages avant de confirmer
+      // protected deletion: list the uses before confirming
       setConfirmDel(usages.map((u) => `${u.table} « ${u.entry} » (champ ${u.field})`));
       return;
     }
@@ -130,7 +130,7 @@ export default function DatabaseModal(props: Props) {
     commit();
   }
 
-  // ---- widgets par type (le mapping du planning) -----------------------
+  // ---- widgets by type (the planning's mapping) ------------------------
 
   function fieldWidget(f: DbField) {
     if (!cur) return null;
@@ -231,8 +231,8 @@ export default function DatabaseModal(props: Props) {
       );
     }
     if (f.type === "picture" || f.type === "sound" || f.type === "music") {
-      // B7 : ressource du projet par NOM (menu déroulant) — dbgen résout
-      // vers l'index de la liste projet au build, 0xFF si absent
+      // B7: a project resource by NAME (a dropdown) — dbgen resolves it
+      // to the index in the project list at build time, 0xFF if absent
       const paths =
         f.type === "picture" ? props.pictures : f.type === "sound" ? props.sounds : props.musics;
       const what = f.type === "picture" ? "image" : f.type === "sound" ? "son" : "musique";
@@ -263,7 +263,7 @@ export default function DatabaseModal(props: Props) {
         </label>
       );
     }
-    // dégradation élégante : type inconnu = lecture seule + avertissement
+    // graceful degradation: an unknown type = read only + a warning
     return (
       <label key={f.name}>
         {f.name} — ⚠ type « {f.type} » inconnu (lecture seule)
@@ -278,7 +278,7 @@ export default function DatabaseModal(props: Props) {
   );
 
   const close = () => {
-    stopPreview(); // l'aperçu audio ne survit pas à la fenêtre
+    stopPreview(); // the audio preview does not outlive the window
     props.onClose();
   };
 
@@ -383,7 +383,7 @@ export default function DatabaseModal(props: Props) {
                       onChange={(e) => {
                         const v = e.target.value;
                         if (isSnake(v) || v === "") {
-                          // refactoring : renommer met à jour toutes les refs
+                          // refactoring: renaming updates every ref
                           renameEntry(draft, sc.name, cur.id, v);
                         }
                         cur.id = v;
@@ -480,7 +480,7 @@ export default function DatabaseModal(props: Props) {
                   setTable(draft.schemas.length - 1);
                   setSel(0);
                   setNewTable(null);
-                  setSchemaEdit(true); // enchaîner sur la structure
+                  setSchemaEdit(true); // carry on to the structure
                   commit();
                 }}
               >
@@ -520,5 +520,5 @@ export default function DatabaseModal(props: Props) {
   );
 }
 
-// taille d'un champ exportée pour les jauges externes (panneau build, v2)
+// field size exported for the external gauges (build panel, v2)
 export { fieldSize };

@@ -1,8 +1,8 @@
 {
  "assets": {
-  "font": "assets/font.png",
-  "sprites": "assets/sprites.png",
-  "tileset": "assets/tileset.png"
+  "font": "assets/fonts/font.png",
+  "sprites": "assets/charsets/sprites.png",
+  "tileset": "assets/tilesets/tileset.png"
  },
  "boot_scene": "plaine",
  "musics": [
@@ -18,22 +18,22 @@
   "bourg"
  ],
  "tilesets": [
-  "assets/tileset.png",
-  "assets/tileset_automne.png",
-  "assets/bourg.png"
+  "assets/tilesets/tileset.png",
+  "assets/tilesets/tileset_automne.png",
+  "assets/tilesets/bourg.png"
  ],
  "tileset_defs": [
   {
    "name": "tileset",
-   "file": "assets/tileset.png"
+   "file": "assets/tilesets/tileset.png"
   },
   {
    "name": "tileset_automne",
-   "file": "assets/tileset_automne.png"
+   "file": "assets/tilesets/tileset_automne.png"
   },
   {
    "name": "bourg",
-   "file": "assets/bourg.png"
+   "file": "assets/tilesets/bourg.png"
   }
  ],
  "charsets": [
@@ -41,28 +41,28 @@
   "Villageois"
  ],
  "ui": {
-  "windowskin": "assets/windowskin.png",
+  "windowskin": "assets/windowskins/windowskin.png",
   "text_speed": 2,
-  "icons": "assets/icons.png"
+  "icons": "assets/iconsets/icons.png"
  },
  "windowskins": [
-  "assets/windowskin.png"
+  "assets/windowskins/windowskin.png"
  ],
  "iconsets": [
-  "assets/icons.png"
+  "assets/iconsets/icons.png"
  ],
  "sounds": [
   "assets/sounds/curseur.wav",
   "assets/sounds/attaque.wav"
  ],
  "pictures": [
-  "assets/fond_prairie.png",
+  "assets/pictures/fond_prairie.png",
   {
-   "path": "assets/gobelin.png",
+   "path": "assets/pictures/gobelin.png",
    "trans": true
   },
   {
-   "path": "assets/dragon.png",
+   "path": "assets/pictures/dragon.png",
    "trans": true
   }
  ],
