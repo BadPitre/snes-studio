@@ -17,7 +17,7 @@ import AudioPreviewButton, { stopPreview } from "./AudioPreview";
 
 type Cat =
   | "charset" | "chipset" | "windowskin" | "iconset" | "fontset"
-  | "picture" | "sound" | "music" | "vignette";
+  | "picture" | "sound" | "music" | "vignette" | "mode7";
 
 export type ResAct = "import" | "export" | "rename" | "delete";
 
@@ -38,11 +38,12 @@ interface Props {
   sounds: string[]; // WAV sounds (B1) — assets/sounds/*.wav paths
   musics: string[]; // IT music — assets/music/*.it paths
   vignettes: string[]; // strips of 32x32 frames (B5)
+  mode7Images: string[]; // Mode 7 images (M7) — assets/mode7/*.png
   // resource -> the scenes using it (to block deletion)
   usedCharsets: Record<number, string[]>;
   usedChipsets: Record<string, string[]>;
   canWrite: boolean;
-  // the seven register-backed categories, in one call
+  // the eight register-backed categories, in one call
   onRes: (kind: ResKind, act: ResAct, rel?: string, name?: string) => void;
   onImportCharset: () => void;
   onImportChipset: () => void;
@@ -144,6 +145,15 @@ const CATS: CatDef[] = [
     items: (p) => p.vignettes,
     deleteTitle: () =>
       "Supprimer la vignette et son fichier (le build signale les « Afficher une vignette » orphelins)",
+  },
+  {
+    cat: "mode7",
+    kind: "mode7",
+    label: "Image zoomable",
+    bullet: "▦",
+    items: (p) => p.mode7Images,
+    deleteTitle: () =>
+      "Supprimer l'image zoomable et son fichier (le build signale les « Zoom cinématique » orphelins)",
   },
 ];
 

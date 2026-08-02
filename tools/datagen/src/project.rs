@@ -61,7 +61,12 @@ pub struct Project {
     pub mode7: Option<Mode7Config>,
 }
 
-/// The project's Mode 7 content.
+/// The project's Mode 7 images.
+///
+/// The ZOOM RAMPS are not here: they live on the commands that use them
+/// (from % to % over N frames along a curve), and datagen derives the
+/// distinct tables from a project-wide scan. An author who fills a form
+/// should not also have to manage a resource they never asked for.
 ///
 /// Images are named by the STEM of an ordinary picture: a Mode 7 image is
 /// not a separate resource the author has to manage, it is a second form
@@ -72,23 +77,6 @@ pub struct Project {
 pub struct Mode7Config {
     #[serde(default)]
     pub images: Vec<String>,
-    #[serde(default)]
-    pub ramps: Vec<RampDef>,
-}
-
-/// A zoom, as the author states it: from a percentage to a percentage,
-/// over a number of frames, along a curve. datagen turns that into the
-/// 8.8 table the engine feeds to setMode7Scale — the author never sees a
-/// fixed-point number, and the runtime never divides.
-#[derive(Deserialize, Clone)]
-pub struct RampDef {
-    pub name: String,
-    pub from: u32,
-    pub to: u32,
-    pub frames: u32,
-    /// linear, ease_in, ease_out, ease_in_out (the default).
-    #[serde(default)]
-    pub curve: String,
 }
 
 /// A composed screen (screens/<name>.json). Editor sugar: the engine only

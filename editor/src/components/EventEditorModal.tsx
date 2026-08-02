@@ -50,6 +50,7 @@ import {
   formSpotlight,
   formStageClear,
   formStageClose,
+  formM7,
   formStageOpen,
   formStagePose,
   formSwappos,
@@ -132,6 +133,7 @@ interface Props {
   uiStyles: string[]; // dialogue styles (S1) — msg/choice style field
   texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
   pictures: string[]; // picture stems (S3) — pic_show command
+  mode7Images: string[]; // Mode 7 image stems (M7) — "Zoom cinématique"
   tintPresets: TintPreset[]; // the project's tint presets (S12b)
   soundNames: string[]; // the project's sound stems (B1)
   musicNames: string[]; // the project's music stems (B1)
@@ -333,6 +335,10 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
           : c.fx === "fadeout"
             ? `Slot ${c.slot} : fondu au noir (${c.frames ?? 30}f)`
             : `Slot ${c.slot} : assombrir`;
+    case "m7":
+      return `Zoom cinematique : ${c.image || "(image ?)"} — ${c.from}% a ${
+        c.to
+      }% en ${c.frames} frames`;
     case "stage_close":
       return "Écran composé : fermer";
     case "sfx":
@@ -424,6 +430,7 @@ function cmdTitle(c: Command["c"]): string {
     anim_play: "Jouer une animation",
     anim_stop: "Arrêter les animations",
     stage_close: "Fermer l'écran composé",
+    m7: "Zoom cinématique",
     sfx: "Jouer un son",
     bgm: "Changer la musique",
     wave: "Ondulation de l'écran",
@@ -523,6 +530,7 @@ export function CommandListEditor(props: {
   uiStyles: string[];
   texts: TextEntry[]; // Tools > Textes catalogue (msg by reference, T2)
   pictures: string[];
+  mode7Images: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
@@ -735,6 +743,16 @@ export function CommandListEditor(props: {
         return { c: "anim_play", anim: "", anchor: "screen", event: -1, wait: false };
       case "anim_stop":
         return { c: "anim_stop" };
+      case "m7":
+        return {
+          c: "m7",
+          image: "",
+          from: 100,
+          to: 150,
+          frames: 90,
+          curve: "ease_in_out",
+          dur: 20,
+        };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -836,6 +854,7 @@ export function CommandListEditor(props: {
               uiStyles={props.uiStyles}
               texts={props.texts}
               pictures={props.pictures}
+              mode7Images={props.mode7Images}
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
@@ -1267,6 +1286,7 @@ export default function EventEditorModal(props: Props) {
               uiStyles={props.uiStyles}
               texts={props.texts}
               pictures={props.pictures}
+              mode7Images={props.mode7Images}
               tintPresets={props.tintPresets}
               soundNames={props.soundNames}
               musicNames={props.musicNames}
@@ -1475,6 +1495,7 @@ export type CommandFormProps = {
   uiStyles: string[];
   texts: TextEntry[];
   pictures: string[];
+  mode7Images: string[];
   tintPresets: TintPreset[];
   soundNames: string[];
   musicNames: string[];
@@ -1669,6 +1690,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "stage_close":
       ({ body, valid } = formStageClose(cmd, x));
+      break;
+    case "m7":
+      ({ body, valid } = formM7(cmd, x));
       break;
     case "vig_show":
       ({ body, valid } = formVigShow(cmd, x));

@@ -67,9 +67,11 @@ pub struct EventCompiler<'a> {
     vignettes: Vec<String>,
     /// Project animations (names), resolved to anim_id.
     animations: Vec<String>,
-    /// Mode 7 images (stems) and zoom ramps (names), resolved to ids.
+    /// Mode 7 images (stems), resolved to ids, and the DISTINCT zoom
+    /// ramps of the whole project — a command resolves its own four
+    /// fields to the index of the table datagen will emit.
     m7_images: Vec<String>,
-    m7_ramps: Vec<String>,
+    m7_ramps: Vec<crate::mode7::Ramp>,
     /// Composed screens, unrolled by the "screen" command.
     screens: Vec<ScreenDef>,
     /// Stack of screens currently being unrolled: screen_call resolves
@@ -535,7 +537,7 @@ impl<'a> EventCompiler<'a> {
     /// Mode 7 resources. A setter rather than two more parameters on
     /// compile_scene, which already takes seventeen — and unlike the
     /// tileset these do not vary per scene, so they are set once.
-    pub fn set_mode7(&mut self, images: &[String], ramps: &[String]) {
+    pub fn set_mode7(&mut self, images: &[String], ramps: &[crate::mode7::Ramp]) {
         self.m7_images = images.to_vec();
         self.m7_ramps = ramps.to_vec();
     }
@@ -1590,18 +1592,16 @@ impl<'a> EventCompiler<'a> {
                 }
             )
         })?;
-        let rname = cmd["ramp"].as_str().unwrap_or("");
-        let ramp = self.m7_ramps.iter().position(|a| a == rname).with_context(|| {
-            format!(
-                "m7 : rampe de zoom '{}' introuvable (rampes du projet : {})",
-                rname,
-                if self.m7_ramps.is_empty() {
-                    "aucune".to_string()
-                } else {
-                    self.m7_ramps.join(", ")
-                }
-            )
-        })?;
+        // The zoom lives ON the command; datagen has already collected
+        // the distinct ones project-wide, so this is a lookup that cannot
+        // miss — unless someone hand-writes a command the scan never saw.
+        let want = crate::mode7::Ramp::from_command(cmd)
+            .context("m7 : commande mal formee")?;
+        let ramp = self
+            .m7_ramps
+            .iter()
+            .position(|r| *r == want)
+            .context("m7 : rampe non collectee (bug datagen, pas un probleme de projet)")?;
         let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
         out.push(format!("  M7OPEN {} {}", id, dur));
         // flags bit 1 = wait for the end. The composite command ALWAYS

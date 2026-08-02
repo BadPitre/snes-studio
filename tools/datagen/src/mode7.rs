@@ -356,7 +356,7 @@ pub const MIN_PCT: u32 = 25;
 pub const MAX_PCT: u32 = 400;
 pub const MAX_RAMP_FRAMES: u32 = 255;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Curve {
     Linear,
     EaseIn,
@@ -426,6 +426,79 @@ pub fn compile_ramp(from_pct: u32, to_pct: u32, frames: u32, curve: Curve) -> Re
         out.push(((25_600_000 + pct / 2) / pct) as u16);
     }
     Ok(out)
+}
+
+/// A zoom as the author states it on a command, and the key that makes
+/// two identical zooms share one table.
+#[derive(Clone, Copy, PartialEq)]
+pub struct Ramp {
+    pub from: u32,
+    pub to: u32,
+    pub frames: u32,
+    pub curve: Curve,
+}
+
+impl Ramp {
+    /// Reads the four fields off a command object, with the same defaults
+    /// the editor's form shows. Returns None when the command is not an
+    /// "m7" — the scan uses that to walk past everything else.
+    pub fn from_command(v: &serde_json::Value) -> Option<Ramp> {
+        if v.get("c")?.as_str()? != "m7" {
+            return None;
+        }
+        Some(Ramp {
+            from: v.get("from").and_then(|x| x.as_u64()).unwrap_or(100) as u32,
+            to: v.get("to").and_then(|x| x.as_u64()).unwrap_or(150) as u32,
+            frames: v.get("frames").and_then(|x| x.as_u64()).unwrap_or(90) as u32,
+            curve: Curve::parse(v.get("curve").and_then(|x| x.as_str()).unwrap_or(""))
+                .unwrap_or(Curve::EaseInOut),
+        })
+    }
+}
+
+/// Every distinct zoom in the project, in the order first met.
+///
+/// The scan is a RECURSIVE WALK of the raw JSON rather than a tour of the
+/// typed structures: commands nest inside `then`, `else` and `do`, and a
+/// hand-written list of the places to look would rot the first time a
+/// container is added. Anything shaped like an m7 command is found
+/// wherever it hides — map events and their pages, scene scripts, common
+/// events, functions, screens.
+///
+/// Deduplication is what makes a zoom used on ten commands cost one
+/// table.
+///
+/// On ORDER: this crate's serde_json has no `preserve_order`, so an
+/// object's keys are visited ALPHABETICALLY — inside an `if_var`, `else`
+/// is walked before `then`. That is surprising but it is REPRODUCIBLE,
+/// which is the only property the ramp indices need, and gate-datagen.sh
+/// is what holds it. Do not rely on document order here.
+pub fn collect_ramps(roots: &[&serde_json::Value]) -> Vec<Ramp> {
+    fn walk(v: &serde_json::Value, out: &mut Vec<Ramp>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(r) = Ramp::from_command(v) {
+                    if !out.contains(&r) {
+                        out.push(r);
+                    }
+                }
+                for (_, sub) in m {
+                    walk(sub, out);
+                }
+            }
+            serde_json::Value::Array(a) => {
+                for sub in a {
+                    walk(sub, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for r in roots {
+        walk(r, &mut out);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -583,6 +656,56 @@ mod tests {
         assert!(compile_ramp(100, 200, 256, Curve::Linear).is_err());
         assert!(compile_ramp(10, 200, 30, Curve::Linear).is_err());
         assert!(compile_ramp(100, 500, 30, Curve::Linear).is_err());
+    }
+
+    #[test]
+    fn ramps_are_collected_wherever_commands_hide() {
+        // Two identical zooms must share one table, a different one must
+        // not, and both must be found however deep they nest — inside a
+        // condition, inside a loop, inside a screen script.
+        let j: serde_json::Value = serde_json::from_str(
+            r#"{
+              "events": [
+                { "pages": [ { "commands": [
+                    { "c": "msg", "text": "hi" },
+                    { "c": "if_var", "then": [
+                        { "c": "m7", "image": "a", "from": 100, "to": 150,
+                          "frames": 90, "curve": "ease_in_out" } ],
+                      "else": [
+                        { "c": "loop", "do": [
+                            { "c": "m7", "image": "b", "from": 100, "to": 130,
+                              "frames": 10, "curve": "ease_out" } ] } ] }
+                  ] } ] }
+              ],
+              "scripts": [ { "commands": [
+                  { "c": "m7", "image": "c", "from": 100, "to": 150,
+                    "frames": 90, "curve": "ease_in_out" } ] } ]
+            }"#,
+        )
+        .unwrap();
+        let r = collect_ramps(&[&j]);
+        assert_eq!(r.len(), 2, "the two identical zooms must share a table");
+        let mut got: Vec<(u32, u32, u32)> =
+            r.iter().map(|x| (x.from, x.to, x.frames)).collect();
+        got.sort();
+        assert_eq!(got, vec![(100, 130, 10), (100, 150, 90)]);
+        assert!(r.iter().any(|x| x.curve == Curve::EaseOut));
+        // The ORDER is alphabetical-by-key, not document order (see
+        // collect_ramps). What matters is that it is reproducible.
+        assert_eq!(
+            collect_ramps(&[&j]).iter().map(|x| x.frames).collect::<Vec<_>>(),
+            r.iter().map(|x| x.frames).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_command_with_no_zoom_fields_takes_the_form_defaults() {
+        let j: serde_json::Value =
+            serde_json::from_str(r#"[{ "c": "m7", "image": "a" }]"#).unwrap();
+        let r = collect_ramps(&[&j]);
+        assert_eq!(r.len(), 1);
+        assert_eq!((r[0].from, r[0].to, r[0].frames), (100, 150, 90));
+        assert_eq!(r[0].curve, Curve::EaseInOut);
     }
 
     #[test]

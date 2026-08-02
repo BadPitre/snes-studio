@@ -25,6 +25,7 @@ interface Props {
   uiStyles: string[]; // dialogue styles (S1) — msg/choice style field
   texts: import("../types").TextEntry[]; // catalogue (msg by reference, T2)
   pictures: string[]; // picture stems (S3) — pic_show command
+  mode7Images: string[]; // Mode 7 image stems (M7)
   tintPresets: import("../types").TintPreset[]; // tint presets (S12b)
   soundNames: string[]; // sound stems (B1)
   musicNames: string[]; // music stems (B1)
@@ -187,6 +188,7 @@ export default function CommonEventsModal(props: Props) {
                   uiStyles={props.uiStyles}
                   texts={props.texts}
                   pictures={props.pictures}
+                  mode7Images={props.mode7Images}
                   tintPresets={props.tintPresets}
                   soundNames={props.soundNames}
                   musicNames={props.musicNames}

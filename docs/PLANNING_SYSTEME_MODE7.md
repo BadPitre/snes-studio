@@ -196,8 +196,19 @@ nothing structural on top of it.
 ### 5.3 The zoom ramp
 
 The author gives a start percentage, an end percentage, a duration and a
-curve. datagen compiles that into a table of 8.8 values fed straight to
-`setMode7Scale`.
+curve, ON THE COMMAND — there is no ramp resource to manage. datagen
+walks every JSON file of the project, collects the DISTINCT zooms and
+compiles one table each, so a zoom used on ten commands costs one table.
+
+That walk is recursive over the raw JSON rather than a tour of the typed
+structures: commands nest inside `then`, `else` and `do`, and a
+hand-written list of the places to look would rot at the first new
+container. One caveat recorded in the code: this crate's serde_json has
+no `preserve_order`, so object keys are visited ALPHABETICALLY — inside
+an `if_var`, `else` before `then`. Surprising, but reproducible, which is
+the only property the ramp indices need.
+
+The tables are 8.8 values fed straight to `setMode7Scale`.
 
 ```
 m7_ramp<i>[]  : u16 x N, one 8.8 scale factor per frame
@@ -462,8 +473,16 @@ Everything here was checked on the emulator. Nothing has run on hardware.
    to all of it, the screen closes and the map comes back. Two bugs found
    on the way are recorded in §11b — both are conventions of this engine
    that no amount of reading the hardware would have surfaced.
-4. **M7-A3** — the editor: the "Zoom cinématique" command, the presets,
-   the auto-fit preview (§8.3-8.5).
+4. **M7-A3** — 🟡 the editor. Done: the "Zoom cinematique" command with
+   its four presets and the zoom stated in percentages, the "Image
+   zoomable" resource category (import, export, rename, delete), and the
+   rule of §8.1 held — the words "Mode 7" appear nowhere in the editor.
+   **Not done: the auto-fit preview of §8.3/§8.5.** It needs a datagen
+   subcommand that converts one PNG and hands back the result, so that
+   the preview calls the SAME code the build uses; a second
+   implementation in TypeScript would drift and start lying about what
+   the game shows. Until it exists the author sees the fitted size in the
+   build log, not before.
 5. **M7-B1** — the Mode 7 tileset resource (§5.1) and the `worldmap`
    scene type in datagen (§5.4).
 6. **M7-B2** — the camera and the second sprite loop (§7.1, §7.2). The

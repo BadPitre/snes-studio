@@ -164,8 +164,10 @@ fn main() -> Result<()> {
     // Mode 7 names, needed BEFORE the scenes compile: the "m7" command
     // resolves them to ids. The images themselves are converted later,
     // with the rest of the graphics.
-    let (m7_img_names, m7_ramp_names): (Vec<String>, Vec<String>) = match &project.mode7 {
-        Some(c) => (
+    let m7_img_names: Vec<String> = project
+        .mode7
+        .as_ref()
+        .map(|c| {
             c.images
                 .iter()
                 .map(|rel| {
@@ -175,11 +177,20 @@ fn main() -> Result<()> {
                         .unwrap_or("")
                         .to_string()
                 })
-                .collect(),
-            c.ramps.iter().map(|r| r.name.clone()).collect(),
-        ),
-        None => (Vec::new(), Vec::new()),
-    };
+                .collect()
+        })
+        .unwrap_or_default();
+    // The zoom ramps are DERIVED from the commands that use them, by
+    // walking every JSON file of the project. Re-parsing costs nothing
+    // next to the graphics, and it means a command hidden inside a
+    // condition, a loop or a screen script is found without anyone
+    // maintaining a list of the places to look.
+    let m7_ramps = mode7::collect_ramps(
+        &project_json_roots(&proj_dir)?.iter().collect::<Vec<_>>(),
+    );
+    if !m7_ramps.is_empty() {
+        println!("  mode7 : {} rampe(s) de zoom distincte(s)", m7_ramps.len());
+    }
 
     // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
     // reference them by stem
@@ -282,7 +293,7 @@ fn main() -> Result<()> {
                 None => default_ts_stem.clone(),
             };
             let mut ec = events::EventCompiler::new(&mut texts);
-            ec.set_mode7(&m7_img_names, &m7_ramp_names);
+            ec.set_mode7(&m7_img_names, &m7_ramps);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -937,7 +948,7 @@ fn main() -> Result<()> {
     {
         let empty = project::Mode7Config::default();
         let cfg = project.mode7.as_ref().unwrap_or(&empty);
-        for (name, content) in gen_mode7_files(cfg, &proj_dir)? {
+        for (name, content) in gen_mode7_files(cfg, &m7_ramps, &proj_dir)? {
             write_out(&out_dir, &name, content)?;
         }
     }
@@ -1489,8 +1500,37 @@ fn gen_vignette_files(
 /// Chars and map are SEPARATE files because a ROM section cannot be split
 /// across a 32 KB bank, and an image at full budget is 16 KB of chars on
 /// its own — the same reason the gfx sets get one file each.
+/// Every .json under the project, parsed. Used to derive the Mode 7 zoom
+/// ramps from the commands that carry them.
+fn project_json_roots(dir: &Path) -> Result<Vec<serde_json::Value>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let rd = match std::fs::read_dir(&d) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort(); /* a stable walk: the ramp order must not depend
+                           on the filesystem */
+        for p in entries {
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn gen_mode7_files(
     cfg: &project::Mode7Config,
+    ramps_in: &[mode7::Ramp],
     proj_dir: &Path,
 ) -> Result<Vec<(String, String)>> {
     let mut files = Vec::new();
@@ -1547,22 +1587,14 @@ fn gen_mode7_files(
 
     // Ramps: one 8.8 value per frame, read straight into setMode7Scale.
     let mut ramps: Vec<(String, Vec<u16>)> = Vec::new();
-    for r in &cfg.ramps {
-        if ramps.iter().any(|(n, _)| n == &r.name) {
-            bail!("rampe mode7 '{}' : nom en double", r.name);
-        }
-        let curve = mode7::Curve::parse(&r.curve)
-            .with_context(|| format!("rampe mode7 '{}'", r.name))?;
-        let table = mode7::compile_ramp(r.from, r.to, r.frames, curve)
-            .with_context(|| format!("rampe mode7 '{}'", r.name))?;
-        println!(
-            "  mode7 : rampe {} — {}% a {}% en {} frames",
-            r.name, r.from, r.to, r.frames
-        );
-        ramps.push((r.name.clone(), table));
+    for r in ramps_in {
+        let label = format!("{}% a {}% en {} frames", r.from, r.to, r.frames);
+        let table = mode7::compile_ramp(r.from, r.to, r.frames, r.curve)
+            .with_context(|| format!("zoom cinematique {}", label))?;
+        ramps.push((label, table));
     }
     if ramps.len() > 64 {
-        bail!("{} rampes mode7 (max 64)", ramps.len());
+        bail!("{} zooms cinematiques distincts (max 64)", ramps.len());
     }
 
     let mut s = String::from(emit::HEADER);

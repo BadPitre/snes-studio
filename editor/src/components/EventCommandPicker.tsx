@@ -107,6 +107,7 @@ const TABS: Tab[] = [
       { c: "vig_play", label: "Animer la vignette" },
       { c: "vig_hide", label: "Cacher la vignette" },
       { c: "stage_close", label: "Fermer l'écran composé" },
+      { c: "m7", label: "Zoom cinématique" },
     ],
   },
   {

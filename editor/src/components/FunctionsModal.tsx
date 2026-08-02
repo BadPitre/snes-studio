@@ -27,6 +27,7 @@ interface Props {
   uiStyles: string[];
   texts: import("../types").TextEntry[];
   pictures: string[];
+  mode7Images: string[];
   tintPresets: import("../types").TintPreset[];
   soundNames: string[];
   musicNames: string[];
@@ -382,6 +383,7 @@ export default function FunctionsModal(props: Props) {
                   uiStyles={props.uiStyles}
                   texts={props.texts}
                   pictures={props.pictures}
+                  mode7Images={props.mode7Images}
                   tintPresets={props.tintPresets}
                   soundNames={props.soundNames}
                   musicNames={props.musicNames}

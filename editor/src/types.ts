@@ -42,6 +42,10 @@ export interface Project {
   // { path, trans: true } = an image WITH TRANSPARENCY (the map's
   // scenery shows through the pixels punched out at import)
   pictures?: PictureEntry[];
+  // Mode 7 (M7) — images compiled to the 8bpp affine plane. Their own
+  // asset, not pictures: a picture is 4bpp and capped at 16 colours,
+  // which would throw away the very thing Mode 7 is for.
+  mode7?: Mode7Config;
   // T2 — named tileset entries (Tools > Tilesets window, RM2003)
   tileset_defs?: TilesetDef[];
   // named tint presets (S12b — editor only, see TintPreset)
@@ -114,6 +118,21 @@ export function projectIconsets(p: Project): string[] {
   const list = p.iconsets ?? [];
   const cur = p.ui?.icons;
   return cur && !list.includes(cur) ? [...list, cur] : list;
+}
+
+// Mode 7 images. The zoom ramps are NOT here: they are carried by the
+// commands and datagen derives the distinct tables from a project-wide
+// scan (docs/PLANNING_SYSTEME_MODE7.md).
+export interface Mode7Config {
+  images?: string[];
+}
+
+// The easing the author picks in the form. Same four names datagen
+// parses — a mismatch here is a build error, so they stay in step.
+export type M7Curve = "linear" | "ease_in" | "ease_out" | "ease_in_out";
+
+export function projectMode7(p: Project): string[] {
+  return p.mode7?.images ?? [];
 }
 
 // The project's pictures (S3) — datagen reads this register as is
@@ -339,6 +358,18 @@ export type Command =
   | { c: "stage_clear"; slot: number }
   | { c: "slot_fx"; slot: number; fx: "restore" | "flash" | "fadeout" | "dark"; frames?: number }
   | { c: "stage_close"; dur?: number; trans?: ScreenTrans }
+  // M7 — "Zoom cinematique": ONE command that opens the Mode 7 screen,
+  // plays the zoom to its end and closes it. The zoom lives here rather
+  // than in a named resource, so filling the form is all there is to do.
+  | {
+      c: "m7";
+      image: string;
+      from: number;
+      to: number;
+      frames: number;
+      curve: M7Curve;
+      dur?: number;
+    }
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }

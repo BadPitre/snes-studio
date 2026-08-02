@@ -14,6 +14,7 @@ import {
   projectFonts,
   projectIconsets,
   picPath,
+  projectMode7,
   projectPictures,
   projectTilesetDefs,
   projectTilesets,
@@ -1800,6 +1801,7 @@ export default function App() {
           musics={data.project.musics ?? []}
           onImportTilesetPng={importTileset}
           vignettes={data.project.vignettes ?? []}
+          mode7Images={projectMode7(data.project)}
           pictures={projectPictures(data.project).map(picPath)}
           usedCharsets={usedCharsets}
           usedChipsets={usedChipsets}
@@ -2126,6 +2128,7 @@ export default function App() {
           uiStyles={uiStyles}
           texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
           tintPresets={data.project.tint_presets ?? []}
           soundNames={(data.project.sounds ?? []).map(musicStem)}
           musicNames={(data.project.musics ?? []).map(musicStem)}
@@ -2164,6 +2167,7 @@ export default function App() {
           uiStyles={uiStyles}
           texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
           tintPresets={data.project.tint_presets ?? []}
           soundNames={(data.project.sounds ?? []).map(musicStem)}
           musicNames={(data.project.musics ?? []).map(musicStem)}
@@ -2209,6 +2213,7 @@ export default function App() {
           uiStyles={uiStyles}
           texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
@@ -2279,6 +2284,7 @@ export default function App() {
           uiStyles={uiStyles}
           texts={data.texts}
           pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
                 tintPresets={data.project.tint_presets ?? []}
                 soundNames={(data.project.sounds ?? []).map(musicStem)}
                 musicNames={(data.project.musics ?? []).map(musicStem)}
