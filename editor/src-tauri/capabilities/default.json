@@ -28,8 +28,13 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "cargo",
-          "cmd": "cargo",
+          "name": "binaries/datagen",
+          "sidecar": true,
+          "args": true
+        },
+        {
+          "name": "binaries/snesbuild",
+          "sidecar": true,
           "args": true
         },
         {

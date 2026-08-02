@@ -113,7 +113,7 @@ export default function App() {
   const [passMode, setPassMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [playCfg, setPlayCfg] = useState<PlayConfig>(() => ({
-    bash: localStorage.getItem("snesstudio.bash") ?? "C:\\msys64\\usr\\bin\\bash.exe",
+    toolchain: localStorage.getItem("snesstudio.toolchain") ?? "",
     emulator: localStorage.getItem("snesstudio.emulator") ?? "mesen",
     debug: localStorage.getItem("snesstudio.debug") === "1",
   }));
@@ -1050,7 +1050,7 @@ export default function App() {
         return;
       }
       setStatus("Compilation du ROM (make)…");
-      const mk = await runMake(data.root, playCfg.bash);
+      const mk = await runMake(data.root, playCfg.toolchain);
       if (!mk.ok) {
         setStatus(`make a échoué : ${mk.output.slice(-400)}`);
         return;
@@ -1079,7 +1079,7 @@ export default function App() {
         return;
       }
       setStatus("Build cartouche (make cart)…");
-      const mk = await runMakeCart(data.root, playCfg.bash);
+      const mk = await runMakeCart(data.root, playCfg.toolchain);
       setStatus(
         mk.ok
           ? "Cartouche prête : engine/snesstudio.smc (512 Ko, à copier sur la flashcart)."
@@ -1106,7 +1106,7 @@ export default function App() {
         return;
       }
       setStatus("Recompilation complète du ROM (make clean + make)…");
-      const mk = await runMake(data.root, playCfg.bash, true);
+      const mk = await runMake(data.root, playCfg.toolchain, true);
       setStatus(mk.ok ? "ROM recompilé de zéro." : `make a échoué : ${mk.output.slice(-400)}`);
     } catch (e) {
       setStatus(`Recompilation : ${e}`);
@@ -1117,7 +1117,7 @@ export default function App() {
 
   function savePlayCfg(c: PlayConfig) {
     setPlayCfg(c);
-    localStorage.setItem("snesstudio.bash", c.bash);
+    localStorage.setItem("snesstudio.toolchain", c.toolchain);
     localStorage.setItem("snesstudio.emulator", c.emulator);
     localStorage.setItem("snesstudio.debug", c.debug ? "1" : "0");
     setShowSettings(false);

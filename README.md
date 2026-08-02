@@ -118,11 +118,12 @@ builds the matrix on GitHub runners and attaches the installers to a draft
 release. The Actions tab can also run it by hand, which builds the bundles
 as artefacts without publishing anything.
 
-**What the installer contains:** the editor, and only the editor. Opening,
-editing and saving a project works out of the box; *building a ROM* still
-shells out to `make` and `datagen`, so it needs a checkout of this
-repository (the editor derives it from the parent folder of the open
-project), plus PVSnesLib and Rust as above.
+**What the installer contains:** the editor plus `datagen` and
+`snesbuild`, shipped as Tauri sidecars — so **no Rust toolchain and no
+MSYS2 are needed** to generate data or compile a ROM. What is still
+external: a checkout of this repository (the editor finds `engine/` from
+the parent folder of the open project) and PVSnesLib, whose folder is set
+in the editor's settings ⚙ or through `PVSNESLIB_HOME`.
 
 ---
 

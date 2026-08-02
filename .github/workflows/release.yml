@@ -57,9 +57,13 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # Two workspaces: the app itself, and the tools that ship inside it
+      # as sidecars (beforeBuildCommand builds them).
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: editor/src-tauri -> target
+          workspaces: |
+            editor/src-tauri -> target
+            tools -> target
 
       - uses: actions/setup-node@v4
         with:
@@ -85,9 +89,9 @@ jobs:
           releaseBody: |
             Installers for the SNES Studio editor.
 
-            The installer ships the EDITOR only. Building a ROM from a
-            project still needs the repository (engine/ and tools/), the
-            Rust toolchain and PVSnesLib — see the README.
+            datagen and snesbuild ship inside, so no Rust toolchain is
+            needed. Building a ROM still needs a checkout of the repository
+            (for engine/) and PVSnesLib — see the README.
           releaseDraft: true
           args: ${{ matrix.args }}
 
