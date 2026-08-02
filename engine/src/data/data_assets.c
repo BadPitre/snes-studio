@@ -19,6 +19,11 @@ extern const u16 gs2_chars_size;
 extern const u16 gs2_meta[];
 extern const u8 gs2_prio[];
 extern const u16 gs2_pal[];
+extern const u8 gs3_chars[];
+extern const u16 gs3_chars_size;
+extern const u16 gs3_meta[];
+extern const u8 gs3_prio[];
+extern const u16 gs3_pal[];
 extern const u8 ss0_chars[];
 extern const u16 ss0_chars_size;
 extern const u16 ss0_pal[];
@@ -30,30 +35,35 @@ const u8 *const gfx_chars[] = {
   gs0_chars,
   gs1_chars,
   gs2_chars,
+  gs3_chars,
 };
 
 const u16 *const gfx_chars_sizes[] = {
   &gs0_chars_size,
   &gs1_chars_size,
   &gs2_chars_size,
+  &gs3_chars_size,
 };
 
 const u16 *const gfx_metas[] = {
   gs0_meta,
   gs1_meta,
   gs2_meta,
+  gs3_meta,
 };
 
 const u8 *const gfx_prios[] = {
   gs0_prio,
   gs1_prio,
   gs2_prio,
+  gs3_prio,
 };
 
 const u16 *const gfx_pals[] = {
   gs0_pal,
   gs1_pal,
   gs2_pal,
+  gs3_pal,
 };
 
 const u8 *const sprite_chars[] = {

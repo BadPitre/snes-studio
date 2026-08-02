@@ -1,119 +1,120 @@
 {
-  "assets": {
-    "font": "assets/fonts/font.png",
-    "sprites": "assets/charsets/sprites.png",
-    "tileset": "assets/tilesets/tileset.png"
+ "assets": {
+  "font": "assets/fonts/font.png",
+  "sprites": "assets/charsets/sprites.png",
+  "tileset": "assets/tilesets/tileset.png"
+ },
+ "boot_scene": "plaine",
+ "musics": [
+  "assets/music/pollen8.it",
+  "assets/music/village.it",
+  "assets/music/battle.it",
+  "assets/music/victory.it"
+ ],
+ "name": "demo",
+ "scenes": [
+  "plaine",
+  "clairiere",
+  "bourg",
+  "monde"
+ ],
+ "tilesets": [
+  "assets/tilesets/tileset.png",
+  "assets/tilesets/tileset_automne.png",
+  "assets/tilesets/bourg.png"
+ ],
+ "tileset_defs": [
+  {
+   "name": "tileset",
+   "file": "assets/tilesets/tileset.png"
   },
-  "boot_scene": "plaine",
-  "musics": [
-    "assets/music/pollen8.it",
-    "assets/music/village.it",
-    "assets/music/battle.it",
-    "assets/music/victory.it"
-  ],
-  "name": "demo",
-  "scenes": [
-    "plaine",
-    "clairiere",
-    "bourg"
-  ],
-  "tilesets": [
-    "assets/tilesets/tileset.png",
-    "assets/tilesets/tileset_automne.png",
-    "assets/tilesets/bourg.png"
-  ],
-  "tileset_defs": [
-    {
-      "name": "tileset",
-      "file": "assets/tilesets/tileset.png"
-    },
-    {
-      "name": "tileset_automne",
-      "file": "assets/tilesets/tileset_automne.png"
-    },
-    {
-      "name": "bourg",
-      "file": "assets/tilesets/bourg.png"
-    }
-  ],
-  "charsets": [
-    "Héros",
-    "Villageois"
-  ],
-  "ui": {
-    "windowskin": "assets/windowskins/windowskin.png",
-    "text_speed": 2,
-    "icons": "assets/iconsets/icons.png"
+  {
+   "name": "tileset_automne",
+   "file": "assets/tilesets/tileset_automne.png"
   },
-  "windowskins": [
-    "assets/windowskins/windowskin.png"
-  ],
-  "iconsets": [
-    "assets/iconsets/icons.png"
-  ],
-  "sounds": [
-    "assets/sounds/curseur.wav",
-    "assets/sounds/attaque.wav"
-  ],
-  "pictures": [
-    "assets/pictures/fond_prairie.png",
-    {
-      "path": "assets/pictures/gobelin.png",
-      "trans": true
-    },
-    {
-      "path": "assets/pictures/dragon.png",
-      "trans": true
-    }
-  ],
-  "vignettes": [
-    "assets/vignettes/exclam.png",
-    "assets/vignettes/coup.png"
-  ],
-  "screens": [
-    "combat_prairie"
-  ],
-  "functions": [
-    {
-      "name": "bonus",
-      "params": [
-        "base",
-        "niveau"
-      ],
-      "returns": true,
-      "commands": [
-        {
-          "c": "var",
-          "n": 250,
-          "op": "=",
-          "from": "param",
-          "value": 1
-        },
-        {
-          "c": "var",
-          "n": 250,
-          "op": "*",
-          "from": "const",
-          "value": 2
-        },
-        {
-          "c": "var",
-          "n": 250,
-          "op": "+",
-          "from": "param",
-          "value": 0
-        },
-        {
-          "c": "ret_fn",
-          "from": "var",
-          "value": 250
-        }
-      ]
-    }
-  ],
-  "mode7": {
-    "images": [
-      "assets/mode7/titre_plaine.png"
-    ]
+  {
+   "name": "bourg",
+   "file": "assets/tilesets/bourg.png"
   }
+ ],
+ "charsets": [
+  "Héros",
+  "Villageois"
+ ],
+ "ui": {
+  "windowskin": "assets/windowskins/windowskin.png",
+  "text_speed": 2,
+  "icons": "assets/iconsets/icons.png"
+ },
+ "windowskins": [
+  "assets/windowskins/windowskin.png"
+ ],
+ "iconsets": [
+  "assets/iconsets/icons.png"
+ ],
+ "sounds": [
+  "assets/sounds/curseur.wav",
+  "assets/sounds/attaque.wav"
+ ],
+ "pictures": [
+  "assets/pictures/fond_prairie.png",
+  {
+   "path": "assets/pictures/gobelin.png",
+   "trans": true
+  },
+  {
+   "path": "assets/pictures/dragon.png",
+   "trans": true
+  }
+ ],
+ "vignettes": [
+  "assets/vignettes/exclam.png",
+  "assets/vignettes/coup.png"
+ ],
+ "screens": [
+  "combat_prairie"
+ ],
+ "functions": [
+  {
+   "name": "bonus",
+   "params": [
+    "base",
+    "niveau"
+   ],
+   "returns": true,
+   "commands": [
+    {
+     "c": "var",
+     "n": 250,
+     "op": "=",
+     "from": "param",
+     "value": 1
+    },
+    {
+     "c": "var",
+     "n": 250,
+     "op": "*",
+     "from": "const",
+     "value": 2
+    },
+    {
+     "c": "var",
+     "n": 250,
+     "op": "+",
+     "from": "param",
+     "value": 0
+    },
+    {
+     "c": "ret_fn",
+     "from": "var",
+     "value": 250
+    }
+   ]
+  }
+ ],
+ "mode7": {
+  "images": [
+   "assets/mode7/titre_plaine.png"
+  ]
+ }
 }

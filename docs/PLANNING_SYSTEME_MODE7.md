@@ -971,6 +971,38 @@ timeline and playback, `UiThemeModal.tsx` already does faithful live
 preview. The conversion is written ONCE, in datagen, and the editor calls
 it; two implementations would drift and the preview would start lying.
 
+**Built: `M7PreviewModal.tsx`**, reachable from the Scene tab of a world
+map. It runs the PPU's own transform line by line — the same `A`, `B`,
+`C`, `D` from the same horizon, anchor and rotation step the scene
+carries — over the map painted flat on an offscreen canvas, and it puts
+the NPCs through `m7_project`'s inverse of it. Horizon, anchor and
+rotation step are sliders, the camera is a drag on the image, and an
+angle tried here can be pushed back onto the scene with one button.
+
+**How faithful, measured rather than asserted.** The demo's `monde` was
+built into a ROM booting straight onto the plane, run 900 frames in the
+emulator, and compared with the preview at the same camera. Quantising
+both to the SNES's 15 bits — which is the only difference the preview
+cannot avoid, since it samples a 24-bit PNG — **91.1 % of the 57 344
+pixels are identical**. The remainder is the grass's dithered detail and
+the sprite bodies; the island's silhouette, the road, the horizon line
+and the three characters all land on the same pixels.
+
+Three differences are deliberate and stated in the window itself:
+
+- Sprites do NOT shrink with distance, because the SNES cannot scale one.
+- The preview projects EVERY event; the engine does three per frame and
+  rotates the rest (§7.2h).
+- An ERASED cell inside the map is black (datagen compiles the eraser to
+  a black block, S10) while the area PAST the map is the sky colour (the
+  plane holds character 0 there, which is CGRAM 0). Two different blanks,
+  and the preview keeps them apart because the game does — getting this
+  backwards was the one real bug the emulator comparison caught.
+
+The smoke gate opens the window on the demo's world map and fails if its
+canvas comes back nearly black, which is what a broken projection looks
+like from the outside.
+
 ## 9. Opcodes
 
 Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,

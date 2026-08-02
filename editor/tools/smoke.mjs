@@ -138,10 +138,53 @@ for (const w of WINDOWS) {
   }
 }
 
+// The Mode 7 preview is not in the Tools menu: it belongs to a WORLD MAP
+// and opens from the Scene tab of one. Two things are checked here that a
+// render alone would not catch — that the window appears, and that its
+// canvas is not black, which is what a broken projection looks like.
+{
+  const label = "Scène monde → Aperçu Mode 7…";
+  const before = errors.length;
+  try {
+    await page.locator(".scene-tree", { hasText: "monde" })
+      .locator("text=monde")
+      .first()
+      .click();
+    await page.waitForTimeout(400);
+    await page.locator(".sidebar .tabs button", { hasText: "Scène" }).first().click();
+    await page.waitForTimeout(200);
+    await page.getByRole("button", { name: "Aperçu Mode 7…" }).click();
+    await page.waitForTimeout(700);
+    if (!(await page.locator(".modal.m7preview").count()))
+      throw new Error("no .m7preview window on screen");
+    // A blank canvas is the failure mode that matters: the window renders,
+    // the transform produces nothing, and only a human notices.
+    const lit = await page.evaluate(() => {
+      const cv = document.querySelector(".m7preview-canvas");
+      if (!cv) return -1;
+      const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] | d[i + 1] | d[i + 2]) n++;
+      return n;
+    });
+    if (lit < 1000) throw new Error(`canvas almost black (${lit} lit pixels)`);
+    await page.screenshot({ path: `${OUT}/Apercu_Mode7.png` });
+    const fresh = errors.slice(before);
+    if (fresh.length) throw new Error(`${fresh.length} console error(s): ${fresh[0]}`);
+    console.log(`  ✓ ${label} — ${lit} lit pixels`);
+    await closeModal();
+  } catch (e) {
+    console.log(`  ✗ ${label} — ${e.message.split("\n")[0]}`);
+    await page.screenshot({ path: `${OUT}/ECHEC-Apercu_Mode7.png` });
+    failures++;
+    await closeModal();
+  }
+}
+
 await browser.close();
 console.log("");
 if (failures) {
-  console.log(`${failures} window(s) failed out of ${WINDOWS.length}.`);
+  console.log(`${failures} window(s) failed out of ${WINDOWS.length + 1}.`);
   process.exit(1);
 }
-console.log(`${WINDOWS.length} windows opened, no errors.`);
+console.log(`${WINDOWS.length + 1} windows opened, no errors.`);

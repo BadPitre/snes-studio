@@ -68,6 +68,7 @@ import TilePalette from "./components/TilePalette";
 import TilesetsModal from "./components/TilesetsModal";
 import AnimationsModal from "./components/AnimationsModal";
 import ScenePanel from "./components/ScenePanel";
+import M7PreviewModal from "./components/M7PreviewModal";
 import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
@@ -177,6 +178,9 @@ export default function App() {
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
+  // Mode 7 preview (world maps): the flat map says nothing about the pitch
+  const [m7Preview, setM7Preview] = useState(false);
+  const [m7Sky, setM7Sky] = useState<ImageBitmap | null>(null);
   // Textes window (Tools >) — replaces the sidebar tab
   const [textsOpen, setTextsOpen] = useState(false);
   // UI window (Phase 12): null = closed, otherwise the requested mode
@@ -1260,6 +1264,21 @@ export default function App() {
     localStorage.setItem("snesstudio.paletteH", String(paletteH));
   }, [paletteH]);
 
+  // The world map's sky image, loaded on demand: it is an ordinary
+  // project picture, so it is not in the always-loaded set.
+  useEffect(() => {
+    const rel = scene?.m7_sky_image;
+    if (!m7Preview || !data || !rel) {
+      setM7Sky(null);
+      return;
+    }
+    let live = true;
+    loadAssetPng(data.root, rel)
+      .then((b) => { if (live) setM7Sky(b); })
+      .catch(() => { if (live) setM7Sky(null); });
+    return () => { live = false; };
+  }, [m7Preview, data?.root, scene?.m7_sky_image]);
+
   // Ctrl + wheel on the map: RM2003 zoom (a non-passive listener so the
   // browser's own zoom can be blocked)
   useEffect(() => {
@@ -1765,6 +1784,7 @@ export default function App() {
                 pictures={projectPictures(data.project).map(
                   (e) => [assetStem(picPath(e)), picPath(e)] as [string, string]
                 )}
+                onPreview={() => setM7Preview(true)}
                 onSky={(m7_sky, m7_sky_top, m7_sky_bottom, m7_sky_image) =>
                   setScene((sc) => ({
                     ...sc,
@@ -2057,6 +2077,20 @@ export default function App() {
             setPrefabPickAt(null);
             setPrefabMgr(false);
           }}
+        />
+      )}
+      {m7Preview && data && scene && (
+        <M7PreviewModal
+          scene={scene}
+          tileset={tileset}
+          autotiles={autotiles}
+          meta={meta}
+          sprites={sprites}
+          skyImage={m7Sky}
+          onApplyView={(m7_horizon, m7_anchor) =>
+            setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
+          }
+          onClose={() => setM7Preview(false)}
         />
       )}
       {textsOpen && data && (

@@ -25,6 +25,8 @@ interface Props {
   /** Project pictures, as [label, path] — a sky image is an ordinary
    *  16-colour PNG, so it needs no resource category of its own. */
   pictures: [string, string][];
+  /** Opens the Mode 7 preview on this scene. */
+  onPreview: () => void;
 }
 
 type SkyMode = "black" | "flat" | "gradient" | "image";
@@ -90,6 +92,12 @@ export default function ScenePanel(props: Props) {
 
       {world && (
         <>
+          {/* The flat map above says nothing about what the pitch will do
+              to it — see the design doc §11c, where an author reported a
+              perfectly working plane as "exactly like a classic scene". */}
+          <div className="scene-section">
+            <button onClick={props.onPreview}>Aperçu Mode 7…</button>
+          </div>
           <div className="palette-title">Angle de caméra</div>
           <div className="scene-section">
             <select

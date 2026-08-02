@@ -5,10 +5,10 @@
 #include <snes.h>
 
 /* per-scene effect layer (S9) — 0xFF = none */
-const u8 eff_pic[3] = { 255, 255, 255, };
-const u8 eff_blend[3] = { 0, 0, 0, };
-const u8 eff_par[3] = { 0, 0, 0, };
-const u16 eff_dx[3] = { 0, 0, 0, };
-const u16 eff_dy[3] = { 0, 0, 0, };
-const u8 eff_mode[3] = { 0, 0, 0, };
-const u8 eff_repeat[3] = { 1, 1, 1, };
+const u8 eff_pic[4] = { 255, 255, 255, 255, };
+const u8 eff_blend[4] = { 0, 0, 0, 0, };
+const u8 eff_par[4] = { 0, 0, 0, 0, };
+const u16 eff_dx[4] = { 0, 0, 0, 0, };
+const u16 eff_dy[4] = { 0, 0, 0, 0, };
+const u8 eff_mode[4] = { 0, 0, 0, 0, };
+const u8 eff_repeat[4] = { 1, 1, 1, 1, };
