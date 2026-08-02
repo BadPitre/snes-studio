@@ -386,14 +386,20 @@ That puts the pressure on the engine's tightest resource, the one that
 already has an arbitration system (`vbudget.c`, P5). The performance risk
 of this system is here — not in the zoom, which is eight register writes.
 
-**Measured by the spike** (§10, and `PERF_MEASUREMENTS.md` §7): sixteen
+**Measured by the spike** (§10, and `PERF_MEASUREMENTS.md` §6): sixteen
 sprites at four multiplies each, written in C, cost **~41 screen lines**
 against a VBlank window of 37. The C path does not merely strain the
-budget, it OVERRUNS it. Writing this loop in assembly is therefore not an
-optimisation to consider later, it is the condition for M7-B to exist at
-all. Extrapolating P4's 2.7x C-to-assembly ratio puts it near 15 lines,
-which would fit — but that is an extrapolation, and the assembly figure
-has not been measured.
+budget, it OVERRUNS it.
+
+**What actually shipped went the other way, and the premise was the
+thing to attack.** The reasoning above binds only if the transform uses
+the PPU multiplier. §7.2h does the arithmetic in software instead, so it
+touches nothing the PPU reads and runs in the MAIN LOOP, where the budget
+is a whole frame instead of 37 lines. Each multiply and divide costs far
+more, but the window is three times bigger, and three NPCs a frame fit in
+it — measured, not extrapolated. The assembly loop was never written and
+the 15-line estimate below is still an estimate; it is simply no longer
+the precondition for M7-B to exist.
 
 **The plan for B2, in the order it should be built.** Each step ends in a
 number, because this is the one part of the system where a wrong guess

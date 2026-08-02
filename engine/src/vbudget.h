@@ -39,10 +39,15 @@
    a small one per transfer, plus the throughput. */
 #define VBL_COST_BURST(n, bytes) ((u8)(2 + (n) + ((bytes) >> 7)))
 #define VBL_COST_MAPHALF(n) VBL_COST_BURST(n, (u16)(n) << 6)
-#define VBL_COST_VIG 12 /* MODELLED (4 calls + 512 B), not measured: no
-                           project here has a vignette animation running.
-                           Vignettes did not move to bursts — the slot
-                           that passes is chosen INSIDE the VBlank. */
+#define VBL_COST_VIG 15 /* MEASURED (A10): one cell, 4 calls + 512 B,
+                            costs 14.3 lines on average and 15 at the
+                            peak — the model said 12 and under-declared
+                            by a fifth. Measured on a project built for
+                            it (a looping animation, one frame per cell)
+                            since none in the repo animates a vignette;
+                            see PERF_MEASUREMENTS.md §4.
+                            Vignettes did not move to bursts — the slot
+                            that passes is chosen INSIDE the VBlank. */
 #define VBL_COST_UI(rows) ((u8)(2 + ((rows) >> 1))) /* 1 call + rows*64 B */
 /* How many UI rows fit in `lines` lines — the inverse. */
 #define VBL_UI_ROWS(lines) ((u8)((lines) <= 2 ? 0 : ((lines) - 2) << 1))
