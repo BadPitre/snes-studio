@@ -267,6 +267,15 @@ That puts the pressure on the engine's tightest resource, the one that
 already has an arbitration system (`vbudget.c`, P5). The performance risk
 of this system is here — not in the zoom, which is eight register writes.
 
+**Measured by the spike** (§10, and `PERF_MEASUREMENTS.md` §7): sixteen
+sprites at four multiplies each, written in C, cost **~41 screen lines**
+against a VBlank window of 37. The C path does not merely strain the
+budget, it OVERRUNS it. Writing this loop in assembly is therefore not an
+optimisation to consider later, it is the condition for M7-B to exist at
+all. Extrapolating P4's 2.7x C-to-assembly ratio puts it near 15 lines,
+which would fit — but that is an extrapolation, and the assembly figure
+has not been measured.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
@@ -371,33 +380,54 @@ The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does
 not.
 
-## 10. What the spike must prove
+## 10. What the spike proved
 
 Four unknowns, all at toolchain or hardware level, none of them at design
-level. They are the entire content of stage 1 (§11), and the reason it is
-a throwaway file rather than the first commit of `m7.c`.
+level. **M7-0 has run**: a throwaway ROM, 128x128 image cut into 256
+distinct tiles (the full hardware budget), driven through the snes9x
+libretro core by `tools/regress/harness.c`, with VRAM and WRAM dumped and
+compared against the bytes the generator produced.
 
-1. **The interleaved VRAM write.** Map in low bytes, chars in high bytes
-   means two passes with two `VMAIN` settings. Unverified: whether
-   PVSnesLib's `dmaCopyVram` exposes that control, or whether the pass
-   has to be written by hand.
-2. **tcc-816 and `setMode7Scale(u16, u16)`.** The function is right and
-   divides nothing. But this project has a documented history of
-   parameters corrupted by tcc-816 (the `(u8, u16)` pair). It has to be
-   SEEN working.
-3. **The multiplier / matrix conflict (§7.2).** That the maths can run in
-   VBlank and the matrix be rewritten in time, with no visible artefact.
-   Only needed for B, but cheap to check while the spike is up.
-4. **The real VBlank cost** of the per-sprite transform, measured with
-   the V-counter profiler (S6/P2), before committing to B's scope.
+1. **The interleaved VRAM write — WORKS, and PVSnesLib already has the
+   helper.** `dmaCopyVram7(src, addr, size, vrammodeinc, dmacontrol)`
+   exists for exactly this: `dmacontrol` is `(BBAD << 8) | DMAP`, so
+   `$1900` writes the high bytes through `$2119` and `$1800` the low
+   bytes through `$2118`, with `vrammodeinc` going to `VMAIN`. The VRAM
+   dump came back byte-identical to the source on all three transfers —
+   16 KB of map, 16 KB of chars, and an isolated 64-byte control write
+   into a region Mode 7 does not use. No hand-written DMA needed.
+2. **`setMode7Scale(u16, u16)` through tcc-816 — WORKS.** The spike drives
+   the same 2x scale twice, once by writing `M7A`/`M7D` by hand and once
+   through the library, and captures both frames. They are byte-identical
+   PPMs. The `(u16, u16)` pair survives; note this is NOT the `(u8, u16)`
+   shape that is known to break.
+3. **The multiplier / matrix conflict — SURVIVABLE.** Using `M7A`/`M7B`
+   as the signed 16x8 multiplier returned the right product (300 x 7 =
+   2100, read back from `$2134-$2136` through a WRAM dump), and the frame
+   captured after the matrix was rewritten in the same VBlank is
+   byte-identical to a clean one. Clobbering and restoring inside the
+   VBlank leaves no trace.
+4. **The per-sprite cost — MEASURED, and it is the real constraint.**
+   Sixteen sprites at four multiplies each, in C: **~41 screen lines**
+   (45 measured, less the ~4 lines the two C-written V-counter reads cost
+   by `PERF_MEASUREMENTS.md` §1) against a 37-line VBlank. It overruns.
+   See §7.2.
 
-If 1 or 2 fails, it is learned for the price of one file instead of a
-half-written module.
+Two things worth keeping from the run. `B` and `C` must be zeroed
+explicitly at open — `setMode7Scale` does not touch them and a stale
+value shears the plane. And putting the rotation centre on the image
+(`M7X`/`M7Y` = 64,64) with the scroll placing it at the centre of the
+screen (`HOFS` = -64, `VOFS` = -48) is what makes the zoom happen AROUND
+the picture instead of dragging it off the top-left corner.
+
+Everything here was checked on the emulator. Nothing has run on hardware.
 
 ## 11. Breakdown
 
-1. **M7-0 — the spike.** A throwaway ROM outside the project: one image,
-   Mode 7, a zoom. Answers §10.1 and §10.2, ideally §10.3. Then deleted.
+1. **M7-0 — the spike.** ✅ A throwaway ROM outside the project: one
+   image, Mode 7, a zoom. Answered all four unknowns of §10, including
+   the cost measurement that was meant to wait. Deleted afterwards — the
+   findings are §10, the code was worth nothing once read.
 2. **M7-A1** — datagen: the Mode 7 image conversion (§5.2) and the ramp
    compiler (§5.3). Byte-identical output on existing projects.
 3. **M7-A2** — the `m7.c` module (§6) and the three opcodes (§9).
