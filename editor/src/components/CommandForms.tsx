@@ -9,8 +9,8 @@
 // Each function takes its NARROWED command plus the shared context and
 // returns the fields to show and whether OK may be pressed.
 
-import type { Command, Direction, M7Curve, ValueSrc, VarOp } from "../types";
-import { DIRECTIONS } from "../types";
+import type { Command, Direction, M7Curve, M7View, ValueSrc, VarOp } from "../types";
+import { DIRECTIONS, M7_VIEW_LABELS, M7_VIEWS } from "../types";
 import MoveRouteModal from "./MoveRouteModal";
 import {
   type FormCtx,
@@ -1713,6 +1713,70 @@ const M7_PRESETS: {
   { label: "Zoom arriere", from: 160, to: 100, frames: 75, curve: "ease_in_out" },
   { label: "Revelation", from: 100, to: 200, frames: 120, curve: "ease_in" },
 ];
+
+/** `m7_view` — the WORLD MAP's camera angle, mid-game.
+ *  Presets first, the two screen lines only under "Personnalisee": the
+ *  gap between them IS the tilt, and nobody thinks in scanlines. */
+export function formM7View(
+  cmd: Extract<Command, { c: "m7_view" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const h = cmd.horizon ?? 56;
+  const a = cmd.anchor ?? 176;
+  const custom = cmd.preset === "custom";
+  const valid = !custom || (h <= 180 && a <= 216 && a >= h + 16);
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Angle
+          <select
+            value={cmd.preset}
+            onChange={(e) => {
+              const v = e.target.value as M7View;
+              if (v === "custom") {
+                onChange({ ...cmd, preset: v, horizon: h, anchor: a });
+              } else {
+                const [ph, pa] = M7_VIEWS[v as Exclude<M7View, "custom">];
+                onChange({ ...cmd, preset: v, horizon: ph, anchor: pa });
+              }
+            }}
+          >
+            {(Object.keys(M7_VIEW_LABELS) as M7View[]).map((k) => (
+              <option key={k} value={k}>{M7_VIEW_LABELS[k]}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {custom && (
+        <div className="row">
+          <label>
+            Horizon (ligne)
+            <input
+              type="number" min={0} max={180} value={h}
+              onChange={(e) => onChange({ ...cmd, horizon: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Ancrage (ligne)
+            <input
+              type="number" min={16} max={216} value={a}
+              onChange={(e) => onChange({ ...cmd, anchor: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      )}
+      <p className="hint">
+        Inclinaison : {a - h} lignes d'écart. Sans effet hors d'une carte du
+        monde — un écran Mode 7 image n'a pas de sol à incliner. Le changement
+        est instantané et coûte une frame déchirée : les tables de perspective
+        sont reconstruites.
+      </p>
+    </>
+  );
+  return { body, valid };
+}
 
 export function formM7(cmd: Extract<Command, { c: "m7" }>, x: FormCtx): FormBody {
   let valid = true;

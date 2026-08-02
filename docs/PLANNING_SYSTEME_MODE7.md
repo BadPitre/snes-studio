@@ -512,6 +512,42 @@ the write that would have cleared it: the hero was drawn, correctly, off
 screen. `player_draw_reset()` now drops the caches, and the rule is
 general — anything writing those OAM entries from outside must say so.
 
+### 7.2c The camera ANGLE — two numbers, and why they are data
+
+A Mode 7 camera is described completely by two screen lines: the one the
+ground vanishes into (HORIZON) and the one drawn 1:1, where the hero
+stands (ANCHOR). Their DIFFERENCE is the whole tilt — 176 lines apart is
+almost a top-down map, 56 is an F-Zero floor. Nothing else about the view
+is adjustable, and nothing else needs to be.
+
+They were `#define`s. They are now:
+
+- **Scene data.** `m7_horizon` / `m7_anchor` on a `worldmap` scene, absent
+  meaning the default 56 / 176. datagen writes them into `m7w_horizon[]`
+  and `m7w_anchor[]`, and the engine reads them when the plane opens.
+- **Reachable from a script**, opcode `M7VIEW`, event command `m7_view`.
+
+The editor and datagen both offer NAMED presets — plongeante, standard,
+rasante, tres_rasante — with the two raw lines behind a "custom" entry.
+"Horizon 88, anchor 168" describes nothing to an author; "rasante" does.
+The engine still takes lines, so the names cost nothing at run time and
+the numbers are never out of reach.
+
+**Validation splits by who can still fix it.** datagen REFUSES a bad
+angle: the author wrote it in a file and can correct it. The engine
+CLAMPS: a script can reach `m7_view` through a variable, and a world map
+that stops rendering because a number was silly is worse than one drawn
+at the nearest sane angle. The floor is 16 lines of gap, which is where
+`D = (dA/d)^2` leaves its 8.8 register — below it the whole screen is
+sky.
+
+**The change is instant and costs one torn frame.** The tables are
+rebuilt in the main loop, so the HDMA may read them half-rewritten.
+Building them inside the VBlank is 224 divisions in a 37-line window, and
+a camera angle changes on a dramatic beat, not every frame. A SMOOTH
+transition between two angles would mean rebuilding every frame, which is
+why it is not offered rather than offered badly.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
@@ -611,10 +647,12 @@ Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
 | `M7OPEN` | `img u8, dur u8` | Opens the Mode 7 screen under a fade |
 | `M7ZOOM` | `ramp u8, flags u8` | Plays a ramp; flags bit 0 = loop, bit 1 = wait |
 | `M7CLOSE` | `dur u8` | Closes it — internal warp back to the scene |
+| `M7VIEW` | `horizon u8, anchor u8` | World map CAMERA ANGLE (§7.2c) |
 
 The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does
-not.
+not. `M7VIEW` waits for nothing: it rewrites tables rather than queueing
+a request, so it is the one Mode 7 opcode with no VM pause.
 
 ## 10. What the spike proved
 

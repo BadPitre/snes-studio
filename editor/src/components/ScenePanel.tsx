@@ -3,8 +3,8 @@
 // and in the resource manager.
 
 import { useEffect, useState } from "react";
-import type { Scene } from "../types";
-import { MIN_H, MIN_W } from "../types";
+import type { M7View, Scene } from "../types";
+import { M7_VIEW_LABELS, M7_VIEWS, MIN_H, MIN_W } from "../types";
 
 interface Props {
   scene: Scene;
@@ -16,18 +16,47 @@ interface Props {
   onSelectMusic: (stem: string | undefined) => void;
   onPassMode: (on: boolean) => void;
   onResize: (width: number, height: number) => void;
+  /** World map camera angle, in screen lines. */
+  onView: (horizon: number, anchor: number) => void;
+}
+
+/** Which preset a scene's two lines correspond to — "custom" when they
+ *  match none. Derived rather than stored: the engine reads lines, so
+ *  the lines are the truth and the name is a label over them. */
+function viewOf(scene: Scene): M7View {
+  const h = scene.m7_horizon ?? 56;
+  const a = scene.m7_anchor ?? 176;
+  for (const [k, [ph, pa]] of Object.entries(M7_VIEWS)) {
+    if (ph === h && pa === a) return k as M7View;
+  }
+  return "custom";
 }
 
 export default function ScenePanel(props: Props) {
   const { scene } = props;
   const [width, setWidth] = useState(scene.width);
   const [height, setHeight] = useState(scene.height);
+  const world = scene.kind === "worldmap";
+  const view = viewOf(scene);
+  const [horizon, setHorizon] = useState(scene.m7_horizon ?? 56);
+  const [anchor, setAnchor] = useState(scene.m7_anchor ?? 176);
 
   // resyncs the fields when the scene changes (or after a resize)
   useEffect(() => {
     setWidth(scene.width);
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
+
+  useEffect(() => {
+    setHorizon(scene.m7_horizon ?? 56);
+    setAnchor(scene.m7_anchor ?? 176);
+  }, [scene.name, scene.m7_horizon, scene.m7_anchor]);
+
+  // The same bounds datagen enforces — stated here so the author is
+  // stopped while typing rather than at build time.
+  const viewOk = horizon <= 180 && anchor <= 216 && anchor >= horizon + 16;
+  const viewChanged =
+    horizon !== (scene.m7_horizon ?? 56) || anchor !== (scene.m7_anchor ?? 176);
 
   // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
   const cellsOk = width * height <= 8192;
@@ -40,7 +69,76 @@ export default function ScenePanel(props: Props) {
     <div className="panel">
       <div className="panel-title">
         Scène « {scene.name} » — {scene.width}x{scene.height}
+        {world ? " — Carte du monde (Mode 7)" : ""}
       </div>
+
+      {world && (
+        <>
+          <div className="palette-title">Angle de caméra</div>
+          <div className="scene-section">
+            <select
+              value={view}
+              onChange={(e) => {
+                const v = e.target.value as M7View;
+                if (v === "custom") return; /* the two fields below take over */
+                const [h, a] = M7_VIEWS[v as Exclude<M7View, "custom">];
+                props.onView(h, a);
+              }}
+              title="L'écart entre l'horizon et l'ancrage EST l'inclinaison"
+            >
+              {(Object.keys(M7_VIEW_LABELS) as M7View[]).map((k) => (
+                <option key={k} value={k} disabled={k === "custom"}>
+                  {M7_VIEW_LABELS[k]}
+                </option>
+              ))}
+            </select>
+            <div className="row">
+              <label>
+                Horizon (ligne)
+                <input
+                  type="number"
+                  min={0}
+                  max={180}
+                  value={horizon}
+                  onChange={(e) => setHorizon(Number(e.target.value))}
+                />
+              </label>
+              <label>
+                Ancrage (ligne)
+                <input
+                  type="number"
+                  min={16}
+                  max={216}
+                  value={anchor}
+                  onChange={(e) => setAnchor(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            {!viewOk && (
+              <p className="hint">
+                Horizon 0-180, ancrage 0-216, et au moins 16 lignes d'écart —
+                en dessous la perspective sort du registre et tout l'écran
+                devient ciel.
+              </p>
+            )}
+            <button
+              disabled={!viewOk || !viewChanged}
+              onClick={() => props.onView(horizon, anchor)}
+            >
+              Appliquer l'angle
+            </button>
+            <p className="hint">
+              L'écart horizon/ancrage est l'inclinaison : {anchor - horizon} lignes
+              {anchor - horizon >= 150
+                ? " — presque vue de dessus"
+                : anchor - horizon <= 70
+                  ? " — sol très rasant"
+                  : ""}
+              . Le héros se tient sur la ligne d'ancrage.
+            </p>
+          </div>
+        </>
+      )}
 
       <div className="palette-title">Tileset</div>
       <div className="scene-section">

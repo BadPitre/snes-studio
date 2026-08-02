@@ -1756,6 +1756,9 @@ export default function App() {
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
                 onPassMode={setPassMode}
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
+                onView={(m7_horizon, m7_anchor) =>
+                  setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
+                }
               />
             )}
             {tab === "effect" && (

@@ -370,6 +370,15 @@ export type Command =
       curve: M7Curve;
       dur?: number;
     }
+  // M7-B — the WORLD MAP's camera angle, mid-game. Named presets, since
+  // "horizon 88, anchor 168" describes nothing; "custom" exposes the two
+  // screen lines for anyone who wants them.
+  | {
+      c: "m7_view";
+      preset: M7View;
+      horizon?: number;
+      anchor?: number;
+    }
   | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
@@ -623,9 +632,41 @@ export const TRANS_OPTIONS: { value: ScreenTrans; label: string }[] = [
 // may contain, not merely how it is drawn.
 export type SceneKind = "map" | "worldmap";
 
+/** World map camera angles. The gap between the horizon and the anchor
+ *  IS the tilt: "plongeante" is nearly top-down, "tres_rasante" is an
+ *  F-Zero floor. */
+export type M7View =
+  | "plongeante"
+  | "standard"
+  | "rasante"
+  | "tres_rasante"
+  | "custom";
+
+/** The two screen lines behind each preset — shared by the scene panel
+ *  and the command form, and the SAME table datagen carries. */
+export const M7_VIEWS: Record<Exclude<M7View, "custom">, [number, number]> = {
+  plongeante: [24, 200],
+  standard: [56, 176],
+  rasante: [88, 168],
+  tres_rasante: [104, 160],
+};
+
+export const M7_VIEW_LABELS: Record<M7View, string> = {
+  plongeante: "Plongeante — presque vue de dessus",
+  standard: "Standard — equilibree",
+  rasante: "Rasante — beaucoup de profondeur",
+  tres_rasante: "Tres rasante — sol facon F-Zero",
+  custom: "Personnalisee (lignes d'ecran)",
+};
+
 export interface Scene {
   name: string;
   kind?: SceneKind;
+  /** World map CAMERA ANGLE, in screen lines: where the ground vanishes,
+   *  and where it is drawn 1:1 (the hero's feet). Absent = 56 / 176.
+   *  Ignored on an ordinary scene. */
+  m7_horizon?: number;
+  m7_anchor?: number;
   width: number;
   height: number;
   player_start: [number, number];

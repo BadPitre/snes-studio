@@ -322,11 +322,18 @@ function sceneToJson(sc: Scene): string {
   // was, and the symptom was the same: a world map that came back
   // rendered like any other scene.
   const kind = sc.kind && sc.kind !== "map" ? `\n  "kind": ${JSON.stringify(sc.kind)},` : "";
+  // World map CAMERA ANGLE — same rule as `kind`: written only when the
+  // author moved it off the engine's default, so an ordinary scene's JSON
+  // does not grow two fields nothing will ever read.
+  const view =
+    sc.kind === "worldmap" && (sc.m7_horizon !== undefined || sc.m7_anchor !== undefined)
+      ? `\n  "m7_horizon": ${sc.m7_horizon ?? 56},\n  "m7_anchor": ${sc.m7_anchor ?? 176},`
+      : "";
   return `{
   "name": ${JSON.stringify(sc.name)},
   "width": ${sc.width},
   "height": ${sc.height},
-  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${music}${tileset}${parent}${effect}
+  "player_start": [${sc.player_start[0]}, ${sc.player_start[1]}],${kind}${view}${music}${tileset}${parent}${effect}
   "tilemap": ${grid(sc.tilemap)},
   "upper": ${grid(sc.upper)},
   "events": ${events},

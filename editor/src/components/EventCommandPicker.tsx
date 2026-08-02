@@ -108,6 +108,7 @@ const TABS: Tab[] = [
       { c: "vig_hide", label: "Cacher la vignette" },
       { c: "stage_close", label: "Fermer l'écran composé" },
       { c: "m7", label: "Zoom cinématique" },
+      { c: "m7_view", label: "Angle de caméra (Mode 7)" },
     ],
   },
   {
