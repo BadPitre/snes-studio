@@ -179,9 +179,9 @@ export default function ScenePanel(props: Props) {
               title={
                 "Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la " +
                 "carte — une couleur d'eau ou de brume s'y lit bien. Le " +
-                "dégradé et la rotation restent exclusifs (datagen le refuse " +
-                "plutôt que de l'ignorer) ; les dialogues, eux, marchent sur " +
-                "toutes les cartes du monde, rotation comprise." +
+                "dégradé marche sur toutes les cartes du monde, rotation " +
+                "comprise, comme les dialogues ; seuls une image et un " +
+                "dégradé s'excluent (ils peignent au même endroit)." +
                 (sky === "image"
                   ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
                   : "")
@@ -207,9 +207,7 @@ export default function ScenePanel(props: Props) {
             >
               <option value="black">Noir (rien à afficher)</option>
               <option value="flat">Couleur unie</option>
-              <option value="gradient" disabled={!!scene.m7_rotate}>
-                Dégradé vertical{scene.m7_rotate ? " — impossible avec la rotation" : ""}
-              </option>
+              <option value="gradient">Dégradé vertical</option>
               <option value="image" disabled={!props.pictures.length}>
                 Image{!props.pictures.length ? " — aucune image dans le projet" : ""}
               </option>

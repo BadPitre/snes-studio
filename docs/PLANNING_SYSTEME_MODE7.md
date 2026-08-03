@@ -696,9 +696,16 @@ components a line, rotating through R/G/B. Over the ~70 lines of sky that
 is far more than the 31 steps a channel can need, and a component one
 line stale is invisible.
 
-**The gradient and rotation exclude each other**, and datagen refuses the
-pair rather than dropping one silently: both want a channel and rotation
-takes the last one. A flat sky remains available either way.
+**The gradient works under rotation** — since the paired channels
+(§7.2d) freed 4, its channel is available on every kind of map. The
+exclusion the first version shipped ("both want a channel and rotation
+takes the last one") died twice: first in the channel budget, then in
+control flow — the rotation branch of the VBlank RETURNED before the
+line that armed the gradient, so the pairing alone did not fix it. The
+arming lives in a helper both branches call, precisely so the next
+channel shuffle cannot silently re-create the bug. Only an image sky
+and a gradient still exclude each other (§7.2f): they paint the same
+place.
 
 **One bug worth keeping.** The colour-math registers are set at open AND
 REASSERTED EVERY FRAME. `screenfx_vblank` runs first in the Mode 7 branch
@@ -929,7 +936,7 @@ kind of map:
 | map | channels | dialogue |
 |---|---|---|
 | does not turn | 6, 5 = A and D flat; 3 = sky; 4 = gradient | **works, band on 1** |
-| turns | 6 = A+B, 5 = C+D (mode 3, §7.2d); 3 = sky | **works, band on 1** |
+| turns | 6 = A+B, 5 = C+D (mode 3, §7.2d); 3 = sky; 4 = gradient | **works, band on 1** |
 
 The second line existed as "refused" for exactly one release. The
 four-channel rotation spent every free channel and a dialogue on a
@@ -1069,7 +1076,7 @@ there. The list is short (a handful of town entrances) and the scan only
 runs on world maps.
 
 Everything else — the dialogue band, rotation (paired channels), the
-NPC projection, the gradient exclusion — is untouched: streaming is
+NPC projection, the sky products — is untouched: streaming is
 invisible to every other subsystem because the window is invisible to
 world coordinates.
 

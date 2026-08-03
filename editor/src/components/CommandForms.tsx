@@ -1787,35 +1787,39 @@ export function formM7Rot(
   x: FormCtx,
 ): FormBody {
   const onChange = x.p.onChange;
-  const deg = Math.round(cmd.step * 22.5);
   const body = (
     <>
       <div className="row">
         <label>
-          Cran (0-15)
+          Cran (0-63)
           <input
-            type="number" min={0} max={15} value={cmd.step}
+            type="number" min={0} max={63} value={cmd.step}
             onChange={(e) =>
               onChange({
                 ...cmd,
-                step: Math.max(0, Math.min(15, Number(e.target.value) || 0)),
+                step: Math.max(0, Math.min(63, Number(e.target.value) || 0)),
               })
             }
           />
         </label>
         <label>
           Angle
-          <input type="text" readOnly value={`${deg}°`} />
+          <input
+            type="text" readOnly
+            value={`${Math.round(cmd.step * 225) % 3600 / 10}° / ${Math.round(cmd.step * 112.5) % 3600 / 10}° / ${Math.round(cmd.step * 56.25) % 3600 / 10}°`}
+            title="L'angle selon les crans de la scène : 16 / 32 / 64"
+          />
         </label>
       </div>
       <p className="hint">
-        16 crans de 22,5° autour du héros. La scène doit avoir la rotation
-        activée dans son onglet Scène — sinon la commande ne fait rien, et
-        c'est volontaire : les tables sont compilées par carte.
+        Le cran est ramené au nombre de crans de la SCÈNE (16, 32 ou 64) —
+        l'angle affiché donne les trois lectures. La scène doit avoir la
+        rotation activée dans son onglet Scène, sinon la commande ne fait
+        rien : les tables sont compilées par carte.
       </p>
     </>
   );
-  return { body, valid: cmd.step >= 0 && cmd.step <= 15 };
+  return { body, valid: cmd.step >= 0 && cmd.step <= 63 };
 }
 
 /** `m7_turn` — an ANIMATED turn of the world map's view. */

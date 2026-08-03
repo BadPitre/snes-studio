@@ -775,6 +775,34 @@ static void m7_persp_build(void)
   pw_tab[9] = 0;
 }
 
+/* Arms the sky gradient's COLDATA channel (4) and returns its enable
+   bit — 0 when the map has no gradient. Shared by BOTH branches of
+   m7_persp_hdma: channel 4 is free under rotation since the pairing
+   (§7.2d), and the first version of the rotation branch simply returned
+   before this block — which is why the gradient/rotation exclusion
+   looked like a hardware fact when it was a control-flow one. */
+static u8 m7_arm_sky(void)
+{
+  u16 a;
+
+  if (!sky_on)
+    return 0;
+  DMAP4 = 0x02; /* ONE register, written twice: two colour components a
+                   line — COLDATA takes one component per write */
+  BBAD4 = 0x32; /* COLDATA */
+  a = (u16)(u8 *)sk_tab;
+  A1T4L = (u8)a;
+  A1T4H = (u8)(a >> 8);
+  A1B4 = 0x7E;
+  /* REASSERTED EVERY FRAME, not just at open: screenfx_vblank runs
+     first in this branch and rewrites CGADSUB whenever its own state
+     is dirty — the open-time value survived exactly one frame, and the
+     sky came back black. */
+  REG_CGWSEL = 0x00;
+  REG_CGADSUB = 0x20; /* addition on the BACKDROP ALONE */
+  return 0x10;
+}
+
 /* Arms the two channels. Redone on every VBlank, like hdmafx's — a
    general DMA can have reused the channel between two frames. */
 static void m7_persp_hdma(void)
@@ -810,6 +838,7 @@ static void m7_persp_hdma(void)
     }
     else if (!img_on)
       REG_BGMODE = 0x07; /* band closed: same restore as below */
+    m |= m7_arm_sky();
     REG_HDMAEN = m;
     return;
   }
@@ -845,23 +874,7 @@ static void m7_persp_hdma(void)
        sky colour. Cost: one register write a frame. */
     REG_BGMODE = 0x07;
   }
-  if (sky_on)
-  {
-    DMAP4 = 0x02; /* ONE register, written twice: two colour components a
-                     line — COLDATA takes one component per write */
-    BBAD4 = 0x32; /* COLDATA */
-    a = (u16)(u8 *)sk_tab;
-    A1T4L = (u8)a;
-    A1T4H = (u8)(a >> 8);
-    A1B4 = 0x7E;
-    m |= 0x10;
-    /* REASSERTED EVERY FRAME, not just at open: screenfx_vblank runs
-       first in this branch and rewrites CGADSUB whenever its own state
-       is dirty — the open-time value survived exactly one frame, and the
-       sky came back black. */
-    REG_CGWSEL = 0x00;
-    REG_CGADSUB = 0x20; /* addition on the BACKDROP ALONE */
-  }
+  m |= m7_arm_sky();
   REG_HDMAEN = m;
 }
 

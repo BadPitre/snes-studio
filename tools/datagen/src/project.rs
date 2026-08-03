@@ -570,10 +570,9 @@ impl Scene {
     /// The world map's sky: a flat BGR555 colour, plus the gradient's two
     /// ends when it has one.
     ///
-    /// The gradient needs an HDMA channel for COLDATA, and a ROTATING map
-    /// already uses all five a world map has free. Refused rather than
-    /// silently dropped: the author would otherwise see a black sky and
-    /// have no way to learn why.
+    /// The gradient works WITH rotation since the paired-channel rework
+    /// (§7.2d freed channel 4); only image sky + gradient still exclude
+    /// each other, because they paint the same place.
     pub fn m7_sky_colours(&self) -> anyhow::Result<(u16, Option<(u16, u16)>)> {
         use anyhow::bail;
         let flat = match &self.m7_sky {
@@ -589,12 +588,6 @@ impl Scene {
         }
         let grad = match (&self.m7_sky_top, &self.m7_sky_bottom) {
             (Some(t), Some(b)) => {
-                if self.m7_rotate != 0 {
-                    bail!(
-                        "carte du monde '{}' : un ciel en degrade et la rotation                          demandent chacun un canal HDMA, et la rotation prend les                          cinq disponibles — choisir l'un ou l'autre (un ciel de                          couleur unie reste possible avec la rotation)",
-                        self.name
-                    );
-                }
                 Some((
                     parse_rgb(t).with_context(|| {
                         format!("carte du monde '{}' : haut du ciel", self.name)

@@ -291,7 +291,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7CLOSE" => 2,
         // M7VIEW <horizon> <ancrage> — the world map camera angle
         "M7VIEW" => 3,
-        // M7ROT <cran 0-15> — world map rotation
+        // M7ROT <cran 0-63> — world map rotation, masked by the map at run time
         "M7ROT" => 2,
         // M7TURN <cran> <frames> <flags> — animated world map rotation
         "M7TURN" => 4,
@@ -986,9 +986,9 @@ pub fn assemble(
             // rather than masked: a script asking for step 20 means
             // something the author did not intend.
             "M7ROT" => {
-                if argc != 1 { bail!("M7ROT <cran 0-15>"); }
+                if argc != 1 { bail!("M7ROT <cran 0-63>"); }
                 let a = parse_u8(args[0])?;
-                if a > 15 { bail!("M7ROT : cran {} — 16 crans de 22.5 deg (0-15)", a); }
+                if a > 63 { bail!("M7ROT : cran {} — 64 crans au maximum (0-63)", a); }
                 code.push(OP_M7ROT);
                 code.push(a);
             }

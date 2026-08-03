@@ -1626,9 +1626,10 @@ impl<'a> EventCompiler<'a> {
     /// `m7_rot` — turns the world map's plane around the hero.
     fn cmd_m7_rot(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let step = cmd["step"].as_u64().unwrap_or(0);
-        if step > 15 {
+        if step > 63 {
             bail!(
-                "m7_rot : cran {} — la rotation a 16 crans de 22.5 degres (0-15)",
+                "m7_rot : cran {} — 64 crans au maximum (0-63) ; le moteur \
+                 ramene le cran au nombre de crans de la scene",
                 step
             );
         }
