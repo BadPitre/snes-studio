@@ -15,6 +15,12 @@ void textbox_init(void);
    slots. */
 void textbox_load_pal(void);
 
+/* Moves BG3's chars and map and re-uploads the font — screen off only.
+   A Mode 7 screen wipes the low half of VRAM, font included, so coming
+   back from one has to redo it; and a WORLD MAP keeps the UI on BG3 at
+   another address for as long as the plane is up (vram.h). */
+void textbox_gfx_at(u16 gfx, u16 map);
+
 /* Prepares the box with text text_id (the data_texts.c table), wrapping
    on word boundaries. Shown at the next VBlank. */
 void textbox_open(u16 text_id);

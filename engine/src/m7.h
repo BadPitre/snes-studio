@@ -82,6 +82,14 @@ u8 m7_rot_busy(void);
 /* The open map carries rotation tables and they are still valid. */
 u8 m7_rot_ready(void);
 
+/* THE DIALOGUE BAND. Mode 7 has one layer and no BG3, so a textbox has
+   nowhere to be drawn — the way out is to leave Mode 7 for the lines it
+   occupies. `top` is the first screen line of that mode-1 band; 0 closes
+   it. Called by textbox.c at every open and close, inert off a world
+   map. The cost is stated rather than hidden: the plane is not drawn in
+   the band, so under the box the ground gives way to the backdrop. */
+void m7_ui_band(u8 top);
+
 /* INVERSE PROJECTION — where on screen the plane point (px, py) is being
    drawn right now, pitch and rotation included. This is what an NPC
    needs and the hero does not: the camera is placed under the hero, so

@@ -20,6 +20,7 @@
 #include "screenfx.h"
 #include "ui_overlay.h"
 #include "ui_screen.h"
+#include "vram.h"
 #include "picture.h"
 #include "debug.h"
 #include "effectlayer.h"
@@ -153,6 +154,11 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
      this case and simply never called from here. */
   m7_reset();
   scene_load(dest_scene);
+  /* BG3 back where an ordinary scene expects it, font included. A Mode 7
+     screen wiped the low half of VRAM where the font lives and moved the
+     UI layer above the OBJ region; nothing else puts it back. */
+  textbox_gfx_at(VRAM_BG3_GFX, VRAM_BG3_MAP);
+  ui_screen_rebase(VRAM_BG3_MAP);
   textbox_load_pal(); /* scene_load overwrites CGRAM 16-19 (the font) */
   vm_scene_reset();
   camera_init(); /* a scripted pan does not survive a scene change */
@@ -393,6 +399,11 @@ int main(void)
       hdmafx_suspend(); /* wave/gradient/spotlight are map ambience */
       m7_vblank();
       vbl_open();
+      /* The UI layer, on a WORLD MAP only. An image screen has no BG3
+         anywhere — its map still points inside the plane, and writing
+         there would corrupt the picture. */
+      if (m7_world_active())
+        ui_screen_vblank();
       vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
     }
     else if (stage_active())

@@ -37,6 +37,9 @@
 #include "player.h" /* the world map's camera IS the hero */
 #include "actors.h"
 #include "camera.h"
+#include "textbox.h"
+#include "ui_screen.h"
+#include "vram.h"
 
 /* mode 7 register (data_mode7.c — always emitted) */
 extern const u8 m7_img_count;
@@ -99,6 +102,10 @@ extern const u8 m7_ramp_lens[];
 extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 
 #define M7_TM 0x11    /* BG1 + OBJ — Mode 7 has no other layer */
+/* A WORLD MAP also enables BG3, which carries the UI layer in the mode-1
+   bands. Mode 7 ignores the bit — it has no BG3 — so one static value
+   serves both halves of the screen and no HDMA on TM is needed. */
+#define M7_TM_WORLD 0x15
 #define M7_TM_GAME 0x17
 #define M7_PLANE 128  /* the plane, in tiles */
 #define M7_SCALE_ONE 0x0100 /* 8.8: 1:1 */
@@ -166,6 +173,11 @@ static u16 pv_da2 = (u16)(M7P_ANCHOR_DEF - M7P_HORIZON_DEF)
 static u8 pv_sky = M7P_HORIZON_DEF + (M7P_ANCHOR_DEF - M7P_HORIZON_DEF) / 8 + 1;
 
 /* channels 3, 5 and 6 (7 belongs to the NMI's OAM DMA — see hdmafx.c) */
+#define DMAP1 (*(vuint8 *)0x4310)
+#define BBAD1 (*(vuint8 *)0x4311)
+#define A1T1L (*(vuint8 *)0x4312)
+#define A1T1H (*(vuint8 *)0x4313)
+#define A1B1 (*(vuint8 *)0x4314)
 #define DMAP3 (*(vuint8 *)0x4330)
 #define BBAD3 (*(vuint8 *)0x4331)
 #define A1T3L (*(vuint8 *)0x4332)
@@ -243,11 +255,23 @@ static u8 sk_tab[M7P_TAB];
  * everywhere, i.e. nothing. An HDMA on TM would work too and would cost
  * the channel we do not have. */
 #define M7_SKY_CH 0x6000  /* sky chars — free while the plane is up */
-#define M7_SKY_MAP 0x7000 /* sky tilemap (the picture map's region) */
+#define M7_SKY_MAP 0x7400 /* sky tilemap. NOT $7000 any more: BG3's chars
+                             must sit on a 4K-word boundary (BG34NBA is a
+                             nibble) and $7000 is the only free one, so
+                             the UI layer has first claim on it — see
+                             vram.h and m7_ui_open. */
 #define M7_SKY_NUL 0x7800 /* BG1's blank mode-1 map */
 static u8 img_on = 0;
 static u8 img_h = 0;
-static u8 md_tab[8];
+/* BGMODE table. Three bands at most — mode 1 above the horizon, mode 7
+   on the plane, mode 1 again under a dialogue — and a block caps at 127
+   lines, so six blocks of two bytes plus the terminator. */
+static u8 md_tab[14];
+/* The SKY's own BGMODE table, when the sky is a picture: mode 1 to the
+   horizon, mode 7 below. Channel 3, in place of the window (§7.2f). */
+static u8 sky_md[8];
+/* First line of the lower mode-1 band; 0 = no dialogue is up. */
+static u8 ui_top = 0;
 
 static u8 pa_tab[M7P_TAB];
 static u8 pd_tab[M7P_TAB];
@@ -406,29 +430,196 @@ static void m7_sky_build(u16 top, u16 bot)
    nothing but that picture. Called once, screen off. */
 static void m7_sky_image(u8 i)
 {
-  u16 zero;
-
   img_h = m7w_skyh[i];
   dmaCopyVram((u8 *)m7w_skych[i], M7_SKY_CH, *m7w_skych_sizes[i]);
   dmaCopyVram((u8 *)m7w_skymaps[i], M7_SKY_MAP, 2048);
-  zero = 0;
-  dmaFillVram16(&zero, M7_SKY_NUL, 2048); /* BG1 draws char 0 = nothing */
-
-  REG_BG1SC = (u8)(M7_SKY_NUL >> 8);   /* 32x32 */
   REG_BG2SC = (u8)(M7_SKY_MAP >> 8);
-  REG_BG12NBA = 0x66;                  /* BG1 and BG2 chars at $6000 */
-  videoMode = 0x13;
-  REG_TM = 0x13; /* BG1 (blank) + BG2 (the sky) + OBJ */
+  videoMode = M7_TM_WORLD | 0x02;
+  REG_TM = M7_TM_WORLD | 0x02; /* + BG2, which carries the sky */
 
-  /* mode 1 to the horizon, mode 7 under it. A repeat block caps at 127
-     lines, so the lower band is two. */
-  md_tab[0] = pv_sky;
-  md_tab[1] = 0x01;
-  md_tab[2] = 127;
-  md_tab[3] = 0x07;
-  md_tab[4] = (u8)(224 - pv_sky - 127);
-  md_tab[5] = 0x07;
-  md_tab[6] = 0;
+  sky_md[0] = pv_sky;
+  sky_md[1] = 0x09;
+  sky_md[2] = 127;
+  sky_md[3] = 0x07;
+  sky_md[4] = (u8)(224 - pv_sky - 127);
+  sky_md[5] = 0x07;
+  sky_md[6] = 0;
+}
+
+/* Puts the mode-1 half of a world map in place — once, screen off.
+ * Needed with OR WITHOUT a sky image now, because a dialogue lands in
+ * mode 1 too:
+ *  - BG1 is SILENCED. In mode 1 it draws, and its scroll registers ARE
+ *    M7HOFS/M7VOFS, rewritten every frame with plane coordinates: it
+ *    would show a wildly shifted copy of something. A tilemap pointed at
+ *    a zeroed region renders char 0 everywhere, i.e. nothing, and that
+ *    costs no HDMA channel where a TM table would (§7.2f).
+ *  - BG3 carries the UI layer, moved above the OBJ region because the
+ *    plane owns the whole low half of VRAM. Its map, its chars and its
+ *    scrolls are all free in Mode 7, which is why the textbox needs no
+ *    Mode 7 case of its own beyond this relocation. */
+static void m7_ui_open(void)
+{
+  u16 zero = 0;
+
+  dmaFillVram16(&zero, M7_SKY_NUL, 2048); /* BG1 draws char 0 = nothing */
+  REG_BG1SC = (u8)(M7_SKY_NUL >> 8);      /* 32x32 */
+  REG_BG12NBA = 0x66;                     /* BG1 and BG2 chars at $6000 */
+  textbox_gfx_at(VRAM_M7_UI_GFX, VRAM_M7_UI_MAP);
+  ui_screen_rebase(VRAM_M7_UI_MAP);
+  ui_top = 0;
+  videoMode = M7_TM_WORLD;
+  REG_TM = M7_TM_WORLD;
+}
+
+/* One HDMA block, split as often as the 127-line cap demands. Non-repeat
+   mode: the header is a line count and the ONE byte after it applies to
+   every one of them. */
+static u8 md_emit(u8 i, u8 lines, u8 mode)
+{
+  u8 n;
+
+  while (lines)
+  {
+    n = lines > 127 ? 127 : lines;
+    md_tab[i++] = n;
+    md_tab[i++] = mode;
+    lines = (u8)(lines - n);
+  }
+  return i;
+}
+
+/* THE BAND TABLE — what makes a dialogue possible on a plane.
+ *
+ * Mode 7 has one layer and no BG3, so a textbox has nowhere to be drawn.
+ * The way out is the one §7.2f already proved for the sky: SWITCH THE
+ * VIDEO MODE mid-frame. Above the horizon, and again under the dialogue,
+ * we are in mode 1 — where BG3 exists and carries the UI layer exactly
+ * as it does on an ordinary scene. Between the two we are in Mode 7 and
+ * the plane draws.
+ *
+ * Mode 1 is 0x09, not 0x01: bit 3 is BG3's high priority, the value
+ * main.c sets for an ordinary scene. That is what puts the textbox above
+ * the sprites, so a dialogue layers here the way it does everywhere.
+ *
+ * The channel is free because this table REPLACES the sky window's:
+ * above the horizon we are no longer in Mode 7, so the plane cannot leak
+ * there and there is nothing to mask. Five channels with rotation, as
+ * before, dialogue or no dialogue.
+ *
+ * What it COSTS is honest and visible: the mode-1 band does not draw the
+ * plane. Under the dialogue the ground gives way to the backdrop. With
+ * the default layout the box is 32 tiles wide and covers the band whole;
+ * a narrower dialogue style would show sky either side of it. */
+static void m7_mode_build(void)
+{
+  u8 i = 0;
+  u8 bot = ui_top ? ui_top : 224;
+
+  if (bot < pv_sky)
+    bot = pv_sky; /* a band cannot eat into the sky */
+  /* TWO bands, and only two. A three-band table — mode 1 for the sky,
+     mode 7 for the plane, mode 1 for the dialogue — is what the sky
+     picture would want, and it does NOT work: the band appears but BG3
+     stops drawing in it. Measured, reproducible, unexplained; the note
+     is in the design doc so the next person does not spend the evening
+     on it again. Everything above the band therefore stays in Mode 7,
+     and the sky picture stands down for as long as the box is open. */
+  i = md_emit(i, bot, 0x07);
+  i = md_emit(i, (u8)(224 - bot), 0x09);
+  md_tab[i] = 0;
+}
+
+void m7_ui_band(u8 top)
+{
+  /* A band needs an HDMA channel of its own for $2105, and a ROTATING
+     map has none: 6, 1, 5 and 4 carry the four coefficients and 3 the
+     sky mask. So a dialogue on a turning world map stays invisible, as
+     it was before this existed — refused outright rather than shown
+     half-drawn. datagen tells the author; see the design doc §7.2i. */
+  if (m7_on && m7_world && !rot_ok)
+    ui_top = top;
+}
+
+/* Which of the two ways of hiding the plane above the horizon is in use.
+   The WINDOW costs one HDMA channel; the BGMODE table costs the same one
+   and buys the dialogue band with it — so as soon as a sky image or a
+   dialogue needs mode 1, the window stands down and nothing else moves.
+   Decided per frame, because a dialogue opens and closes mid-game. */
+/* WHERE THE BAND'S TABLE GOES.
+ * Channel 3 carries the SKY — the window that masks the plane above the
+ * horizon, or the sky picture's own BGMODE table. The dialogue band
+ * needs a BGMODE table of its own, so:
+ *  - a map that does NOT turn leaves channel 1 free (6 and 5 carry A and
+ *    D, 4 the sky gradient if any), and the band takes it: the sky mask
+ *    stays up and nothing is lost;
+ *  - a map that DOES turn uses 6, 1, 5 and 4 for the four coefficients,
+ *    and there is no fifth. The band then takes channel 3 and the sky
+ *    mask stands down for as long as the box is open, which shows as a
+ *    thin sliver of plane above the horizon. Stated, not hidden.
+ */
+static u8 m7_mode1(void)
+{
+  return img_on;
+}
+
+/* The band on channel 1 — free whenever the map does not turn. */
+static void m7_arm1(void)
+{
+  u16 a = (u16)(u8 *)md_tab;
+
+  DMAP1 = 0x00; /* one byte per entry */
+  BBAD1 = 0x05; /* $2105 BGMODE */
+  A1T1L = (u8)a;
+  A1T1H = (u8)(a >> 8);
+  A1B1 = 0x7E;
+}
+
+/* Channel 3, armed BY HAND and not through m7_arm.
+ *
+ * m7_arm exists to read a pointer's BANK off the stack, which is what
+ * lets the rotation tables be read straight out of ROM. Both tables here
+ * are WRAM statics instead, and a .bss array does not reach that helper
+ * with a usable bank — the rotation path used to arm this channel that
+ * way and the mode switch silently never happened. Bank $7E, written
+ * flat, is both correct and shorter. */
+static void m7_arm3(void)
+{
+  u16 a;
+
+  if (m7_mode1())
+  {
+    DMAP3 = 0x00; /* one byte per entry */
+    BBAD3 = 0x05; /* $2105 BGMODE */
+    a = (u16)(u8 *)sky_md;
+  }
+  else
+  {
+    DMAP3 = 0x01; /* two adjacent registers: $2126 then $2127 */
+    BBAD3 = 0x26; /* WH0 */
+    a = (u16)(u8 *)pw_tab;
+  }
+  A1T3L = (u8)a;
+  A1T3H = (u8)(a >> 8);
+  A1B3 = 0x7E;
+}
+
+static void m7_mask_regs(void)
+{
+  if (ui_top)
+    m7_mode_build();
+  if (m7_mode1())
+  {
+    /* No window: above the horizon we are not in Mode 7 at all, so the
+       plane cannot leak there and there is nothing to mask. */
+    REG_W12SEL = 0;
+    REG_TMW = 0;
+  }
+  else
+  {
+    REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
+    REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
+  }
 }
 
 /* The sky pans with the camera: a quarter of its travel for distance,
@@ -534,6 +725,7 @@ static void m7_persp_hdma(void)
   u16 a;
   u8 m, q;
 
+  m7_mask_regs();
   if (rot_ok)
   {
     /* ROTATION: four coefficients instead of two, so four channels
@@ -550,10 +742,7 @@ static void m7_persp_hdma(void)
     m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m - q) & (rot_n - 1))]);  /* M7C */
     m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);                        /* M7D */
     m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + q) & (rot_n - 1))]);  /* M7B */
-    if (img_on)
-      m7_arm(3, 0x0500, (const u8 *)md_tab); /* $2105 BGMODE */
-    else
-      m7_arm(3, 0x2601, (const u8 *)pw_tab); /* $2126 window */
+    m7_arm3();
     REG_HDMAEN = screenfx_wipe_active() ? 0x7E : 0x7A;
     return;
   }
@@ -570,26 +759,25 @@ static void m7_persp_hdma(void)
   A1T5L = (u8)a;
   A1T5H = (u8)(a >> 8);
   A1B5 = 0x7E;
-  if (img_on)
-  {
-    DMAP3 = 0x00; /* one byte per entry */
-    BBAD3 = 0x05; /* $2105 BGMODE */
-    a = (u16)(u8 *)md_tab;
-  }
-  else
-  {
-    DMAP3 = 0x01; /* two adjacent registers: $2126 then $2127 */
-    BBAD3 = 0x26; /* WH0 */
-    a = (u16)(u8 *)pw_tab;
-  }
-  A1T3L = (u8)a;
-  A1T3H = (u8)(a >> 8);
-  A1B3 = 0x7E;
+  m7_arm3();
   /* This module writes $420C only while the plane is up, and the Mode 7
      VBlank branch has already let hdmafx stand down. The scripted wipe
      (S18c) keeps its channel: a scr_hide must still curtain a world
      map. */
   m = screenfx_wipe_active() ? 0x6C : 0x68;
+  if (ui_top)
+  {
+    m7_arm1(); /* the map does not turn: channel 1 is free */
+    m |= 0x02;
+  }
+  else if (!img_on)
+  {
+    /* The band has just closed. The HDMA stops writing $2105 and the
+       register KEEPS the last value it was given — mode 1 — so without
+       this the plane never comes back and the whole screen stays the
+       sky colour. Cost: one register write a frame. */
+    REG_BGMODE = 0x07;
+  }
   if (sky_on)
   {
     DMAP4 = 0x02; /* ONE register, written twice: two colour components a
@@ -931,6 +1119,11 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   dmaFillVram16(&zero, 0x0000, 0x4000);
   dmaCopyVram7((u8 *)m7w_chars[i], 0x0000, *m7w_chars_sizes[i], 0x80, 0x1900);
   dmaCopyCGram((u8 *)m7w_pals[i], 0, 256);
+  /* CGRAM 16-19 belongs to the textbox font (spec §4) and the plane's
+     palette has just written over it. Put it back — a dialogue on a
+     world map draws in BG3 palette 4 like everywhere else, and datagen
+     keeps those three colours out of the plane so nothing is lost. */
+  textbox_load_pal();
 
   /* Expand blocks to tiles: each 16x16 block is two tiles wide and two
      tall, so a block row produces TWO plane rows — the top one from
@@ -985,19 +1178,10 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   rt_dir = 0;
   rot_base = (u16)i * m7w_rot_stride;
   img_on = m7w_skyimg[i];
+  m7_ui_open(); /* BG1 silenced, BG3 relocated: needed for a dialogue
+                   whether or not this map has a sky picture */
   if (img_on)
-  {
-    /* No window: above the horizon we are in mode 1, so the plane is not
-       drawn there at all and there is nothing to mask. */
-    REG_W12SEL = 0;
-    REG_TMW = 0;
     m7_sky_image(i);
-  }
-  else
-  {
-    REG_W12SEL = 0x02; /* window 1 applies to BG1, not inverted */
-    REG_TMW = 0x01;    /* and it MASKS BG1 on the main screen */
-  }
   player_draw_reset(); /* the hide loop above moved the hero's OAM */
   actors_draw_reset(); /* and every NPC's */
   m7_persp_build();

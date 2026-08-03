@@ -21,4 +21,14 @@
 #define VRAM_EFF_GFX 0x0000
 #define VRAM_EFF_MAP 0x1C00
 
+/* WORLD MAP (Mode 7). The plane owns $0000-$3FFF whole, so the UI layer
+   moves above the OBJ region, where the sky picture already lives.
+   BG3's chars must sit on a 4K-WORD boundary (BG34NBA is a nibble) and
+   only $7000 is free up there — which is what pushes the sky tilemap
+   onto $7400.
+     $6000 sky chars   $7000 BG3 chars (font)   $7400 sky tilemap
+     $7800 BG1's blank map   $7C00 BG3 tilemap (the UI screen) */
+#define VRAM_M7_UI_GFX 0x7000
+#define VRAM_M7_UI_MAP 0x7C00
+
 #endif /* VRAM_H */

@@ -882,15 +882,69 @@ distance.
   every frame costs more than the projection. A far NPC can be drawn over
   a near one.
 
+### 7.2i The dialogue band — a textbox on a plane
+
+Mode 7 has one layer and no BG3, so a textbox had nowhere to be drawn.
+The way out is the one §7.2f already proved for the sky: leave Mode 7 for
+the lines the box occupies. An HDMA on `$2105` puts the screen in mode 1
+from the top of the dialogue band down, and BG3 draws the box there
+exactly as it does on an ordinary scene.
+
+Three things had to move, and none of them cost a byte per frame:
+
+- **BG3 relocates.** Its map, its chars and its scrolls are all free in
+  Mode 7 — nothing touches them. The plane owns `$0000-$3FFF`, so the
+  font goes to `$7000` and the UI map to `$7C00`. `$7000` is the only
+  free 4K-WORD boundary above the OBJ region (BG34NBA is a nibble),
+  which is what pushed the sky tilemap onto `$7400`.
+- **CGRAM 16-19** — BG3 palette 4, the font's — is reloaded after the
+  plane's palette, which had just written over it. Three colours, against
+  the sixteen an image sky costs.
+- **Mode 1 is `0x09`, not `0x01`**: bit 3 is BG3's high priority, the
+  value an ordinary scene uses. That is what puts the box above the
+  sprites, so a dialogue layers here the way it does everywhere.
+
+**The channel is the whole constraint.** Channel 3 carries the sky — the
+window that masks the plane above the horizon, or the sky picture's own
+BGMODE table. The band needs a BGMODE table of its own:
+
+| map | free channel | dialogue |
+|---|---|---|
+| does not turn | 1 (6 and 5 carry A and D, 4 the gradient) | **works, sky mask kept** |
+| turns | none: 6, 1, 5, 4 are the four coefficients, 3 the mask | refused |
+
+On a turning map the box is REFUSED rather than half-drawn: `m7_ui_band`
+declines, and the dialogue stays invisible exactly as it was before this
+existed. That is a real limit of the hardware's five channels, not an
+oversight.
+
+**Two things measured the hard way**, both worth writing down so the next
+attempt does not repeat them:
+
+- A THREE-band table — mode 1 for the sky, mode 7 for the plane, mode 1
+  for the dialogue — does not work. The band appears (the backdrop shows)
+  but BG3 stops drawing in it. Reproducible with a correct table in RAM
+  and the channel armed; unexplained. It is why the sky picture stands
+  down while a box is open: everything above the band stays in Mode 7.
+- **Closing the band needs an explicit `REG_BGMODE = 0x07`.** When the
+  HDMA stops writing `$2105` the register KEEPS the last value it was
+  given — mode 1 — and the plane never comes back: the whole screen stays
+  the sky colour with the sprites on it. One register write a frame.
+
+**A pre-existing bug the work surfaced.** The 2bpp font at `$1000` is
+destroyed by ANY Mode 7 screen (the plane's `dmaFillVram16` covers it)
+and was never reloaded, so a dialogue after closing a Mode 7 screen drew
+garbage. `do_warp` now puts BG3 back where an ordinary scene expects it.
+
 ### 7.3 Events
 
 Events are NOT lost on a world map. What is lost is dialogue.
 
 | Works | Falls away |
 | --- | --- |
-| Placement, pages, conditions (switches / variables) | Message and Choice (no BG3) |
+| Placement, pages, conditions (switches / variables) | Message and Choice on a TURNING map (no free HDMA channel — §7.2i) |
 | Movement routes | HUD widgets, the cursor list |
-| Touch, Auto and Parallel triggers | The Action trigger — it would open a textbox |
+| Touch, Auto and Parallel triggers, and the Action trigger with its dialogue (§7.2i) | |
 | Warps, switches, variables, sounds, music | TILE appearance (T4) — no upper layer, no priority bit |
 | Screen effects, transitions, the zoom itself | |
 | The event's sprite (the OBJ region is outside the Mode 7 area) | |
