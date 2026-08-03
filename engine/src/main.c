@@ -144,6 +144,14 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
   setScreenOff();
 
   picture_reset(); /* warp during an image: scene_load reloads everything */
+  /* Warp OUT of a Mode 7 screen — a world map's warp tile, or a scripted
+     one. Without this the plane never stands down: BGMODE stays 7, TM
+     stays BG1+OBJ, the perspective HDMA keeps firing, and BG1 reads as a
+     Mode 7 plane the VRAM scene_load is about to refill with ordinary
+     tilemaps. The result is a black screen with the sprites floating on
+     it, which is exactly what it looked like. m7_reset was written for
+     this case and simply never called from here. */
+  m7_reset();
   scene_load(dest_scene);
   textbox_load_pal(); /* scene_load overwrites CGRAM 16-19 (the font) */
   vm_scene_reset();
