@@ -564,10 +564,26 @@ A = s*cos(t)       B = s^2*sin(t)
 C = s*sin(t)       D = -s^2*cos(t)
 ```
 
-Four per-scanline coefficients, so **four HDMA channels** instead of one
-pair, plus the sky window: five. That is exactly what a world map has
-free — 0 is the general DMA's, 2 the scripted wipe's, 7 the NMI's OAM —
-and there is no sixth.
+Four per-scanline coefficients — but **two HDMA channels**, not four.
+`M7A`/`M7B` are ADJACENT registers (`$211B`/`$211C`), `M7C`/`M7D`
+likewise, and transfer mode 3 writes two adjacent registers twice each
+per line: exactly the shape a pair of double-write registers wants. One
+channel carries A+B, one carries C+D, and with the sky's that makes
+three of the five a world map has free (0 is the general DMA's, 2 the
+scripted wipe's, 7 the NMI's OAM). The two channels left over are what
+the dialogue band (§7.2i) and the sky gradient live on.
+
+**This replaced a four-channel version, and the history is worth a
+paragraph.** The first rotation spent one channel per coefficient in
+order to HALVE its ROM: `sin(t) = cos(t - 90)` lets one family of tables
+serve two coefficients a quarter turn apart — but only if each register
+has its own channel, since the pairing fixes which two values share a
+line. Four coefficient channels plus the sky mask is five: every free
+channel spent, and a dialogue on a turning map was impossible — an
+author hit exactly that, a box that opened, froze the hero and never
+drew. The quarter-turn identity was a false economy: it saved ~14 KB of
+ROM per map on a cartridge standing three-quarters empty, and the thing
+it spent was the scarcest resource the console has.
 
 **Why they cannot be built at run time.** 224 lines x 4 values is ~900
 multiplications for one angle change. §7.2 measured SIXTY-FOUR
@@ -576,26 +592,25 @@ matter of optimising: a factor of fourteen over a budget already
 overrun. So the tables are **compiled by datagen** and live in ROM, the
 same answer the zoom ramps got in §6 for the same reason.
 
-**Why 16 steps and not 15 or 20.** Write `sin(t) = cos(t - 90)` and
-`s^2*sin(t) = -s^2*cos(t + 90)`: one family of tables serves TWO matrix
-coefficients, indexed a quarter turn apart. That only works if the angle
-set is closed under +/-90 degrees — a multiple of 4. So:
+**The format.** Per angle `k`, TWO paired tables:
 
 ```
-A = p[k]     C = p[k-4]     D = r[k]     B = r[k+4]
+ab[k]: per line  A = s*cos, B = s^2*sin     -> channel 6, M7A+M7B
+cd[k]: per line  C = s*sin, D = -s^2*cos    -> channel 5, M7C+M7D
 ```
 
-with `p = s*cos` and `r = -s^2*cos`. 32 tables of 451 bytes = **14 KB
-per map** instead of 29, and turning the view is FOUR POINTER WRITES per
-frame. Opt-in per scene (`m7_rotate`), so a map that never turns pays
-nothing.
+Four bytes a line, two blocks of 112 — 899 bytes a table, 32 tables =
+**28 KB per map at 16 steps**. Turning the view is TWO POINTER WRITES
+per frame. Opt-in per scene (`m7_rotate`), so a map that never turns
+pays nothing. 16 rather than 15 or 20 only because a power of two lets
+the engine wrap the angle with a mask instead of a modulo.
 
 **The tables stay in ROM and are never copied.** HDMA reads its source
 from any bank, but a DMA needs the source's BANK and C cannot give it —
 tcc-816 passes a four-byte pointer, `(u32)p` keeps the low 16 bits and
 sign extends (`ENGINE_CONSTRAINTS` §1.3). `m7_arm` in
 `engine/src/vramfast.asm` reads the four bytes off the stack, exactly as
-`vj_set` does. That is the whole reason there is no 14 KB WRAM buffer
+`vj_set` does. That is the whole reason there is no 28 KB WRAM buffer
 and no load-time copy. Each table is emitted as its OWN array so the
 linker keeps it inside one bank: HDMA does not carry the bank across a
 boundary, it wraps within it.
@@ -624,9 +639,9 @@ view turns.
 
 | Steps | Angle | ROM per map |
 | --- | --- | --- |
-| 16 | 22.5 deg | 14 KB |
-| 32 | 11.25 deg | 28 KB |
-| 64 | 5.6 deg | 56 KB |
+| 16 | 22.5 deg | 28 KB |
+| 32 | 11.25 deg | 56 KB |
+| 64 | 5.6 deg | 112 KB |
 
 64 is the sweet spot: at one step a frame a full turn takes about a
 second and 5.6 degrees no longer reads as a jump. And the budget is now
@@ -637,7 +652,8 @@ it is padded to the size declared in the header.
 
 **One thing 64 steps broke, worth keeping.** tcc-816 puts a file's arrays
 in ONE section and WLA places a section wholly inside ONE bank, so 128
-tables in one generated file is a 57 KB section against a 32 KB bank —
+paired tables in one generated file would be a 115 KB section against a
+32 KB bank —
 `No room for section ".rodata"`. datagen now splits them sixteen tables
 to a file. The rule generalises: a generated file must stay well under a
 bank, however small its individual arrays are.
@@ -904,19 +920,26 @@ Three things had to move, and none of them cost a byte per frame:
   value an ordinary scene uses. That is what puts the box above the
   sprites, so a dialogue layers here the way it does everywhere.
 
-**The channel is the whole constraint.** Channel 3 carries the sky — the
-window that masks the plane above the horizon, or the sky picture's own
-BGMODE table. The band needs a BGMODE table of its own:
+**The channel is the whole constraint — and it is why the rotation was
+re-plumbed.** Channel 3 carries the sky (the window that masks the plane
+above the horizon, or the sky picture's own BGMODE table); the band
+needs a BGMODE table of its own, and it lives on channel 1 — on every
+kind of map:
 
-| map | free channel | dialogue |
+| map | channels | dialogue |
 |---|---|---|
-| does not turn | 1 (6 and 5 carry A and D, 4 the gradient) | **works, sky mask kept** |
-| turns | none: 6, 1, 5, 4 are the four coefficients, 3 the mask | refused |
+| does not turn | 6, 5 = A and D flat; 3 = sky; 4 = gradient | **works, band on 1** |
+| turns | 6 = A+B, 5 = C+D (mode 3, §7.2d); 3 = sky | **works, band on 1** |
 
-On a turning map the box is REFUSED rather than half-drawn: `m7_ui_band`
-declines, and the dialogue stays invisible exactly as it was before this
-existed. That is a real limit of the hardware's five channels, not an
-oversight.
+The second line existed as "refused" for exactly one release. The
+four-channel rotation spent every free channel and a dialogue on a
+turning map could not be drawn at all — an author hit it as "the box
+opens, freezes the hero, and shows nothing". Pairing the rotation onto
+two mode-3 channels (§7.2d) freed channel 1 everywhere, and the band no
+longer has a special case. Verified in the emulator: the paired tables
+render byte-identical to the four-channel ones (same MD5 at a
+67.5-degree angle), and the box opens and closes cleanly on a turning
+map with the sky mask intact.
 
 **Two things measured the hard way**, both worth writing down so the next
 attempt does not repeat them:
@@ -938,14 +961,14 @@ garbage. `do_warp` now puts BG3 back where an ordinary scene expects it.
 
 ### 7.3 Events
 
-Events are NOT lost on a world map. What is lost is dialogue.
+Events are NOT lost on a world map — dialogue included, since §7.2i.
 
 | Works | Falls away |
 | --- | --- |
-| Placement, pages, conditions (switches / variables) | Message and Choice on a TURNING map (no free HDMA channel — §7.2i) |
-| Movement routes | HUD widgets, the cursor list |
+| Placement, pages, conditions (switches / variables) | HUD widgets, the cursor list |
+| Movement routes | TILE appearance (T4) — no upper layer, no priority bit |
 | Touch, Auto and Parallel triggers, and the Action trigger with its dialogue (§7.2i) | |
-| Warps, switches, variables, sounds, music | TILE appearance (T4) — no upper layer, no priority bit |
+| Warps, switches, variables, sounds, music | |
 | Screen effects, transitions, the zoom itself | |
 | The event's sprite (the OBJ region is outside the Mode 7 area) | |
 

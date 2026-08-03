@@ -63,10 +63,13 @@ void m7_view(u8 horizon, u8 anchor);
 
 /* ROTATION of the world map, 16 steps of 22.5 degrees around the hero.
    Costs nothing per frame: the four per-scanline coefficients are
-   compiled by datagen and read by the HDMA straight from ROM, so turning
-   the view is four pointer writes. Inert when the scene did not ask for
-   rotation (opt-in, ~14 KB of ROM per map) and after m7_view, whose new
-   pitch makes the compiled tables wrong. */
+   compiled by datagen as two PAIRED tables (A+B, C+D — adjacent
+   registers, HDMA mode 3) and read straight from ROM, so turning the
+   view is two pointer writes and only two channels — which is what
+   leaves one for the dialogue band on a turning map. Inert when the
+   scene did not ask for rotation (opt-in, ~28 KB of ROM per map at 16
+   steps) and after m7_view, whose new pitch makes the compiled tables
+   wrong. */
 void m7_rotate(u8 angle);
 
 /* TURNS to an angle over `frames`, walking the steps itself and taking
@@ -86,8 +89,10 @@ u8 m7_rot_ready(void);
    nowhere to be drawn — the way out is to leave Mode 7 for the lines it
    occupies. `top` is the first screen line of that mode-1 band; 0 closes
    it. Called by textbox.c at every open and close, inert off a world
-   map. The cost is stated rather than hidden: the plane is not drawn in
-   the band, so under the box the ground gives way to the backdrop. */
+   map; works on every world map, turning or not, since the paired
+   rotation freed a channel. The cost is stated rather than hidden: the
+   plane is not drawn in the band, so under the box the ground gives way
+   to the backdrop. */
 void m7_ui_band(u8 top);
 
 /* INVERSE PROJECTION — where on screen the plane point (px, py) is being

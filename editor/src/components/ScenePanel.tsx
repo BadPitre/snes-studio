@@ -157,9 +157,9 @@ export default function ScenePanel(props: Props) {
               onChange={(e) => props.onRotate(Number(e.target.value))}
             >
               <option value={0}>Aucune — le nord reste en haut</option>
-              <option value={16}>16 crans (22,5°) — ~14 Ko</option>
-              <option value={32}>32 crans (11,25°) — ~28 Ko</option>
-              <option value={64}>64 crans (5,6°) — ~56 Ko</option>
+              <option value={16}>16 crans (22,5°) — ~28 Ko</option>
+              <option value={32}>32 crans (11,25°) — ~56 Ko</option>
+              <option value={64}>64 crans (5,6°) — ~112 Ko</option>
             </select>
             <p className="hint">
               {scene.m7_rotate
@@ -262,9 +262,10 @@ export default function ScenePanel(props: Props) {
             )}
             <p className="hint">
               Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la carte —
-              une couleur d'eau ou de brume s'y lit bien. Le dégradé prend un
-              canal HDMA, que la rotation occupe déjà : les deux s'excluent, et
-              datagen le refuse plutôt que de l'ignorer.
+              une couleur d'eau ou de brume s'y lit bien. Le dégradé et la
+              rotation restent exclusifs (datagen le refuse plutôt que de
+              l'ignorer) ; les dialogues, eux, marchent sur toutes les cartes
+              du monde, rotation comprise.
               {sky === "image"
                 ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
                 : ""}

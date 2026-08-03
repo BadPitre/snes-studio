@@ -1020,16 +1020,11 @@ mod tests {
 // Rotation (M7-B4)
 // ---------------------------------------------------------------------
 
-/// Rotation steps. 16 x 22.5 degrees, and 16 because the angle set must
-/// be CLOSED under +/-90 degrees: `C` is `A` a quarter turn back and `B`
-/// is `D` a quarter turn on, so one family of tables serves two matrix
-/// coefficients. A count not divisible by 4 would double the ROM.
+/// Rotation steps. 16 x 22.5 degrees; a power of two, so the engine
+/// wraps an angle with a mask instead of a modulo.
 pub const ROT_STEPS: usize = 16;
 
-/// Step counts an author may pick. The set must be closed under +/-90
-/// degrees for the two-family trick to hold, so every value is a
-/// multiple of 4; and a power of two lets the engine wrap an angle with
-/// a mask instead of a modulo.
+/// Step counts an author may pick — finer steps buy smoothness with ROM.
 pub const ROT_CHOICES: [u8; 3] = [16, 32, 64];
 
 /// One HDMA table: two continuous blocks of 112 lines plus a terminator.
@@ -1038,15 +1033,31 @@ pub const ROT_CHOICES: [u8; 3] = [16, 32, 64];
 const TAB_HALF: usize = 112;
 pub const TAB_LEN: usize = 2 + TAB_HALF * 4 + 1;
 
-/// A world map's rotation data: 2 x ROT_STEPS scanline tables plus the
+/// A PAIRED table: transfer mode 3 writes TWO adjacent double-write
+/// registers per line — M7A+M7B ($211B/$211C) or M7C+M7D ($211D/$211E)
+/// — so a line is four bytes instead of two, and ONE HDMA channel
+/// carries two coefficients. That is the whole point: rotation used to
+/// take four channels and left none for the dialogue band (§7.2i);
+/// paired it takes two, and a textbox works on every world map.
+///
+/// The price is ROM, not time. The old layout halved its size with a
+/// quarter-turn identity (C is A ninety degrees back), which forced one
+/// register per channel; interleaving A with B kills the sharing and the
+/// tables double — ~28 KB per map at 16 steps instead of ~14. On a 1 MB
+/// ROM standing three-quarters empty, the trade buys dialogue and gives
+/// back two HDMA channels.
+pub const PAIR_LEN: usize = 2 + TAB_HALF * 8 + 1;
+
+/// A world map's rotation data: 2 x steps scanline tables plus the
 /// camera offsets that keep the hero on the anchor line.
 pub struct Mode7Rotation {
     /// How many steps this map compiled — 16, 32 or 64.
     pub steps: usize,
-    /// `p[k]` = s(d)*cos(k) — feeds M7A at angle k, M7C at angle k-4.
-    pub p: Vec<Vec<u8>>,
-    /// `r[k]` = -s(d)^2*cos(k) — feeds M7D at angle k, M7B at angle k+4.
-    pub r: Vec<Vec<u8>>,
+    /// `ab[k]`: per line, A = s*cos then B = s^2*sin — channel for
+    /// M7A+M7B in transfer mode 3.
+    pub ab: Vec<Vec<u8>>,
+    /// `cd[k]`: per line, C = s*sin then D = -s^2*cos — M7C+M7D.
+    pub cd: Vec<Vec<u8>>,
     /// Per angle, what to add to the hero's plane position to get the
     /// rotation centre: (-dA*sin, +dA*cos).
     pub ox: Vec<i16>,
@@ -1071,10 +1082,9 @@ fn clamp14(v: f64) -> i16 {
 /// The PPU's four coefficients at rotation theta are
 ///   A = s*cos, B = s^2*sin, C = s*sin, D = -s^2*cos
 /// with s(d) = dA/d the horizontal scale of the line d below the horizon.
-/// Writing `sin(t) = cos(t - 90)` and `s^2*sin(t) = -(-s^2*cos(t + 90))`
-/// turns four families into two, indexed a quarter turn apart — which is
-/// why ROT_STEPS is a multiple of 4 and why this costs 14 KB per map and
-/// not 29.
+/// A and B are ADJACENT registers, C and D likewise, so each pair is one
+/// mode-3 HDMA channel — see the PAIR_LEN comment for why this format
+/// replaced the four-channel one.
 ///
 /// The tables are read by the HDMA STRAIGHT FROM ROM (see `m7_arm` in
 /// `engine/src/vramfast.asm`), so they cost no WRAM and no load time.
@@ -1082,9 +1092,8 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
     let (hz, an) = (horizon as usize, anchor as usize);
     if !ROT_CHOICES.contains(&(steps as u8)) {
         bail!(
-            "rotation mode7 : {} crans — attendu 16, 32 ou 64 (multiple de 4 \
-             pour que C soit A a un quart de tour, puissance de 2 pour que le \
-             moteur boucle l'angle par masque)",
+            "rotation mode7 : {} crans — attendu 16, 32 ou 64 (une puissance \
+             de 2, pour que le moteur boucle l'angle par masque)",
             steps
         );
     }
@@ -1094,8 +1103,8 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
     let da = (an - hz) as f64;
     let sky = hz + (an - hz) / 8 + 1;
 
-    let mut p = Vec::with_capacity(steps);
-    let mut r = Vec::with_capacity(steps);
+    let mut ab = Vec::with_capacity(steps);
+    let mut cd = Vec::with_capacity(steps);
     let mut ox = Vec::with_capacity(steps);
     let mut oy = Vec::with_capacity(steps);
     let mut co = Vec::with_capacity(steps);
@@ -1104,32 +1113,41 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
     for k in 0..steps {
         let th = (k as f64) * std::f64::consts::TAU / steps as f64;
         let (sin, cos) = (th.sin(), th.cos());
-        let mut tp = vec![0u8; TAB_LEN];
-        let mut tr = vec![0u8; TAB_LEN];
-        for t in [&mut tp, &mut tr] {
+        let mut tab = vec![0u8; PAIR_LEN];
+        let mut tcd = vec![0u8; PAIR_LEN];
+        for t in [&mut tab, &mut tcd] {
             t[0] = 0x80 | TAB_HALF as u8;
-            t[1 + TAB_HALF * 2] = 0x80 | TAB_HALF as u8;
-            t[TAB_LEN - 1] = 0;
+            t[1 + TAB_HALF * 4] = 0x80 | TAB_HALF as u8;
+            t[PAIR_LEN - 1] = 0;
         }
         for y in 0..224usize {
-            let i = if y < TAB_HALF { 1 + y * 2 } else { 2 + y * 2 };
-            let (pv, rv) = if y < sky {
-                /* masked by the sky window — the value only has to be
-                   outside the plane, not meaningful */
-                (0x3FFFi16, 0x3FFFi16)
+            let i = if y < TAB_HALF { 1 + y * 4 } else { 2 + y * 4 };
+            let (a, b, c, d) = if y < sky {
+                /* masked as sky — the values only have to land outside
+                   the plane, not mean anything */
+                (0x3FFFi16, 0x3FFFi16, 0x3FFFi16, 0x3FFFi16)
             } else {
-                let d = (y - hz) as f64;
-                let s = da * 256.0 / d;
-                let s2 = da * da * 256.0 / (d * d);
-                (clamp14(s * cos), clamp14(-s2 * cos))
+                let dist = (y - hz) as f64;
+                let s = da * 256.0 / dist;
+                let s2 = da * da * 256.0 / (dist * dist);
+                (
+                    clamp14(s * cos),
+                    clamp14(s2 * sin),
+                    clamp14(s * sin),
+                    clamp14(-s2 * cos),
+                )
             };
-            tp[i] = pv as u8;
-            tp[i + 1] = (pv >> 8) as u8;
-            tr[i] = rv as u8;
-            tr[i + 1] = (rv >> 8) as u8;
+            tab[i] = a as u8;
+            tab[i + 1] = (a >> 8) as u8;
+            tab[i + 2] = b as u8;
+            tab[i + 3] = (b >> 8) as u8;
+            tcd[i] = c as u8;
+            tcd[i + 1] = (c >> 8) as u8;
+            tcd[i + 2] = d as u8;
+            tcd[i + 3] = (d >> 8) as u8;
         }
-        p.push(tp);
-        r.push(tr);
+        ab.push(tab);
+        cd.push(tcd);
         /* the hero must stay on the anchor line whatever the angle: the
            rotation centre is his position pushed dA units "behind" the
            camera, and behind turns with the camera */
@@ -1138,48 +1156,49 @@ pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Ro
         co.push((cos * 256.0).round() as i16);
         si.push((sin * 256.0).round() as i16);
     }
-    Ok(Mode7Rotation { steps, p, r, ox, oy, co, si })
+    Ok(Mode7Rotation { steps, ab, cd, ox, oy, co, si })
 }
 
 #[cfg(test)]
 mod rot_tests {
     use super::*;
 
-    fn word(t: &[u8], y: usize) -> i16 {
-        let i = if y < TAB_HALF { 1 + y * 2 } else { 2 + y * 2 };
-        i16::from_le_bytes([t[i], t[i + 1]])
+    /// The two words of one line of a paired table.
+    fn pair(t: &[u8], y: usize) -> (i16, i16) {
+        let i = if y < TAB_HALF { 1 + y * 4 } else { 2 + y * 4 };
+        (
+            i16::from_le_bytes([t[i], t[i + 1]]),
+            i16::from_le_bytes([t[i + 2], t[i + 3]]),
+        )
     }
 
     #[test]
     fn angle_zero_is_the_engines_own_no_rotation_case() {
         let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
-        // A = s, D = -s^2 at the anchor line, which is drawn 1:1
-        assert_eq!(word(&rot.p[0], 176), 256);
-        assert_eq!(word(&rot.r[0], 176), -256);
+        // A = s, B = 0, C = 0, D = -s^2 at the anchor line, drawn 1:1
+        assert_eq!(pair(&rot.ab[0], 176), (256, 0));
+        assert_eq!(pair(&rot.cd[0], 176), (0, -256));
         // and the camera offset is the flat one: (0, +dA)
         assert_eq!((rot.ox[0], rot.oy[0]), (0, 120));
     }
 
     #[test]
-    fn a_quarter_turn_back_gives_the_sine_family() {
+    fn a_quarter_turn_swaps_the_coefficients() {
         let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
-        // C at angle 0 IS P at angle 12 — and sin(0) = 0
-        assert_eq!(word(&rot.p[12], 176), 0);
-        // at a quarter turn, C = s
-        assert_eq!(word(&rot.p[(4 + 12) % ROT_STEPS], 176), 256);
+        // at 90 degrees: A = 0, B = s^2, C = s, D = 0
+        assert_eq!(pair(&rot.ab[4], 176), (0, 256));
+        assert_eq!(pair(&rot.cd[4], 176), (256, 0));
     }
 
     #[test]
-    fn a_finer_step_count_keeps_the_quarter_turn_identity() {
-        // The whole two-family trick rests on it, and it is the reason
-        // only multiples of 4 are offered.
+    fn every_step_count_places_the_cardinals() {
         for &n in &ROT_CHOICES {
             let n = n as usize;
             let rot = compile_rotation(56, 176, n).unwrap();
-            assert_eq!(rot.p.len(), n);
-            assert_eq!(word(&rot.p[0], 176), 256, "{} steps: cos(0) = 1", n);
-            assert_eq!(word(&rot.p[n / 4], 176), 0, "{} steps: cos(90) = 0", n);
-            assert_eq!(word(&rot.p[n / 2], 176), -256, "{} steps: cos(180) = -1", n);
+            assert_eq!(rot.ab.len(), n);
+            assert_eq!(pair(&rot.ab[0], 176).0, 256, "{} steps: cos(0) = 1", n);
+            assert_eq!(pair(&rot.ab[n / 4], 176).0, 0, "{} steps: cos(90) = 0", n);
+            assert_eq!(pair(&rot.ab[n / 2], 176).0, -256, "{} steps: cos(180) = -1", n);
         }
     }
 
@@ -1191,18 +1210,18 @@ mod rot_tests {
     #[test]
     fn half_a_turn_negates_the_scale() {
         let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
-        assert_eq!(word(&rot.p[8], 176), -256);
+        assert_eq!(pair(&rot.ab[8], 176).0, -256);
         assert_eq!(rot.oy[8], -120);
     }
 
     #[test]
     fn every_table_is_the_layout_the_engine_expects() {
         let rot = compile_rotation(88, 168, ROT_STEPS).unwrap();
-        for t in rot.p.iter().chain(rot.r.iter()) {
-            assert_eq!(t.len(), TAB_LEN);
+        for t in rot.ab.iter().chain(rot.cd.iter()) {
+            assert_eq!(t.len(), PAIR_LEN);
             assert_eq!(t[0], 0x80 | TAB_HALF as u8);
-            assert_eq!(t[1 + TAB_HALF * 2], 0x80 | TAB_HALF as u8);
-            assert_eq!(t[TAB_LEN - 1], 0, "terminator");
+            assert_eq!(t[1 + TAB_HALF * 4], 0x80 | TAB_HALF as u8);
+            assert_eq!(t[PAIR_LEN - 1], 0, "terminator");
         }
     }
 

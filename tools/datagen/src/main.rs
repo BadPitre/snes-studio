@@ -679,7 +679,7 @@ fn main() -> Result<()> {
                 sc.name,
                 r.steps,
                 360.0 / r.steps as f64,
-                r.steps * 2 * mode7::TAB_LEN / 1024
+                r.steps * 2 * mode7::PAIR_LEN / 1024
             );
             Some(r)
         } else {
@@ -1696,31 +1696,33 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
         files.push((format!("data_m7wmap{}.c", i), s));
 
-        // ROTATION (opt-in, ~14 KB): 2 x 16 per-scanline tables, read by
-        // the HDMA STRAIGHT FROM ROM. Each table is its own array so the
-        // linker keeps it whole inside one bank — HDMA does not carry the
-        // bank across a boundary, it wraps within it.
+        // ROTATION (opt-in, ~28 KB at 16 steps): 2 x steps PAIRED
+        // per-scanline tables — A+B on one HDMA channel in transfer mode
+        // 3, C+D on another — read STRAIGHT FROM ROM. Each table is its
+        // own array so the linker keeps it whole inside one bank: HDMA
+        // does not carry the bank across a boundary, it wraps within it.
         if let Some(rot) = &wm.rot {
             // SPLIT ACROSS FILES, and not for tidiness: tcc-816 puts a
             // file's arrays in ONE section, WLA places a section wholly
-            // inside ONE bank, and 64 steps is 57 KB against a 32 KB
-            // bank. Sixteen tables a file keeps every section at ~7 KB
-            // and lets the linker pack them where it likes.
-            const PER_FILE: usize = 16;
+            // inside ONE bank, and 64 steps of paired tables is 115 KB
+            // against a 32 KB bank. Eight tables a file keeps every
+            // section at ~7 KB and lets the linker pack them freely.
+            const PER_FILE: usize = 8;
             let mut all: Vec<(String, &Vec<u8>)> = Vec::new();
-            for (k, t) in rot.p.iter().enumerate() {
-                all.push((format!("m7w{}_rotp{}", i, k), t));
+            for (k, t) in rot.ab.iter().enumerate() {
+                all.push((format!("m7w{}_rotab{}", i, k), t));
             }
-            for (k, t) in rot.r.iter().enumerate() {
-                all.push((format!("m7w{}_rotr{}", i, k), t));
+            for (k, t) in rot.cd.iter().enumerate() {
+                all.push((format!("m7w{}_rotcd{}", i, k), t));
             }
             for (part, chunk) in all.chunks(PER_FILE).enumerate() {
                 let mut s = String::from(emit::HEADER);
                 s.push_str("#include <snes.h>\n\n");
                 s.push_str(
-                    "/* Mode 7 rotation. p = s*cos feeds M7A at angle k and M7C\n\
-                     \x20  a quarter turn back; r = -s^2*cos feeds M7D at k and M7B\n\
-                     \x20  a quarter turn on. See mode7.rs::compile_rotation. */\n",
+                    "/* Mode 7 rotation, PAIRED tables (HDMA mode 3): per line,\n\
+                     \x20  ab = A (s*cos) then B (s^2*sin) for M7A+M7B; cd = C\n\
+                     \x20  (s*sin) then D (-s^2*cos) for M7C+M7D. Two channels\n\
+                     \x20  instead of four. See mode7.rs::compile_rotation. */\n",
                 );
                 for (name, t) in chunk {
                     s.push_str(&emit::u8_array(name, t, 16, false));
@@ -1840,7 +1842,7 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         if worlds[i].rot.is_some() {
             for k in 0..worlds[i].rot.as_ref().unwrap().steps {
                 s.push_str(&format!(
-                    "extern const u8 m7w{i}_rotp{k}[];\nextern const u8 m7w{i}_rotr{k}[];\n",
+                    "extern const u8 m7w{i}_rotab{k}[];\nextern const u8 m7w{i}_rotcd{k}[];\n",
                     i = i,
                     k = k
                 ));
@@ -1858,8 +1860,8 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         }
         s.push_str("};\n");
     };
-    rot_table("const u8 *const m7w_rotp", &|i, k| format!("m7w{}_rotp{}", i, k));
-    rot_table("const u8 *const m7w_rotr", &|i, k| format!("m7w{}_rotr{}", i, k));
+    rot_table("const u8 *const m7w_rotab", &|i, k| format!("m7w{}_rotab{}", i, k));
+    rot_table("const u8 *const m7w_rotcd", &|i, k| format!("m7w{}_rotcd{}", i, k));
     // Camera offsets: what to add to the hero's plane position to get the
     // rotation centre, so he stays on the anchor line at any angle.
     rot_table("const u16 m7w_rotox", &|i, k| {

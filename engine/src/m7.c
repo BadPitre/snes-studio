@@ -68,8 +68,8 @@ extern const u8 m7w_anchor[];
    map that only ever faces four ways should not pay for 64. */
 extern const u8 m7w_rot[];      /* step count, 0 = the map never turns */
 extern const u8 m7w_rot_stride; /* slice width of the flat tables */
-extern const u8 *const m7w_rotp[];
-extern const u8 *const m7w_rotr[];
+extern const u8 *const m7w_rotab[]; /* per angle: A+B paired, mode 3 */
+extern const u8 *const m7w_rotcd[]; /* per angle: C+D paired */
 extern const u16 m7w_rotox[];
 extern const u16 m7w_rotoy[];
 extern const u16 m7w_rotcos[]; /* cos, sin in 8.8 — the INVERSE projection */
@@ -532,32 +532,21 @@ static void m7_mode_build(void)
 
 void m7_ui_band(u8 top)
 {
-  /* A band needs an HDMA channel of its own for $2105, and a ROTATING
-     map has none: 6, 1, 5 and 4 carry the four coefficients and 3 the
-     sky mask. So a dialogue on a turning world map stays invisible, as
-     it was before this existed — refused outright rather than shown
-     half-drawn. datagen tells the author; see the design doc §7.2i. */
-  if (m7_on && m7_world && !rot_ok)
+  if (m7_on && m7_world)
     ui_top = top;
 }
 
-/* Which of the two ways of hiding the plane above the horizon is in use.
-   The WINDOW costs one HDMA channel; the BGMODE table costs the same one
-   and buys the dialogue band with it — so as soon as a sky image or a
-   dialogue needs mode 1, the window stands down and nothing else moves.
-   Decided per frame, because a dialogue opens and closes mid-game. */
-/* WHERE THE BAND'S TABLE GOES.
- * Channel 3 carries the SKY — the window that masks the plane above the
- * horizon, or the sky picture's own BGMODE table. The dialogue band
- * needs a BGMODE table of its own, so:
- *  - a map that does NOT turn leaves channel 1 free (6 and 5 carry A and
- *    D, 4 the sky gradient if any), and the band takes it: the sky mask
- *    stays up and nothing is lost;
- *  - a map that DOES turn uses 6, 1, 5 and 4 for the four coefficients,
- *    and there is no fifth. The band then takes channel 3 and the sky
- *    mask stands down for as long as the box is open, which shows as a
- *    thin sliver of plane above the horizon. Stated, not hidden.
- */
+/* THE CHANNEL MAP while a world map is up. 0 is the general DMA's, 2 the
+ * scripted wipe's, 7 the NMI's OAM; of the five left:
+ *   6, 5  the perspective — A and D flat, A+B and C+D paired (mode 3)
+ *         when the map turns
+ *   3     the SKY: the window that masks the plane above the horizon,
+ *         or the sky picture's own BGMODE table
+ *   4     the sky gradient's COLDATA, when the map has one
+ *   1     the DIALOGUE BAND's BGMODE table, on every kind of map —
+ *         pairing the rotation is what freed it (§7.2i)
+ * m7_mode1 answers "is the sky band mode 1", i.e. does channel 3 carry
+ * a BGMODE table instead of the window. */
 static u8 m7_mode1(void)
 {
   return img_on;
@@ -723,27 +712,37 @@ static void m7_persp_build(void)
 static void m7_persp_hdma(void)
 {
   u16 a;
-  u8 m, q;
+  u8 m;
 
   m7_mask_regs();
   if (rot_ok)
   {
-    /* ROTATION: four coefficients instead of two, so four channels
-       instead of one pair. A = s*cos(t), C = s*sin(t) = s*cos(t-90) and
-       D = -s^2*cos(t), B = s^2*sin(t) = -s^2*cos(t+90) — which is why
-       ONE family of tables serves two registers, a quarter turn apart,
-       and why there are 16 steps and not 15.
-       Channels 1, 4, 5 and 6, plus 3 for the sky window: exactly the
-       five free while a world map is up (0 is the general DMA's, 2 the
-       scripted wipe's, 7 the NMI's OAM). */
-    m = rot_ang;
-    q = (u8)(rot_n >> 2); /* a quarter turn, in steps */
-    m7_arm(6, 0x1B02, m7w_rotp[rot_base + m]);                        /* M7A */
-    m7_arm(1, 0x1D02, m7w_rotp[rot_base + ((m - q) & (rot_n - 1))]);  /* M7C */
-    m7_arm(5, 0x1E02, m7w_rotr[rot_base + m]);                        /* M7D */
-    m7_arm(4, 0x1C02, m7w_rotr[rot_base + ((m + q) & (rot_n - 1))]);  /* M7B */
+    /* ROTATION: two PAIRED channels, not four single ones. M7A and M7B
+       are adjacent registers ($211B/$211C), M7C and M7D likewise — and
+       transfer mode 3 writes two adjacent registers twice each per line,
+       which is exactly the shape a pair of double-write registers wants.
+       So ONE channel carries A+B and ONE carries C+D.
+
+       The first version spent a channel per coefficient — four — by
+       halving its ROM with a quarter-turn identity (C is A ninety
+       degrees back), which forces one register per channel. That saving
+       cost the dialogue: with 6, 1, 5 and 4 taken and 3 on the sky, no
+       channel was left for the band and a textbox on a turning map
+       could not exist. Paired tables double the ROM (~28 KB per map at
+       16 steps) and give BOTH channels back — the band keeps channel 1
+       here exactly as on a map that never turns. */
+    m7_arm(6, 0x1B03, m7w_rotab[rot_base + rot_ang]); /* M7A + M7B */
+    m7_arm(5, 0x1D03, m7w_rotcd[rot_base + rot_ang]); /* M7C + M7D */
     m7_arm3();
-    REG_HDMAEN = screenfx_wipe_active() ? 0x7E : 0x7A;
+    m = screenfx_wipe_active() ? 0x6C : 0x68;
+    if (ui_top)
+    {
+      m7_arm1();
+      m |= 0x02;
+    }
+    else if (!img_on)
+      REG_BGMODE = 0x07; /* band closed: same restore as below */
+    REG_HDMAEN = m;
     return;
   }
 
