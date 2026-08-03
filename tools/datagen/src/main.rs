@@ -894,15 +894,11 @@ fn main() -> Result<()> {
         sprite_blocks
     );
 
-    // A WORLD MAP's lower grid travels as COMPOSED BLOCK ids, not as the
-    // mode-1 tileset's local ids. The two spaces index different tables
-    // and only the block ids serve at run time: the collision reads the
-    // per-block table (§7.5) and the plane streams from this grid. An
-    // ordinary scene's grid is untouched.
-    let mut grids = grids;
-    for wm in &worlds {
-        grids[wm.scene].lower = wm.plane.clone();
-    }
+    // A WORLD MAP ships NO grids in scenes.bin: its block map lives in
+    // ROM (m7w{i}_map, or 64-row slices past 16384 cells) and the engine
+    // reads collision straight from it through the per-block table
+    // (§7.5). binbank emits empty RLE streams for world maps — freeing
+    // the map from the WRAM budget is what allows 255x255 blocks.
 
     // Binary banks (spec §1-2) plus the pinning asm. The scene and text
     // pools extend into extra banks allocated in sequence, from
@@ -1704,13 +1700,50 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
             "/* four pattern indices per 16x16 block, in reading order\n                (top-left, top-right, bottom-left, bottom-right) */\n",
         );
         s.push_str(&emit::u8_array(&format!("m7w{}_meta", i), &t.meta, 16, false));
-        s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
-        s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        let giant = (w as usize) * (h as usize) > 16384;
+        if !giant {
+            s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
+            s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        }
         s.push_str("\n/* collision byte PER BLOCK (solid | sides<<4): the world\n   map's whole collision — no per-cell grid (spec 7.5) */\n");
         s.push_str(&emit::u8_array(&format!("m7w{}_pass", i), &wm.pass, 16, false));
         s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
         s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
         files.push((format!("data_m7wmap{}.c", i), s));
+
+        // GIANT map (> 16384 cells, §7.5): the block map is emitted in
+        // 64-row SLICES with every row padded to 256 bytes, one slice a
+        // file. Two constraints meet here: tcc-816 puts a file's arrays
+        // in one section and WLA fits a section inside ONE 32 KB bank,
+        // so a 65 KB map cannot be a single array — and the engine wants
+        // block reads with no multiply, which the 256-byte pitch gives
+        // it (slice[((by & 63) << 8) | bx], slice = by >> 6).
+        if giant {
+            let rows_per = 64usize;
+            let slices = (h as usize + rows_per - 1) / rows_per;
+            for k in 0..slices {
+                let r0 = k * rows_per;
+                let rows = rows_per.min(h as usize - r0);
+                let mut data = vec![0u8; rows * 256];
+                for r in 0..rows {
+                    let src = (r0 + r) * w as usize;
+                    data[r * 256..r * 256 + w as usize]
+                        .copy_from_slice(&plane[src..src + w as usize]);
+                }
+                let mut s = String::from(emit::HEADER);
+                s.push_str("#include <snes.h>\n\n");
+                s.push_str(&format!(
+                    "/* world map {i}, block rows {r0}-{r1} of {h}, each padded\n\
+                     \x20  to 256 bytes so the engine indexes with shifts (7.5) */\n",
+                    i = i,
+                    r0 = r0,
+                    r1 = r0 + rows - 1,
+                    h = h
+                ));
+                s.push_str(&emit::u8_array(&format!("m7w{}_slice{}", i, k), &data, 16, false));
+                files.push((format!("data_m7wslice{}_{}.c", i, k), s));
+            }
+        }
 
         // ROTATION (opt-in, ~28 KB at 16 steps): 2 x steps PAIRED
         // per-scanline tables — A+B on one HDMA channel in transfer mode
@@ -1768,13 +1801,22 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
 
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
+    let is_giant = |i: usize| (worlds[i].w as usize) * (worlds[i].h as usize) > 16384;
+    let slice_count = |i: usize| (worlds[i].h as usize + 63) / 64;
     for i in 0..worlds.len() {
         s.push_str(&format!(
             "extern const u8 m7w{i}_chars[];\nextern const u16 m7w{i}_chars_size;\n\
-             extern const u8 m7w{i}_meta[];\nextern const u8 m7w{i}_map[];\n\
+             extern const u8 m7w{i}_meta[];\n\
              extern const u8 m7w{i}_pass[];\nextern const u16 m7w{i}_pal[];\n",
             i = i
         ));
+        if is_giant(i) {
+            for k in 0..slice_count(i) {
+                s.push_str(&format!("extern const u8 m7w{}_slice{}[];\n", i, k));
+            }
+        } else {
+            s.push_str(&format!("extern const u8 m7w{}_map[];\n", i));
+        }
         if worlds[i].sky_img.is_some() {
             s.push_str(&format!(
                 "extern const u8 m7w{i}_skych[];\nextern const u16 m7w{i}_skych_size;\n\
@@ -1793,6 +1835,22 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         .unwrap_or(mode7::ROT_STEPS);
     s.push_str(&format!("\nconst u8 m7w_count = {};\n", worlds.len()));
     s.push_str(&format!("const u8 m7w_rot_stride = {};\n\n", stride));
+    // GIANT maps: a per-map array of slice pointers (4 at most — 255
+    // rows). Linear maps keep m7w{i}_map and a null here; the engine
+    // picks its addressing per map on that null.
+    for i in 0..worlds.len() {
+        if is_giant(i) {
+            s.push_str(&format!("const u8 *const m7w{}_slices[4] = {{ ", i));
+            for k in 0..4 {
+                if k < slice_count(i) {
+                    s.push_str(&format!("m7w{}_slice{}, ", i, k));
+                } else {
+                    s.push_str("0, ");
+                }
+            }
+            s.push_str("};\n");
+        }
+    }
     let n = worlds.len().max(1);
     let mut table = |decl: &str, f: &dyn Fn(usize) -> String| {
         s.push_str(&format!("{}[{}] = {{ ", decl, n));
@@ -1808,7 +1866,12 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     table("const u8 *const m7w_chars", &|i| format!("m7w{}_chars", i));
     table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
     table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
-    table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
+    table("const u8 *const m7w_maps", &|i| {
+        if is_giant(i) { "0".into() } else { format!("m7w{}_map", i) }
+    });
+    table("const u8 *const *const m7w_slicess", &|i| {
+        if is_giant(i) { format!("m7w{}_slices", i) } else { "0".into() }
+    });
     table("const u8 *const m7w_passes", &|i| format!("m7w{}_pass", i));
     table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
     table("const u8 m7w_w", &|i| worlds[i].w.to_string());

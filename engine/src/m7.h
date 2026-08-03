@@ -47,6 +47,16 @@ u8 m7_world_open(u8 scene_id, u8 dur);
    keeps the hero drawn; an image is flat, zoomable, and has no hero. */
 u8 m7_world_active(void);
 
+/* The per-block collision table of the scene's world map, NULL when the
+   scene is not one — and, as a side effect, BINDS the map's ROM data so
+   m7_world_block works from the first query. Called by scene_load. */
+const u8 *m7_world_pass(u8 scene_id);
+
+/* One block of the bound world map, read from ROM (linear array, or the
+   64-row slices of a giant map). Collision and streaming both come
+   through here — a world map ships no WRAM grid at all (§7.5). */
+u8 m7_world_block(u8 bx, u8 by);
+
 /* Puts the ordinary camera under the hero, so player_draw lands him on
    the anchor line with no Mode 7 case of its own. Called from the main
    loop AFTER camera_update, which would otherwise clamp it against the

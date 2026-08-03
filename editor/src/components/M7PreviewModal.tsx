@@ -84,7 +84,9 @@ export default function M7PreviewModal(props: Props) {
   // ---- the plane, rendered flat once ------------------------------------
   // 16 px per map cell, the same expansion the engine does when it turns
   // 16x16 blocks into pairs of 8x8 plane tiles. Rebuilt only when the map
-  // or its graphics change, never when the camera moves.
+  // or its graphics change, never when the camera moves. A 255x255 map
+  // makes this a 4080x4080 ImageData (~66 MB) — heavy but built once,
+  // and the per-frame sampling below never touches the canvas again.
   const plane = useMemo(() => {
     if (!tileset) return null;
     const w = scene.width * 16;

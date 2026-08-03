@@ -77,10 +77,10 @@ export default function ScenePanel(props: Props) {
     horizon !== (scene.m7_horizon ?? 56) || anchor !== (scene.m7_anchor ?? 176);
 
   // 8192 tiles max per scene (WRAM decompression budget, spec §1.6).
-  // A world map has no upper layer, so it may spend the whole budget on
-  // its one grid: 16384 cells, 128 a side — streamed past 64x64 (§7.5).
-  const cellCap = world ? 16384 : 8192;
-  const sideCap = world ? 128 : 255;
+  // A world map escapes that budget — its map lives in ROM and the
+  // engine reads it there (§7.5): 255 a side, the FF6 scale.
+  const cellCap = world ? 255 * 255 : 8192;
+  const sideCap = 255;
   const cellsOk = width * height <= cellCap;
   const sizeOk =
     width >= MIN_W && height >= MIN_H &&
@@ -356,6 +356,9 @@ export default function ScenePanel(props: Props) {
           <p className="hint">
             Au-delà de 64x64 le moteur charge la carte par bandes autour du
             héros — la distance de vue diminue (l'aperçu Mode 7 la montre).
+            {width * height > 16384
+              ? " Au-delà de 16384 cases, la carte coûte jusqu'à 64 Ko de ROM."
+              : ""}
           </p>
         )}
         {shrinks && sizeOk && (

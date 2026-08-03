@@ -97,42 +97,46 @@ pub fn build_scene_bank(
 
         // The three grids travel RLE-compressed and are expanded at load
         // time into the engine's WRAM buffers — hence the per-scene cell
-        // limit. A WORLD MAP gets twice the budget: its upper layer is
-        // empty by construction and its collision reads a 256-byte ROM
-        // table instead of a per-cell grid (§7.5), so the lower grid may
-        // flow across BOTH WRAM buffers — 16384 cells, a 128x128 world.
-        let budget = if sc.is_worldmap() { MAP_BUF_CELLS * 2 } else { MAP_BUF_CELLS };
-        if w * h > budget {
+        // limit. A WORLD MAP ships NO grids at all: its block map lives
+        // in ROM and collision reads it through the per-block table
+        // (§7.5), so its only bound is the header's u8 sides — 255x255
+        // blocks, the FF6 scale.
+        let world = sc.is_worldmap();
+        if world {
+            if w > 255 || h > 255 {
+                bail!(
+                    "carte du monde '{}' : {}x{} — 255 cases de côté au \
+                     plus (les coordonnées de bloc et l'en-tête de scène \
+                     tiennent sur un octet)",
+                    sc.name, w, h
+                );
+            }
+        } else if w * h > MAP_BUF_CELLS {
             bail!(
                 "scene '{}' : {}x{} = {} tiles > {} (budget WRAM de \
                  décompression, spec §1.6) — réduire la map ou la découper",
-                sc.name, w, h, w * h, budget
-            );
-        }
-        if sc.is_worldmap() && (w > 128 || h > 128) {
-            bail!(
-                "carte du monde '{}' : {}x{} — 128 cases de côté au plus \
-                 (au-delà, une dimension ne tient plus dans la boucle du \
-                 plan Mode 7)",
-                sc.name, w, h
+                sc.name, w, h, w * h, MAP_BUF_CELLS
             );
         }
         // Collision derived from the tileset (spec §1.4). Warp tiles are
-        // marked 0x02 by the tool, and must be walkable.
+        // marked 0x02 by the tool, and must be walkable. A world map has
+        // no collision grid to mark — the engine scans its warp LIST.
         let mut collision = g.collision.clone();
-        for wp in &sc.warps {
-            let ofs = wp.y as usize * w + wp.x as usize;
-            if collision[ofs] & 0x0F != 0 {
-                bail!(
-                    "scene '{}' : warp ({},{}) sur une tile solide",
-                    sc.name, wp.x, wp.y
-                );
+        if !world {
+            for wp in &sc.warps {
+                let ofs = wp.y as usize * w + wp.x as usize;
+                if collision[ofs] & 0x0F != 0 {
+                    bail!(
+                        "scene '{}' : warp ({},{}) sur une tile solide",
+                        sc.name, wp.x, wp.y
+                    );
+                }
+                collision[ofs] = 0x02;
             }
-            collision[ofs] = 0x02;
         }
-        let rle_lower = rle_encode(&g.lower);
-        let rle_upper = rle_encode(&g.upper);
-        let rle_col = rle_encode(&collision);
+        let rle_lower = if world { Vec::new() } else { rle_encode(&g.lower) };
+        let rle_upper = if world { Vec::new() } else { rle_encode(&g.upper) };
+        let rle_col = if world { Vec::new() } else { rle_encode(&collision) };
         grids_raw += 3 * w * h;
         grids_rle += rle_lower.len() + rle_upper.len() + rle_col.len();
 

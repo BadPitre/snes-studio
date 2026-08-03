@@ -979,26 +979,50 @@ where "an ordinary scene in Mode 7" is not.
 ### 7.4 Collision
 
 From a 256-byte per-map passability table (`m7w{i}_pass`), indexed by
-COMPOSED block id: datagen swaps the world map's lower grid to composed
-ids in `scenes.bin` (the same ids the plane's `map` uses), and
-`scene_collision` reads `pass[tilemap[o]]` instead of the per-scene
-collision grid. One table lookup, no metatile indirection — and it is
-what lets a STREAMED map (§7.5) collide at full size while the plane
-only holds a window: collision reads WRAM, never VRAM.
+COMPOSED block id — and the block id comes from `m7_world_block`, which
+reads the map's ROM data directly. A world map ships NO grids in
+`scenes.bin` at all: no WRAM copy, no per-cell collision, no
+decompression budget. `scene_collision` becomes
+`pass[m7_world_block(tx, ty)]`: one far read and one table lookup on
+the hot path, and it is what lets a map collide at ANY size while the
+plane only holds a window — collision reads ROM, never VRAM and never
+WRAM.
 
 ### 7.5 Big world maps — streaming the plane
 
 The plane is 128x128 tiles and that is a hardware fact (§3.1); 64x64
 blocks was therefore the map's ceiling. This section is how a map grows
-to **128x128 blocks (2048x2048 px)** without touching that fact: the
-plane holds a 64x64-block WINDOW centred on the hero, and the window
-follows him.
+to **255x255 blocks (4080x4080 px)** — the scale of FF6's world of
+Balance, which is 256x256 of the same 16-pixel tiles — without touching
+that fact: the plane holds a 64x64-block WINDOW centred on the hero,
+and the window follows him.
 
-**WRAM.** `scn_lower` and `scn_upper` are adjacent in `wram7f.asm`, and
-a world map has no upper layer — so its one grid may spend BOTH buffers:
-16384 cells, side capped at 128. The editor and datagen enforce the same
-two numbers. The grid holds composed block ids (§7.4), so collision and
-warps work over the whole map from WRAM alone.
+**The map lives in ROM, not WRAM.** The streaming strips already read
+the ROM block map; collision now does too (§7.4), so the WRAM
+decompression budget stops existing for world maps entirely. The first
+version of this section spent both scene buffers on a WRAM copy and
+capped the world at 128x128 — that copy is gone. Two ceilings remain,
+both structural: 255 a side because block coordinates and the scene
+header travel in a byte (and 256 would push the hero's far edge past
+the 13-bit signed Mode 7 scroll registers), and past 16384 cells the
+map's ROM format changes:
+
+**Slices.** tcc-816 puts a file's arrays in one section and WLA fits a
+section inside ONE 32 KB bank, so a 65 KB map cannot be a single
+array. Past 16384 cells datagen emits the map in 64-row SLICES, each
+row padded to 256 bytes — `slice[by >> 6][((by & 63) << 8) | bx]`, two
+shifts and no multiply, which suits the hot collision path. The
+padding costs ROM (a full 255x255 map is 4 slices, 64 KB) but buys the
+addressing; under 16384 cells the map stays one linear `w*h` array and
+pays nothing new. `m7_world_block` hides the difference from every
+caller.
+
+**Coordinates are u16 where the window overhangs.** On a 255-wide map
+the window's far edge reaches world block 285, and u8 arithmetic would
+wrap it onto block 29 — showing the west coast on the east horizon.
+The strip builder and the initial expansion therefore compute world
+coordinates in u16: past-the-edge and below-zero (by underflow) both
+fail the bounds test and paint sky.
 
 **Placement is modulo, and the plane must WRAP.** World block (bx, by)
 lives in plane cell (bx & 63, by & 63): no translation anywhere, the
@@ -1073,8 +1097,9 @@ rather than letting the author find out the hard way:
 
 - the upper-layer tab disappears;
 - the tile palette is restricted to the scene's Mode 7 tileset;
-- the size is bounded to 128x128 and 16384 cells (streamed past 64x64,
-  §7.5 — the creation modal and the preview both say what that costs);
+- the size is bounded to 255x255 (streamed past 64x64, sliced in ROM
+  past 16384 cells, §7.5 — the creation modal and the preview both say
+  what each threshold costs);
 - the command picker hides Message, Choice and the HUD widgets;
 - `DiagnosticsModal.tsx` catches in plain words anything that slips past.
 

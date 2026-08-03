@@ -656,28 +656,12 @@ impl Scene {
         if self.is_worldmap() {
             // The plane is 128x128 tiles (64x64 blocks) and that does not
             // change — but a BIGGER map streams a 64x64 window of itself
-            // through the wrapping plane (§7.5). The ceiling is the WRAM
-            // the grid lives in: both decompression buffers, 16384 cells.
-            if self.width > 128 || self.height > 128 {
-                bail!(
-                    "carte du monde '{}' : {}x{} — 128 blocs de côté au plus \
-                     (une carte au-delà de 64x64 défile dans le plan, et sa \
-                     grille est plafonnée par la WRAM du moteur)",
-                    self.name,
-                    self.width,
-                    self.height
-                );
-            }
-            if (self.width as usize) * (self.height as usize) > 16384 {
-                bail!(
-                    "carte du monde '{}' : {}x{} = {} blocs > 16384 (les deux \
-                     tampons WRAM de décompression, §7.5)",
-                    self.name,
-                    self.width,
-                    self.height,
-                    (self.width as usize) * (self.height as usize)
-                );
-            }
+            // through the wrapping plane (§7.5). The map lives in ROM and
+            // collision reads it there, so the ceiling is the byte the
+            // block coordinates travel in: 255 a side, the FF6 scale —
+            // which `width: u8` already enforces at parse time. (256
+            // exactly would overflow both the u8 coordinates and the
+            // 13-bit signed Mode 7 scroll registers.)
             // One plane, so no upper layer and no effect layer: both would
             // need a second BG that Mode 7 does not have.
             // The editor ALWAYS writes an upper layer, filled with EMPTY.

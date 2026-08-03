@@ -56,6 +56,11 @@ extern const u8 *const m7w_chars[];
 extern const u16 *const m7w_chars_sizes[];
 extern const u8 *const m7w_metas[];
 extern const u8 *const m7w_maps[];
+/* GIANT maps (> 16384 blocks): the map travels in 64-row SLICES, each
+   row padded to 256 bytes so a block read is two shifts and no multiply
+   — a 65 KB array cannot live in one 32 KB LoROM bank (§7.5). NULL for
+   maps small enough to stay one linear array. */
+extern const u8 *const *const m7w_slicess[];
 extern const u8 *const m7w_passes[]; /* collision byte per block (§7.5) */
 extern const u16 *const m7w_pals[];
 extern const u8 m7w_w[];
@@ -230,7 +235,8 @@ static u8 rt_wait = 0;
 static u8 m7_stream = 0;
 static u8 st_bx, st_by;
 static u8 st_w, st_h;          /* the open map, cached for the strips */
-static const u8 *st_map;
+static const u8 *st_map;       /* linear map, NULL on a giant one */
+static const u8 *const *st_slices; /* 64-row slices, giant maps only */
 static const u8 *st_meta;
 static u8 st_pend = 0;         /* bit 0: row strip ready, bit 1: column */
 static u16 st_row_addr, st_col_addr;
@@ -887,17 +893,36 @@ u8 m7_world_active(void)
 }
 
 /* The per-block collision table of the scene's world map, NULL when the
-   scene is not one. scene_load asks BEFORE deciding how to decode its
-   grids — a world map's lower grid may take both WRAM buffers, which is
-   why its collision cannot be a per-cell grid at all (§7.5). */
+   scene is not one. scene_load asks BEFORE decoding its grids — a world
+   map ships none: its block map lives in ROM and m7_world_block reads it
+   there, which is what frees the map from the WRAM budget (§7.5).
+   Also BINDS the map here, so collision works from the first query. */
 const u8 *m7_world_pass(u8 scene_id)
 {
   u8 i;
 
   for (i = 0; i < m7w_count; i++)
     if (m7w_scene[i] == scene_id)
+    {
+      st_w = m7w_w[i];
+      st_h = m7w_h[i];
+      st_map = m7w_maps[i];
+      st_slices = m7w_slicess[i];
+      st_meta = m7w_metas[i];
       return m7w_passes[i];
+    }
   return 0;
+}
+
+/* ONE block of the bound world map, read from ROM. The giant format's
+   256-byte row pitch turns the read into two shifts; the linear format
+   keeps its multiply (once per call, not per frame). Hot path: the
+   collision of the hero and of every moving NPC comes through here. */
+u8 m7_world_block(u8 bx, u8 by)
+{
+  if (st_slices)
+    return st_slices[by >> 6][((u16)(by & 63) << 8) | bx];
+  return st_map[(u16)by * st_w + bx];
 }
 
 /* On a world map the camera IS the hero: he stands on the anchor line
@@ -908,8 +933,13 @@ const u8 *m7_world_pass(u8 scene_id)
 /* Builds the two 128-byte tile strips of ONE incoming block line and
    remembers where they go. Main-loop work: 64 far reads and a few adds
    per strip — the DMA itself happens in m7_vblank, where VRAM is
-   writable. `vert` = a COLUMN of blocks (the hero crossed in X). */
-static void m7_stream_build(u8 vert, u8 line)
+   writable. `vert` = a COLUMN of blocks (the hero crossed in X).
+   `line` and the world coordinates below are u16 ON PURPOSE: on a
+   255-wide map the window's far edge reaches world block 285, and a u8
+   would wrap it onto block 29 — showing the west coast on the east
+   horizon. In u16, past-the-edge (and below-zero, by underflow) simply
+   fails the bounds test and paints sky. */
+static void m7_stream_build(u8 vert, u16 line)
 {
   u8 k;
 
@@ -917,15 +947,15 @@ static void m7_stream_build(u8 vert, u8 line)
   {
     for (k = 0; k < 64; k++)
     {
-      u8 wby = (u8)(st_by - 32 + k);
-      u8 p = (u8)((wby & 63) << 1);
+      u16 wby = (u16)st_by + k - 32;
+      u8 p = (u8)(((u8)wby & 63) << 1);
 
       /* Outside the map: TILE 0 (transparent, the sky shows through),
          not block 0 — block 0 is the eraser's black. The initial window
          expansion does the same, so the edge looks alike either way. */
       if (line < st_w && wby < st_h)
       {
-        u16 b = (u16)st_map[(u16)wby * st_w + line] << 2;
+        u16 b = (u16)m7_world_block((u8)line, (u8)wby) << 2;
 
         st_cola[p] = st_meta[b];
         st_cola[p + 1] = st_meta[b + 2];
@@ -947,12 +977,12 @@ static void m7_stream_build(u8 vert, u8 line)
   {
     for (k = 0; k < 64; k++)
     {
-      u8 wbx = (u8)(st_bx - 32 + k);
-      u8 p = (u8)((wbx & 63) << 1);
+      u16 wbx = (u16)st_bx + k - 32;
+      u8 p = (u8)(((u8)wbx & 63) << 1);
 
       if (line < st_h && wbx < st_w)
       {
-        u16 b = (u16)st_map[(u16)line * st_w + wbx] << 2;
+        u16 b = (u16)m7_world_block((u8)wbx, (u8)line) << 2;
 
         st_rowa[p] = st_meta[b];
         st_rowa[p + 1] = st_meta[b + 1];
@@ -995,12 +1025,12 @@ void m7_world_track(void)
     if ((u8)(hb - st_bx) < 128)
     {
       st_bx++;
-      m7_stream_build(1, (u8)(st_bx + 31)); /* new east edge */
+      m7_stream_build(1, (u16)st_bx + 31); /* new east edge */
     }
     else
     {
       st_bx--;
-      m7_stream_build(1, (u8)(st_bx - 32)); /* new west edge */
+      m7_stream_build(1, (u16)st_bx - 32); /* new west edge */
     }
   }
   hb = (u8)((player.y + 8) >> 4);
@@ -1009,12 +1039,12 @@ void m7_world_track(void)
     if ((u8)(hb - st_by) < 128)
     {
       st_by++;
-      m7_stream_build(0, (u8)(st_by + 31));
+      m7_stream_build(0, (u16)st_by + 31);
     }
     else
     {
       st_by--;
-      m7_stream_build(0, (u8)(st_by - 32));
+      m7_stream_build(0, (u16)st_by - 32);
     }
   }
 }
@@ -1313,7 +1343,8 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   map = m7w_maps[i];
   st_w = w;
   st_h = h;
-  st_map = map;
+  st_map = map;               /* NULL on a giant map — m7_world_block */
+  st_slices = m7w_slicess[i]; /* then reads the 64-row slices instead */
   st_meta = meta;
   st_pend = 0;
   m7_stream = (u8)(w > 64 || h > 64);
@@ -1341,16 +1372,18 @@ u8 m7_world_open(u8 scene_id, u8 dur)
     /* BIG map (§7.5): the plane holds a 64x64-block WINDOW centred on
        the hero. Block (bx, by) lives in plane cell (bx & 63, by & 63) —
        the plane wraps, so world coordinates need no translation, here
-       or anywhere else. Outside the map: block 0, which is blank, and
-       CGRAM 0 (the sky colour) shows past the edges as on a small map. */
+       or anywhere else. Outside the map: tile 0, and CGRAM 0 (the sky
+       colour) shows past the edges as on a small map. World coordinates
+       in u16, like the strips: a u8 would wrap the window's far edge
+       back onto the map on a 255-wide world. */
     u8 r, c;
 
     st_bx = (u8)((player.x + 8) >> 4);
     st_by = (u8)((player.y + 8) >> 4);
     for (r = 0; r < 64; r++)
     {
-      u8 wby = (u8)(st_by - 32 + r);          /* wraps below 0: > h, blank */
-      u8 prow = (u8)(wby & 63);
+      u16 wby = (u16)st_by + r - 32; /* below zero: underflow, > h, blank */
+      u8 prow = (u8)((u8)wby & 63);
 
       for (half = 0; half < 2; half++)
       {
@@ -1359,14 +1392,14 @@ u8 m7_world_open(u8 scene_id, u8 dur)
         if (wby < h)
           for (c = 0; c < 64; c++)
           {
-            u8 wbx = (u8)(st_bx - 32 + c);
+            u16 wbx = (u16)st_bx + c - 32;
             u8 pcol;
             u16 b;
 
             if (wbx >= w)
               continue;
-            pcol = (u8)(wbx & 63);
-            b = (u16)map[(u16)wby * w + wbx] << 2;
+            pcol = (u8)((u8)wbx & 63);
+            b = (u16)m7_world_block((u8)wbx, (u8)wby) << 2;
             wrow[pcol << 1] = meta[b + (half << 1)];
             wrow[(pcol << 1) + 1] = meta[b + (half << 1) + 1];
           }

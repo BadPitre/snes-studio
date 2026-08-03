@@ -29,11 +29,11 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
   const taken = charsOk && existing.includes(name);
   const nameOk = charsOk && !taken;
   // 8192 tiles max per scene (WRAM decompression budget, spec §1.6).
-  // A world map gets DOUBLE that and a 128 side cap: it has no upper
-  // layer, so its budget is one flat grid — and past 64x64 the engine
-  // streams the plane instead of loading it whole (design doc §7.5).
-  const cellCap = world ? 16384 : 8192;
-  const sideCap = world ? 128 : 255;
+  // A world map escapes that budget entirely — its map lives in ROM and
+  // the engine reads it there (design doc §7.5): 255 a side, the FF6
+  // scale. Past 64x64 the plane streams around the hero.
+  const cellCap = world ? 255 * 255 : 8192;
+  const sideCap = 255;
   const sizeOk =
     width >= MIN_W && height >= MIN_H &&
     width <= sideCap && height <= sideCap &&
@@ -55,10 +55,6 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             onChange={(e) => {
               const k = e.target.value as SceneKind;
               setKind(k);
-              if (k === "worldmap") {
-                setWidth((w) => Math.min(w, 128));
-                setHeight((h) => Math.min(h, 128));
-              }
             }}
           >
             <option value="map">Scène classique</option>
@@ -72,9 +68,10 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             couche supérieure, la couche d'effet, les miroirs de tuiles et
             le ☆. Les dialogues, les PNJ, les warps et les déclencheurs
             Contact / Auto fonctionnent : c'est le vocabulaire d'une
-            mappemonde. Taille maximale 128x128 — au-delà de 64x64 la
-            distance de vue diminue (le moteur charge la carte par bandes
-            autour du héros).
+            mappemonde. Taille maximale 255x255 — l'échelle de la carte du
+            monde de FF6. Au-delà de 64x64 la distance de vue diminue (le
+            moteur charge la carte par bandes autour du héros), et au-delà
+            de 16384 cases la carte coûte jusqu'à 64 Ko de ROM.
           </p>
         )}
         <div className="row">
