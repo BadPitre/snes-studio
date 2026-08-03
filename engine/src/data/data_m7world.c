@@ -8,6 +8,7 @@ extern const u8 m7w0_chars[];
 extern const u16 m7w0_chars_size;
 extern const u8 m7w0_meta[];
 extern const u8 m7w0_map[];
+extern const u8 m7w0_pass[];
 extern const u16 m7w0_pal[];
 
 const u8 m7w_count = 1;
@@ -18,6 +19,7 @@ const u8 *const m7w_chars[1] = { m7w0_chars, };
 const u16 *const m7w_chars_sizes[1] = { &m7w0_chars_size, };
 const u8 *const m7w_metas[1] = { m7w0_meta, };
 const u8 *const m7w_maps[1] = { m7w0_map, };
+const u8 *const m7w_passes[1] = { m7w0_pass, };
 const u16 *const m7w_pals[1] = { m7w0_pal, };
 const u8 m7w_w[1] = { 32, };
 const u8 m7w_h[1] = { 32, };

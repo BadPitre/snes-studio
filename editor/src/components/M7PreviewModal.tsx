@@ -134,10 +134,21 @@ export default function M7PreviewModal(props: Props) {
 
   const da = anchor - horizon;
   const viewOk = horizon <= 180 && anchor <= 216 && da >= 16;
+  // Past 64x64 blocks the engine STREAMS the plane: it holds a 64x64
+  // window around the hero, and the horizon must not see past it (§7.5).
+  const streamed = scene.width > 64 || scene.height > 64;
   // The first line the plane is allowed to show, the engine's own rule:
   // above it the sampled point is still inside the plane for the columns
   // near x = 128, and a rectangle of map would hang in the sky.
-  const sky = horizon + Math.floor(da / 8) + 1;
+  let sky = horizon + Math.floor(da / 8) + 1;
+  if (streamed) {
+    // The engine's integer sky cut, digit for digit (m7_persp_set): the
+    // far corner of a line's samples must stay inside the window's
+    // 512-pixel half minus the 16-pixel edge being rewritten.
+    const n = Math.floor(Math.sqrt(16384 + da * da));
+    const cut = Math.floor((da * n + 495) / 496);
+    if (cut > Math.floor(da / 8)) sky = horizon + cut + 1;
+  }
   const theta = steps ? (angle * Math.PI * 2) / steps : 0;
 
   // ---- the render -------------------------------------------------------
@@ -207,11 +218,14 @@ export default function M7PreviewModal(props: Props) {
       let py = c * (0 - 128) + dd * d + y0;
       for (let x = 0; x < SCREEN_W; x++, px += a, py += c) {
         const i = (y * SCREEN_W + x) << 2;
-        // Outside the 128x128-tile plane the PPU repeats character 0,
-        // which the engine leaves blank: the sky colour shows.
-        const wx = ((px % PLANE_PX) + PLANE_PX) % PLANE_PX;
-        const wy = ((py % PLANE_PX) + PLANE_PX) % PLANE_PX;
-        if (wx >= plane.w || wy >= plane.h) {
+        // SMALL map: outside the 128x128-tile plane the PPU repeats
+        // character 0, which the engine leaves blank — the sky shows —
+        // and the plane repeats every 1024 px. STREAMED map: the plane
+        // wraps but the window follows the hero, so from the player's
+        // seat the map never repeats: sample world coordinates directly.
+        const wx = streamed ? px : ((px % PLANE_PX) + PLANE_PX) % PLANE_PX;
+        const wy = streamed ? py : ((py % PLANE_PX) + PLANE_PX) % PLANE_PX;
+        if (wx < 0 || wy < 0 || wx >= plane.w || wy >= plane.h) {
           o[i] = flat[0]; o[i + 1] = flat[1]; o[i + 2] = flat[2]; o[i + 3] = 255;
           continue;
         }
@@ -325,6 +339,14 @@ export default function M7PreviewModal(props: Props) {
               {da >= 150 ? " — presque vue de dessus"
                 : da <= 70 ? " — sol très rasant" : ""}.
             </p>
+            {streamed && (
+              <p className="hint">
+                Grande carte ({scene.width}x{scene.height}) : le moteur la
+                charge par bandes autour du héros, et l'horizon est abaissé
+                pour ne jamais voir au-delà — l'aperçu montre la même
+                distance de vue que le jeu.
+              </p>
+            )}
             {steps > 0 ? (
               <label>
                 Rotation — cran {angle} / {steps} ({((angle * 360) / steps).toFixed(1)}°)

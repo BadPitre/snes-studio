@@ -615,6 +615,14 @@ pub struct ComposedBlocks {
     pub map: Vec<u8>,
     /// Distinct blocks composed, block 0 (blank) included.
     pub count: usize,
+    /// Collision byte PER BLOCK — the same solid|sides<<4 byte
+    /// `expand_scene` bakes per cell, here keyed by composed block id.
+    /// A world map's collision reads THIS 256-byte table instead of a
+    /// per-cell grid: a 128x128 world is 16384 cells and the engine's
+    /// per-cell buffer holds 8192 — the map itself takes both WRAM
+    /// buffers, and the collision has to come from somewhere that does
+    /// not grow with the map (§7.5). Always 256 entries, unused ones 0.
+    pub pass: Vec<u8>,
 }
 
 /// Blocks per row of the composed sheet — layout only, nothing downstream
@@ -668,6 +676,21 @@ impl SourceTileset {
         }
 
         let count = order.len() + 1;
+
+        // Passability per block: an autotile variant inherits its
+        // autotile's, exactly as on an ordinary scene. Block 0 (blank)
+        // is walkable — the void past the map edge blocks by bounds.
+        let mut pass = vec![0u8; 256];
+        for (i, &key) in order.iter().enumerate() {
+            let id = match key {
+                TileKey::Grid(t) => t as i32,
+                TileKey::Var(k, _) => AUTO_BASE + k as i32,
+            };
+            let solid = self.is_solid(id);
+            let sides = if solid { 0 } else { self.closed_sides(id) };
+            pass[i + 1] = solid as u8 | (sides << 4);
+        }
+
         let rows = (count + COMPOSE_COLS - 1) / COMPOSE_COLS;
         let (sw, sh) = (COMPOSE_COLS * 16, rows * 16);
         let mut pixels = vec![0u16; sw * sh];
@@ -684,7 +707,7 @@ impl SourceTileset {
                 }
             }
         }
-        Ok(ComposedBlocks { pixels, width: sw, height: sh, map, count })
+        Ok(ComposedBlocks { pixels, width: sw, height: sh, map, count, pass })
     }
 
     /// Compiles a scene's gfx set: only the tiles used by the two logical

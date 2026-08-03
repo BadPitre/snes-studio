@@ -654,15 +654,28 @@ impl Scene {
             }
         }
         if self.is_worldmap() {
-            // The plane is 128x128 tiles of 8x8, so 64x64 metatiles. Not
-            // a choice: past that the map has nowhere to go.
-            if self.width > 64 || self.height > 64 {
+            // The plane is 128x128 tiles (64x64 blocks) and that does not
+            // change — but a BIGGER map streams a 64x64 window of itself
+            // through the wrapping plane (§7.5). The ceiling is the WRAM
+            // the grid lives in: both decompression buffers, 16384 cells.
+            if self.width > 128 || self.height > 128 {
                 bail!(
-                    "carte du monde '{}' : {}x{} — maximum 64x64 blocs (le plan \
-                     Mode 7 fait 128x128 tuiles de 8x8)",
+                    "carte du monde '{}' : {}x{} — 128 blocs de côté au plus \
+                     (une carte au-delà de 64x64 défile dans le plan, et sa \
+                     grille est plafonnée par la WRAM du moteur)",
                     self.name,
                     self.width,
                     self.height
+                );
+            }
+            if (self.width as usize) * (self.height as usize) > 16384 {
+                bail!(
+                    "carte du monde '{}' : {}x{} = {} blocs > 16384 (les deux \
+                     tampons WRAM de décompression, §7.5)",
+                    self.name,
+                    self.width,
+                    self.height,
+                    (self.width as usize) * (self.height as usize)
                 );
             }
             // One plane, so no upper layer and no effect layer: both would

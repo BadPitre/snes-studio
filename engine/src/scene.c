@@ -15,6 +15,7 @@
 #include "map.h"
 #include "effectlayer.h"
 #include "weather.h"
+#include "m7.h" /* a world map's collision comes from a per-block table */
 
 /* GFX sets (data_assets.c), compiled PER SCENE by datagen: only the
    tiles a scene uses are in VRAM, with multiple palettes baked into the
@@ -44,6 +45,15 @@ static u16 col_row_ofs[256];
 extern u8 scn_lower[MAP_BUF_CELLS];
 extern u8 scn_upper[MAP_BUF_CELLS];
 extern u8 scn_col[MAP_BUF_CELLS];
+
+/* WORLD MAP collision: a 256-byte ROM table indexed by BLOCK, instead of
+   the per-cell grid. Not an optimisation — an impossibility fix: a world
+   map may hold 16384 cells (§7.5), its LOWER GRID alone fills scn_lower
+   AND scn_upper, and there is no third buffer for a collision grid. The
+   table costs nothing that grows with the map, and it carries exactly
+   the byte expand_scene used to bake per cell. NULL on ordinary scenes.
+   Set on EVERY load (tcc-816 zeroes no .bss). */
+static const u8 *col_pass;
 
 /* RLE (spec §1.6): [count 1-255][value] pairs, up to `cells` bytes */
 static void rle_decode(u8 *dst, const u8 *src, u16 cells)
@@ -139,11 +149,20 @@ void scene_load(u8 scene_id)
   {
     u16 cells = (u16)scene_ctx.map_w * scene_ctx.map_h;
 
-    if (cells > MAP_BUF_CELLS)
+    col_pass = m7_world_pass(scene_id);
+    if (cells > (col_pass ? MAP_BUF_CELLS * 2 : MAP_BUF_CELLS))
       scene_halt(); /* datagen checks the limit: corrupt data */
     rle_decode(scn_lower, read_far(h + 4), cells);
-    rle_decode(scn_col, read_far(h + 7), cells);
-    rle_decode(scn_upper, read_far(h + 24), cells);
+    if (!col_pass)
+    {
+      rle_decode(scn_col, read_far(h + 7), cells);
+      rle_decode(scn_upper, read_far(h + 24), cells);
+    }
+    /* A WORLD MAP decodes its lower grid ONLY — it may flow past
+       scn_lower into scn_upper (the two are adjacent in wram7f.asm,
+       which is the whole trick). Its upper layer is empty by
+       construction and its collision reads col_pass, so neither decode
+       may run: each would overwrite the second half of the map. */
     scene_ctx.tilemap = scn_lower;
     scene_ctx.collision = scn_col;
     scene_ctx.tilemap_upper = scn_upper;
@@ -185,5 +204,12 @@ void scene_load(u8 scene_id)
 
 u8 scene_collision(u8 tx, u8 ty)
 {
-  return scene_ctx.collision[col_row_ofs[ty] + tx];
+  u16 o = col_row_ofs[ty] + tx;
+
+  /* World map: the block IS the collision unit — look its byte up in
+     the per-block table. One compare on the hot path; the ordinary
+     scene's cost is unchanged. */
+  if (col_pass)
+    return col_pass[scene_ctx.tilemap[o]];
+  return scene_ctx.collision[o];
 }

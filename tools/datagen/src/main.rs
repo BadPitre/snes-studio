@@ -696,6 +696,7 @@ fn main() -> Result<()> {
             scene: sci,
             tiles: t,
             plane: blocks.map,
+            pass: blocks.pass,
             w: sc.width,
             h: sc.height,
             horizon,
@@ -892,6 +893,16 @@ fn main() -> Result<()> {
         scenes.len(),
         sprite_blocks
     );
+
+    // A WORLD MAP's lower grid travels as COMPOSED BLOCK ids, not as the
+    // mode-1 tileset's local ids. The two spaces index different tables
+    // and only the block ids serve at run time: the collision reads the
+    // per-block table (§7.5) and the plane streams from this grid. An
+    // ordinary scene's grid is untouched.
+    let mut grids = grids;
+    for wm in &worlds {
+        grids[wm.scene].lower = wm.plane.clone();
+    }
 
     // Binary banks (spec §1-2) plus the pinning asm. The scene and text
     // pools extend into extra banks allocated in sequence, from
@@ -1654,6 +1665,9 @@ struct WorldMap {
     scene: usize,
     tiles: mode7::Mode7Tileset,
     plane: Vec<u8>,
+    /// Collision byte per composed block (256 entries) — a world map's
+    /// collision reads this instead of a per-cell grid (§7.5).
+    pass: Vec<u8>,
     w: u8,
     h: u8,
     /// Camera angle: the screen line the ground vanishes into, and the
@@ -1692,6 +1706,8 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         s.push_str(&emit::u8_array(&format!("m7w{}_meta", i), &t.meta, 16, false));
         s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
         s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        s.push_str("\n/* collision byte PER BLOCK (solid | sides<<4): the world\n   map's whole collision — no per-cell grid (spec 7.5) */\n");
+        s.push_str(&emit::u8_array(&format!("m7w{}_pass", i), &wm.pass, 16, false));
         s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
         s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
         files.push((format!("data_m7wmap{}.c", i), s));
@@ -1756,7 +1772,7 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
         s.push_str(&format!(
             "extern const u8 m7w{i}_chars[];\nextern const u16 m7w{i}_chars_size;\n\
              extern const u8 m7w{i}_meta[];\nextern const u8 m7w{i}_map[];\n\
-             extern const u16 m7w{i}_pal[];\n",
+             extern const u8 m7w{i}_pass[];\nextern const u16 m7w{i}_pal[];\n",
             i = i
         ));
         if worlds[i].sky_img.is_some() {
@@ -1793,6 +1809,7 @@ fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
     table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
     table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
+    table("const u8 *const m7w_passes", &|i| format!("m7w{}_pass", i));
     table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
     table("const u8 m7w_w", &|i| worlds[i].w.to_string());
     table("const u8 m7w_h", &|i| worlds[i].h.to_string());

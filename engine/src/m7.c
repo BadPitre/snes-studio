@@ -56,6 +56,7 @@ extern const u8 *const m7w_chars[];
 extern const u16 *const m7w_chars_sizes[];
 extern const u8 *const m7w_metas[];
 extern const u8 *const m7w_maps[];
+extern const u8 *const m7w_passes[]; /* collision byte per block (§7.5) */
 extern const u16 *const m7w_pals[];
 extern const u8 m7w_w[];
 extern const u8 m7w_h[];
@@ -216,6 +217,25 @@ static u8 rt_target = 0;
 static u8 rt_dir = 0;   /* 0 idle, 1 forward, 2 backward */
 static u8 rt_every = 0; /* frames per step */
 static u8 rt_wait = 0;
+
+/* ---- STREAMING (big world maps, §7.5) -------------------------------
+ * The plane is 64x64 blocks and nothing changes that; a BIGGER map keeps
+ * its full grid in WRAM and the plane holds a 64x64 WINDOW of it,
+ * centred on the hero. The plane WRAPS, so block (bx, by) always lives
+ * in plane cell (bx & 63, by & 63): world pixel coordinates keep working
+ * unchanged, and moving the window is rewriting only the EDGE that comes
+ * into range — one block line, two DMA strips of 128 bytes.
+ * st_bx/st_by are the window's centre, in world blocks; they trail the
+ * hero one block at a time (he moves 2 px a frame, a block is 16). */
+static u8 m7_stream = 0;
+static u8 st_bx, st_by;
+static u8 st_w, st_h;          /* the open map, cached for the strips */
+static const u8 *st_map;
+static const u8 *st_meta;
+static u8 st_pend = 0;         /* bit 0: row strip ready, bit 1: column */
+static u16 st_row_addr, st_col_addr;
+static u8 st_rowa[128], st_rowb[128]; /* two tile rows of a block row */
+static u8 st_cola[128], st_colb[128]; /* two tile columns */
 
 /* ---- SKY -----------------------------------------------------------
  * A flat sky is CGRAM 0: the plane is windowed off above the horizon, so
@@ -632,6 +652,26 @@ static void m7_sky_scroll(void)
    at build time, where the author can still see them.
    The 16-line floor on the gap is where D leaves its 8.8 register —
    below it the whole screen would be sky. */
+/* Integer square root, 16-bit — one caller, m7_persp_set, and only on a
+   camera-angle change. */
+static u8 m7_isqrt(u16 v)
+{
+  u16 r = 0, b = 0x4000, t;
+
+  while (b)
+  {
+    t = r + b;
+    r >>= 1;
+    if (v >= t)
+    {
+      v -= t;
+      r += b;
+    }
+    b >>= 2;
+  }
+  return (u8)r;
+}
+
 static void m7_persp_set(u8 horizon, u8 anchor)
 {
   if (horizon > 180)
@@ -645,6 +685,23 @@ static void m7_persp_set(u8 horizon, u8 anchor)
   pv_da = anchor - horizon;
   pv_da2 = (u16)pv_da * pv_da;
   pv_sky = horizon + pv_da / 8 + 1;
+  /* STREAMED map: the horizon must not see past the window. The line d
+     below the horizon samples dA^2/d ahead and 128*dA/d to each side —
+     rotated, the far corner sits at (dA/d)*sqrt(128^2+dA^2) from the
+     camera, and that has to stay inside the window's 512-pixel half,
+     minus a 16-pixel slack for the edge being rewritten. So the sky is
+     CUT where the corner would leave the window: view distance trades
+     for world size, roughly 335 pixels of view at the default tilt
+     instead of 900. The formula is rotation-safe so the same map may
+     turn or not without a second case. */
+  if (m7_stream)
+  {
+    u16 n = (u16)m7_isqrt((u16)(16384 + pv_da2));
+    u8 cut = (u8)(((u16)pv_da * n + 495) / 496);
+
+    if (cut > pv_da / 8)
+      pv_sky = horizon + cut + 1;
+  }
 }
 
 /* Builds the two per-scanline tables. Called once, screen off — 224
@@ -698,10 +755,15 @@ static void m7_persp_build(void)
   pw_tab[0] = pv_sky;
   pw_tab[1] = 0x00; /* WH0 left */
   pw_tab[2] = 0xFF; /* WH1 right */
-  pw_tab[3] = 127;  /* a repeat block caps at 127 lines */
+  /* Below: an EMPTY window (left > right), in one or two blocks — a
+     block caps at 127 lines, and a deep sky (streamed maps cut it low)
+     can leave fewer than 127 lines of ground, where the old fixed 127
+     would underflow the second count. A zero count IS the terminator. */
+  d = 224 - pv_sky;
+  pw_tab[3] = d > 127 ? 127 : (u8)d;
   pw_tab[4] = 0x01;
   pw_tab[5] = 0x00;
-  pw_tab[6] = (u8)(224 - pv_sky - 127);
+  pw_tab[6] = d > 127 ? (u8)(d - 127) : 0;
   pw_tab[7] = 0x01;
   pw_tab[8] = 0x00;
   pw_tab[9] = 0;
@@ -824,19 +886,137 @@ u8 m7_world_active(void)
   return m7_on && m7_world;
 }
 
+/* The per-block collision table of the scene's world map, NULL when the
+   scene is not one. scene_load asks BEFORE deciding how to decode its
+   grids — a world map's lower grid may take both WRAM buffers, which is
+   why its collision cannot be a per-cell grid at all (§7.5). */
+const u8 *m7_world_pass(u8 scene_id)
+{
+  u8 i;
+
+  for (i = 0; i < m7w_count; i++)
+    if (m7w_scene[i] == scene_id)
+      return m7w_passes[i];
+  return 0;
+}
+
 /* On a world map the camera IS the hero: he stands on the anchor line
    and the plane slides underneath. Placing the ORDINARY camera so that
    player_draw's `player.x - camera.x` lands on the anchor means the draw
    loop needs no Mode 7 case at all — the hero, his charset, his walking
    frames and his direction all keep working unchanged. */
+/* Builds the two 128-byte tile strips of ONE incoming block line and
+   remembers where they go. Main-loop work: 64 far reads and a few adds
+   per strip — the DMA itself happens in m7_vblank, where VRAM is
+   writable. `vert` = a COLUMN of blocks (the hero crossed in X). */
+static void m7_stream_build(u8 vert, u8 line)
+{
+  u8 k;
+
+  if (vert)
+  {
+    for (k = 0; k < 64; k++)
+    {
+      u8 wby = (u8)(st_by - 32 + k);
+      u8 p = (u8)((wby & 63) << 1);
+
+      /* Outside the map: TILE 0 (transparent, the sky shows through),
+         not block 0 — block 0 is the eraser's black. The initial window
+         expansion does the same, so the edge looks alike either way. */
+      if (line < st_w && wby < st_h)
+      {
+        u16 b = (u16)st_map[(u16)wby * st_w + line] << 2;
+
+        st_cola[p] = st_meta[b];
+        st_cola[p + 1] = st_meta[b + 2];
+        st_colb[p] = st_meta[b + 1];
+        st_colb[p + 1] = st_meta[b + 3];
+      }
+      else
+      {
+        st_cola[p] = 0;
+        st_cola[p + 1] = 0;
+        st_colb[p] = 0;
+        st_colb[p + 1] = 0;
+      }
+    }
+    st_col_addr = (u16)(line & 63) << 1;
+    st_pend |= 2;
+  }
+  else
+  {
+    for (k = 0; k < 64; k++)
+    {
+      u8 wbx = (u8)(st_bx - 32 + k);
+      u8 p = (u8)((wbx & 63) << 1);
+
+      if (line < st_h && wbx < st_w)
+      {
+        u16 b = (u16)st_map[(u16)line * st_w + wbx] << 2;
+
+        st_rowa[p] = st_meta[b];
+        st_rowa[p + 1] = st_meta[b + 1];
+        st_rowb[p] = st_meta[b + 2];
+        st_rowb[p + 1] = st_meta[b + 3];
+      }
+      else
+      {
+        st_rowa[p] = 0;
+        st_rowa[p + 1] = 0;
+        st_rowb[p] = 0;
+        st_rowb[p + 1] = 0;
+      }
+    }
+    st_row_addr = (u16)((line & 63) << 1) * M7_PLANE;
+    st_pend |= 1;
+  }
+}
+
 void m7_world_track(void)
 {
+  u8 hb;
+
   if (!m7_on || !m7_world)
     return;
   m7_cx = player.x + 8; /* the hero's centre, in plane pixels */
   m7_cy = player.y + 8;
   camera.x = player.x - 120;
   camera.y = player.y - (u16)(pv_anchor - 16);
+  if (!m7_stream)
+    return;
+
+  /* The window trails the hero ONE BLOCK a frame and per axis — he walks
+     2 px a frame and a block is 16, so he cannot outrun it. A strip not
+     yet flushed by the VBlank blocks the next one on the same axis: the
+     buffers are single, and the slack is what the sky cut bought. */
+  hb = (u8)((player.x + 8) >> 4);
+  if (hb != st_bx && !(st_pend & 2))
+  {
+    if ((u8)(hb - st_bx) < 128)
+    {
+      st_bx++;
+      m7_stream_build(1, (u8)(st_bx + 31)); /* new east edge */
+    }
+    else
+    {
+      st_bx--;
+      m7_stream_build(1, (u8)(st_bx - 32)); /* new west edge */
+    }
+  }
+  hb = (u8)((player.y + 8) >> 4);
+  if (hb != st_by && !(st_pend & 1))
+  {
+    if ((u8)(hb - st_by) < 128)
+    {
+      st_by++;
+      m7_stream_build(0, (u8)(st_by + 31));
+    }
+    else
+    {
+      st_by--;
+      m7_stream_build(0, (u8)(st_by - 32));
+    }
+  }
 }
 
 /* ---- INVERSE PROJECTION: a plane position -> a screen position -------
@@ -1131,24 +1311,77 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   h = m7w_h[i];
   meta = m7w_metas[i];
   map = m7w_maps[i];
-  for (by = 0; by < h; by++)
+  st_w = w;
+  st_h = h;
+  st_map = map;
+  st_meta = meta;
+  st_pend = 0;
+  m7_stream = (u8)(w > 64 || h > 64);
+  if (!m7_stream)
   {
-    for (half = 0; half < 2; half++)
+    for (by = 0; by < h; by++)
     {
-      for (bx = 0; bx < M7_PLANE; bx++)
-        wrow[bx] = 0;
-      for (bx = 0; bx < w; bx++)
+      for (half = 0; half < 2; half++)
       {
-        u16 b = (u16)map[(u16)by * w + bx] << 2;
-        wrow[bx << 1] = meta[b + (half << 1)];
-        wrow[(bx << 1) + 1] = meta[b + (half << 1) + 1];
+        for (bx = 0; bx < M7_PLANE; bx++)
+          wrow[bx] = 0;
+        for (bx = 0; bx < w; bx++)
+        {
+          u16 b = (u16)map[(u16)by * w + bx] << 2;
+          wrow[bx << 1] = meta[b + (half << 1)];
+          wrow[(bx << 1) + 1] = meta[b + (half << 1) + 1];
+        }
+        dmaCopyVram7(wrow, (u16)(((u16)by << 1) + half) * M7_PLANE, M7_PLANE,
+                     0x00, 0x1800);
       }
-      dmaCopyVram7(wrow, (u16)(((u16)by << 1) + half) * M7_PLANE, M7_PLANE,
-                   0x00, 0x1800);
+    }
+  }
+  else
+  {
+    /* BIG map (§7.5): the plane holds a 64x64-block WINDOW centred on
+       the hero. Block (bx, by) lives in plane cell (bx & 63, by & 63) —
+       the plane wraps, so world coordinates need no translation, here
+       or anywhere else. Outside the map: block 0, which is blank, and
+       CGRAM 0 (the sky colour) shows past the edges as on a small map. */
+    u8 r, c;
+
+    st_bx = (u8)((player.x + 8) >> 4);
+    st_by = (u8)((player.y + 8) >> 4);
+    for (r = 0; r < 64; r++)
+    {
+      u8 wby = (u8)(st_by - 32 + r);          /* wraps below 0: > h, blank */
+      u8 prow = (u8)(wby & 63);
+
+      for (half = 0; half < 2; half++)
+      {
+        for (bx = 0; bx < M7_PLANE; bx++)
+          wrow[bx] = 0;
+        if (wby < h)
+          for (c = 0; c < 64; c++)
+          {
+            u8 wbx = (u8)(st_bx - 32 + c);
+            u8 pcol;
+            u16 b;
+
+            if (wbx >= w)
+              continue;
+            pcol = (u8)(wbx & 63);
+            b = (u16)map[(u16)wby * w + wbx] << 2;
+            wrow[pcol << 1] = meta[b + (half << 1)];
+            wrow[(pcol << 1) + 1] = meta[b + (half << 1) + 1];
+          }
+        dmaCopyVram7(wrow, (u16)(((u16)prow << 1) + half) * M7_PLANE,
+                     M7_PLANE, 0x00, 0x1800);
+      }
     }
   }
 
-  REG_M7SEL = M7_OUTTILE;
+  /* Small map: outside the 128x128 tile area show tile 0, so past the
+     edges is sky. STREAMED map: the plane must WRAP — the window is
+     placed modulo 64 blocks and the camera rides world coordinates, so
+     "outside the plane" is where the hero lives most of the time. The
+     map's own edges are blank blocks in the window instead. */
+  REG_M7SEL = m7_stream ? 0x00 : M7_OUTTILE;
   /* B and C stay zero for good: no rotation on a world map, north is up.
      A and D are the HDMA's from here on — these writes only give the
      first frame something sane before the transfer starts. */
@@ -1368,6 +1601,21 @@ void m7_vblank(void)
     if (img_on)
       m7_sky_scroll();
     m7_persp_hdma();
+    /* Streaming (§7.5): the strips built in the main loop go out here,
+       where VRAM is writable. Worst case one row AND one column a
+       frame: four DMAs, 512 bytes — about nine lines, and vbl_open
+       reads the counter after us so the arbiter sees them naturally. */
+    if (st_pend & 1)
+    {
+      dmaCopyVram7(st_rowa, st_row_addr, 128, 0x00, 0x1800);
+      dmaCopyVram7(st_rowb, (u16)(st_row_addr + M7_PLANE), 128, 0x00, 0x1800);
+    }
+    if (st_pend & 2)
+    {
+      dmaCopyVram7(st_cola, st_col_addr, 128, 0x02, 0x1800);
+      dmaCopyVram7(st_colb, (u16)(st_col_addr + 1), 128, 0x02, 0x1800);
+    }
+    st_pend = 0;
     return;
   }
   if (!rp_dirty)

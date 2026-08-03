@@ -16,6 +16,7 @@
 #include "actors.h"
 #include "vm.h"
 #include "vram.h"
+#include "m7.h"
 
 /* Sprite sets (data_assets.c) — compiled PER SCENE by datagen: 16x24
    frames in character blocks of 12 (RM2003 model), only the blocks the
@@ -74,7 +75,11 @@ static void check_warp(void)
   prev_ctx = ctx;
   prev_cty = cty;
 
-  if (COL_TYPE(scene_collision(ctx, cty)) == COL_WARP)
+  /* On a WORLD MAP the collision byte comes from a per-block table
+     (§7.5) and cannot carry the warp mark datagen bakes per CELL — so
+     the list is scanned directly. It only runs when the hero ENTERS a
+     tile, and a world map's warp list is short. */
+  if (m7_world_active() || COL_TYPE(scene_collision(ctx, cty)) == COL_WARP)
   {
     w = scene_ctx.warps;
     for (i = 0; i < scene_ctx.warp_count; i++, w++)

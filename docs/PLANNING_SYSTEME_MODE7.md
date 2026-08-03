@@ -978,8 +978,76 @@ where "an ordinary scene in Mode 7" is not.
 
 ### 7.4 Collision
 
-From the tileset's 256-byte passability table (§5.1), read per 8x8 tile.
-No metatiles, so no indirection.
+From a 256-byte per-map passability table (`m7w{i}_pass`), indexed by
+COMPOSED block id: datagen swaps the world map's lower grid to composed
+ids in `scenes.bin` (the same ids the plane's `map` uses), and
+`scene_collision` reads `pass[tilemap[o]]` instead of the per-scene
+collision grid. One table lookup, no metatile indirection — and it is
+what lets a STREAMED map (§7.5) collide at full size while the plane
+only holds a window: collision reads WRAM, never VRAM.
+
+### 7.5 Big world maps — streaming the plane
+
+The plane is 128x128 tiles and that is a hardware fact (§3.1); 64x64
+blocks was therefore the map's ceiling. This section is how a map grows
+to **128x128 blocks (2048x2048 px)** without touching that fact: the
+plane holds a 64x64-block WINDOW centred on the hero, and the window
+follows him.
+
+**WRAM.** `scn_lower` and `scn_upper` are adjacent in `wram7f.asm`, and
+a world map has no upper layer — so its one grid may spend BOTH buffers:
+16384 cells, side capped at 128. The editor and datagen enforce the same
+two numbers. The grid holds composed block ids (§7.4), so collision and
+warps work over the whole map from WRAM alone.
+
+**Placement is modulo, and the plane must WRAP.** World block (bx, by)
+lives in plane cell (bx & 63, by & 63): no translation anywhere, the
+hero's world coordinates go straight into X0/Y0 and the PPU's own
+mod-1024 sampling does the rest. That requires `M7SEL = 0` (wrap) — on a
+small map the register says "tile 0 outside the plane" so the sky shows
+past the edges, but on a streamed map the hero spends most of his time
+past 1024 px in world coordinates, and with that setting THE ENTIRE
+GROUND rendered as sky. (Symptom worth remembering: plane provably
+correct in a VRAM dump, screen almost all backdrop.) Outside the MAP the
+window's cells hold tile 0, so the sky still shows past the edges,
+exactly like a small map — and the streaming strips must write tile 0
+there too, NOT meta block 0: block 0 is the eraser's black.
+
+**Streaming.** Crossing a block boundary queues ONE incoming line of
+blocks per axis: 64 far reads into two 128-byte strips in the main loop
+(rows = quadrants 0+1 and 2+3; columns = 0+2 and 1+3), flushed next
+VBlank as two DMAs each — rows with VMAIN $00, columns with VMAIN $02
+(increment by 128 words, one write per plane row). The window trails the
+hero one block per axis per frame; at 2 px/frame he cannot outrun it,
+and a strip not yet flushed just delays the next crossing's build by a
+frame. Cost: ~256 bytes of VBlank DMA on a crossing frame, nothing
+otherwise.
+
+**The sky pays for it.** The horizon must never see past the window's
+edge, or the seam being rewritten would show. The line d below the
+horizon samples dA²/d ahead and 128·(dA/d) to each side; rotated, the
+far corner sits at (dA/d)·√(128²+dA²) from the camera, which must stay
+inside the window's 512-px half minus a 16-px slack for the edge:
+
+    cut = ceil(dA * isqrt(16384 + dA²) / 496)   (m7_persp_set)
+
+`pv_sky` moves down to `horizon + cut + 1` — about 335 px of view at the
+default tilt instead of ~900. The formula is rotation-safe, so the same
+map may turn or not with no second case. (It also forced the sky
+window's HDMA table to clamp its second block: with a deep sky there are
+fewer than 127 ground lines, and the old fixed `224 - sky - 127`
+underflowed.) The Mode 7 preview mirrors the same integer cut, so the
+author sees the real view distance while painting.
+
+**Warps.** A classic scene marks warp cells in the collision grid; a
+world map has none, so `check_warp` scans the scene's warp LIST directly
+there. The list is short (a handful of town entrances) and the scan only
+runs on world maps.
+
+Everything else — the dialogue band, rotation (paired channels), the
+NPC projection, the gradient exclusion — is untouched: streaming is
+invisible to every other subsystem because the window is invisible to
+world coordinates.
 
 ## 8. Editor
 
@@ -1005,7 +1073,8 @@ rather than letting the author find out the hard way:
 
 - the upper-layer tab disappears;
 - the tile palette is restricted to the scene's Mode 7 tileset;
-- the size is bounded to 64x64;
+- the size is bounded to 128x128 and 16384 cells (streamed past 64x64,
+  §7.5 — the creation modal and the preview both say what that costs);
 - the command picker hides Message, Choice and the HUD widgets;
 - `DiagnosticsModal.tsx` catches in plain words anything that slips past.
 

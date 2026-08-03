@@ -28,11 +28,16 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
   const charsOk = /^[a-z0-9_]+$/.test(name);
   const taken = charsOk && existing.includes(name);
   const nameOk = charsOk && !taken;
-  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
+  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6).
+  // A world map gets DOUBLE that and a 128 side cap: it has no upper
+  // layer, so its budget is one flat grid — and past 64x64 the engine
+  // streams the plane instead of loading it whole (design doc §7.5).
+  const cellCap = world ? 16384 : 8192;
+  const sideCap = world ? 128 : 255;
   const sizeOk =
     width >= MIN_W && height >= MIN_H &&
-    width <= (world ? 64 : 255) && height <= (world ? 64 : 255) &&
-    width * height <= 8192;
+    width <= sideCap && height <= sideCap &&
+    width * height <= cellCap;
 
   return (
     <div className="modal-backdrop">
@@ -51,8 +56,8 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
               const k = e.target.value as SceneKind;
               setKind(k);
               if (k === "worldmap") {
-                setWidth((w) => Math.min(w, 64));
-                setHeight((h) => Math.min(h, 64));
+                setWidth((w) => Math.min(w, 128));
+                setHeight((h) => Math.min(h, 128));
               }
             }}
           >
@@ -65,10 +70,11 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             La scène se peint comme une autre, avec les mêmes tilesets, mais
             elle est <b>projetée sur un plan unique</b>. Elle perd donc la
             couche supérieure, la couche d'effet, les miroirs de tuiles et
-            le ☆, et <b>les dialogues et le HUD n'y sont pas affichables</b>
-            (limite matérielle). Les PNJ, les warps et les déclencheurs
+            le ☆. Les dialogues, les PNJ, les warps et les déclencheurs
             Contact / Auto fonctionnent : c'est le vocabulaire d'une
-            mappemonde. Taille maximale 64x64.
+            mappemonde. Taille maximale 128x128 — au-delà de 64x64 la
+            distance de vue diminue (le moteur charge la carte par bandes
+            autour du héros).
           </p>
         )}
         <div className="row">
@@ -77,7 +83,7 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             <input
               type="number"
               min={MIN_W}
-              max={world ? 64 : 255}
+              max={sideCap}
               value={width}
               onChange={(e) => setWidth(Number(e.target.value))}
             />
@@ -87,7 +93,7 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
             <input
               type="number"
               min={MIN_H}
-              max={world ? 64 : 255}
+              max={sideCap}
               value={height}
               onChange={(e) => setHeight(Number(e.target.value))}
             />
@@ -102,8 +108,8 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
         {taken && <p className="hint" style={{ color: "#ff7070" }}>⚠ Nom déjà pris.</p>}
         {!sizeOk && (
           <p className="hint">
-            Dimensions : {MIN_W}x{MIN_H} à {world ? "64x64" : "255x255"},
-            8192 tiles max.
+            Dimensions : {MIN_W}x{MIN_H} à {sideCap}x{sideCap},
+            {cellCap} tiles max.
           </p>
         )}
         <div className="row">

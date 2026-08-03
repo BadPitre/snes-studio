@@ -97,12 +97,24 @@ pub fn build_scene_bank(
 
         // The three grids travel RLE-compressed and are expanded at load
         // time into the engine's WRAM buffers — hence the per-scene cell
-        // limit.
-        if w * h > MAP_BUF_CELLS {
+        // limit. A WORLD MAP gets twice the budget: its upper layer is
+        // empty by construction and its collision reads a 256-byte ROM
+        // table instead of a per-cell grid (§7.5), so the lower grid may
+        // flow across BOTH WRAM buffers — 16384 cells, a 128x128 world.
+        let budget = if sc.is_worldmap() { MAP_BUF_CELLS * 2 } else { MAP_BUF_CELLS };
+        if w * h > budget {
             bail!(
                 "scene '{}' : {}x{} = {} tiles > {} (budget WRAM de \
                  décompression, spec §1.6) — réduire la map ou la découper",
-                sc.name, w, h, w * h, MAP_BUF_CELLS
+                sc.name, w, h, w * h, budget
+            );
+        }
+        if sc.is_worldmap() && (w > 128 || h > 128) {
+            bail!(
+                "carte du monde '{}' : {}x{} — 128 cases de côté au plus \
+                 (au-delà, une dimension ne tient plus dans la boucle du \
+                 plan Mode 7)",
+                sc.name, w, h
             );
         }
         // Collision derived from the tileset (spec §1.4). Warp tiles are

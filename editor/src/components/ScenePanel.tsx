@@ -76,10 +76,15 @@ export default function ScenePanel(props: Props) {
   const viewChanged =
     horizon !== (scene.m7_horizon ?? 56) || anchor !== (scene.m7_anchor ?? 176);
 
-  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
-  const cellsOk = width * height <= 8192;
+  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6).
+  // A world map has no upper layer, so it may spend the whole budget on
+  // its one grid: 16384 cells, 128 a side — streamed past 64x64 (§7.5).
+  const cellCap = world ? 16384 : 8192;
+  const sideCap = world ? 128 : 255;
+  const cellsOk = width * height <= cellCap;
   const sizeOk =
-    width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 && cellsOk;
+    width >= MIN_W && height >= MIN_H &&
+    width <= sideCap && height <= sideCap && cellsOk;
   const changed = width !== scene.width || height !== scene.height;
   const shrinks = width < scene.width || height < scene.height;
 
@@ -325,7 +330,7 @@ export default function ScenePanel(props: Props) {
             <input
               type="number"
               min={MIN_W}
-              max={255}
+              max={sideCap}
               value={width}
               onChange={(e) => setWidth(Number(e.target.value))}
             />
@@ -335,7 +340,7 @@ export default function ScenePanel(props: Props) {
             <input
               type="number"
               min={MIN_H}
-              max={255}
+              max={sideCap}
               value={height}
               onChange={(e) => setHeight(Number(e.target.value))}
             />
@@ -343,8 +348,14 @@ export default function ScenePanel(props: Props) {
         </div>
         {!sizeOk && (
           <p className="hint">
-            Dimensions : {MIN_W}x{MIN_H} à 255x255, et {8192} tiles max
-            (ex. 90x90, 64x128){!cellsOk ? ` — ${width * height} demandées` : ""}.
+            Dimensions : {MIN_W}x{MIN_H} à {sideCap}x{sideCap}, et {cellCap}{" "}
+            tiles max{!cellsOk ? ` — ${width * height} demandées` : ""}.
+          </p>
+        )}
+        {world && (width > 64 || height > 64) && sizeOk && (
+          <p className="hint">
+            Au-delà de 64x64 le moteur charge la carte par bandes autour du
+            héros — la distance de vue diminue (l'aperçu Mode 7 la montre).
           </p>
         )}
         {shrinks && sizeOk && (
