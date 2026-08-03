@@ -14,6 +14,7 @@
 #include "actors.h"
 #include "player.h"
 #include "vm.h"
+#include "m7.h"
 
 /* OAM: the player takes ids 0 and 4; actor i takes ids (2+2i)*4 (top)
    and (3+2i)*4 (bottom) — PVSnesLib OAM structure, id = object * 4 */
@@ -471,6 +472,134 @@ void actors_draw(void)
       oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
       oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
     }
+  }
+}
+
+/* ---- WORLD MAP (Mode 7): the same actors, projected -----------------
+ *
+ * On a pitched plane a sprite's screen position is not "its position
+ * minus the camera" any more: the ground is a perspective, so an NPC
+ * standing two tiles north of the hero is drawn HIGHER AND NARROWER in.
+ * m7_project inverts the PPU's transform to say where — two divisions
+ * and four multiplications per NPC.
+ *
+ * That is why this loop has a BUDGET. The whole point of P4 was that the
+ * ordinary draw loop had to leave C to fit the frame; this one does
+ * strictly more work per actor, so running it over 24 slots cannot fit
+ * either. Instead it projects M7_ACT_BUDGET actors per frame and takes
+ * the next ones on the frame after, round robin. The OAM entries of the
+ * actors NOT reached this frame are left exactly as they were, so
+ * nothing flickers: they simply hold still a moment longer.
+ *
+ * WHERE THE NUMBER COMES FROM (V counter, 24 NPCs all on screen around
+ * the hero, world map of the test project, budget swept 0..24):
+ *      budget  0 : 498 loop turns in 900 frames,   2 lines
+ *      budget  1 : 498 turns,                     34 lines
+ *      budget  3 : 498 turns,                     98 lines   <- the edge
+ *      budget  4 : 272 turns,                    131 lines
+ *      budget  5 : 249 turns,                    162 lines
+ *      budget  6 : 249 turns,                    194 lines
+ * 498 turns is 60 fps; 249 is 30. So one projected NPC costs ~32 screen
+ * lines and the frame has room for three. Splitting it further (the
+ * projection stubbed out) gives ~19 lines of arithmetic and ~13 of OAM
+ * write per NPC: the two divisions are the price, and an assembly
+ * rewrite is the only thing that would move it.
+ *
+ * An INACTIVE slot costs nothing and does not spend budget, so a map
+ * with 24 slots but four live NPCs refreshes all four every frame; the
+ * cap only bites when a crowd is actually on screen, and then an NPC
+ * lags by up to ceil(live / 3) frames — at half a pixel per frame, a few
+ * pixels of stagger on a distant character.
+ *
+ * Two limits worth stating rather than hiding:
+ *  - NO SCALING. The SNES cannot scale a sprite, so a distant NPC is a
+ *    full-size character standing on the horizon. Mode 7 games solved
+ *    this with several sizes of the same sprite; that is art, not code.
+ *  - NO DEPTH ORDER. OBJ priority is the OAM index, and reordering the
+ *    OAM per frame costs more than the projection itself, so a far NPC
+ *    can be drawn over a near one. */
+#define M7_ACT_BUDGET 3
+static u8 m7_act_cur; /* round-robin cursor over the slots */
+
+/* Frame of a slot, the same rule as the assembly hot loop: the page's
+   base (or a Change Graphic override), plus direction, plus the walk
+   step on the odd anim phases. */
+static u8 actor_frame_m7(u8 i)
+{
+  u8 g = actor_gfx[i];
+  u8 f = (g == 0xFF) ? actor_fbase[i] : (u8)(g * 12);
+
+  f = (u8)(f + actor_dirs[i] * 3);
+  if (actor_step[i] && (actor_anim[i] & 1))
+    f = (u8)(f + (actor_anim[i] >> 1) + 1);
+  return f;
+}
+
+static void actor_m7_hide(u8 i)
+{
+  if (!actor_shown[i])
+    return;
+  oamSetVisible(ACTOR_OAM_TOP(i), OBJ_HIDE);
+  oamSetVisible(ACTOR_OAM_BOT(i), OBJ_HIDE);
+  actor_shown[i] = 0;
+  actor_x9[i] = 0xFF;
+}
+
+/* Opening a world map hid all 128 OBJs: the caches that say "this actor
+   is already showing frame F at this side of the screen" are lies from
+   that moment on. Same reason as player_draw_reset. */
+void actors_draw_reset(void)
+{
+  u8 i;
+
+  for (i = 0; i < ACTOR_SLOTS; i++)
+  {
+    actor_shown[i] = 0;
+    actor_lastf[i] = 0xFF;
+    actor_x9[i] = 0xFF;
+  }
+  m7_act_cur = 0;
+}
+
+void actors_draw_m7(void)
+{
+  u8 n = scene_ctx.actor_count;
+  u8 ns = (n > ACTOR_SLOTS) ? ACTOR_SLOTS : n;
+  u8 seen, i, b;
+
+  if (!ns)
+    return;
+  b = M7_ACT_BUDGET;
+  /* `seen` bounds the SCAN, `b` the WORK: skipping a dead slot costs a
+     byte read, so it does not eat the budget, but the loop still stops
+     after one lap whatever happens. */
+  for (seen = 0; b && seen < ns; seen++)
+  {
+    if (m7_act_cur >= ns)
+      m7_act_cur = 0;
+    i = m7_act_cur;
+    m7_act_cur++;
+
+    if (!actor_active[i] || actor_sprite[i] == 0xFF)
+    {
+      actor_m7_hide(i);
+      continue;
+    }
+    b--;
+    /* the CENTRE of the body, which is what lands on the anchor line —
+       the same point m7_world_track feeds for the hero */
+    if (!m7_project(actor_px[i] + 8, actor_py[i] + 8))
+    {
+      actor_m7_hide(i);
+      continue;
+    }
+    actor_oam_pair(ACTOR_OAM_TOP(i), (u16)(m7_pjx - 8), (u16)(m7_pjy - 16),
+                   actor_frame_m7(i), ACTOR_OBJ_PRIO, actor_sprite[i]);
+    actor_shown[i] = 1;
+    /* the pair writes both caches' inputs itself, so both are stale for
+       the assembly loop that takes over when the map closes */
+    actor_lastf[i] = 0xFF;
+    actor_x9[i] = 0xFF;
   }
 }
 

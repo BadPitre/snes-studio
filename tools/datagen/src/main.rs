@@ -619,43 +619,93 @@ fn main() -> Result<()> {
     // would desynchronise `set_ids` from `scenes`, and every table
     // downstream is indexed by scene position. A world map uses few
     // metatiles, so the waste is small and the alignment is free.
-    let mut worlds: Vec<(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)> = Vec::new();
+    let mut worlds: Vec<WorldMap> = Vec::new();
     for (sci, sc) in scenes.iter().enumerate() {
         if !sc.is_worldmap() {
             continue;
         }
         let ts = scene_ts(sc)?;
         let png = &tileset_paths[ts];
-        let img = gfx::load_indexed_png(&proj_dir.join(png))
-            .with_context(|| format!("carte du monde '{}' : tileset {}", sc.name, png))?;
-        let t = mode7::convert_tileset(&img)
-            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
-        // Every painted block must exist in the sheet. Caught here rather
-        // than shown as garbage on the plane.
-        let mut plane = Vec::with_capacity(sc.width as usize * sc.height as usize);
-        for (y, row) in sc.tilemap.iter().enumerate() {
-            for (x, &id) in row.iter().enumerate() {
-                let id = if id < 0 { 0 } else { id as usize };
-                if id >= t.count {
-                    bail!(
-                        "carte du monde '{}' : bloc {} en ({}, {}) — le tileset \
-                         '{}' n'en a que {}",
-                        sc.name,
-                        id,
-                        x,
-                        y,
-                        png,
-                        t.count
-                    );
-                }
-                plane.push(id as u8);
+        let (sky, sky_grad) = sc.m7_sky_colours()?;
+        // A SKY IMAGE takes 16 of the plane's colours: mode 1's BG2
+        // indexes CGRAM 0-127, the plane's own half (§7.2f).
+        let sky_img = match &sc.m7_sky_image {
+            Some(rel) => {
+                let img = gfx::load_indexed_png(&proj_dir.join(rel))
+                    .with_context(|| format!("carte du monde '{}' : ciel {}", sc.name, rel))?;
+                let (chars, map, pal) = img
+                    .to_m7_sky()
+                    .with_context(|| format!("carte du monde '{}' (ciel {})", sc.name, rel))?;
+                println!(
+                    "  mode7 : ciel de {} — {} ({}x{}, {} tuiles), plan plafonne \
+                     a 112 couleurs",
+                    sc.name,
+                    rel,
+                    img.width,
+                    img.height,
+                    chars.len() / 32
+                );
+                Some((chars, map, pal, img.height as u8))
             }
-        }
+            None => None,
+        };
+        let plane_colours = if sky_img.is_some() { 112 } else { mode7::MAX_COLOURS };
+        // Compose the blocks the map PAINTS, autotile variants resolved,
+        // rather than converting the chipset. Ids 1000+k have no pixels of
+        // their own and the plane cannot compute a variant at run time —
+        // and converting only what is painted spends the 256-pattern
+        // budget on what is on screen instead of on unused corners.
+        let blocks = sources[ts]
+            .compose_blocks(&sc.name, &sc.tilemap)
+            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
+        let mut t = mode7::convert_block_sheet(
+            &blocks.pixels,
+            blocks.width,
+            blocks.height,
+            plane_colours,
+        )
+            .with_context(|| format!("carte du monde '{}' (tileset {})", sc.name, png))?;
         println!(
-            "  mode7 : carte du monde {} — {}x{} blocs, {} motifs, {} couleurs",
-            sc.name, sc.width, sc.height, t.patterns, t.colours
+            "  mode7 : carte du monde {} — {}x{} cases, {} blocs distincts, \
+             {} motifs 8x8, {} couleurs",
+            sc.name, sc.width, sc.height, blocks.count, t.patterns, t.colours
         );
-        worlds.push((sci, t, plane, sc.width, sc.height));
+        let (horizon, anchor) = sc.m7_view()?;
+        let rot = if sc.m7_rotate != 0 {
+            let r = mode7::compile_rotation(horizon, anchor, sc.m7_rotate as usize)
+                .with_context(|| format!("carte du monde '{}'", sc.name))?;
+            println!(
+                "  mode7 : rotation de {} — {} crans de {:.1} deg, {} Ko de tables",
+                sc.name,
+                r.steps,
+                360.0 / r.steps as f64,
+                r.steps * 2 * mode7::PAIR_LEN / 1024
+            );
+            Some(r)
+        } else {
+            None
+        };
+        // The engine uploads ONE 128-entry CGRAM block, so the sky's
+        // sixteen ride in the plane's palette at 112-127 rather than in a
+        // transfer of their own.
+        if let Some((_, _, pal, _)) = &sky_img {
+            t.palette.resize(112, 0);
+            t.palette.extend_from_slice(pal);
+        }
+        worlds.push(WorldMap {
+            scene: sci,
+            tiles: t,
+            plane: blocks.map,
+            pass: blocks.pass,
+            w: sc.width,
+            h: sc.height,
+            horizon,
+            anchor,
+            rot,
+            sky,
+            sky_grad,
+            sky_img,
+        });
     }
 
     // 16x24 sprite sheet: character blocks of 12 frames (RM2003 charset
@@ -843,6 +893,12 @@ fn main() -> Result<()> {
         scenes.len(),
         sprite_blocks
     );
+
+    // A WORLD MAP ships NO grids in scenes.bin: its block map lives in
+    // ROM (m7w{i}_map, or 64-row slices past 16384 cells) and the engine
+    // reads collision straight from it through the per-block table
+    // (§7.5). binbank emits empty RLE streams for world maps — freeing
+    // the map from the WRAM budget is what allows 255x255 blocks.
 
     // Binary banks (spec §1-2) plus the pinning asm. The scene and text
     // pools extend into extra banks allocated in sequence, from
@@ -1598,11 +1654,36 @@ fn project_json_roots(dir: &Path) -> Result<Vec<serde_json::Value>> {
 /// engine expands it through `meta` into the 128x128 tile plane at open.
 /// Storing the expanded plane would be 16 KB per map for nothing, and
 /// the expansion happens once, under force blank, where there is time.
-fn gen_worldmap_files(
-    worlds: &[(usize, mode7::Mode7Tileset, Vec<u8>, u8, u8)],
-) -> Vec<(String, String)> {
+/// One compiled world map. A struct rather than a tuple since the camera
+/// angle joined it: five anonymous fields were already one too many.
+struct WorldMap {
+    /// Index in `scenes` — a world map stays an ordinary scene elsewhere.
+    scene: usize,
+    tiles: mode7::Mode7Tileset,
+    plane: Vec<u8>,
+    /// Collision byte per composed block (256 entries) — a world map's
+    /// collision reads this instead of a per-cell grid (§7.5).
+    pass: Vec<u8>,
+    w: u8,
+    h: u8,
+    /// Camera angle: the screen line the ground vanishes into, and the
+    /// one drawn 1:1 where the hero stands.
+    horizon: u8,
+    anchor: u8,
+    /// Rotation tables, when the scene asked for them (opt-in: ~14 KB).
+    rot: Option<mode7::Mode7Rotation>,
+    /// Sky above the horizon: a flat colour, plus a gradient's two ends.
+    sky: u16,
+    sky_grad: Option<(u16, u16)>,
+    /// Sky IMAGE: 4bpp chars, a 32x32 tilemap, its palette, and the
+    /// source height (the engine aligns its bottom on the horizon).
+    sky_img: Option<(Vec<u8>, Vec<u16>, Vec<u16>, u8)>,
+}
+
+fn gen_worldmap_files(worlds: &[WorldMap]) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    for (i, (_sci, t, plane, w, h)) in worlds.iter().enumerate() {
+    for (i, wm) in worlds.iter().enumerate() {
+        let (t, plane, w, h) = (&wm.tiles, &wm.plane, wm.w, wm.h);
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str("/* world map: 8bpp patterns, pattern 0 reserved blank */\n");
@@ -1619,24 +1700,157 @@ fn gen_worldmap_files(
             "/* four pattern indices per 16x16 block, in reading order\n                (top-left, top-right, bottom-left, bottom-right) */\n",
         );
         s.push_str(&emit::u8_array(&format!("m7w{}_meta", i), &t.meta, 16, false));
-        s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
-        s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        let giant = (w as usize) * (h as usize) > 16384;
+        if !giant {
+            s.push_str(&format!("\n/* the painted map, {}x{} BLOCKS */\n", w, h));
+            s.push_str(&emit::u8_array(&format!("m7w{}_map", i), plane, 16, false));
+        }
+        s.push_str("\n/* collision byte PER BLOCK (solid | sides<<4): the world\n   map's whole collision — no per-cell grid (spec 7.5) */\n");
+        s.push_str(&emit::u8_array(&format!("m7w{}_pass", i), &wm.pass, 16, false));
         s.push_str("\n/* 128 colours, CGRAM 0-127 */\n");
         s.push_str(&emit::u16_array(&format!("m7w{}_pal", i), &t.palette));
         files.push((format!("data_m7wmap{}.c", i), s));
+
+        // GIANT map (> 16384 cells, §7.5): the block map is emitted in
+        // 64-row SLICES with every row padded to 256 bytes, one slice a
+        // file. Two constraints meet here: tcc-816 puts a file's arrays
+        // in one section and WLA fits a section inside ONE 32 KB bank,
+        // so a 65 KB map cannot be a single array — and the engine wants
+        // block reads with no multiply, which the 256-byte pitch gives
+        // it (slice[((by & 63) << 8) | bx], slice = by >> 6).
+        if giant {
+            let rows_per = 64usize;
+            let slices = (h as usize + rows_per - 1) / rows_per;
+            for k in 0..slices {
+                let r0 = k * rows_per;
+                let rows = rows_per.min(h as usize - r0);
+                let mut data = vec![0u8; rows * 256];
+                for r in 0..rows {
+                    let src = (r0 + r) * w as usize;
+                    data[r * 256..r * 256 + w as usize]
+                        .copy_from_slice(&plane[src..src + w as usize]);
+                }
+                let mut s = String::from(emit::HEADER);
+                s.push_str("#include <snes.h>\n\n");
+                s.push_str(&format!(
+                    "/* world map {i}, block rows {r0}-{r1} of {h}, each padded\n\
+                     \x20  to 256 bytes so the engine indexes with shifts (7.5) */\n",
+                    i = i,
+                    r0 = r0,
+                    r1 = r0 + rows - 1,
+                    h = h
+                ));
+                s.push_str(&emit::u8_array(&format!("m7w{}_slice{}", i, k), &data, 16, false));
+                files.push((format!("data_m7wslice{}_{}.c", i, k), s));
+            }
+        }
+
+        // ROTATION (opt-in, ~28 KB at 16 steps): 2 x steps PAIRED
+        // per-scanline tables — A+B on one HDMA channel in transfer mode
+        // 3, C+D on another — read STRAIGHT FROM ROM. Each table is its
+        // own array so the linker keeps it whole inside one bank: HDMA
+        // does not carry the bank across a boundary, it wraps within it.
+        if let Some(rot) = &wm.rot {
+            // SPLIT ACROSS FILES, and not for tidiness: tcc-816 puts a
+            // file's arrays in ONE section, WLA places a section wholly
+            // inside ONE bank, and 64 steps of paired tables is 115 KB
+            // against a 32 KB bank. Eight tables a file keeps every
+            // section at ~7 KB and lets the linker pack them freely.
+            const PER_FILE: usize = 8;
+            let mut all: Vec<(String, &Vec<u8>)> = Vec::new();
+            for (k, t) in rot.ab.iter().enumerate() {
+                all.push((format!("m7w{}_rotab{}", i, k), t));
+            }
+            for (k, t) in rot.cd.iter().enumerate() {
+                all.push((format!("m7w{}_rotcd{}", i, k), t));
+            }
+            for (part, chunk) in all.chunks(PER_FILE).enumerate() {
+                let mut s = String::from(emit::HEADER);
+                s.push_str("#include <snes.h>\n\n");
+                s.push_str(
+                    "/* Mode 7 rotation, PAIRED tables (HDMA mode 3): per line,\n\
+                     \x20  ab = A (s*cos) then B (s^2*sin) for M7A+M7B; cd = C\n\
+                     \x20  (s*sin) then D (-s^2*cos) for M7C+M7D. Two channels\n\
+                     \x20  instead of four. See mode7.rs::compile_rotation. */\n",
+                );
+                for (name, t) in chunk {
+                    s.push_str(&emit::u8_array(name, t, 16, false));
+                }
+                files.push((format!("data_m7wrot{}_{}.c", i, part), s));
+            }
+        }
+
+        // SKY IMAGE: 4bpp chars for $6000, a 32x32 tilemap for $7000.
+        // Its palette is NOT emitted here — it rides in the plane's, at
+        // 112-127, so the engine uploads one CGRAM block and not two.
+        if let Some((chars, map, _, h)) = &wm.sky_img {
+            let mut s = String::from(emit::HEADER);
+            s.push_str("#include <snes.h>\n\n");
+            s.push_str("/* world map sky: 4bpp chars, palette 7 (CGRAM 112-127) */\n");
+            s.push_str(&emit::u8_array(&format!("m7w{}_skych", i), chars, 16, false));
+            s.push_str(&format!(
+                "const u16 m7w{}_skych_size = sizeof(m7w{}_skych);\n\n",
+                i, i
+            ));
+            s.push_str("/* 32x32 tilemap, image at the top left */\n");
+            s.push_str(&emit::u16_array(&format!("m7w{}_skymap", i), map));
+            s.push_str(&format!("\nconst u8 m7w{}_skyh = {};\n", i, h));
+            files.push((format!("data_m7wsky{}.c", i), s));
+        }
     }
 
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
+    let is_giant = |i: usize| (worlds[i].w as usize) * (worlds[i].h as usize) > 16384;
+    let slice_count = |i: usize| (worlds[i].h as usize + 63) / 64;
     for i in 0..worlds.len() {
         s.push_str(&format!(
             "extern const u8 m7w{i}_chars[];\nextern const u16 m7w{i}_chars_size;\n\
-             extern const u8 m7w{i}_meta[];\nextern const u8 m7w{i}_map[];\n\
-             extern const u16 m7w{i}_pal[];\n",
+             extern const u8 m7w{i}_meta[];\n\
+             extern const u8 m7w{i}_pass[];\nextern const u16 m7w{i}_pal[];\n",
             i = i
         ));
+        if is_giant(i) {
+            for k in 0..slice_count(i) {
+                s.push_str(&format!("extern const u8 m7w{}_slice{}[];\n", i, k));
+            }
+        } else {
+            s.push_str(&format!("extern const u8 m7w{}_map[];\n", i));
+        }
+        if worlds[i].sky_img.is_some() {
+            s.push_str(&format!(
+                "extern const u8 m7w{i}_skych[];\nextern const u16 m7w{i}_skych_size;\n\
+                 extern const u16 m7w{i}_skymap[];\n",
+                i = i
+            ));
+        }
     }
-    s.push_str(&format!("\nconst u8 m7w_count = {};\n\n", worlds.len()));
+    // The tables are FLAT and every map gets the same slice width, so a
+    // map with fewer steps pads with nulls. Simpler than a per-map stride
+    // the engine would have to carry, and the waste is 16 pointers.
+    let stride = worlds
+        .iter()
+        .filter_map(|w| w.rot.as_ref().map(|r| r.steps))
+        .max()
+        .unwrap_or(mode7::ROT_STEPS);
+    s.push_str(&format!("\nconst u8 m7w_count = {};\n", worlds.len()));
+    s.push_str(&format!("const u8 m7w_rot_stride = {};\n\n", stride));
+    // GIANT maps: a per-map array of slice pointers (4 at most — 255
+    // rows). Linear maps keep m7w{i}_map and a null here; the engine
+    // picks its addressing per map on that null.
+    for i in 0..worlds.len() {
+        if is_giant(i) {
+            s.push_str(&format!("const u8 *const m7w{}_slices[4] = {{ ", i));
+            for k in 0..4 {
+                if k < slice_count(i) {
+                    s.push_str(&format!("m7w{}_slice{}, ", i, k));
+                } else {
+                    s.push_str("0, ");
+                }
+            }
+            s.push_str("};\n");
+        }
+    }
     let n = worlds.len().max(1);
     let mut table = |decl: &str, f: &dyn Fn(usize) -> String| {
         s.push_str(&format!("{}[{}] = {{ ", decl, n));
@@ -1648,14 +1862,102 @@ fn gen_worldmap_files(
     // Which SCENE each map belongs to: the engine looks a scene up here
     // when it loads one, so a world map stays an ordinary scene
     // everywhere else (warps, events, the boot scene).
-    table("const u8 m7w_scene", &|i| worlds[i].0.to_string());
+    table("const u8 m7w_scene", &|i| worlds[i].scene.to_string());
     table("const u8 *const m7w_chars", &|i| format!("m7w{}_chars", i));
     table("const u16 *const m7w_chars_sizes", &|i| format!("&m7w{}_chars_size", i));
     table("const u8 *const m7w_metas", &|i| format!("m7w{}_meta", i));
-    table("const u8 *const m7w_maps", &|i| format!("m7w{}_map", i));
+    table("const u8 *const m7w_maps", &|i| {
+        if is_giant(i) { "0".into() } else { format!("m7w{}_map", i) }
+    });
+    table("const u8 *const *const m7w_slicess", &|i| {
+        if is_giant(i) { format!("m7w{}_slices", i) } else { "0".into() }
+    });
+    table("const u8 *const m7w_passes", &|i| format!("m7w{}_pass", i));
     table("const u16 *const m7w_pals", &|i| format!("m7w{}_pal", i));
-    table("const u8 m7w_w", &|i| worlds[i].3.to_string());
-    table("const u8 m7w_h", &|i| worlds[i].4.to_string());
+    table("const u8 m7w_w", &|i| worlds[i].w.to_string());
+    table("const u8 m7w_h", &|i| worlds[i].h.to_string());
+    // Camera angle per map — the engine rebuilds its two perspective
+    // tables from these when it opens the plane.
+    table("const u8 m7w_horizon", &|i| worlds[i].horizon.to_string());
+    table("const u8 m7w_anchor", &|i| worlds[i].anchor.to_string());
+    // The map's STEP COUNT, 0 when it does not rotate: the engine wraps
+    // an angle with (count - 1) as a mask, which is why the choices are
+    // powers of two.
+    table("const u8 m7w_rot", &|i| {
+        worlds[i].rot.as_ref().map_or(0, |r| r.steps).to_string()
+    });
+    // SKY above the horizon. m7w_sky is CGRAM 0 (the backdrop); the
+    // gradient's two ends drive a COLDATA table built by the engine.
+    table("const u16 m7w_sky", &|i| worlds[i].sky.to_string());
+    table("const u8 m7w_skyg", &|i| {
+        u8::from(worlds[i].sky_grad.is_some()).to_string()
+    });
+    table("const u16 m7w_skytop", &|i| {
+        worlds[i].sky_grad.map_or(0, |g| g.0).to_string()
+    });
+    table("const u16 m7w_skybot", &|i| {
+        worlds[i].sky_grad.map_or(0, |g| g.1).to_string()
+    });
+    // SKY IMAGE (§7.2f): mode 1 above the horizon, on BG2.
+    table("const u8 m7w_skyimg", &|i| {
+        u8::from(worlds[i].sky_img.is_some()).to_string()
+    });
+    table("const u8 *const m7w_skych", &|i| {
+        if worlds[i].sky_img.is_some() { format!("m7w{}_skych", i) } else { "0".into() }
+    });
+    table("const u16 *const m7w_skych_sizes", &|i| {
+        if worlds[i].sky_img.is_some() { format!("&m7w{}_skych_size", i) } else { "0".into() }
+    });
+    table("const u16 *const m7w_skymaps", &|i| {
+        if worlds[i].sky_img.is_some() { format!("m7w{}_skymap", i) } else { "0".into() }
+    });
+    table("const u8 m7w_skyh", &|i| {
+        worlds[i].sky_img.as_ref().map_or(0, |x| x.3).to_string()
+    });
+    // ROTATION tables, FLAT: index i*16 + k rather than a table of
+    // tables. One indirection instead of two — tcc-816 is fragile on
+    // array-of-array symbols, and a map that does not rotate costs 16
+    // null entries, which is nothing.
+    for i in 0..worlds.len() {
+        if worlds[i].rot.is_some() {
+            for k in 0..worlds[i].rot.as_ref().unwrap().steps {
+                s.push_str(&format!(
+                    "extern const u8 m7w{i}_rotab{k}[];\nextern const u8 m7w{i}_rotcd{k}[];\n",
+                    i = i,
+                    k = k
+                ));
+            }
+        }
+    }
+    let mut rot_table = |decl: &str, f: &dyn Fn(usize, usize) -> String| {
+        s.push_str(&format!("{}[{}] = {{ ", decl, n * stride));
+        for i in 0..n {
+            for k in 0..stride {
+                let has = i < worlds.len()
+                    && worlds[i].rot.as_ref().map_or(false, |r| k < r.steps);
+                s.push_str(&format!("{}, ", if has { f(i, k) } else { "0".into() }));
+            }
+        }
+        s.push_str("};\n");
+    };
+    rot_table("const u8 *const m7w_rotab", &|i, k| format!("m7w{}_rotab{}", i, k));
+    rot_table("const u8 *const m7w_rotcd", &|i, k| format!("m7w{}_rotcd{}", i, k));
+    // Camera offsets: what to add to the hero's plane position to get the
+    // rotation centre, so he stays on the anchor line at any angle.
+    rot_table("const u16 m7w_rotox", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().ox[k] as u16).to_string()
+    });
+    rot_table("const u16 m7w_rotoy", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().oy[k] as u16).to_string()
+    });
+    // cos and sin in 8.8, for the inverse projection (plane -> screen)
+    // the engine runs on every NPC of a rotating world map.
+    rot_table("const u16 m7w_rotcos", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().co[k] as u16).to_string()
+    });
+    rot_table("const u16 m7w_rotsin", &|i, k| {
+        (worlds[i].rot.as_ref().unwrap().si[k] as u16).to_string()
+    });
     files.push(("data_m7world.c".to_string(), s));
     files
 }

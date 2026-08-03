@@ -29,6 +29,11 @@ void player_update(void);
    the camera. The OAM transfer leaves at VBlank (PVSnesLib's NMI). */
 void player_draw(void);
 
+/* Drops player_draw's OAM caches. Call it after touching the hero's OAM
+   entries from outside — otherwise the next draw believes the shadow
+   already holds what it is about to write, and writes nothing. */
+void player_draw_reset(void);
+
 /* Places the player on a tile (used on arriving from a warp) without
    re-triggering the destination tile's own warp. */
 void player_set_pos(u8 tx, u8 ty);

@@ -384,10 +384,31 @@
                              A LOOPING ramp never blocks, as with
                              animations. Stopping HOLDS the current
                              scale, which is what lets a script zoom,
-                             hold, then close. */
+                             hold, then close.
+                             INERT on a WORLD MAP: the perspective
+                             rewrites M7A/M7D per scanline, so a matrix
+                             scale never reaches the screen. A world
+                             map's zoom is its camera angle (M7VIEW). */
 #define VM_OP_M7CLOSE 0x42 /* dur (u8) — closes the Mode 7 screen: an
                               INTERNAL WARP to the current scene, the
                               stage_close recipe. */
+#define VM_OP_M7VIEW 0x43 /* horizon (u8), anchor (u8) — the WORLD MAP's
+                             camera angle: the screen line the ground
+                             vanishes into, and the one drawn 1:1 where
+                             the hero stands. Rebuilds the two
+                             perspective tables, so the change is
+                             INSTANT and costs one torn frame. Inert on
+                             an image screen and outside Mode 7. */
+#define VM_OP_M7ROT 0x44 /* angle (u8, 0-15) — turns the WORLD MAP's
+                            plane around the hero, 22.5 degrees per step.
+                            Four pointer writes: the tables are compiled
+                            and live in ROM. Inert unless the scene opted
+                            into rotation, and after M7VIEW. */
+#define VM_OP_M7TURN 0x45 /* angle (u8), frames (u8), flags (u8 bit 1 =
+                             wait) — TURNS to the angle over `frames`,
+                             the short way round. The step count only
+                             buys resolution; this is what buys motion.
+                             frames 0 = as fast as the steps allow. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

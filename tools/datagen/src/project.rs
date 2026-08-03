@@ -1,7 +1,45 @@
 //! The source project model: the JSON the editor writes.
 //! Reference: docs/SPEC_FORMATS.md.
 
+use anyhow::Context;
 use serde::Deserialize;
+
+/// "#RRGGBB" to BGR555. The editor writes hex because that is what a
+/// colour picker produces; the PPU wants five bits a channel.
+fn parse_rgb(s: &str) -> anyhow::Result<u16> {
+    use anyhow::bail;
+    let h = s.trim_start_matches('#');
+    if h.len() != 6 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("couleur '{}' : attendu #RRGGBB", s);
+    }
+    let v = u32::from_str_radix(h, 16).unwrap();
+    let (r, g, b) = ((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    Ok(((r >> 3) as u16) | (((g >> 3) as u16) << 5) | (((b >> 3) as u16) << 10))
+}
+
+/// `m7_rotate`: a step count, or the historical boolean.
+fn rot_steps<'de, D>(d: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Null => Ok(0),
+        serde_json::Value::Bool(b) => Ok(if b { 16 } else { 0 }),
+        serde_json::Value::Number(n) => {
+            let v = n.as_u64().unwrap_or(0);
+            if v == 0 || crate::mode7::ROT_CHOICES.contains(&(v as u8)) {
+                Ok(v as u8)
+            } else {
+                Err(D::Error::custom(format!(
+                    "m7_rotate {} : attendu 0, 16, 32 ou 64",
+                    v
+                )))
+            }
+        }
+        other => Err(D::Error::custom(format!("m7_rotate : {} inattendu", other))),
+    }
+}
 
 #[derive(Deserialize)]
 pub struct Project {
@@ -252,6 +290,35 @@ pub struct Scene {
     /// every existing project, so nothing changes for them.
     #[serde(default)]
     pub kind: Option<String>,
+    /// World map CAMERA ANGLE: the screen line the ground vanishes into,
+    /// and the one drawn 1:1 where the hero stands. Their difference is
+    /// the whole tilt — a large gap gives a gentle, almost top-down view,
+    /// a small one a low raking one. Absent means the engine's default
+    /// (56 / 176). Ignored on an ordinary scene.
+    #[serde(default)]
+    pub m7_horizon: Option<u8>,
+    #[serde(default)]
+    pub m7_anchor: Option<u8>,
+    /// World map ROTATION, as a STEP COUNT: 0 off, or 16 / 32 / 64.
+    /// Opt-in because it costs ROM — about 14 KB at 16 steps and 58 KB at
+    /// 64 — and a map that never turns pays nothing. `true` is still
+    /// accepted and means 16, so projects written before the count
+    /// existed keep working.
+    #[serde(default, deserialize_with = "rot_steps")]
+    pub m7_rotate: u8,
+    /// World map SKY, the band above the horizon. Absent means black.
+    /// `m7_sky` is a flat colour "#RRGGBB"; giving `m7_sky_top` AND
+    /// `m7_sky_bottom` instead paints a vertical gradient.
+    #[serde(default)]
+    pub m7_sky: Option<String>,
+    #[serde(default)]
+    pub m7_sky_top: Option<String>,
+    #[serde(default)]
+    pub m7_sky_bottom: Option<String>,
+    /// A sky IMAGE: shown above the horizon through the mid-frame video
+    /// mode switch (§7.2f). Costs the plane 16 colours.
+    #[serde(default)]
+    pub m7_sky_image: Option<String>,
     pub width: u8,
     pub height: u8,
     pub player_start: [u8; 2],
@@ -492,6 +559,86 @@ impl Scene {
         self.kind.as_deref() == Some("worldmap")
     }
 
+    /// The world map's camera angle, validated. REFUSED here rather than
+    /// clamped: the engine clamps because a script can reach it at run
+    /// time, but a number written in a project file is something the
+    /// author can still fix, so say so instead of silently drawing
+    /// something else.
+    ///
+    /// The 16-line floor on the gap is where the vertical scale leaves
+    /// its 8.8 register — below it the whole screen is sky.
+    /// The world map's sky: a flat BGR555 colour, plus the gradient's two
+    /// ends when it has one.
+    ///
+    /// The gradient works WITH rotation since the paired-channel rework
+    /// (§7.2d freed channel 4); only image sky + gradient still exclude
+    /// each other, because they paint the same place.
+    pub fn m7_sky_colours(&self) -> anyhow::Result<(u16, Option<(u16, u16)>)> {
+        use anyhow::bail;
+        let flat = match &self.m7_sky {
+            Some(s) => parse_rgb(s)
+                .with_context(|| format!("carte du monde '{}' : ciel", self.name))?,
+            None => 0,
+        };
+        if self.m7_sky_image.is_some() && self.m7_sky_top.is_some() {
+            bail!(
+                "carte du monde '{}' : un ciel EN IMAGE et un ciel EN DEGRADE                  s'excluent — le degrade colore le fond, et l'image le couvre",
+                self.name
+            );
+        }
+        let grad = match (&self.m7_sky_top, &self.m7_sky_bottom) {
+            (Some(t), Some(b)) => {
+                Some((
+                    parse_rgb(t).with_context(|| {
+                        format!("carte du monde '{}' : haut du ciel", self.name)
+                    })?,
+                    parse_rgb(b).with_context(|| {
+                        format!("carte du monde '{}' : bas du ciel", self.name)
+                    })?,
+                ))
+            }
+            (None, None) => None,
+            _ => bail!(
+                "carte du monde '{}' : un degrade de ciel demande m7_sky_top ET                  m7_sky_bottom",
+                self.name
+            ),
+        };
+        Ok((flat, grad))
+    }
+
+    pub fn m7_view(&self) -> anyhow::Result<(u8, u8)> {
+        use anyhow::bail;
+        let horizon = self.m7_horizon.unwrap_or(56);
+        let anchor = self.m7_anchor.unwrap_or(176);
+        if horizon > 180 {
+            bail!(
+                "carte du monde '{}' : horizon {} — la ligne d'horizon doit \
+                 rester entre 0 et 180 (l'ecran fait 224 lignes)",
+                self.name,
+                horizon
+            );
+        }
+        if anchor > 216 {
+            bail!(
+                "carte du monde '{}' : ancrage {} — la ligne d'ancrage doit \
+                 rester entre 0 et 216 (le heros y tient debout)",
+                self.name,
+                anchor
+            );
+        }
+        if anchor < horizon + 16 {
+            bail!(
+                "carte du monde '{}' : ancrage {} pour un horizon {} — il faut \
+                 au moins 16 lignes d'ecart, sinon la perspective sort du \
+                 registre et tout l'ecran devient ciel",
+                self.name,
+                anchor,
+                horizon
+            );
+        }
+        Ok((horizon, anchor))
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
         if let Some(k) = &self.kind {
@@ -500,23 +647,28 @@ impl Scene {
             }
         }
         if self.is_worldmap() {
-            // The plane is 128x128 tiles of 8x8, so 64x64 metatiles. Not
-            // a choice: past that the map has nowhere to go.
-            if self.width > 64 || self.height > 64 {
-                bail!(
-                    "carte du monde '{}' : {}x{} — maximum 64x64 blocs (le plan \
-                     Mode 7 fait 128x128 tuiles de 8x8)",
-                    self.name,
-                    self.width,
-                    self.height
-                );
-            }
+            // The plane is 128x128 tiles (64x64 blocks) and that does not
+            // change — but a BIGGER map streams a 64x64 window of itself
+            // through the wrapping plane (§7.5). The map lives in ROM and
+            // collision reads it there, so the ceiling is the byte the
+            // block coordinates travel in: 255 a side, the FF6 scale —
+            // which `width: u8` already enforces at parse time. (256
+            // exactly would overflow both the u8 coordinates and the
+            // 13-bit signed Mode 7 scroll registers.)
             // One plane, so no upper layer and no effect layer: both would
             // need a second BG that Mode 7 does not have.
-            if self.upper.as_ref().map_or(false, |u| !u.is_empty()) {
+            // The editor ALWAYS writes an upper layer, filled with EMPTY.
+            // So the question is not "is there an array" but "is anything
+            // painted on it" — the first version asked the former and
+            // refused every world map the editor could produce.
+            let painted = self.upper.as_ref().map_or(false, |u| {
+                u.iter().any(|row| row.iter().any(|&t| t != crate::tileset::EMPTY))
+            });
+            if painted {
                 bail!(
-                    "carte du monde '{}' : la couche superieure n'existe pas en \
-                     Mode 7 (un seul plan) — la vider avant de convertir",
+                    "carte du monde '{}' : la couche superieure porte des tuiles, \
+                     et le Mode 7 n'a qu'un seul plan — les effacer (ou repasser \
+                     la scene en type classique)",
                     self.name
                 );
             }

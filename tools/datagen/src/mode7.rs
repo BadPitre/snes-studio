@@ -445,15 +445,38 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
             METATILE_PX
         );
     }
-    let (mw, mh) = (img.width / METATILE_PX, img.height / METATILE_PX);
+    let rgb = resample(img, img.width, img.height);
+    convert_block_sheet(&rgb, img.width, img.height, MAX_COLOURS)
+}
+
+/// The converter proper: a sheet of 16x16 blocks given as BGR555 pixels.
+///
+/// Split out of `convert_tileset` because a WORLD MAP does not convert the
+/// chipset — it converts the blocks the map actually paints, autotile
+/// variants already resolved to pixels (`tileset::compose_blocks`). An
+/// autotile is not a block in the sheet: it is a block COMPUTED from its
+/// neighbours, and the plane has nowhere to compute it at run time.
+///
+/// Converting only what is painted also spends the 256-pattern budget on
+/// what is on screen instead of on a chipset's unused corners.
+pub fn convert_block_sheet(
+    rgb: &[u16],
+    width: usize,
+    height: usize,
+    max_colours: usize,
+) -> Result<Mode7Tileset> {
+    let (mw, mh) = (width / METATILE_PX, height / METATILE_PX);
     if mw == 0 || mh == 0 {
         bail!("planche vide");
     }
 
     // One quantisation for the WHOLE sheet: the plane has a single
     // palette, so two blocks cannot each keep their own colours.
-    let rgb = resample(img, img.width, img.height);
-    let (indices, palette) = quantise(&rgb, MAX_COLOURS);
+    // max_colours is MAX_COLOURS normally, and 112 when the map carries a
+    // SKY IMAGE: mode 1's BG2 indexes CGRAM 0-127, the plane's own half,
+    // so the only way to give the sky colours of its own is to reserve
+    // the top sixteen (§7.2f).
+    let (indices, palette) = quantise(rgb, max_colours);
 
     let mut chars: Vec<u8> = vec![0u8; 64]; /* pattern 0 blank, as in convert */
     let mut seen: BTreeMap<[u8; 64], usize> = BTreeMap::new();
@@ -468,7 +491,7 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
                 let mut tile = [0u8; 64];
                 for row in 0..8 {
                     for col in 0..8 {
-                        tile[row * 8 + col] = indices[(oy + row) * img.width + ox + col];
+                        tile[row * 8 + col] = indices[(oy + row) * width + ox + col];
                     }
                 }
                 let next = seen.len();
@@ -510,6 +533,11 @@ pub fn convert_tileset(img: &IndexedImage) -> Result<Mode7Tileset> {
 /// the author learns "this tileset is over budget" while choosing rather
 /// than at build time. Prints one line either way — a refusal comes back
 /// as the error, which is already worded for a human.
+///
+/// It is a PESSIMISTIC bound: the build converts only the blocks a map
+/// actually paints (`tileset::compose_blocks`), so a real map costs less
+/// than the whole sheet — except where autotiles add variants, which this
+/// command cannot see because they depend on the painting.
 pub fn tileset_check_command(src: &std::path::Path) -> Result<()> {
     let img = crate::gfx::load_indexed_png(src)
         .with_context(|| format!("lecture de {}", src.display()))?;
@@ -985,5 +1013,220 @@ mod tests {
         assert!(Curve::parse("ease_in_out").is_ok());
         assert!(Curve::parse("").is_ok());
         assert!(Curve::parse("bounce").is_err());
+    }
+}
+
+// ---------------------------------------------------------------------
+// Rotation (M7-B4)
+// ---------------------------------------------------------------------
+
+/// Rotation steps. 16 x 22.5 degrees; a power of two, so the engine
+/// wraps an angle with a mask instead of a modulo.
+pub const ROT_STEPS: usize = 16;
+
+/// Step counts an author may pick — finer steps buy smoothness with ROM.
+pub const ROT_CHOICES: [u8; 3] = [16, 32, 64];
+
+/// One HDMA table: two continuous blocks of 112 lines plus a terminator.
+/// MUST match the engine's own layout (`engine/src/m7.c`), which builds
+/// the same thing at run time for the no-rotation case.
+const TAB_HALF: usize = 112;
+pub const TAB_LEN: usize = 2 + TAB_HALF * 4 + 1;
+
+/// A PAIRED table: transfer mode 3 writes TWO adjacent double-write
+/// registers per line — M7A+M7B ($211B/$211C) or M7C+M7D ($211D/$211E)
+/// — so a line is four bytes instead of two, and ONE HDMA channel
+/// carries two coefficients. That is the whole point: rotation used to
+/// take four channels and left none for the dialogue band (§7.2i);
+/// paired it takes two, and a textbox works on every world map.
+///
+/// The price is ROM, not time. The old layout halved its size with a
+/// quarter-turn identity (C is A ninety degrees back), which forced one
+/// register per channel; interleaving A with B kills the sharing and the
+/// tables double — ~28 KB per map at 16 steps instead of ~14. On a 1 MB
+/// ROM standing three-quarters empty, the trade buys dialogue and gives
+/// back two HDMA channels.
+pub const PAIR_LEN: usize = 2 + TAB_HALF * 8 + 1;
+
+/// A world map's rotation data: 2 x steps scanline tables plus the
+/// camera offsets that keep the hero on the anchor line.
+pub struct Mode7Rotation {
+    /// How many steps this map compiled — 16, 32 or 64.
+    pub steps: usize,
+    /// `ab[k]`: per line, A = s*cos then B = s^2*sin — channel for
+    /// M7A+M7B in transfer mode 3.
+    pub ab: Vec<Vec<u8>>,
+    /// `cd[k]`: per line, C = s*sin then D = -s^2*cos — M7C+M7D.
+    pub cd: Vec<Vec<u8>>,
+    /// Per angle, what to add to the hero's plane position to get the
+    /// rotation centre: (-dA*sin, +dA*cos).
+    pub ox: Vec<i16>,
+    pub oy: Vec<i16>,
+    /// cos and sin of the angle in 8.8, for the INVERSE projection: the
+    /// engine needs them to place an NPC's plane position on screen (see
+    /// `m7_project`). The HDMA tables above go the other way and cannot
+    /// serve — they are indexed by scanline, not by plane position.
+    pub co: Vec<i16>,
+    pub si: Vec<i16>,
+}
+
+fn clamp14(v: f64) -> i16 {
+    /* the 8.8 registers are signed 16-bit; 0x3FFF is the largest value
+       the near-horizon lines can take before wrapping, and those lines
+       are masked as sky anyway */
+    v.round().clamp(-16383.0, 16383.0) as i16
+}
+
+/// Compiles the rotation tables for one camera angle setting.
+///
+/// The PPU's four coefficients at rotation theta are
+///   A = s*cos, B = s^2*sin, C = s*sin, D = -s^2*cos
+/// with s(d) = dA/d the horizontal scale of the line d below the horizon.
+/// A and B are ADJACENT registers, C and D likewise, so each pair is one
+/// mode-3 HDMA channel — see the PAIR_LEN comment for why this format
+/// replaced the four-channel one.
+///
+/// The tables are read by the HDMA STRAIGHT FROM ROM (see `m7_arm` in
+/// `engine/src/vramfast.asm`), so they cost no WRAM and no load time.
+pub fn compile_rotation(horizon: u8, anchor: u8, steps: usize) -> Result<Mode7Rotation> {
+    let (hz, an) = (horizon as usize, anchor as usize);
+    if !ROT_CHOICES.contains(&(steps as u8)) {
+        bail!(
+            "rotation mode7 : {} crans — attendu 16, 32 ou 64 (une puissance \
+             de 2, pour que le moteur boucle l'angle par masque)",
+            steps
+        );
+    }
+    if an < hz + 16 {
+        bail!("rotation mode7 : ancrage {} pour un horizon {} — 16 lignes minimum", an, hz);
+    }
+    let da = (an - hz) as f64;
+    let sky = hz + (an - hz) / 8 + 1;
+
+    let mut ab = Vec::with_capacity(steps);
+    let mut cd = Vec::with_capacity(steps);
+    let mut ox = Vec::with_capacity(steps);
+    let mut oy = Vec::with_capacity(steps);
+    let mut co = Vec::with_capacity(steps);
+    let mut si = Vec::with_capacity(steps);
+
+    for k in 0..steps {
+        let th = (k as f64) * std::f64::consts::TAU / steps as f64;
+        let (sin, cos) = (th.sin(), th.cos());
+        let mut tab = vec![0u8; PAIR_LEN];
+        let mut tcd = vec![0u8; PAIR_LEN];
+        for t in [&mut tab, &mut tcd] {
+            t[0] = 0x80 | TAB_HALF as u8;
+            t[1 + TAB_HALF * 4] = 0x80 | TAB_HALF as u8;
+            t[PAIR_LEN - 1] = 0;
+        }
+        for y in 0..224usize {
+            let i = if y < TAB_HALF { 1 + y * 4 } else { 2 + y * 4 };
+            let (a, b, c, d) = if y < sky {
+                /* masked as sky — the values only have to land outside
+                   the plane, not mean anything */
+                (0x3FFFi16, 0x3FFFi16, 0x3FFFi16, 0x3FFFi16)
+            } else {
+                let dist = (y - hz) as f64;
+                let s = da * 256.0 / dist;
+                let s2 = da * da * 256.0 / (dist * dist);
+                (
+                    clamp14(s * cos),
+                    clamp14(s2 * sin),
+                    clamp14(s * sin),
+                    clamp14(-s2 * cos),
+                )
+            };
+            tab[i] = a as u8;
+            tab[i + 1] = (a >> 8) as u8;
+            tab[i + 2] = b as u8;
+            tab[i + 3] = (b >> 8) as u8;
+            tcd[i] = c as u8;
+            tcd[i + 1] = (c >> 8) as u8;
+            tcd[i + 2] = d as u8;
+            tcd[i + 3] = (d >> 8) as u8;
+        }
+        ab.push(tab);
+        cd.push(tcd);
+        /* the hero must stay on the anchor line whatever the angle: the
+           rotation centre is his position pushed dA units "behind" the
+           camera, and behind turns with the camera */
+        ox.push((-da * sin).round() as i16);
+        oy.push((da * cos).round() as i16);
+        co.push((cos * 256.0).round() as i16);
+        si.push((sin * 256.0).round() as i16);
+    }
+    Ok(Mode7Rotation { steps, ab, cd, ox, oy, co, si })
+}
+
+#[cfg(test)]
+mod rot_tests {
+    use super::*;
+
+    /// The two words of one line of a paired table.
+    fn pair(t: &[u8], y: usize) -> (i16, i16) {
+        let i = if y < TAB_HALF { 1 + y * 4 } else { 2 + y * 4 };
+        (
+            i16::from_le_bytes([t[i], t[i + 1]]),
+            i16::from_le_bytes([t[i + 2], t[i + 3]]),
+        )
+    }
+
+    #[test]
+    fn angle_zero_is_the_engines_own_no_rotation_case() {
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
+        // A = s, B = 0, C = 0, D = -s^2 at the anchor line, drawn 1:1
+        assert_eq!(pair(&rot.ab[0], 176), (256, 0));
+        assert_eq!(pair(&rot.cd[0], 176), (0, -256));
+        // and the camera offset is the flat one: (0, +dA)
+        assert_eq!((rot.ox[0], rot.oy[0]), (0, 120));
+    }
+
+    #[test]
+    fn a_quarter_turn_swaps_the_coefficients() {
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
+        // at 90 degrees: A = 0, B = s^2, C = s, D = 0
+        assert_eq!(pair(&rot.ab[4], 176), (0, 256));
+        assert_eq!(pair(&rot.cd[4], 176), (256, 0));
+    }
+
+    #[test]
+    fn every_step_count_places_the_cardinals() {
+        for &n in &ROT_CHOICES {
+            let n = n as usize;
+            let rot = compile_rotation(56, 176, n).unwrap();
+            assert_eq!(rot.ab.len(), n);
+            assert_eq!(pair(&rot.ab[0], 176).0, 256, "{} steps: cos(0) = 1", n);
+            assert_eq!(pair(&rot.ab[n / 4], 176).0, 0, "{} steps: cos(90) = 0", n);
+            assert_eq!(pair(&rot.ab[n / 2], 176).0, -256, "{} steps: cos(180) = -1", n);
+        }
+    }
+
+    #[test]
+    fn an_unsupported_step_count_is_refused() {
+        assert!(compile_rotation(56, 176, 24).is_err());
+    }
+
+    #[test]
+    fn half_a_turn_negates_the_scale() {
+        let rot = compile_rotation(56, 176, ROT_STEPS).unwrap();
+        assert_eq!(pair(&rot.ab[8], 176).0, -256);
+        assert_eq!(rot.oy[8], -120);
+    }
+
+    #[test]
+    fn every_table_is_the_layout_the_engine_expects() {
+        let rot = compile_rotation(88, 168, ROT_STEPS).unwrap();
+        for t in rot.ab.iter().chain(rot.cd.iter()) {
+            assert_eq!(t.len(), PAIR_LEN);
+            assert_eq!(t[0], 0x80 | TAB_HALF as u8);
+            assert_eq!(t[1 + TAB_HALF * 4], 0x80 | TAB_HALF as u8);
+            assert_eq!(t[PAIR_LEN - 1], 0, "terminator");
+        }
+    }
+
+    #[test]
+    fn an_angle_too_flat_to_render_is_refused() {
+        assert!(compile_rotation(100, 110, ROT_STEPS).is_err());
     }
 }

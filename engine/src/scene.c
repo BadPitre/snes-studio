@@ -15,6 +15,7 @@
 #include "map.h"
 #include "effectlayer.h"
 #include "weather.h"
+#include "m7.h" /* a world map's collision comes from a per-block table */
 
 /* GFX sets (data_assets.c), compiled PER SCENE by datagen: only the
    tiles a scene uses are in VRAM, with multiple palettes baked into the
@@ -44,6 +45,15 @@ static u16 col_row_ofs[256];
 extern u8 scn_lower[MAP_BUF_CELLS];
 extern u8 scn_upper[MAP_BUF_CELLS];
 extern u8 scn_col[MAP_BUF_CELLS];
+
+/* WORLD MAP collision: a 256-byte ROM table indexed by BLOCK, and the
+   block comes from m7_world_block — the map's ROM data, NOT a WRAM
+   grid. Not an optimisation — an impossibility fix: a 255x255 world map
+   is 65 KB of cells, four times ALL the scene buffers together (§7.5).
+   The table costs nothing that grows with the map, and it carries
+   exactly the byte expand_scene used to bake per cell. NULL on ordinary
+   scenes. Set on EVERY load (tcc-816 zeroes no .bss). */
+static const u8 *col_pass;
 
 /* RLE (spec §1.6): [count 1-255][value] pairs, up to `cells` bytes */
 static void rle_decode(u8 *dst, const u8 *src, u16 cells)
@@ -135,7 +145,14 @@ void scene_load(u8 scene_id)
     }
   }
 
-  /* RLE grids -> WRAM (spec §1.6): lower, collision, upper */
+  /* RLE grids -> WRAM (spec §1.6): lower, collision, upper.
+     A WORLD MAP decodes NOTHING: it ships no grids at all — its block
+     map lives in ROM, m7_world_block reads it there (m7_world_pass just
+     bound it), and collision goes through the per-block table. That is
+     what frees a world map from the WRAM budget entirely: 255x255
+     blocks, four times what these buffers could ever hold (§7.5). */
+  col_pass = m7_world_pass(scene_id);
+  if (!col_pass)
   {
     u16 cells = (u16)scene_ctx.map_w * scene_ctx.map_h;
 
@@ -144,10 +161,10 @@ void scene_load(u8 scene_id)
     rle_decode(scn_lower, read_far(h + 4), cells);
     rle_decode(scn_col, read_far(h + 7), cells);
     rle_decode(scn_upper, read_far(h + 24), cells);
-    scene_ctx.tilemap = scn_lower;
-    scene_ctx.collision = scn_col;
-    scene_ctx.tilemap_upper = scn_upper;
   }
+  scene_ctx.tilemap = scn_lower;
+  scene_ctx.collision = scn_col;
+  scene_ctx.tilemap_upper = scn_upper;
 
   /* The scene's tileset (chars, palette, metatile table) — screen off,
      so the DMA transfers are safe (forced blank). map_init() fills the
@@ -185,5 +202,10 @@ void scene_load(u8 scene_id)
 
 u8 scene_collision(u8 tx, u8 ty)
 {
+  /* World map: the block IS the collision unit — read it from the
+     map's ROM data and look its byte up in the per-block table. One
+     compare on the hot path; the ordinary scene's cost is unchanged. */
+  if (col_pass)
+    return col_pass[m7_world_block(tx, ty)];
   return scene_ctx.collision[col_row_ofs[ty] + tx];
 }

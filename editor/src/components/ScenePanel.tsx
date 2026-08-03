@@ -3,8 +3,8 @@
 // and in the resource manager.
 
 import { useEffect, useState } from "react";
-import type { Scene } from "../types";
-import { MIN_H, MIN_W } from "../types";
+import type { M7View, Scene } from "../types";
+import { M7_VIEW_LABELS, M7_VIEWS, MIN_H, MIN_W } from "../types";
 
 interface Props {
   scene: Scene;
@@ -16,12 +16,48 @@ interface Props {
   onSelectMusic: (stem: string | undefined) => void;
   onPassMode: (on: boolean) => void;
   onResize: (width: number, height: number) => void;
+  /** World map camera angle, in screen lines. */
+  onView: (horizon: number, anchor: number) => void;
+  /** World map rotation, as a step count (0 = off). */
+  onRotate: (steps: number) => void;
+  /** World map sky: flat colour, a gradient's two ends, or an image. */
+  onSky: (flat?: string, top?: string, bottom?: string, image?: string) => void;
+  /** Project pictures, as [label, path] — a sky image is an ordinary
+   *  16-colour PNG, so it needs no resource category of its own. */
+  pictures: [string, string][];
+  /** Opens the Mode 7 preview on this scene. */
+  onPreview: () => void;
+}
+
+type SkyMode = "black" | "flat" | "gradient" | "image";
+
+function skyOf(scene: Scene): SkyMode {
+  if (scene.m7_sky_image) return "image";
+  if (scene.m7_sky_top && scene.m7_sky_bottom) return "gradient";
+  return scene.m7_sky ? "flat" : "black";
+}
+
+/** Which preset a scene's two lines correspond to — "custom" when they
+ *  match none. Derived rather than stored: the engine reads lines, so
+ *  the lines are the truth and the name is a label over them. */
+function viewOf(scene: Scene): M7View {
+  const h = scene.m7_horizon ?? 56;
+  const a = scene.m7_anchor ?? 176;
+  for (const [k, [ph, pa]] of Object.entries(M7_VIEWS)) {
+    if (ph === h && pa === a) return k as M7View;
+  }
+  return "custom";
 }
 
 export default function ScenePanel(props: Props) {
   const { scene } = props;
   const [width, setWidth] = useState(scene.width);
   const [height, setHeight] = useState(scene.height);
+  const world = scene.kind === "worldmap";
+  const view = viewOf(scene);
+  const sky = skyOf(scene);
+  const [horizon, setHorizon] = useState(scene.m7_horizon ?? 56);
+  const [anchor, setAnchor] = useState(scene.m7_anchor ?? 176);
 
   // resyncs the fields when the scene changes (or after a resize)
   useEffect(() => {
@@ -29,10 +65,26 @@ export default function ScenePanel(props: Props) {
     setHeight(scene.height);
   }, [scene.name, scene.width, scene.height]);
 
-  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6)
-  const cellsOk = width * height <= 8192;
+  useEffect(() => {
+    setHorizon(scene.m7_horizon ?? 56);
+    setAnchor(scene.m7_anchor ?? 176);
+  }, [scene.name, scene.m7_horizon, scene.m7_anchor]);
+
+  // The same bounds datagen enforces — stated here so the author is
+  // stopped while typing rather than at build time.
+  const viewOk = horizon <= 180 && anchor <= 216 && anchor >= horizon + 16;
+  const viewChanged =
+    horizon !== (scene.m7_horizon ?? 56) || anchor !== (scene.m7_anchor ?? 176);
+
+  // 8192 tiles max per scene (WRAM decompression budget, spec §1.6).
+  // A world map escapes that budget — its map lives in ROM and the
+  // engine reads it there (§7.5): 255 a side, the FF6 scale.
+  const cellCap = world ? 255 * 255 : 8192;
+  const sideCap = 255;
+  const cellsOk = width * height <= cellCap;
   const sizeOk =
-    width >= MIN_W && height >= MIN_H && width <= 255 && height <= 255 && cellsOk;
+    width >= MIN_W && height >= MIN_H &&
+    width <= sideCap && height <= sideCap && cellsOk;
   const changed = width !== scene.width || height !== scene.height;
   const shrinks = width < scene.width || height < scene.height;
 
@@ -40,7 +92,192 @@ export default function ScenePanel(props: Props) {
     <div className="panel">
       <div className="panel-title">
         Scène « {scene.name} » — {scene.width}x{scene.height}
+        {world ? " — Mode 7" : ""}
       </div>
+
+      {world && (
+        <>
+          {/* The flat map above says nothing about what the pitch will do
+              to it — see the design doc §11c, where an author reported a
+              perfectly working plane as "exactly like a classic scene". */}
+          <div className="scene-section">
+            <button onClick={props.onPreview}>Aperçu Mode 7…</button>
+          </div>
+          <div className="palette-title">Angle de caméra</div>
+          <div className="scene-section">
+            <select
+              value={view}
+              onChange={(e) => {
+                const v = e.target.value as M7View;
+                if (v === "custom") return; /* the two fields below take over */
+                const [h, a] = M7_VIEWS[v as Exclude<M7View, "custom">];
+                props.onView(h, a);
+              }}
+              title="L'écart entre l'horizon et l'ancrage EST l'inclinaison"
+            >
+              {(Object.keys(M7_VIEW_LABELS) as M7View[]).map((k) => (
+                <option key={k} value={k} disabled={k === "custom"}>
+                  {M7_VIEW_LABELS[k]}
+                </option>
+              ))}
+            </select>
+            <div className="row">
+              <label>
+                Horizon (ligne)
+                <input
+                  type="number"
+                  min={0}
+                  max={180}
+                  value={horizon}
+                  onChange={(e) => setHorizon(Number(e.target.value))}
+                  title="La ligne d'écran où le sol disparaît. L'écart avec l'ancrage est l'inclinaison de la caméra."
+                />
+              </label>
+              <label>
+                Ancrage (ligne)
+                <input
+                  type="number"
+                  min={16}
+                  max={216}
+                  value={anchor}
+                  onChange={(e) => setAnchor(Number(e.target.value))}
+                  title={`Le héros se tient sur cette ligne, dessinée à l'échelle 1:1. Écart actuel : ${anchor - horizon} lignes${anchor - horizon >= 150 ? " — presque vue de dessus" : anchor - horizon <= 70 ? " — sol très rasant" : ""}.`}
+                />
+              </label>
+            </div>
+            {!viewOk && (
+              <p className="hint">
+                Horizon 0-180, ancrage 0-216, et au moins 16 lignes d'écart —
+                en dessous la perspective sort du registre et tout l'écran
+                devient ciel.
+              </p>
+            )}
+            <button
+              disabled={!viewOk || !viewChanged}
+              onClick={() => props.onView(horizon, anchor)}
+            >
+              Appliquer l'angle
+            </button>
+            <div className="palette-title">Rotation</div>
+            <select
+              value={scene.m7_rotate ?? 0}
+              onChange={(e) => props.onRotate(Number(e.target.value))}
+              title={
+                scene.m7_rotate
+                  ? "La commande « Tourner la vue » parcourt les crans elle-même, par le plus court chemin. Les crans achètent la finesse, la durée achète le mouvement — ni l'un ni l'autre ne coûte quoi que ce soit par frame. Changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
+                  : "Sans rotation, la carte ne coûte rien de plus et le nord reste en haut. Les crans achètent la finesse de la commande « Tourner la vue », au prix indiqué en ROM."
+              }
+            >
+              <option value={0}>Aucune — le nord reste en haut</option>
+              <option value={16}>16 crans (22,5°) — ~28 Ko</option>
+              <option value={32}>32 crans (11,25°) — ~56 Ko</option>
+              <option value={64}>64 crans (5,6°) — ~112 Ko</option>
+            </select>
+            <div className="palette-title">Ciel</div>
+            <select
+              value={sky}
+              title={
+                "Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la " +
+                "carte — une couleur d'eau ou de brume s'y lit bien. Le " +
+                "dégradé marche sur toutes les cartes du monde, rotation " +
+                "comprise, comme les dialogues ; seuls une image et un " +
+                "dégradé s'excluent (ils peignent au même endroit)." +
+                (sky === "image"
+                  ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
+                  : "")
+              }
+              onChange={(e) => {
+                const m = e.target.value as SkyMode;
+                if (m === "black") props.onSky();
+                else if (m === "flat") props.onSky(scene.m7_sky ?? "#4090e0");
+                else if (m === "image")
+                  props.onSky(
+                    scene.m7_sky ?? "#000000",
+                    undefined,
+                    undefined,
+                    scene.m7_sky_image ?? props.pictures[0]?.[1] ?? ""
+                  );
+                else
+                  props.onSky(
+                    undefined,
+                    scene.m7_sky_top ?? "#102060",
+                    scene.m7_sky_bottom ?? "#f0a060"
+                  );
+              }}
+            >
+              <option value="black">Noir (rien à afficher)</option>
+              <option value="flat">Couleur unie</option>
+              <option value="gradient">Dégradé vertical</option>
+              <option value="image" disabled={!props.pictures.length}>
+                Image{!props.pictures.length ? " — aucune image dans le projet" : ""}
+              </option>
+            </select>
+            {sky === "flat" && (
+              <div className="row">
+                <label>
+                  Couleur
+                  <input
+                    type="color"
+                    value={scene.m7_sky ?? "#4090e0"}
+                    onChange={(e) => props.onSky(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+            {sky === "image" && (
+              <div className="row">
+                <label>
+                  Image
+                  <select
+                    value={scene.m7_sky_image ?? ""}
+                    onChange={(e) =>
+                      props.onSky(scene.m7_sky, undefined, undefined, e.target.value)
+                    }
+                  >
+                    {props.pictures.map(([label, path]) => (
+                      <option key={path} value={path}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Fond derrière
+                  <input
+                    type="color"
+                    value={scene.m7_sky ?? "#000000"}
+                    onChange={(e) =>
+                      props.onSky(e.target.value, undefined, undefined, scene.m7_sky_image)
+                    }
+                  />
+                </label>
+              </div>
+            )}
+            {sky === "gradient" && (
+              <div className="row">
+                <label>
+                  Haut
+                  <input
+                    type="color"
+                    value={scene.m7_sky_top ?? "#102060"}
+                    onChange={(e) =>
+                      props.onSky(undefined, e.target.value, scene.m7_sky_bottom)
+                    }
+                  />
+                </label>
+                <label>
+                  Bas (horizon)
+                  <input
+                    type="color"
+                    value={scene.m7_sky_bottom ?? "#f0a060"}
+                    onChange={(e) =>
+                      props.onSky(undefined, scene.m7_sky_top, e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="palette-title">Tileset</div>
       <div className="scene-section">
@@ -83,7 +320,7 @@ export default function ScenePanel(props: Props) {
             <input
               type="number"
               min={MIN_W}
-              max={255}
+              max={sideCap}
               value={width}
               onChange={(e) => setWidth(Number(e.target.value))}
             />
@@ -93,7 +330,7 @@ export default function ScenePanel(props: Props) {
             <input
               type="number"
               min={MIN_H}
-              max={255}
+              max={sideCap}
               value={height}
               onChange={(e) => setHeight(Number(e.target.value))}
             />
@@ -101,8 +338,17 @@ export default function ScenePanel(props: Props) {
         </div>
         {!sizeOk && (
           <p className="hint">
-            Dimensions : {MIN_W}x{MIN_H} à 255x255, et {8192} tiles max
-            (ex. 90x90, 64x128){!cellsOk ? ` — ${width * height} demandées` : ""}.
+            Dimensions : {MIN_W}x{MIN_H} à {sideCap}x{sideCap}, et {cellCap}{" "}
+            tiles max{!cellsOk ? ` — ${width * height} demandées` : ""}.
+          </p>
+        )}
+        {world && (width > 64 || height > 64) && sizeOk && (
+          <p className="hint">
+            Au-delà de 64x64 le moteur charge la carte par bandes autour du
+            héros — la distance de vue diminue (l'aperçu Mode 7 la montre).
+            {width * height > 16384
+              ? " Au-delà de 16384 cases, la carte coûte jusqu'à 64 Ko de ROM."
+              : ""}
           </p>
         )}
         {shrinks && sizeOk && (

@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TextEntry, Command, EventPage, EventPriority, GameEvent, MoveType, Scene, ScreenTrans, VarSource, TintPreset, FnSig, ValueSrc } from "../types";
-import { TRANS_OPTIONS, eventFrame } from "../types";
+import { M7_VIEW_LABELS, TRANS_OPTIONS, eventFrame } from "../types";
 import EventCommandPicker from "./EventCommandPicker";
 import VarListModal, { type VarKind } from "./VarListModal";
 import MoveRouteModal from "./MoveRouteModal";
@@ -51,6 +51,9 @@ import {
   formStageClear,
   formStageClose,
   formM7,
+  formM7View,
+  formM7Rot,
+  formM7Turn,
   formStageOpen,
   formStagePose,
   formSwappos,
@@ -339,6 +342,16 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       return `Zoom cinematique : ${c.image || "(image ?)"} — ${c.from}% a ${
         c.to
       }% en ${c.frames} frames`;
+    case "m7_rot":
+      return `Orienter la vue Mode 7 : cran ${c.step}`;
+    case "m7_turn":
+      return `Tourner la vue Mode 7 vers le cran ${c.step} en ${c.frames}f${
+        c.wait ? " (attendre)" : ""
+      }`;
+    case "m7_view":
+      return `Angle de camera Mode 7 : ${M7_VIEW_LABELS[c.preset].split(" —")[0]}${
+        c.preset === "custom" ? ` (${c.horizon ?? 56}/${c.anchor ?? 176})` : ""
+      }`;
     case "stage_close":
       return "Écran composé : fermer";
     case "sfx":
@@ -753,6 +766,12 @@ export function CommandListEditor(props: {
           curve: "ease_in_out",
           dur: 20,
         };
+      case "m7_view":
+        return { c: "m7_view", preset: "standard", horizon: 56, anchor: 176 };
+      case "m7_rot":
+        return { c: "m7_rot", step: 0 };
+      case "m7_turn":
+        return { c: "m7_turn", step: 0, frames: 30, wait: true };
       case "stage_close":
         return { c: "stage_close", dur: 20 };
       case "sfx":
@@ -1693,6 +1712,15 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "m7":
       ({ body, valid } = formM7(cmd, x));
+      break;
+    case "m7_view":
+      ({ body, valid } = formM7View(cmd, x));
+      break;
+    case "m7_rot":
+      ({ body, valid } = formM7Rot(cmd, x));
+      break;
+    case "m7_turn":
+      ({ body, valid } = formM7Turn(cmd, x));
       break;
     case "vig_show":
       ({ body, valid } = formVigShow(cmd, x));

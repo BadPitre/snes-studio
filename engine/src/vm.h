@@ -23,6 +23,8 @@
                              frame-by-frame animations */
 #define VM_WAIT_M7 11     /* M7ZOOM "wait for the end": a non-looping
                              Mode 7 zoom ramp */
+#define VM_WAIT_M7T 12    /* M7TURN "wait for the end": a world map's
+                             animated rotation */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)

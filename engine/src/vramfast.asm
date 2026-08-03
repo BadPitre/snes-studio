@@ -125,4 +125,48 @@ _vb_end:
     plp
     rtl
 
+
+; ---------------------------------------------------------------------
+; void m7_arm(u16 chan, u16 dmap_bbad, const u8 *tab)
+;
+; Arms ONE HDMA channel from a far pointer. Here for the same reason as
+; vj_set above: the source BANK is needed and C cannot give it — tcc-816
+; passes a four-byte pointer, but `(u32)p` keeps the low 16 bits and sign
+; extends (docs/ENGINE_CONSTRAINTS.md §1.3).
+;
+; Which is what lets the Mode 7 ROTATION tables stay in ROM and be read
+; there by the HDMA: 14 KB per map that never touch WRAM and are never
+; copied. dmap_bbad packs both bytes ($4300 and $4301 are adjacent), so
+; one 16-bit store sets the mode and the destination register.
+;
+; Stack after php + phx:
+;   1-2 saved X   3 saved P   4-6 return address
+;   7-8 chan      9-10 dmap_bbad    11-14 tab (low word, then bank word)
+
+m7_arm:
+    php
+    phx
+    rep #$30
+.accu 16
+.index 16
+    lda 7,s
+    asl a
+    asl a
+    asl a
+    asl a               ; chan * 16 = offset of its $43xx block
+    tax
+    lda 9,s
+    sta.l $004300,x     ; DMAP (low byte) + BBAD (high byte)
+    lda 11,s
+    sta.l $004302,x     ; A1T, low 16 bits
+    lda 13,s            ; high word of the pointer: bank in its low byte
+    sep #$20
+.accu 8
+    sta.l $004304,x     ; A1B
+    rep #$30
+.accu 16
+    plx
+    plp
+    rtl
+
 .ENDS

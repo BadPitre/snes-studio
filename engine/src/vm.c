@@ -759,6 +759,25 @@ static void vm_step(void)
       vm.wait_timer = 1;
       break;
 
+    case VM_OP_M7VIEW: /* world map camera angle — immediate, no pause:
+                          it rewrites tables, it does not queue a request */
+      var = fetch8(); /* horizon */
+      val = fetch8(); /* anchor */
+      m7_view(var, val);
+      break;
+
+    case VM_OP_M7ROT: /* world map rotation — four pointer writes */
+      m7_rotate(fetch8());
+      break;
+
+    case VM_OP_M7TURN: /* animated turn, optionally blocking */
+      var = fetch8(); /* angle */
+      val = fetch8(); /* frames */
+      m7_rotate_to(var, val);
+      if (fetch8() & 2)
+        vm.wait_mode = VM_WAIT_M7T;
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
@@ -1061,6 +1080,13 @@ void vm_update(void)
     else
       return;
   }
+  if (vm.wait_mode == VM_WAIT_M7T)
+  {
+    if (!m7_rot_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
   if (vm.wait_mode == VM_WAIT_TIMER)
   {
     if (vm.wait_timer)
@@ -1190,6 +1216,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_ANIM)
   {
     if (anim_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_M7T)
+  {
+    if (m7_rot_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

@@ -9,8 +9,8 @@
 // Each function takes its NARROWED command plus the shared context and
 // returns the fields to show and whether OK may be pressed.
 
-import type { Command, Direction, M7Curve, ValueSrc, VarOp } from "../types";
-import { DIRECTIONS } from "../types";
+import type { Command, Direction, M7Curve, M7View, ValueSrc, VarOp } from "../types";
+import { DIRECTIONS, M7_VIEW_LABELS, M7_VIEWS } from "../types";
 import MoveRouteModal from "./MoveRouteModal";
 import {
   type FormCtx,
@@ -1713,6 +1713,167 @@ const M7_PRESETS: {
   { label: "Zoom arriere", from: 160, to: 100, frames: 75, curve: "ease_in_out" },
   { label: "Revelation", from: 100, to: 200, frames: 120, curve: "ease_in" },
 ];
+
+/** `m7_view` — the WORLD MAP's camera angle, mid-game.
+ *  Presets first, the two screen lines only under "Personnalisee": the
+ *  gap between them IS the tilt, and nobody thinks in scanlines. */
+export function formM7View(
+  cmd: Extract<Command, { c: "m7_view" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const h = cmd.horizon ?? 56;
+  const a = cmd.anchor ?? 176;
+  const custom = cmd.preset === "custom";
+  const valid = !custom || (h <= 180 && a <= 216 && a >= h + 16);
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Angle
+          <select
+            value={cmd.preset}
+            onChange={(e) => {
+              const v = e.target.value as M7View;
+              if (v === "custom") {
+                onChange({ ...cmd, preset: v, horizon: h, anchor: a });
+              } else {
+                const [ph, pa] = M7_VIEWS[v as Exclude<M7View, "custom">];
+                onChange({ ...cmd, preset: v, horizon: ph, anchor: pa });
+              }
+            }}
+          >
+            {(Object.keys(M7_VIEW_LABELS) as M7View[]).map((k) => (
+              <option key={k} value={k}>{M7_VIEW_LABELS[k]}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {custom && (
+        <div className="row">
+          <label>
+            Horizon (ligne)
+            <input
+              type="number" min={0} max={180} value={h}
+              onChange={(e) => onChange({ ...cmd, horizon: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Ancrage (ligne)
+            <input
+              type="number" min={16} max={216} value={a}
+              onChange={(e) => onChange({ ...cmd, anchor: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      )}
+      <p className="hint">
+        Inclinaison : {a - h} lignes d'écart. C'est aussi le ZOOM d'une carte
+        du monde : rapprocher l'horizon de l'ancrage resserre la vue. La
+        commande « Zoom cinématique » ne s'applique qu'à un écran Mode 7
+        image, dont le plan n'est pas incliné. Sans effet hors d'une carte du
+        monde — un écran image n'a pas de sol à incliner. Le changement
+        est instantané et coûte une frame déchirée : les tables de perspective
+        sont reconstruites.
+      </p>
+    </>
+  );
+  return { body, valid };
+}
+
+/** `m7_rot` — turns the world map's plane around the hero. */
+export function formM7Rot(
+  cmd: Extract<Command, { c: "m7_rot" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Cran (0-63)
+          <input
+            type="number" min={0} max={63} value={cmd.step}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                step: Math.max(0, Math.min(63, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          Angle
+          <input
+            type="text" readOnly
+            value={`${Math.round(cmd.step * 225) % 3600 / 10}° / ${Math.round(cmd.step * 112.5) % 3600 / 10}° / ${Math.round(cmd.step * 56.25) % 3600 / 10}°`}
+            title="L'angle selon les crans de la scène : 16 / 32 / 64"
+          />
+        </label>
+      </div>
+      <p className="hint">
+        Le cran est ramené au nombre de crans de la SCÈNE (16, 32 ou 64) —
+        l'angle affiché donne les trois lectures. La scène doit avoir la
+        rotation activée dans son onglet Scène, sinon la commande ne fait
+        rien : les tables sont compilées par carte.
+      </p>
+    </>
+  );
+  return { body, valid: cmd.step >= 0 && cmd.step <= 63 };
+}
+
+/** `m7_turn` — an ANIMATED turn of the world map's view. */
+export function formM7Turn(
+  cmd: Extract<Command, { c: "m7_turn" }>,
+  x: FormCtx,
+): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Cran d'arrivée
+          <input
+            type="number" min={0} max={63} value={cmd.step}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                step: Math.max(0, Math.min(63, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          Durée (frames)
+          <input
+            type="number" min={0} max={255} value={cmd.frames}
+            onChange={(e) =>
+              onChange({
+                ...cmd,
+                frames: Math.max(0, Math.min(255, Number(e.target.value) || 0)),
+              })
+            }
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={cmd.wait}
+            onChange={(e) => onChange({ ...cmd, wait: e.target.checked })}
+          />
+          Attendre la fin
+        </label>
+      </div>
+      <p className="hint">
+        Le moteur parcourt les crans lui-même, par le plus court chemin — il
+        ne tournera jamais de 350° pour en gagner 10. Le cran est ramené au
+        nombre de crans de la SCÈNE : viser 40 sur une carte à 16 crans donne
+        le cran 8. Durée 0 = aussi vite que les crans le permettent.
+      </p>
+    </>
+  );
+  return { body, valid: true };
+}
 
 export function formM7(cmd: Extract<Command, { c: "m7" }>, x: FormCtx): FormBody {
   let valid = true;

@@ -79,10 +79,57 @@ after warm-up.
 | map column (8 transfers, 512 B) | **22** | **12** |
 | animated-tile step (4 transfers, 128 B) | **18** | **5** |
 | `ui_screen` | 1 … 16 depending on dirty rows | unchanged |
-| vignette cell | 12 (modelled, not measured) | unchanged |
+| vignette cell | 12 (modelled) → **15 (measured, A10)** | unchanged |
 | **block peak** | **32** | **22** |
 | latest end | 259/262 | 252/262 |
 | overrunning frames | 8/497 | **0/497** |
+
+### 4b. The two numbers A10 owed (measured)
+
+The line above and the register block were both carried as debts. Both
+are now measured on the demo's 48×40 `plaine` (which really does stream),
+with a probe placed between each call of the block. The probe is the
+assembly one (`vbudgetfast.asm`), and a **null segment — two probes back
+to back — measures 0.00 lines over 400 frames**, so the instrument does
+not disturb what it measures. Each figure carries ±1 line of quantisation
+(the counter reads whole lines and these segments are 1 to 5 lines), so
+the same code read twice gives 1 or 3; the sums are stable.
+
+| segment | mean | peak |
+|---|---|---|
+| null segment (the probe itself) | **0.00** | 0 |
+| `screenfx_vblank` | 1–3 | 4 |
+| `bgSetScroll` ×2 | **4–5** | 5 |
+| `hdmafx_vblank` | 3 | 3 |
+| **the "register block"** | **9–10** | |
+| `vbl_open` (the arbiter itself) | 3 | 3 |
+| `map_vblank` + `ui_screen_vblank` | 2–3 | 3 |
+| `tileanim_vblank` | 1–2 | 6 |
+| ONE vignette cell (4 calls, 512 B) | **14.3** | **15** |
+
+Two things fall out.
+
+**The register block is the two scrolls.** `bgSetScroll` costs ~2 to 2.5
+lines A CALL, for four register writes — the largest single item in a
+block that does almost nothing. Same diagnosis as §3 and §5: it is the
+caller pushing three arguments under tcc-816, not the work. It is no
+longer unexplained; it is merely not yet fixed, and the fix is the same
+one P6 applied to the transfers (write the registers directly).
+
+**`VBL_COST_VIG` was under-declared by a fifth**: 12 announced, 14.3
+average and 15 at the peak. Corrected to 15 in `vbudget.h`. Measuring it
+needed a project built for the purpose — a looping animation with one
+frame per cell, so a cell moves EVERY frame — because §4's own lesson
+applies: no project in the repo animates a vignette, so no measurement
+here had ever exercised the thing being measured.
+
+A third fact, free with the setup: with three vignette slots animating at
+one frame per cell, `vig_vblank` alone wants ~43 lines and the whole
+block ~78 against a window of ~37. The arbiter does its job (it refuses
+what does not fit and the cell comes back next frame), but a project that
+animates four vignette layers at full speed is asking for two frames of
+work per frame, and it will run at 30 fps. That is a data limit worth
+telling an author about, not an engine bug.
 
 ### The error worth remembering
 
@@ -139,14 +186,42 @@ included), written in C, measured at frame 210 of the spike ROM:
 | Less the two C-written V-counter reads (§1) | ~41 |
 | **VBlank window available** | **37** |
 
-The C loop **overruns the VBlank**. That is the finding: for a Mode 7
-world map, an assembly sprite loop is not an optimisation to schedule
-later, it is the precondition. Applying §5's measured 2.7× C-to-assembly
-ratio would put it near 15 lines, which fits — but that is an
-extrapolation from a different loop, not a measurement, and §7 lists it
-as such.
+The C loop **overruns the VBlank**. That was the finding, and for a loop
+that uses the PPU multiplier it still holds.
 
-Design consequences are in `PLANNING_SYSTEME_MODE7.md` §7.2 and §10.
+### 6b. What the shipped loop actually does — and why the VBlank was the wrong window
+
+The spike's premise was that the transform MUST run inside the VBlank,
+because the multiplier's operands are `M7A`/`M7B`. That premise only
+binds if you use the PPU multiplier. `m7_project` (A3) does the
+arithmetic in software instead — tcc-816's own multiply and divide — so
+it touches nothing the PPU reads, and it runs in the MAIN LOOP where the
+budget is a whole frame rather than 37 lines.
+
+Measured on a world map with 24 NPCs all on screen, sweeping how many are
+projected per frame:
+
+| projected per frame | loop turns in 900 frames | cost |
+|---|---|---|
+| 0 | 498 (60 fps) | 2 lines |
+| 1 | 498 (60 fps) | 34 lines |
+| **3** | **498 (60 fps)** | **98 lines** |
+| 4 | 272 (30 fps) | 131 lines |
+| 6 | 249 (30 fps) | 194 lines |
+
+**~32 screen lines per NPC**, of which ~19 are the arithmetic (the same
+loop with the projection stubbed out costs ~13 lines per NPC) — the two
+divisions. Software arithmetic is far more expensive per operation than
+the PPU multiplier would be, but it buys a window three times larger, and
+three NPCs a frame is what fits there.
+
+So the debt §7 carried — "the assembly figure is an extrapolation" — is
+settled by not needing the figure: the shipped loop is C, outside the
+VBlank, and its cost is measured rather than extrapolated. An assembly
+version would still be worth roughly 2.7× if a world map ever needs more
+than three moving characters at once.
+
+Design consequences are in `PLANNING_SYSTEME_MODE7.md` §7.2 and §7.2h.
 
 ---
 
@@ -154,13 +229,14 @@ Design consequences are in `PLANNING_SYSTEME_MODE7.md` §7.2 and §10.
 
 Stated so nobody mistakes silence for zero:
 
-- `VBL_COST_VIG` (12) is **modelled** from 4 calls + 512 bytes. No
-  project in the repo has a vignette animation running during a
-  measurement.
 - `stage_vblank` and the NMI handler are **not metered** by the arbiter.
   They run before the budget opens.
-- The register block costs 7 lines for a handful of register writes. Not
-  investigated; it is the largest unexplained item left in the window.
-- The Mode 7 sprite transform **in assembly** (§6). Only the C figure is
-  measured; the 15-line estimate is an extrapolation from §5's ratio.
+- `vbl_open` itself costs 3 lines (§4b) and is not charged to anyone.
+- The Mode 7 sprite transform **in assembly**. The shipped loop is C and
+  measured (§6b); the assembly version was never written, and the 2.7×
+  it would probably be worth is still §5's ratio, not a measurement.
 - Nothing in §6 has run on hardware — emulator (snes9x libretro) only.
+
+Settled since this list was written: `VBL_COST_VIG` (§4b, measured at 15
+and corrected) and the register block (§4b — it is the two `bgSetScroll`
+calls, ~2.5 lines each, caller-side argument pushing).

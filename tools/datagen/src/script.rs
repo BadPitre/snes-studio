@@ -99,6 +99,9 @@ const OP_SETLOC: u8 = 0x3F;
 const OP_M7OPEN: u8 = 0x40;
 const OP_M7ZOOM: u8 = 0x41;
 const OP_M7CLOSE: u8 = 0x42;
+const OP_M7VIEW: u8 = 0x43;
+const OP_M7ROT: u8 = 0x44;
+const OP_M7TURN: u8 = 0x45;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -286,6 +289,12 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7ZOOM" => 3,
         // M7CLOSE <dur> — close it (internal warp back to the scene)
         "M7CLOSE" => 2,
+        // M7VIEW <horizon> <ancrage> — the world map camera angle
+        "M7VIEW" => 3,
+        // M7ROT <cran 0-63> — world map rotation, masked by the map at run time
+        "M7ROT" => 2,
+        // M7TURN <cran> <frames> <flags> — animated world map rotation
+        "M7TURN" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -956,6 +965,44 @@ pub fn assemble(
                 if argc != 1 { bail!("M7CLOSE <duree>"); }
                 code.push(OP_M7CLOSE);
                 code.push(parse_u8(args[0])?);
+            }
+            // M7VIEW <horizon> <ancrage> — the world map's camera angle.
+            // Bounds are the engine's; it clamps rather than refuses, so
+            // this only catches what a human can still fix.
+            "M7VIEW" => {
+                if argc != 2 { bail!("M7VIEW <horizon> <ancrage>"); }
+                let hz = parse_u8(args[0])?;
+                let an = parse_u8(args[1])?;
+                if hz > 180 { bail!("M7VIEW : horizon {} > 180", hz); }
+                if an > 216 { bail!("M7VIEW : ancrage {} > 216", an); }
+                if an < hz + 16 {
+                    bail!("M7VIEW : ancrage {} pour un horizon {} — au moins 16 lignes d'ecart", an, hz);
+                }
+                code.push(OP_M7VIEW);
+                code.push(hz);
+                code.push(an);
+            }
+            // M7ROT <cran> — 16 steps of 22.5 degrees. Refused above 15
+            // rather than masked: a script asking for step 20 means
+            // something the author did not intend.
+            "M7ROT" => {
+                if argc != 1 { bail!("M7ROT <cran 0-63>"); }
+                let a = parse_u8(args[0])?;
+                if a > 63 { bail!("M7ROT : cran {} — 64 crans au maximum (0-63)", a); }
+                code.push(OP_M7ROT);
+                code.push(a);
+            }
+            // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
+            // is masked by the map's OWN step count at run time, so the
+            // bound here is the widest choice (64).
+            "M7TURN" => {
+                if argc != 3 { bail!("M7TURN <cran> <frames> <flags>"); }
+                let a = parse_u8(args[0])?;
+                if a > 63 { bail!("M7TURN : cran {} — 64 crans au maximum (0-63)", a); }
+                code.push(OP_M7TURN);
+                code.push(a);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
             }
             // LISTSEL <widget> <var> <flags bit0 = cancellable> — cursor
             // menu on a "list" widget of the UI layout; blocking

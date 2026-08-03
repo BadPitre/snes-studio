@@ -5,7 +5,7 @@
 // generation of the engine data.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GameEvent, Layer, ProjectData, Scene, TilesetMeta } from "./types";
+import type { GameEvent, Layer, ProjectData, Scene, SceneKind, TilesetMeta } from "./types";
 import {
   assetStem,
   charsetName,
@@ -68,6 +68,7 @@ import TilePalette from "./components/TilePalette";
 import TilesetsModal from "./components/TilesetsModal";
 import AnimationsModal from "./components/AnimationsModal";
 import ScenePanel from "./components/ScenePanel";
+import M7PreviewModal from "./components/M7PreviewModal";
 import EffectPanel from "./components/EffectPanel";
 import SceneTree from "./components/SceneTree";
 import EventEditorModal from "./components/EventEditorModal";
@@ -177,6 +178,9 @@ export default function App() {
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
+  // Mode 7 preview (world maps): the flat map says nothing about the pitch
+  const [m7Preview, setM7Preview] = useState(false);
+  const [m7Sky, setM7Sky] = useState<ImageBitmap | null>(null);
   // Textes window (Tools >) — replaces the sidebar tab
   const [textsOpen, setTextsOpen] = useState(false);
   // UI window (Phase 12): null = closed, otherwise the requested mode
@@ -1140,12 +1144,33 @@ export default function App() {
     }));
   }
 
-  function createScene(name: string, width: number, height: number) {
+  // A world map is projected on ONE plane: the upper layer and the
+  // effect layer both want a second BG that Mode 7 does not have, and
+  // datagen refuses them outright. Removing the controls is how the
+  // author finds out while editing rather than at build time (§8.2).
+  const isWorldmap = scene?.kind === "worldmap";
+
+  function createScene(
+    name: string,
+    width: number,
+    height: number,
+    kind: SceneKind = "map"
+  ) {
     const parent = newSceneParent ?? undefined;
     mutate((d) => ({
       ...d,
       project: { ...d.project, scenes: [...d.project.scenes, name] },
-      scenes: { ...d.scenes, [name]: { ...newScene(name, width, height), parent } },
+      scenes: {
+        ...d.scenes,
+        [name]: {
+          ...newScene(name, width, height),
+          parent,
+          // "map" is the default everywhere, so it is not written out —
+          // an ordinary scene's JSON stays byte-identical to what every
+          // existing project already has.
+          ...(kind === "worldmap" ? { kind } : {}),
+        },
+      },
     }));
     setSceneName(name);
     setSelEvent(null);
@@ -1238,6 +1263,21 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("snesstudio.paletteH", String(paletteH));
   }, [paletteH]);
+
+  // The world map's sky image, loaded on demand: it is an ordinary
+  // project picture, so it is not in the always-loaded set.
+  useEffect(() => {
+    const rel = scene?.m7_sky_image;
+    if (!m7Preview || !data || !rel) {
+      setM7Sky(null);
+      return;
+    }
+    let live = true;
+    loadAssetPng(data.root, rel)
+      .then((b) => { if (live) setM7Sky(b); })
+      .catch(() => { if (live) setM7Sky(null); });
+    return () => { live = false; };
+  }, [m7Preview, data?.root, scene?.m7_sky_image]);
 
   // Ctrl + wheel on the map: RM2003 zoom (a non-passive listener so the
   // browser's own zoom can be blocked)
@@ -1544,10 +1584,12 @@ export default function App() {
             </button>
             <button
               className={layer === "upper" ? "active" : ""}
-              onClick={() => !scene.effect && setLayer("upper")}
-              disabled={!!scene.effect}
+              onClick={() => !scene.effect && !isWorldmap && setLayer("upper")}
+              disabled={!!scene.effect || isWorldmap}
               title={
-                scene.effect
+                isWorldmap
+                  ? "Carte du monde : un seul plan en Mode 7, pas de couche supérieure"
+                  : scene.effect
                   ? "Couche supérieure désactivée : la couche d'effet de la scène occupe ce plan (onglet Scène)"
                   : "Couche supérieure"
               }
@@ -1710,9 +1752,11 @@ export default function App() {
               <button className={tab === "scene" ? "active" : ""} onClick={() => setTab("scene")}>
                 Scène
               </button>
-              <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
-                Couche d'effet
-              </button>
+              {!isWorldmap && (
+                <button className={tab === "effect" ? "active" : ""} onClick={() => setTab("effect")}>
+                  Couche d'effet
+                </button>
+              )}
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>
                 Script
               </button>
@@ -1731,6 +1775,25 @@ export default function App() {
                 onSelectMusic={(m) => setScene((sc) => ({ ...sc, music: m }))}
                 onPassMode={setPassMode}
                 onResize={(w, h) => setScene((sc) => resizeScene(sc, w, h))}
+                onView={(m7_horizon, m7_anchor) =>
+                  setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
+                }
+                onRotate={(m7_rotate) =>
+                  setScene((sc) => ({ ...sc, m7_rotate: m7_rotate || undefined }))
+                }
+                pictures={projectPictures(data.project).map(
+                  (e) => [assetStem(picPath(e)), picPath(e)] as [string, string]
+                )}
+                onPreview={() => setM7Preview(true)}
+                onSky={(m7_sky, m7_sky_top, m7_sky_bottom, m7_sky_image) =>
+                  setScene((sc) => ({
+                    ...sc,
+                    m7_sky,
+                    m7_sky_top,
+                    m7_sky_bottom,
+                    m7_sky_image,
+                  }))
+                }
               />
             )}
             {tab === "effect" && (
@@ -2014,6 +2077,20 @@ export default function App() {
             setPrefabPickAt(null);
             setPrefabMgr(false);
           }}
+        />
+      )}
+      {m7Preview && data && scene && (
+        <M7PreviewModal
+          scene={scene}
+          tileset={tileset}
+          autotiles={autotiles}
+          meta={meta}
+          sprites={sprites}
+          skyImage={m7Sky}
+          onApplyView={(m7_horizon, m7_anchor) =>
+            setScene((sc) => ({ ...sc, m7_horizon, m7_anchor }))
+          }
+          onClose={() => setM7Preview(false)}
         />
       )}
       {textsOpen && data && (

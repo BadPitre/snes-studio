@@ -622,3 +622,20 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
   color: var(--text); opacity: .8;
 }
 .anim-warn .soft { color: inherit; opacity: .8; }
+
+/* Aperçu Mode 7 : l'écran SNES à gauche, les réglages à droite. Le
+   canevas est en pixel art — pas de lissage, jamais. */
+.modal.m7preview { width: auto; max-width: 96vw; max-height: 94vh; overflow-y: auto; }
+.m7preview-row { display: flex; gap: 10px; align-items: flex-start; }
+.m7preview-canvas {
+  image-rendering: pixelated;
+  background: #000;
+  box-shadow: var(--bev-field);
+  flex: 0 0 auto;
+}
+.m7preview-side {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 240px; flex: 0 0 240px;
+}
+.m7preview-side input[type="range"] { width: 100%; }
+.m7preview-check { flex-direction: row; align-items: center; gap: 6px; }

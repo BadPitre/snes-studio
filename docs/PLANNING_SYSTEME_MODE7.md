@@ -185,6 +185,32 @@ rather than auto-fitted, unlike an image (§8.3): shrinking a picture
 loses detail an author can live with, shrinking a tileset would break
 every map already painted with it.
 
+**AUTOTILES work, and they are why the unit of conversion is the MAP and
+not the chipset.** An id `1000+k` is not a block in the sheet: it is a
+block COMPUTED from its neighbours, so it has no pixels to convert and
+the plane has nowhere to compute it at run time. The first version
+converted the chipset and refused every map painted with an autotile —
+`bloc 1001 : le tileset n'en a que 11`, which is true and useless.
+
+What it does instead is compose, per map, the 16x16 blocks the author
+actually painted, autotile variants resolved through the same
+`key_of_cell` / `tile_quarters` pair the ordinary scene path uses. A
+world map and a classic scene painted identically therefore produce the
+same picture, which is the whole promise of "keep the tileset system".
+
+Two consequences worth stating:
+
+- **The budget is spent on what is on screen.** Converting the chipset
+  paid for its unused corners; converting the map does not. A 64x64 map
+  using two autotiles measured 24 distinct blocks and 50 patterns of the
+  256 available, against 35 for the bare chipset with nothing painted.
+- **An autotile costs one block PER VARIANT.** A lake's interior, its
+  four edges and its corners are different blocks. That is the honest
+  price of computing borders ahead of time, and it is why the budget is
+  reported per map at build time rather than per tileset. `datagen
+  m7-tileset` remains an upper bound on the sheet alone — it cannot see
+  the variants, because they depend on the painting.
+
 Passability comes from the tileset's existing sidecar. It needs no
 metatile indirection here, so it flattens to one byte per pattern.
 
@@ -360,14 +386,20 @@ That puts the pressure on the engine's tightest resource, the one that
 already has an arbitration system (`vbudget.c`, P5). The performance risk
 of this system is here — not in the zoom, which is eight register writes.
 
-**Measured by the spike** (§10, and `PERF_MEASUREMENTS.md` §7): sixteen
+**Measured by the spike** (§10, and `PERF_MEASUREMENTS.md` §6): sixteen
 sprites at four multiplies each, written in C, cost **~41 screen lines**
 against a VBlank window of 37. The C path does not merely strain the
-budget, it OVERRUNS it. Writing this loop in assembly is therefore not an
-optimisation to consider later, it is the condition for M7-B to exist at
-all. Extrapolating P4's 2.7x C-to-assembly ratio puts it near 15 lines,
-which would fit — but that is an extrapolation, and the assembly figure
-has not been measured.
+budget, it OVERRUNS it.
+
+**What actually shipped went the other way, and the premise was the
+thing to attack.** The reasoning above binds only if the transform uses
+the PPU multiplier. §7.2h does the arithmetic in software instead, so it
+touches nothing the PPU reads and runs in the MAIN LOOP, where the budget
+is a whole frame instead of 37 lines. Each multiply and divide costs far
+more, but the window is three times bigger, and three NPCs a frame fit in
+it — measured, not extrapolated. The assembly loop was never written and
+the 15-line estimate below is still an estimate; it is simply no longer
+the precondition for M7-B to exist.
 
 **The plan for B2, in the order it should be built.** Each step ends in a
 number, because this is the one part of the system where a wrong guess
@@ -390,9 +422,9 @@ costs a rewrite rather than a tweak.
    produces nothing at all, re-run `snesbuild clean` before believing the
    symptom.
 
-2. **Move the camera with the pad, still no sprites.** Confirms the
-   subtraction of §7.1 and gives the first honest frame-rate reading for
-   a Mode 7 scene doing nothing else.
+2. **Pitch the plane and move the camera.** ✅ The camera follows the
+   hero and the plane is drawn in PERSPECTIVE — see §7.2b, which turned
+   out to be the whole point of the exercise.
 3. **One sprite, transformed in C.** The hero alone. Measure it with the
    V-counter. One sprite is ~2.5 lines by the spike's figure, so this
    MUST fit — and if it does not, the assumption behind the whole design
@@ -418,16 +450,532 @@ world map with eight moving things that all update every frame is not
 worth a system that cannot ship; eight that update over two frames is.
 The rule must be CHECKABLE and stated to the author, not silent.
 
+### 7.2b The pitch — without it, none of this is visible
+
+The first world map that displayed correctly was reported back as "it
+looks exactly like a classic scene". That report was right, and it is the
+most useful thing anyone said about this system.
+
+**A Mode 7 plane with the identity matrix IS a flat top-down map.** The
+hardware is in mode 7, the VRAM is interleaved, the tilemap is 128x128 —
+and the picture is indistinguishable from the same scene rendered on BG2
+in mode 1. Put the two captures side by side and only the tile alignment
+differs. Everything §5 to §7.2 builds is a PREREQUISITE for the effect;
+none of it is the effect. What makes a plane read as Mode 7 is the
+PITCH: the floor laid under the camera, converging to a horizon.
+
+**How it is done.** The PPU computes, per screen pixel:
+
+```
+px = A*(x + HOFS - X0) + B*(y + VOFS - Y0) + X0
+py = C*(x + HOFS - X0) + D*(y + VOFS - Y0) + Y0
+```
+
+Choosing `HOFS = X0 - 128` and `VOFS = Y0 - HORIZON` turns the two
+parenthesised terms into `(x - 128)` and `d = y - HORIZON`, the line's
+distance below the horizon. With `B = C = 0` — no rotation, north stays
+up, which is what a world map wants — that leaves:
+
+```
+px = A(y)*(x - 128) + X0        A(d) = dA/d
+py = D(y)*d + Y0                D(d) = -(dA/d)^2
+```
+
+`dA` is the distance from the horizon to the ANCHOR line, the one row
+drawn 1:1 and where the hero stands. `D` is NEGATIVE so that far away is
+UP the map rather than down it.
+
+The property that makes this cheap: **A and D depend only on the horizon
+and the anchor, never on the camera.** The two tables are built once when
+the map opens (224 divisions, screen off) and the camera then moves
+through `X0`/`Y0` alone — four register writes per frame, no arithmetic
+at all. Contrast with the sprite loop of §7.2, which is per-frame maths
+and is why that step is still open.
+
+A and D are per-scanline values, which is what HDMA is for: channels 6
+and 5 in mode `$02`, one register written twice (`M7A` and `M7D` are
+double-write). Channels 3-6 belong to `hdmafx`, but its three effects are
+map ambience and the Mode 7 VBlank branch suspends them — so the branch
+must call `hdmafx_suspend()` BEFORE `m7_vblank()`, or the suspend wipes
+the mask the perspective just wrote.
+
+**The sky needs a window, not a bigger number.** Above the horizon the
+plane must not be sampled at all. Pushing `A` to a large value sends most
+columns outside the 128x128 area, where `M7SEL`'s "repeat character 0"
+gives a clean sky — but the columns NEAR `x = 128` are multiplied by
+almost nothing and stay inside it. The result is a rectangle of map
+floating in the sky, and no finite `A` removes it. The fix is to mask BG1
+above the horizon with window 1 (`W12SEL = $02`, `TMW = $01`), the window
+bounds coming from a third HDMA channel in REPEAT mode — two constant
+bands, ten bytes for the whole screen. The sky is then CGRAM 0, which is
+also where a sky colour or gradient would go.
+
+**One bug this uncovered, worth keeping.** `player_draw` caches what it
+last wrote to OAM, including the hero's 9th X bit. Opening the plane hides
+all 128 sprites, and `oamSetVisible(OBJ_HIDE)` parks them at x = 511 by
+SETTING that bit. The cache still said "not set", so the next draw skipped
+the write that would have cleared it: the hero was drawn, correctly, off
+screen. `player_draw_reset()` now drops the caches, and the rule is
+general — anything writing those OAM entries from outside must say so.
+
+### 7.2c The camera ANGLE — two numbers, and why they are data
+
+A Mode 7 camera is described completely by two screen lines: the one the
+ground vanishes into (HORIZON) and the one drawn 1:1, where the hero
+stands (ANCHOR). Their DIFFERENCE is the whole tilt — 176 lines apart is
+almost a top-down map, 56 is an F-Zero floor. Nothing else about the view
+is adjustable, and nothing else needs to be.
+
+They were `#define`s. They are now:
+
+- **Scene data.** `m7_horizon` / `m7_anchor` on a `worldmap` scene, absent
+  meaning the default 56 / 176. datagen writes them into `m7w_horizon[]`
+  and `m7w_anchor[]`, and the engine reads them when the plane opens.
+- **Reachable from a script**, opcode `M7VIEW`, event command `m7_view`.
+
+The editor and datagen both offer NAMED presets — plongeante, standard,
+rasante, tres_rasante — with the two raw lines behind a "custom" entry.
+"Horizon 88, anchor 168" describes nothing to an author; "rasante" does.
+The engine still takes lines, so the names cost nothing at run time and
+the numbers are never out of reach.
+
+**Validation splits by who can still fix it.** datagen REFUSES a bad
+angle: the author wrote it in a file and can correct it. The engine
+CLAMPS: a script can reach `m7_view` through a variable, and a world map
+that stops rendering because a number was silly is worse than one drawn
+at the nearest sane angle. The floor is 16 lines of gap, which is where
+`D = (dA/d)^2` leaves its 8.8 register — below it the whole screen is
+sky.
+
+**The change is instant and costs one torn frame.** The tables are
+rebuilt in the main loop, so the HDMA may read them half-rewritten.
+Building them inside the VBlank is 224 divisions in a 37-line window, and
+a camera angle changes on a dramatic beat, not every frame. A SMOOTH
+transition between two angles would mean rebuilding every frame, which is
+why it is not offered rather than offered badly.
+
+### 7.2d Rotation — 16 steps, compiled, in ROM
+
+Turning the view around the hero needs `B` and `C` as well as `A` and
+`D`. At rotation `t`:
+
+```
+A = s*cos(t)       B = s^2*sin(t)
+C = s*sin(t)       D = -s^2*cos(t)
+```
+
+Four per-scanline coefficients — but **two HDMA channels**, not four.
+`M7A`/`M7B` are ADJACENT registers (`$211B`/`$211C`), `M7C`/`M7D`
+likewise, and transfer mode 3 writes two adjacent registers twice each
+per line: exactly the shape a pair of double-write registers wants. One
+channel carries A+B, one carries C+D, and with the sky's that makes
+three of the five a world map has free (0 is the general DMA's, 2 the
+scripted wipe's, 7 the NMI's OAM). The two channels left over are what
+the dialogue band (§7.2i) and the sky gradient live on.
+
+**This replaced a four-channel version, and the history is worth a
+paragraph.** The first rotation spent one channel per coefficient in
+order to HALVE its ROM: `sin(t) = cos(t - 90)` lets one family of tables
+serve two coefficients a quarter turn apart — but only if each register
+has its own channel, since the pairing fixes which two values share a
+line. Four coefficient channels plus the sky mask is five: every free
+channel spent, and a dialogue on a turning map was impossible — an
+author hit exactly that, a box that opened, froze the hero and never
+drew. The quarter-turn identity was a false economy: it saved ~14 KB of
+ROM per map on a cartridge standing three-quarters empty, and the thing
+it spent was the scarcest resource the console has.
+
+**Why they cannot be built at run time.** 224 lines x 4 values is ~900
+multiplications for one angle change. §7.2 measured SIXTY-FOUR
+multiplications in C at ~41 screen lines against a 37-line VBlank. Not a
+matter of optimising: a factor of fourteen over a budget already
+overrun. So the tables are **compiled by datagen** and live in ROM, the
+same answer the zoom ramps got in §6 for the same reason.
+
+**The format.** Per angle `k`, TWO paired tables:
+
+```
+ab[k]: per line  A = s*cos, B = s^2*sin     -> channel 6, M7A+M7B
+cd[k]: per line  C = s*sin, D = -s^2*cos    -> channel 5, M7C+M7D
+```
+
+Four bytes a line, two blocks of 112 — 899 bytes a table, 32 tables =
+**28 KB per map at 16 steps**. Turning the view is TWO POINTER WRITES
+per frame. Opt-in per scene (`m7_rotate`), so a map that never turns
+pays nothing. 16 rather than 15 or 20 only because a power of two lets
+the engine wrap the angle with a mask instead of a modulo.
+
+**The tables stay in ROM and are never copied.** HDMA reads its source
+from any bank, but a DMA needs the source's BANK and C cannot give it —
+tcc-816 passes a four-byte pointer, `(u32)p` keeps the low 16 bits and
+sign extends (`ENGINE_CONSTRAINTS` §1.3). `m7_arm` in
+`engine/src/vramfast.asm` reads the four bytes off the stack, exactly as
+`vj_set` does. That is the whole reason there is no 28 KB WRAM buffer
+and no load-time copy. Each table is emitted as its OWN array so the
+linker keeps it inside one bank: HDMA does not carry the bank across a
+boundary, it wraps within it.
+
+**The camera centre turns too.** The rotation centre is the hero pushed
+`dA` units behind the camera, and "behind" turns with the camera — hence
+`(-dA*sin, +dA*cos)` per angle, a 16-entry table, rather than the flat
+case's `(0, +dA)`. Without it the hero drifts off the anchor line as the
+view turns.
+
+**Smooth turning, and what it costs.** Two different things hide behind
+"smooth", and only one of them costs anything.
+
+- **The MOTION is free.** `m7_rotate_to(angle, frames)` walks the steps
+  itself, the short way round — turning 350 degrees to face 10 is what a
+  naive count-up does, and it looks like a mistake because it is one.
+  Changing angle is four pointer writes, so this is a counter and a
+  comparison, and it is what actually makes a turn read as smooth.
+  Opcode `M7TURN`, and it can block the script like the zoom ramp.
+- **The RESOLUTION costs ROM**, and it is a PER-MAP choice — 16, 32 or 64
+  steps. Per-frame recomputation is not an option and can be shown so:
+  one angle change is 224 lines x 4 coefficients = ~900 multiplications,
+  against a spike that measured SIXTY-FOUR of them at ~41 screen lines in
+  a smaller window. Fourteen times over, and P4's measured 2.7x
+  C-to-assembly ratio still leaves a factor of five.
+
+| Steps | Angle | ROM per map |
+| --- | --- | --- |
+| 16 | 22.5 deg | 28 KB |
+| 32 | 11.25 deg | 56 KB |
+| 64 | 5.6 deg | 112 KB |
+
+64 is the sweet spot: at one step a frame a full turn takes about a
+second and 5.6 degrees no longer reads as a jump. And the budget is now
+a measured number rather than a worry — `snesbuild` prints ROM occupancy
+from wlalink's own per-bank report, and the world map test project sits
+at **274 KB of 1024 with 23 empty banks**. The .sfc's SIZE says nothing:
+it is padded to the size declared in the header.
+
+**One thing 64 steps broke, worth keeping.** tcc-816 puts a file's arrays
+in ONE section and WLA places a section wholly inside ONE bank, so 128
+paired tables in one generated file would be a 115 KB section against a
+32 KB bank —
+`No room for section ".rodata"`. datagen now splits them sixteen tables
+to a file. The rule generalises: a generated file must stay well under a
+bank, however small its individual arrays are.
+
+**Two limits, stated rather than hidden.**
+
+- **`m7_view` kills the rotation.** The tables were compiled for the
+  map's own pitch; a new pitch makes them wrong. The engine clears the
+  rotation and snaps back to angle 0 rather than shearing the plane. The
+  scene's angle comes back when it reloads.
+- **North stops being up.** Movement and collision stay world-absolute
+  while the view turns, so pressing up walks north whatever the screen
+  shows. Making input follow the view is a design decision about the
+  GAME, not about Mode 7, and it is not made here.
+
+### 7.2e The sky — colour, then gradient
+
+Above the horizon BG1 is windowed off, so what shows there is the
+BACKDROP, CGRAM 0. Two products fall out of that, and they cost very
+different things.
+
+**A flat sky is one CGRAM write.** No HDMA channel, so it works under
+rotation, which uses all five. Worth knowing: the backdrop is ALSO what
+shows beyond the painted map's edges, so the sky colour is the
+out-of-map colour too — which reads well as water or haze, and is
+consistent with the horizon by construction.
+
+**A gradient is colour math on the BACKDROP ALONE** — `CGADSUB = $20`,
+no BG1 bit — with the fixed colour rewritten per scanline by HDMA on
+`COLDATA`. screenfx's own gradient (S15) uses `$23`, which INCLUDES BG1:
+on a world map that would tint the whole plane rather than the sky. So
+this is a circuit of its own in `m7.c`, not a flag in screenfx — the
+module already owns the window registers for the same reason. CGRAM 0
+stays black under a gradient, so backdrop + fixed = fixed and the sky is
+exactly the colour asked for.
+
+`COLDATA` takes one component per write (bits 7-5 select B/G/R), so the
+table uses HDMA mode `$02` — one register written twice — for two
+components a line, rotating through R/G/B. Over the ~70 lines of sky that
+is far more than the 31 steps a channel can need, and a component one
+line stale is invisible.
+
+**The gradient works under rotation** — since the paired channels
+(§7.2d) freed 4, its channel is available on every kind of map. The
+exclusion the first version shipped ("both want a channel and rotation
+takes the last one") died twice: first in the channel budget, then in
+control flow — the rotation branch of the VBlank RETURNED before the
+line that armed the gradient, so the pairing alone did not fix it. The
+arming lives in a helper both branches call, precisely so the next
+channel shuffle cannot silently re-create the bug. Only an image sky
+and a gradient still exclude each other (§7.2f): they paint the same
+place.
+
+**One bug worth keeping.** The colour-math registers are set at open AND
+REASSERTED EVERY FRAME. `screenfx_vblank` runs first in the Mode 7 branch
+and rewrites `CGADSUB` whenever its own state is dirty, so the open-time
+value survived exactly one frame and the sky came back black. Anything
+this module asserts over screenfx's registers has to be asserted per
+frame, not once.
+
+### 7.2f An IMAGE sky — the mode switch spike
+
+A picture above the horizon needs a second background layer, and Mode 7
+has none. The way period games did it (Super Mario Kart, Contra III) is
+to **switch the video mode mid-frame**: mode 1 above the horizon, mode 7
+below, through an HDMA on `$2105`.
+
+**A throwaway spike proved it holds in this engine.** Mode 1 with a test
+tilemap on BG2 renders in the top band, the Mode 7 plane below is
+untouched, and the transition line is clean. What the spike settled:
+
+- The HDMA on `$2105` holds the switch. That was the whole unknown.
+- **The channel count does not move.** The BGMODE channel REPLACES the
+  sky window's: above the horizon we are no longer in mode 7, so the
+  plane cannot leak there and there is nothing to mask. Five channels
+  with rotation, as before.
+- **BG1 must be silenced, and transparency is cheaper than a channel.**
+  In mode 1 BG1 draws too, and its scroll registers `$210D`/`$210E` ARE
+  `M7HOFS`/`M7VOFS` — rewritten every frame with plane coordinates, so
+  BG1 would show a wildly shifted copy. Pointing its mode-1 tilemap at a
+  ZEROED region makes it render char 0 everywhere, i.e. nothing. An HDMA
+  on `TM` would also work and would cost the channel we do not have.
+- **VRAM is free where it is needed.** `$6000-$7FFF` (16 KB) holds the
+  BG2 map and the picture map, both meaningless while Mode 7 is up: sky
+  chars at `$6000`, sky tilemap at `$7000`, BG1's blank map at `$7800`.
+- **BG2's scroll registers are free** in Mode 7 (`$210F`/`$2110`), so the
+  sky can pan with the camera — a parallax horizon comes for free.
+
+**The one cost the spike surfaced.** Mode 1's BG2 is 4bpp and indexes
+CGRAM 0-127 — exactly the half the Mode 7 plane uses (§3.4). A sky image
+therefore takes 16 of the plane's colours, not colours of its own. The
+trade is: reserve palette 7 (CGRAM 112-127) for the sky and cap the
+plane at 112 colours when a map has one. Measured for scale: the test
+world map uses 14 colours in total, so 112 is not a real constraint —
+but it IS a format change to the plane converter, and it only applies to
+maps that ask for an image sky.
+
+An image sky and a gradient sky are mutually exclusive by construction:
+the gradient colours the BACKDROP, and BG2 covers it. datagen refuses the
+pair.
+
+**Built, and what it looks like in the data.** The sky is an ordinary
+16-colour PNG, at most 256x128 — the same constraints a project PICTURE
+already has, so it needs no resource category of its own and the editor
+picks from the pictures list. datagen compiles it to 4bpp chars for
+`$6000`, a 32x32 tilemap for `$7000`, and SPLICES its sixteen colours
+into the plane's palette at 112-127, so the engine still uploads ONE
+CGRAM block. 256 wide is not a maximum but the natural width: BG2's map
+is 32 tiles and wraps, so the picture loops seamlessly as the camera
+turns.
+
+`m7_sky_scroll` pans it a quarter of the camera's travel for distance,
+plus one screen width over a whole turn — which is exactly right for a
+looping 256-wide panorama — and puts its BOTTOM on the horizon.
+
+**Colour 0 is transparent, and that is the point.** A cloud layer drawn
+on index 0 lets the flat sky colour (CGRAM 0) show behind it, so the two
+products compose instead of competing.
+
+**The bug the first run produced: a striped sky.** `to_m7_sky` must
+reserve CHAR 0 BLANK. BG1 is silenced by pointing its tilemap at a zeroed
+region, which renders char 0 everywhere — and if char 0 is the picture's
+top-left tile, BG1 papers the sky with it, scrolled by M7HOFS/M7VOFS.
+Same reservation, and the same reason, as pattern 0 of the plane (§5.1).
+
+### 7.2g An upper layer through EXTBG — the spike says STOP
+
+**Question.** Can a world map have the scene's upper layer, the tiles
+that pass IN FRONT of the hero?
+
+**The hardware answer is yes, and it fits unusually well.** Mode 7 EXTBG
+(`SETINI $2133` bit 6) renders the SAME plane twice: pixels whose bit 7
+is set go to BG2 at high priority, the rest to BG1. The colour index
+drops to seven bits — 0-127, which is ALREADY our rule (§3.4), so the
+feature costs no colours at all. datagen would composite each (lower,
+upper) pair into one block, bit 7 set on the pixels that came from the
+upper tile, and the plane would carry both. The block compositor written
+for autotiles (§5.1) is the same machinery.
+
+**But it cannot be verified with the tooling this project has.** Three
+builds — bit 7 on NO pixel, on HALF of each pattern, on EVERY pixel —
+produce three different VRAM contents and **the same image, byte for
+byte** (identical MD5). The hero is never occluded. Colours are also
+unchanged, so the emulator does mask the index to seven bits: it knows
+about EXTBG and simply does not apply the priority.
+
+The emulator is snes9x libretro, the only core in the repository, and
+there is no second one to cross-check against.
+
+**So this is not built.** Not because the SNES cannot do it — it can —
+but because shipping it would mean shipping a rendering path nobody can
+look at, in a system where NOTHING has yet run on hardware (§12). A
+feature that is invisible to every gate is a feature that breaks
+silently. If a core that implements EXTBG priority (or real hardware)
+becomes available, the design above is ready and the work is small.
+
+**What IS verifiable today, and does the same job.** The OBJ region is
+untouched in Mode 7 (§3.1), and the engine already turns a TILE into a
+sprite block: "tile appearance" for events (T4). A tree top in front of
+the hero is an event with a tile appearance, and it works on the plane
+right now. It costs sprite budget rather than pattern budget, and it is
+placed per event rather than painted — which suits landmarks, not
+forests.
+
+**Two spikes, two outcomes.** §7.2f proved a technique and it shipped;
+this one refuted the ability to VERIFY a technique, and it did not. That
+is what the spikes are for, and the negative one is worth as much as the
+positive.
+
+### 7.2h The NPCs — the inverse projection, and the cap it forced
+
+Until this step a world map showed the hero and nothing else. Every other
+sprite stayed hidden, because "position minus camera" is simply wrong on
+a pitched plane: the ground is a perspective, so an NPC two tiles north
+of the hero belongs HIGHER on the screen and NEARER the middle, not 32
+pixels up.
+
+**The maths.** The PPU goes screen -> plane. With `u = x - 128` and
+`d = y - horizon`, the transform §7.2b sets up is
+
+```
+px - X0 = m*cos + n*sin        m = dA*u/d
+py - Y0 = m*sin - n*cos        n = dA^2/d
+```
+
+and §7.2d puts the rotation centre at `(X0, Y0) = camera + (-dA*sin, +dA*cos)`.
+Substituting the centre and inverting the rotation gives the other
+direction, which is what a sprite needs — for `(ux, uy)` = the NPC minus
+the camera:
+
+```
+L  = ux*cos + uy*sin
+D0 = ux*sin - uy*cos + dA          D0 <= 0: behind the camera, cull
+d  = dA^2 / D0                     y = horizon + d
+u  = L*dA / D0                     x = 128 + u
+```
+
+Two divisions and four multiplications per NPC, all in 16 bits. They stay
+there because `(ux, uy)` is shifted down by the SAME amount on both axes
+(so the rotation stays a rotation) and because the second division is
+split into a near case and a far one. `m7_project` in `m7.c`; the cosines
+and sines come compiled in 8.8 alongside the rotation tables, since the
+per-scanline tables go the other way and cannot serve.
+
+Five checks pinned the sign conventions, read out of WRAM in the emulator
+rather than judged from a screenshot:
+
+| case | expected | measured |
+|---|---|---|
+| NPC on the hero's tile, rotation step 3 | (128, anchor) | (128, 176) |
+| NPC 4 tiles east, step 0 | 64 px right, on the anchor | (192, 176) |
+| NPC 4 tiles east, step 4 (90°) | straight ahead, far | (128, 134) |
+| NPC 4 tiles east, step 8 (180°) | mirrored | (64, 176) |
+| NPC 4 tiles east, step 12 (270°) | behind the camera: culled | culled |
+
+**The cost, and the cap §7.2 promised.** Measured with the V counter on a
+world map carrying 24 NPCs all visible around the hero — the worst case —
+sweeping the per-frame budget:
+
+| NPCs projected per frame | loop turns in 900 frames | cost |
+|---|---|---|
+| 0 | 498 (60 fps) | 2 lines |
+| 1 | 498 (60 fps) | 34 lines |
+| **3** | **498 (60 fps)** | **98 lines** |
+| 4 | 272 (30 fps) | 131 lines |
+| 5 | 249 (30 fps) | 162 lines |
+| 6 | 249 (30 fps) | 194 lines |
+
+**~32 screen lines per projected NPC**, and the frame holds three. With
+the projection stubbed out the same loop costs ~13 lines per NPC, so ~19
+of the 32 are the arithmetic itself: the two divisions are the price, and
+only assembly would move them.
+
+So `actors_draw_m7` takes the fallback §7.2 decided in advance: three
+NPCs per frame, round robin over the rest, and the OAM of the ones not
+reached is left untouched so nothing flickers. An INACTIVE slot costs a
+byte read and does NOT spend budget, so the cap only bites when a crowd
+is really on screen; a character then lags by up to `ceil(live/3)` frames,
+which at half a pixel per frame is a few pixels of stagger in the
+distance.
+
+**Two limits stated rather than hidden**, both structural:
+
+- **No scaling.** The SNES cannot scale a sprite. A distant NPC is a
+  full-size character standing on the horizon. Mode 7 games solved this
+  with several hand-drawn sizes of the same sprite — that is art, not
+  code, and it belongs to a later step if the author wants it.
+- **No depth order.** OBJ priority is the OAM index; reordering the OAM
+  every frame costs more than the projection. A far NPC can be drawn over
+  a near one.
+
+### 7.2i The dialogue band — a textbox on a plane
+
+Mode 7 has one layer and no BG3, so a textbox had nowhere to be drawn.
+The way out is the one §7.2f already proved for the sky: leave Mode 7 for
+the lines the box occupies. An HDMA on `$2105` puts the screen in mode 1
+from the top of the dialogue band down, and BG3 draws the box there
+exactly as it does on an ordinary scene.
+
+Three things had to move, and none of them cost a byte per frame:
+
+- **BG3 relocates.** Its map, its chars and its scrolls are all free in
+  Mode 7 — nothing touches them. The plane owns `$0000-$3FFF`, so the
+  font goes to `$7000` and the UI map to `$7C00`. `$7000` is the only
+  free 4K-WORD boundary above the OBJ region (BG34NBA is a nibble),
+  which is what pushed the sky tilemap onto `$7400`.
+- **CGRAM 16-19** — BG3 palette 4, the font's — is reloaded after the
+  plane's palette, which had just written over it. Three colours, against
+  the sixteen an image sky costs.
+- **Mode 1 is `0x09`, not `0x01`**: bit 3 is BG3's high priority, the
+  value an ordinary scene uses. That is what puts the box above the
+  sprites, so a dialogue layers here the way it does everywhere.
+
+**The channel is the whole constraint — and it is why the rotation was
+re-plumbed.** Channel 3 carries the sky (the window that masks the plane
+above the horizon, or the sky picture's own BGMODE table); the band
+needs a BGMODE table of its own, and it lives on channel 1 — on every
+kind of map:
+
+| map | channels | dialogue |
+|---|---|---|
+| does not turn | 6, 5 = A and D flat; 3 = sky; 4 = gradient | **works, band on 1** |
+| turns | 6 = A+B, 5 = C+D (mode 3, §7.2d); 3 = sky; 4 = gradient | **works, band on 1** |
+
+The second line existed as "refused" for exactly one release. The
+four-channel rotation spent every free channel and a dialogue on a
+turning map could not be drawn at all — an author hit it as "the box
+opens, freezes the hero, and shows nothing". Pairing the rotation onto
+two mode-3 channels (§7.2d) freed channel 1 everywhere, and the band no
+longer has a special case. Verified in the emulator: the paired tables
+render byte-identical to the four-channel ones (same MD5 at a
+67.5-degree angle), and the box opens and closes cleanly on a turning
+map with the sky mask intact.
+
+**Two things measured the hard way**, both worth writing down so the next
+attempt does not repeat them:
+
+- A THREE-band table — mode 1 for the sky, mode 7 for the plane, mode 1
+  for the dialogue — does not work. The band appears (the backdrop shows)
+  but BG3 stops drawing in it. Reproducible with a correct table in RAM
+  and the channel armed; unexplained. It is why the sky picture stands
+  down while a box is open: everything above the band stays in Mode 7.
+- **Closing the band needs an explicit `REG_BGMODE = 0x07`.** When the
+  HDMA stops writing `$2105` the register KEEPS the last value it was
+  given — mode 1 — and the plane never comes back: the whole screen stays
+  the sky colour with the sprites on it. One register write a frame.
+
+**A pre-existing bug the work surfaced.** The 2bpp font at `$1000` is
+destroyed by ANY Mode 7 screen (the plane's `dmaFillVram16` covers it)
+and was never reloaded, so a dialogue after closing a Mode 7 screen drew
+garbage. `do_warp` now puts BG3 back where an ordinary scene expects it.
+
 ### 7.3 Events
 
-Events are NOT lost on a world map. What is lost is dialogue.
+Events are NOT lost on a world map — dialogue included, since §7.2i.
 
 | Works | Falls away |
 | --- | --- |
-| Placement, pages, conditions (switches / variables) | Message and Choice (no BG3) |
-| Movement routes | HUD widgets, the cursor list |
-| Touch, Auto and Parallel triggers | The Action trigger — it would open a textbox |
-| Warps, switches, variables, sounds, music | TILE appearance (T4) — no upper layer, no priority bit |
+| Placement, pages, conditions (switches / variables) | HUD widgets, the cursor list |
+| Movement routes | TILE appearance (T4) — no upper layer, no priority bit |
+| Touch, Auto and Parallel triggers, and the Action trigger with its dialogue (§7.2i) | |
+| Warps, switches, variables, sounds, music | |
 | Screen effects, transitions, the zoom itself | |
 | The event's sprite (the OBJ region is outside the Mode 7 area) | |
 
@@ -437,20 +985,115 @@ where "an ordinary scene in Mode 7" is not.
 
 ### 7.4 Collision
 
-From the tileset's 256-byte passability table (§5.1), read per 8x8 tile.
-No metatiles, so no indirection.
+From a 256-byte per-map passability table (`m7w{i}_pass`), indexed by
+COMPOSED block id — and the block id comes from `m7_world_block`, which
+reads the map's ROM data directly. A world map ships NO grids in
+`scenes.bin` at all: no WRAM copy, no per-cell collision, no
+decompression budget. `scene_collision` becomes
+`pass[m7_world_block(tx, ty)]`: one far read and one table lookup on
+the hot path, and it is what lets a map collide at ANY size while the
+plane only holds a window — collision reads ROM, never VRAM and never
+WRAM.
+
+### 7.5 Big world maps — streaming the plane
+
+The plane is 128x128 tiles and that is a hardware fact (§3.1); 64x64
+blocks was therefore the map's ceiling. This section is how a map grows
+to **255x255 blocks (4080x4080 px)** — the scale of FF6's world of
+Balance, which is 256x256 of the same 16-pixel tiles — without touching
+that fact: the plane holds a 64x64-block WINDOW centred on the hero,
+and the window follows him.
+
+**The map lives in ROM, not WRAM.** The streaming strips already read
+the ROM block map; collision now does too (§7.4), so the WRAM
+decompression budget stops existing for world maps entirely. The first
+version of this section spent both scene buffers on a WRAM copy and
+capped the world at 128x128 — that copy is gone. Two ceilings remain,
+both structural: 255 a side because block coordinates and the scene
+header travel in a byte (and 256 would push the hero's far edge past
+the 13-bit signed Mode 7 scroll registers), and past 16384 cells the
+map's ROM format changes:
+
+**Slices.** tcc-816 puts a file's arrays in one section and WLA fits a
+section inside ONE 32 KB bank, so a 65 KB map cannot be a single
+array. Past 16384 cells datagen emits the map in 64-row SLICES, each
+row padded to 256 bytes — `slice[by >> 6][((by & 63) << 8) | bx]`, two
+shifts and no multiply, which suits the hot collision path. The
+padding costs ROM (a full 255x255 map is 4 slices, 64 KB) but buys the
+addressing; under 16384 cells the map stays one linear `w*h` array and
+pays nothing new. `m7_world_block` hides the difference from every
+caller.
+
+**Coordinates are u16 where the window overhangs.** On a 255-wide map
+the window's far edge reaches world block 285, and u8 arithmetic would
+wrap it onto block 29 — showing the west coast on the east horizon.
+The strip builder and the initial expansion therefore compute world
+coordinates in u16: past-the-edge and below-zero (by underflow) both
+fail the bounds test and paint sky.
+
+**Placement is modulo, and the plane must WRAP.** World block (bx, by)
+lives in plane cell (bx & 63, by & 63): no translation anywhere, the
+hero's world coordinates go straight into X0/Y0 and the PPU's own
+mod-1024 sampling does the rest. That requires `M7SEL = 0` (wrap) — on a
+small map the register says "tile 0 outside the plane" so the sky shows
+past the edges, but on a streamed map the hero spends most of his time
+past 1024 px in world coordinates, and with that setting THE ENTIRE
+GROUND rendered as sky. (Symptom worth remembering: plane provably
+correct in a VRAM dump, screen almost all backdrop.) Outside the MAP the
+window's cells hold tile 0, so the sky still shows past the edges,
+exactly like a small map — and the streaming strips must write tile 0
+there too, NOT meta block 0: block 0 is the eraser's black.
+
+**Streaming.** Crossing a block boundary queues ONE incoming line of
+blocks per axis: 64 far reads into two 128-byte strips in the main loop
+(rows = quadrants 0+1 and 2+3; columns = 0+2 and 1+3), flushed next
+VBlank as two DMAs each — rows with VMAIN $00, columns with VMAIN $02
+(increment by 128 words, one write per plane row). The window trails the
+hero one block per axis per frame; at 2 px/frame he cannot outrun it,
+and a strip not yet flushed just delays the next crossing's build by a
+frame. Cost: ~256 bytes of VBlank DMA on a crossing frame, nothing
+otherwise.
+
+**The sky pays for it.** The horizon must never see past the window's
+edge, or the seam being rewritten would show. The line d below the
+horizon samples dA²/d ahead and 128·(dA/d) to each side; rotated, the
+far corner sits at (dA/d)·√(128²+dA²) from the camera, which must stay
+inside the window's 512-px half minus a 16-px slack for the edge:
+
+    cut = ceil(dA * isqrt(16384 + dA²) / 496)   (m7_persp_set)
+
+`pv_sky` moves down to `horizon + cut + 1` — about 335 px of view at the
+default tilt instead of ~900. The formula is rotation-safe, so the same
+map may turn or not with no second case. (It also forced the sky
+window's HDMA table to clamp its second block: with a deep sky there are
+fewer than 127 ground lines, and the old fixed `224 - sky - 127`
+underflowed.) The Mode 7 preview mirrors the same integer cut, so the
+author sees the real view distance while painting.
+
+**Warps.** A classic scene marks warp cells in the collision grid; a
+world map has none, so `check_warp` scans the scene's warp LIST directly
+there. The list is short (a handful of town entrances) and the scan only
+runs on world maps.
+
+Everything else — the dialogue band, rotation (paired channels), the
+NPC projection, the sky products — is untouched: streaming is
+invisible to every other subsystem because the window is invisible to
+world coordinates.
 
 ## 8. Editor
 
 The system is only worth building if it stays usable by an author who has
 never heard of Mode 7. Five rules, in decreasing order of importance.
 
-### 8.1 The words "Mode 7" never appear
+### 8.1 The editor's vocabulary — revised
 
-It is an implementation detail: it belongs to the engine and to `docs/`.
-In the editor the command is **"Zoom cinématique"** and the scene type is
-**"Carte du monde"**. The engine module is `m7.c`. The two vocabularies
-never meet — exactly as "écran composé" and `STAGE` do today.
+The original rule was "the words Mode 7 never appear": implementation
+detail, engine and `docs/` only. The AUTHOR overruled it (2026-08) — the
+scene type in the editor is now plainly **"Mode 7"**, because that is
+the name the retro-dev audience actually knows it by. The softer form
+of the rule survives: the zoom command stays **"Zoom cinématique"**, and
+no other engine term (STAGE, HDMA, EXTBG…) leaks into the UI. A rule
+about jargon bends to what the users call the thing.
 
 ### 8.2 The scene type is chosen at CREATION, not ticked afterwards
 
@@ -464,7 +1107,9 @@ rather than letting the author find out the hard way:
 
 - the upper-layer tab disappears;
 - the tile palette is restricted to the scene's Mode 7 tileset;
-- the size is bounded to 64x64;
+- the size is bounded to 255x255 (streamed past 64x64, sliced in ROM
+  past 16384 cells, §7.5 — the creation modal and the preview both say
+  what each threshold costs);
 - the command picker hides Message, Choice and the HUD widgets;
 - `DiagnosticsModal.tsx` catches in plain words anything that slips past.
 
@@ -507,6 +1152,38 @@ timeline and playback, `UiThemeModal.tsx` already does faithful live
 preview. The conversion is written ONCE, in datagen, and the editor calls
 it; two implementations would drift and the preview would start lying.
 
+**Built: `M7PreviewModal.tsx`**, reachable from the Scene tab of a world
+map. It runs the PPU's own transform line by line — the same `A`, `B`,
+`C`, `D` from the same horizon, anchor and rotation step the scene
+carries — over the map painted flat on an offscreen canvas, and it puts
+the NPCs through `m7_project`'s inverse of it. Horizon, anchor and
+rotation step are sliders, the camera is a drag on the image, and an
+angle tried here can be pushed back onto the scene with one button.
+
+**How faithful, measured rather than asserted.** The demo's `monde` was
+built into a ROM booting straight onto the plane, run 900 frames in the
+emulator, and compared with the preview at the same camera. Quantising
+both to the SNES's 15 bits — which is the only difference the preview
+cannot avoid, since it samples a 24-bit PNG — **91.1 % of the 57 344
+pixels are identical**. The remainder is the grass's dithered detail and
+the sprite bodies; the island's silhouette, the road, the horizon line
+and the three characters all land on the same pixels.
+
+Three differences are deliberate and stated in the window itself:
+
+- Sprites do NOT shrink with distance, because the SNES cannot scale one.
+- The preview projects EVERY event; the engine does three per frame and
+  rotates the rest (§7.2h).
+- An ERASED cell inside the map is black (datagen compiles the eraser to
+  a black block, S10) while the area PAST the map is the sky colour (the
+  plane holds character 0 there, which is CGRAM 0). Two different blanks,
+  and the preview keeps them apart because the game does — getting this
+  backwards was the one real bug the emulator comparison caught.
+
+The smoke gate opens the window on the demo's world map and fails if its
+canvas comes back nearly black, which is what a broken projection looks
+like from the outside.
+
 ## 9. Opcodes
 
 Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
@@ -517,10 +1194,25 @@ Free from **0x40** onwards (`SETLOC` at `0x3F` is the last one used,
 | `M7OPEN` | `img u8, dur u8` | Opens the Mode 7 screen under a fade |
 | `M7ZOOM` | `ramp u8, flags u8` | Plays a ramp; flags bit 0 = loop, bit 1 = wait |
 | `M7CLOSE` | `dur u8` | Closes it — internal warp back to the scene |
+| `M7VIEW` | `horizon u8, anchor u8` | World map CAMERA ANGLE (§7.2c) |
+| `M7ROT` | `step u8` | World map rotation, SNAPS to a step (§7.2d) |
+| `M7TURN` | `step u8, frames u8, flags u8` | TURNS to a step, short way round; bit 1 waits |
+
+The SKY (§7.2e) has no opcode: it is scene data only, because it belongs
+to the place rather than to a moment. A script that wants a sunset uses
+the ordinary screen tint.
+
+`M7ZOOM` is INERT on a world map, and cannot be otherwise: the
+perspective rewrites `M7A`/`M7D` every scanline through HDMA, so a matrix
+scale never reaches the screen. A world map's zoom is its CAMERA ANGLE
+(§7.2c) — closing the gap between horizon and anchor tightens the view —
+and the engine, the opcode table and the editor's form all say so rather
+than letting the command fail silently.
 
 The wait reuses the VM's non-UI wait mechanism, as `VM_WAIT_STAGE` does.
 A looping ramp never blocks, for the same reason a looping animation does
-not.
+not. `M7VIEW` waits for nothing: it rewrites tables rather than queueing
+a request, so it is the one Mode 7 opcode with no VM pause.
 
 ## 10. What the spike proved
 
@@ -682,6 +1374,30 @@ screen re-fires after the internal warp, because the warp reloads the
 scene and re-runs its triggers. That is the documented behaviour of the
 composed screen too. Guard it with a switch and a second page, as any
 real project would.
+
+## 11c. Two ways a world map came out looking classic
+
+Both were reported from the editor, and both come from the same place:
+the scene TYPE never survived the trip to the engine.
+
+**1. `kind` was dropped by the save.** `editor/src/io.ts` writes the scene
+JSON field by field, by hand, so a new optional field is invisible to the
+type checker and simply never reaches disk. The file carries a comment
+three lines above the scene block warning about exactly this — the S9
+effect layer shipped broken the same way. A scene saved without `kind`
+compiles as an ordinary map, `m7w_count` stays 0, `m7_world_open` returns
+0 and the engine renders it in mode 1: identical to a classic scene, no
+error anywhere. **A field added to `Scene` is not added until it is in the
+serialiser.**
+
+**2. The upper-layer validation asked the wrong question.** It refused a
+world map when `scene.upper` EXISTED. But the editor always writes an
+upper layer, filled with `EMPTY` — so once `kind` did survive the save,
+every world map the editor could produce was refused by datagen. The
+check now asks whether anything is PAINTED on it (any tile != `EMPTY`).
+The two states an editor can be in — "the array is absent" and "the array
+is there and blank" — are not the same question, and a validation written
+against the format rather than against the tool tests the wrong one.
 
 ## 12. Gates
 

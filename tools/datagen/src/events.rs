@@ -494,6 +494,9 @@ impl<'a> EventCompiler<'a> {
                 "slot_fx" => self.cmd_slot_fx(cmd, out)?,
                 "stage_close" => self.cmd_stage_close(cmd, out)?,
                 "m7" => self.cmd_m7(cmd, out)?,
+                "m7_view" => self.cmd_m7_view(cmd, out)?,
+                "m7_rot" => self.cmd_m7_rot(cmd, out)?,
+                "m7_turn" => self.cmd_m7_turn(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
                 "spotlight" => self.cmd_spotlight(cmd, out)?,
@@ -1613,6 +1616,39 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
+    /// `m7_view` — the world map's CAMERA ANGLE, mid-game.
+    fn cmd_m7_view(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let (horizon, anchor) = m7_view_preset(cmd)?;
+        out.push(format!("  M7VIEW {} {}", horizon, anchor));
+        Ok(())
+    }
+
+    /// `m7_rot` — turns the world map's plane around the hero.
+    fn cmd_m7_rot(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let step = cmd["step"].as_u64().unwrap_or(0);
+        if step > 63 {
+            bail!(
+                "m7_rot : cran {} — 64 crans au maximum (0-63) ; le moteur \
+                 ramene le cran au nombre de crans de la scene",
+                step
+            );
+        }
+        out.push(format!("  M7ROT {}", step));
+        Ok(())
+    }
+
+    /// `m7_turn` — an ANIMATED rotation: the engine walks the steps.
+    fn cmd_m7_turn(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let step = cmd["step"].as_u64().unwrap_or(0);
+        if step > 63 {
+            bail!("m7_turn : cran {} — 64 crans au maximum (0-63)", step);
+        }
+        let frames = cmd["frames"].as_u64().filter(|&v| v <= 255).unwrap_or(30);
+        let wait = if cmd["wait"].as_bool().unwrap_or(true) { 2 } else { 0 };
+        out.push(format!("  M7TURN {} {} {}", step, frames, wait));
+        Ok(())
+    }
+
     fn cmd_stage_close(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let dur = cmd["dur"].as_u64().filter(|&v| v <= 255).unwrap_or(20);
         out.push(format!(
@@ -2067,5 +2103,83 @@ impl<'a> EventCompiler<'a> {
         let dir = cmd["dir"].as_str().context("face sans direction")?;
         out.push(format!("  FACE {} {}", Self::u8_field(cmd, "event")?, dir));
         Ok(())
+    }
+}
+
+/// The camera-angle PRESETS of a world map, shared by the scene field
+/// and the `m7_view` command.
+///
+/// Named rather than numeric because "horizon 88, anchor 168" describes
+/// nothing to an author, while "rasante" does. The two numbers stay
+/// reachable through `preset: "custom"` for anyone who wants them — the
+/// engine takes lines, not names, so nothing is lost either way.
+///
+/// The gap between the two IS the tilt: 176 lines is nearly top-down,
+/// 56 is a low raking view. Under 16 the vertical scale leaves its 8.8
+/// register and the whole screen turns to sky.
+pub fn m7_view_preset(cmd: &Value) -> Result<(u8, u8)> {
+    let preset = cmd["preset"].as_str().unwrap_or("standard");
+    let (h, a) = match preset {
+        "plongeante" => (24u8, 200u8), /* gap 176 — almost top-down */
+        "standard" => (56, 176),       /* gap 120 — the default */
+        "rasante" => (88, 168),        /* gap 80 */
+        "tres_rasante" => (104, 160),  /* gap 56 — F-Zero territory */
+        "custom" => {
+            let h = cmd["horizon"].as_u64().unwrap_or(56);
+            let a = cmd["anchor"].as_u64().unwrap_or(176);
+            if h > 180 {
+                bail!("m7_view : horizon {} — maximum 180 (l'ecran fait 224 lignes)", h);
+            }
+            if a > 216 {
+                bail!("m7_view : ancrage {} — maximum 216 (le heros y tient debout)", a);
+            }
+            if a < h + 16 {
+                bail!(
+                    "m7_view : ancrage {} pour un horizon {} — il faut au moins 16 \
+                     lignes d'ecart, sinon tout l'ecran devient ciel",
+                    a, h
+                );
+            }
+            (h as u8, a as u8)
+        }
+        other => bail!(
+            "m7_view : angle '{}' inconnu — attendu plongeante, standard, \
+             rasante, tres_rasante ou custom",
+            other
+        ),
+    };
+    Ok((h, a))
+}
+
+#[cfg(test)]
+mod m7_view_tests {
+    use super::*;
+
+    fn cmd(s: &str) -> Value {
+        serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn the_default_preset_is_the_engines_own_angle() {
+        assert_eq!(m7_view_preset(&cmd(r#"{}"#)).unwrap(), (56, 176));
+    }
+
+    #[test]
+    fn a_raking_preset_tilts_more_than_a_plunging_one() {
+        let (hp, ap) = m7_view_preset(&cmd(r#"{"preset":"plongeante"}"#)).unwrap();
+        let (hr, ar) = m7_view_preset(&cmd(r#"{"preset":"rasante"}"#)).unwrap();
+        assert!(ap - hp > ar - hr, "the gap IS the tilt");
+    }
+
+    #[test]
+    fn a_custom_angle_too_flat_to_render_is_refused() {
+        let e = m7_view_preset(&cmd(r#"{"preset":"custom","horizon":100,"anchor":110}"#));
+        assert!(e.is_err());
+    }
+
+    #[test]
+    fn an_unknown_preset_names_the_ones_that_exist() {
+        let e = m7_view_preset(&cmd(r#"{"preset":"oblique"}"#)).unwrap_err().to_string();
+        assert!(e.contains("rasante"), "{}", e);
     }
 }

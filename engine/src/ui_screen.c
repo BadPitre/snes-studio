@@ -14,6 +14,17 @@
 
 u16 ui_map[32 * UI_ROWS];
 static u8 ui_lo, ui_hi; /* dirty span — lo > hi means nothing to transfer */
+/* Where the VRAM map lives. Constant everywhere except on a Mode 7 world
+   map, whose plane owns the low half of VRAM (vram.h). */
+static u16 ui_base = VRAM_BG3_MAP;
+
+static void ui_blit_all(void)
+{
+  /* Whole VRAM map transparent: the buffer's 28 rows, then the 4
+     off-screen rows of the 32x32 map (a copy of the start — zeros) */
+  dmaCopyVram((u8 *)ui_map, ui_base, 32 * UI_ROWS * 2);
+  dmaCopyVram((u8 *)ui_map, ui_base + 32 * UI_ROWS, 32 * 4 * 2);
+}
 
 void ui_screen_init(void)
 {
@@ -23,10 +34,17 @@ void ui_screen_init(void)
     ui_map[i] = 0;
   ui_lo = 255;
   ui_hi = 0;
-  /* Whole VRAM map transparent: the buffer's 28 rows, then the 4
-     off-screen rows of the 32x32 map (a copy of the start — zeros) */
-  dmaCopyVram((u8 *)ui_map, VRAM_BG3_MAP, 32 * UI_ROWS * 2);
-  dmaCopyVram((u8 *)ui_map, VRAM_BG3_MAP + 32 * UI_ROWS, 32 * 4 * 2);
+  ui_blit_all();
+}
+
+void ui_screen_rebase(u16 addr)
+{
+  ui_base = addr;
+  /* The buffer is the truth of the layer, so moving the map is a matter
+     of writing it out again. Whatever was on screen stays on screen. */
+  ui_blit_all();
+  ui_lo = 255;
+  ui_hi = 0;
 }
 
 void ui_mark(u8 row, u8 h)
@@ -75,7 +93,7 @@ void ui_screen_vblank(void)
   if (fit < want)
     want = fit;
   ofs = (u16)ui_lo << 5; /* 32 entries per row */
-  dmaCopyVram((u8 *)ui_map + (ofs << 1), VRAM_BG3_MAP + ofs,
+  dmaCopyVram((u8 *)ui_map + (ofs << 1), ui_base + ofs,
               (u16)want << 6);
   (void)vbl_take(VBL_COST_UI(want));
   ui_lo += want;

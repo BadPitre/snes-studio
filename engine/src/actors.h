@@ -43,6 +43,16 @@ u8 actors_routes_busy(void);
    Off-screen actors are hidden. */
 void actors_draw(void);
 
+/* Same job on a Mode 7 WORLD MAP, where a sprite's screen position has
+   to be projected through the pitch (and the rotation) rather than read
+   off the camera. Costly enough that it only reaches a few actors per
+   frame, round robin — see the comment on the definition. */
+void actors_draw_m7(void);
+
+/* Drops the "already showing" caches: opening a world map hides all 128
+   OBJs behind the draw loop's back. */
+void actors_draw_reset(void);
+
 /* Index of the NPC (type npc, blocking) standing on tile (tx,ty), or
    ACTOR_NONE. Triggers (touch/auto) are invisible and walkable, so they
    do not count here. */

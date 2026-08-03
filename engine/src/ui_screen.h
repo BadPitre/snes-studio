@@ -19,6 +19,11 @@ extern u16 ui_map[32 * UI_ROWS];
 /* Clears the buffer AND the whole VRAM map — screen off only. */
 void ui_screen_init(void);
 
+/* Moves the VRAM map and writes the buffer out to it — screen off only.
+   A world map's plane owns the low half of VRAM, so the UI layer lives
+   somewhere else while one is up (vram.h). The BUFFER is untouched. */
+void ui_screen_rebase(u16 addr);
+
 /* Declares rows [row, row+h) modified — after every write. */
 void ui_mark(u8 row, u8 h);
 

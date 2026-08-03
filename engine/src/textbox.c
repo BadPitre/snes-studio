@@ -14,6 +14,7 @@
 #include "textbox.h"
 #include "rom_layout.h"
 #include "vram.h"
+#include "m7.h"
 #include "vm.h" /* \v[n]: vars16 inserted at decode time */
 #include "ui_screen.h" /* shared BG3 buffer (M1) */
 #include "ui_overlay.h" /* widget refresh after clearing (W1) */
@@ -151,6 +152,9 @@ static void tb_clear_band(void)
   ui_mark(UI_SHADOW_ROW, UI_SHADOW_H);
   overlay_refresh();
   timer_refresh();
+  /* On a Mode 7 world map the dialogue band is a MODE-1 band cut into
+     the plane by HDMA (m7.c): no box, no band. Inert everywhere else. */
+  m7_ui_band(0);
 }
 
 /* Draws the WINDOW (col,row,w,h in absolute tiles) into ui_map: the
@@ -187,6 +191,10 @@ static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
         ui_map[base + x] = fill;
     }
   }
+  /* A box is down: on a world map, cut a mode-1 band into the plane from
+     the top of the DIALOGUE BAND (the layout's own reserved rows, not
+     this box's) so every style lands inside it. */
+  m7_ui_band((u8)(UI_SHADOW_ROW * 8));
 }
 
 /* Typewriter (UI_TEXT_SPEED frames per character, 0 = instant). State of
@@ -394,13 +402,24 @@ void textbox_set_style(u8 n)
   tb_skin = ui_st_skin[n];
 }
 
+/* Puts BG3's chars and map somewhere else and re-uploads the font.
+   TWO callers, both Mode 7: a world map moves the UI layer above the OBJ
+   region because the plane owns the low half of VRAM, and coming back
+   from ANY Mode 7 screen has to put it back — the plane's upload wiped
+   the font where it stood, which is why a dialogue after a Mode 7 screen
+   used to draw garbage. Screen off. */
+void textbox_gfx_at(u16 gfx, u16 map)
+{
+  bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, gfx);
+  bgSetMapPtr(2, map, SC_32x32);
+}
+
 void textbox_init(void)
 {
   /* 2bpp font + palette — screen off, safe transfers. Clearing the BG3
      map is ui_screen_init's job (shared buffer, M1). */
-  bgInitTileSetData(2, (u8 *)font_gfx, font_gfx_size, VRAM_BG3_GFX);
+  textbox_gfx_at(VRAM_BG3_GFX, VRAM_BG3_MAP);
   textbox_load_pal();
-  bgSetMapPtr(2, VRAM_BG3_MAP, SC_32x32);
 
   textbox_set_style(0); /* default style — EXPLICIT init (tcc) */
 

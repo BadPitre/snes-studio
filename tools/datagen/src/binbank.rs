@@ -97,8 +97,21 @@ pub fn build_scene_bank(
 
         // The three grids travel RLE-compressed and are expanded at load
         // time into the engine's WRAM buffers — hence the per-scene cell
-        // limit.
-        if w * h > MAP_BUF_CELLS {
+        // limit. A WORLD MAP ships NO grids at all: its block map lives
+        // in ROM and collision reads it through the per-block table
+        // (§7.5), so its only bound is the header's u8 sides — 255x255
+        // blocks, the FF6 scale.
+        let world = sc.is_worldmap();
+        if world {
+            if w > 255 || h > 255 {
+                bail!(
+                    "carte du monde '{}' : {}x{} — 255 cases de côté au \
+                     plus (les coordonnées de bloc et l'en-tête de scène \
+                     tiennent sur un octet)",
+                    sc.name, w, h
+                );
+            }
+        } else if w * h > MAP_BUF_CELLS {
             bail!(
                 "scene '{}' : {}x{} = {} tiles > {} (budget WRAM de \
                  décompression, spec §1.6) — réduire la map ou la découper",
@@ -106,21 +119,24 @@ pub fn build_scene_bank(
             );
         }
         // Collision derived from the tileset (spec §1.4). Warp tiles are
-        // marked 0x02 by the tool, and must be walkable.
+        // marked 0x02 by the tool, and must be walkable. A world map has
+        // no collision grid to mark — the engine scans its warp LIST.
         let mut collision = g.collision.clone();
-        for wp in &sc.warps {
-            let ofs = wp.y as usize * w + wp.x as usize;
-            if collision[ofs] & 0x0F != 0 {
-                bail!(
-                    "scene '{}' : warp ({},{}) sur une tile solide",
-                    sc.name, wp.x, wp.y
-                );
+        if !world {
+            for wp in &sc.warps {
+                let ofs = wp.y as usize * w + wp.x as usize;
+                if collision[ofs] & 0x0F != 0 {
+                    bail!(
+                        "scene '{}' : warp ({},{}) sur une tile solide",
+                        sc.name, wp.x, wp.y
+                    );
+                }
+                collision[ofs] = 0x02;
             }
-            collision[ofs] = 0x02;
         }
-        let rle_lower = rle_encode(&g.lower);
-        let rle_upper = rle_encode(&g.upper);
-        let rle_col = rle_encode(&collision);
+        let rle_lower = if world { Vec::new() } else { rle_encode(&g.lower) };
+        let rle_upper = if world { Vec::new() } else { rle_encode(&g.upper) };
+        let rle_col = if world { Vec::new() } else { rle_encode(&collision) };
         grids_raw += 3 * w * h;
         grids_rle += rle_lower.len() + rle_upper.len() + rle_col.len();
 

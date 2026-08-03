@@ -282,6 +282,78 @@ impl IndexedImage {
         Ok((chars, map, pal))
     }
 
+    /// A world map's SKY IMAGE: the band shown above the horizon by the
+    /// mid-frame video mode switch (PLANNING_SYSTEME_MODE7 §7.2f).
+    ///
+    /// Like a picture, with three differences that come from where it
+    /// lives. It sits in the 16 KB the Mode 7 plane leaves free, so at
+    /// most 256 chars, not 512. Its map entries carry PALETTE 7, because
+    /// mode 1's BG2 indexes CGRAM 0-127 — the plane's own half — and the
+    /// only way to give the sky colours of its own is to reserve the top
+    /// sixteen. And 256 pixels wide is not a maximum but the natural
+    /// width: BG2's map is 32 tiles and wraps, so a 256-wide sky loops
+    /// seamlessly as the camera turns.
+    ///
+    /// COLOUR 0 IS TRANSPARENT, and that is useful rather than a
+    /// limitation: a cloud layer drawn on index 0 lets the flat sky
+    /// colour (CGRAM 0) show behind it.
+    pub fn to_m7_sky(&self) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
+        if self.width == 0 || self.height == 0
+            || self.width % 8 != 0 || self.height % 8 != 0
+            || self.width > 256 || self.height > 128
+        {
+            bail!(
+                "ciel mode7 : attendu <= 256x128 avec dimensions multiples de 8,                  recu {}x{}",
+                self.width, self.height
+            );
+        }
+        if let Some(&mx) = self.pixels.iter().max() {
+            if mx >= 16 {
+                bail!(
+                    "ciel mode7 : index de couleur {} utilise (max 15 — le ciel                      tient dans UNE palette de 16, reservee en CGRAM 112-127)",
+                    mx
+                );
+            }
+        }
+        let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let tw = self.width / 8;
+        let th = self.height / 8;
+        // CHAR 0 IS RESERVED BLANK. Not tidiness: in mode 1 BG1 draws as
+        // well, and it is silenced by pointing its tilemap at a ZEROED
+        // region — which renders char 0 everywhere. If char 0 were the
+        // picture's top-left tile, BG1 would paper the sky with it,
+        // scrolled by M7HOFS/M7VOFS. Seen on the first run: the sky came
+        // up striped.
+        let mut chars: Vec<u8> = vec![0u8; 32];
+        let mut seen: HashMap<[u8; 32], u16> = HashMap::new();
+        seen.insert([0u8; 32], 0);
+        let mut map = vec![0u16; 32 * 32];
+        for ty in 0..32usize {
+            for tx in 0..32usize {
+                let ch: [u8; 32] = if tx < tw && ty < th {
+                    self.char4bpp_mapped(tx * 8, ty * 8, &identity)
+                } else {
+                    [0u8; 32]
+                };
+                let n = seen.len() as u16;
+                let id = *seen.entry(ch).or_insert_with(|| {
+                    chars.extend_from_slice(&ch);
+                    n
+                });
+                map[ty * 32 + tx] = id | (7 << 10); /* palette 7 = CGRAM 112 */
+            }
+        }
+        if seen.len() > 256 {
+            bail!(
+                "ciel mode7 : {} tuiles 8x8 uniques (max 256 — la region VRAM                  laissee libre par le plan) — simplifier l'image ou la faire                  moins haute",
+                seen.len()
+            );
+        }
+        let mut pal: Vec<u16> = self.palette.iter().copied().take(16).collect();
+        pal.resize(16, 0);
+        Ok((chars, map, pal))
+    }
+
     /// Encodes one 8x8 char as planar SNES 2bpp (16 bytes).
     fn char2bpp(&self, ox: usize, oy: usize) -> [u8; 16] {
         let mut out = [0u8; 16];

@@ -20,6 +20,7 @@
 #include "screenfx.h"
 #include "ui_overlay.h"
 #include "ui_screen.h"
+#include "vram.h"
 #include "picture.h"
 #include "debug.h"
 #include "effectlayer.h"
@@ -144,7 +145,20 @@ static void do_warp(u8 dest_scene, u8 dest_x, u8 dest_y, u8 tr_out,
   setScreenOff();
 
   picture_reset(); /* warp during an image: scene_load reloads everything */
+  /* Warp OUT of a Mode 7 screen — a world map's warp tile, or a scripted
+     one. Without this the plane never stands down: BGMODE stays 7, TM
+     stays BG1+OBJ, the perspective HDMA keeps firing, and BG1 reads as a
+     Mode 7 plane the VRAM scene_load is about to refill with ordinary
+     tilemaps. The result is a black screen with the sprites floating on
+     it, which is exactly what it looked like. m7_reset was written for
+     this case and simply never called from here. */
+  m7_reset();
   scene_load(dest_scene);
+  /* BG3 back where an ordinary scene expects it, font included. A Mode 7
+     screen wiped the low half of VRAM where the font lives and moved the
+     UI layer above the OBJ region; nothing else puts it back. */
+  textbox_gfx_at(VRAM_BG3_GFX, VRAM_BG3_MAP);
+  ui_screen_rebase(VRAM_BG3_MAP);
   textbox_load_pal(); /* scene_load overwrites CGRAM 16-19 (the font) */
   vm_scene_reset();
   camera_init(); /* a scripted pan does not survive a scene change */
@@ -220,6 +234,12 @@ int main(void)
                          scene's effect layer puts them back (S9) */
 
   setScreenOn();
+
+  /* Booting INTO a world map: the same call do_warp makes, so a project
+     whose START scene is a world map comes up on the plane instead of on
+     the mode-1 scene the lines above have just built. Returns 0 and
+     changes nothing for every ordinary scene. */
+  m7_world_open(scene_ctx.scene_id, 0);
 
   while (1)
   {
@@ -335,6 +355,18 @@ int main(void)
       actors_draw();
       weather_draw(); /* weather: simulation + sprites in one pass (S13) */
     }
+    else if (m7_world_active())
+    {
+      /* A world map is a SCENE, not a cutscene: the hero stays. The
+         camera is placed under him first, so player_draw needs no case
+         of its own (M7-B). The NPCs DO need one: on a pitched plane
+         their screen position is the inverse of the PPU's transform, not
+         a subtraction — actors_draw_m7 pays for that a few slots per
+         frame. */
+      m7_world_track();
+      player_draw();
+      actors_draw_m7();
+    }
     anim_update(); /* frame-by-frame animations (A1) — BEFORE vig_update:
                       the player sets cell and position, the vignette
                       writes the OAM shadow */
@@ -360,9 +392,18 @@ int main(void)
       /* Mode 7 (M7-A): one layer, no streaming, no camera. The matrix is
          eight register writes — the cheapest branch of the three. */
       screenfx_vblank();
-      m7_vblank();
+      /* hdmafx FIRST: it owns $420C and stands down here, and a world
+         map's perspective then arms its own two channels. The other
+         order let hdmafx_suspend wipe the mask m7_vblank had just
+         written. */
       hdmafx_suspend(); /* wave/gradient/spotlight are map ambience */
+      m7_vblank();
       vbl_open();
+      /* The UI layer, on a WORLD MAP only. An image screen has no BG3
+         anywhere — its map still points inside the plane, and writing
+         there would corrupt the picture. */
+      if (m7_world_active())
+        ui_screen_vblank();
       vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
     }
     else if (stage_active())
