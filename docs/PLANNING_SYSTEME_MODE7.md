@@ -1078,12 +1078,15 @@ world coordinates.
 The system is only worth building if it stays usable by an author who has
 never heard of Mode 7. Five rules, in decreasing order of importance.
 
-### 8.1 The words "Mode 7" never appear
+### 8.1 The editor's vocabulary — revised
 
-It is an implementation detail: it belongs to the engine and to `docs/`.
-In the editor the command is **"Zoom cinématique"** and the scene type is
-**"Carte du monde"**. The engine module is `m7.c`. The two vocabularies
-never meet — exactly as "écran composé" and `STAGE` do today.
+The original rule was "the words Mode 7 never appear": implementation
+detail, engine and `docs/` only. The AUTHOR overruled it (2026-08) — the
+scene type in the editor is now plainly **"Mode 7"**, because that is
+the name the retro-dev audience actually knows it by. The softer form
+of the rule survives: the zoom command stays **"Zoom cinématique"**, and
+no other engine term (STAGE, HDMA, EXTBG…) leaks into the UI. A rule
+about jargon bends to what the users call the thing.
 
 ### 8.2 The scene type is chosen at CREATION, not ticked afterwards
 

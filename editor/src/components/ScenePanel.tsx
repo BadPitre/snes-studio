@@ -92,7 +92,7 @@ export default function ScenePanel(props: Props) {
     <div className="panel">
       <div className="panel-title">
         Scène « {scene.name} » — {scene.width}x{scene.height}
-        {world ? " — Carte du monde (Mode 7)" : ""}
+        {world ? " — Mode 7" : ""}
       </div>
 
       {world && (
@@ -130,6 +130,7 @@ export default function ScenePanel(props: Props) {
                   max={180}
                   value={horizon}
                   onChange={(e) => setHorizon(Number(e.target.value))}
+                  title="La ligne d'écran où le sol disparaît. L'écart avec l'ancrage est l'inclinaison de la caméra."
                 />
               </label>
               <label>
@@ -140,6 +141,7 @@ export default function ScenePanel(props: Props) {
                   max={216}
                   value={anchor}
                   onChange={(e) => setAnchor(Number(e.target.value))}
+                  title={`Le héros se tient sur cette ligne, dessinée à l'échelle 1:1. Écart actuel : ${anchor - horizon} lignes${anchor - horizon >= 150 ? " — presque vue de dessus" : anchor - horizon <= 70 ? " — sol très rasant" : ""}.`}
                 />
               </label>
             </div>
@@ -160,20 +162,30 @@ export default function ScenePanel(props: Props) {
             <select
               value={scene.m7_rotate ?? 0}
               onChange={(e) => props.onRotate(Number(e.target.value))}
+              title={
+                scene.m7_rotate
+                  ? "La commande « Tourner la vue » parcourt les crans elle-même, par le plus court chemin. Les crans achètent la finesse, la durée achète le mouvement — ni l'un ni l'autre ne coûte quoi que ce soit par frame. Changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
+                  : "Sans rotation, la carte ne coûte rien de plus et le nord reste en haut. Les crans achètent la finesse de la commande « Tourner la vue », au prix indiqué en ROM."
+              }
             >
               <option value={0}>Aucune — le nord reste en haut</option>
               <option value={16}>16 crans (22,5°) — ~28 Ko</option>
               <option value={32}>32 crans (11,25°) — ~56 Ko</option>
               <option value={64}>64 crans (5,6°) — ~112 Ko</option>
             </select>
-            <p className="hint">
-              {scene.m7_rotate
-                ? "La commande « Tourner la vue » parcourt les crans elle-même, par le plus court chemin. Les crans achètent la finesse, la durée achète le mouvement — ni l'un ni l'autre ne coûte quoi que ce soit par frame. Changer l'inclinaison en jeu désactive la rotation jusqu'au rechargement de la scène."
-                : "Sans rotation, la carte ne coûte rien de plus et le nord reste en haut."}
-            </p>
             <div className="palette-title">Ciel</div>
             <select
               value={sky}
+              title={
+                "Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la " +
+                "carte — une couleur d'eau ou de brume s'y lit bien. Le " +
+                "dégradé et la rotation restent exclusifs (datagen le refuse " +
+                "plutôt que de l'ignorer) ; les dialogues, eux, marchent sur " +
+                "toutes les cartes du monde, rotation comprise." +
+                (sky === "image"
+                  ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
+                  : "")
+              }
               onChange={(e) => {
                 const m = e.target.value as SkyMode;
                 if (m === "black") props.onSky();
@@ -265,26 +277,6 @@ export default function ScenePanel(props: Props) {
                 </label>
               </div>
             )}
-            <p className="hint">
-              Le ciel est aussi ce qui s'affiche AU-DELÀ des bords de la carte —
-              une couleur d'eau ou de brume s'y lit bien. Le dégradé et la
-              rotation restent exclusifs (datagen le refuse plutôt que de
-              l'ignorer) ; les dialogues, eux, marchent sur toutes les cartes
-              du monde, rotation comprise.
-              {sky === "image"
-                ? " Une image de ciel coûte 16 couleurs au plan (112 au lieu de 128), et sa couleur d'index 0 est TRANSPARENTE — c'est ce qui permet de poser des nuages sur la couleur de fond."
-                : ""}
-            </p>
-
-            <p className="hint">
-              L'écart horizon/ancrage est l'inclinaison : {anchor - horizon} lignes
-              {anchor - horizon >= 150
-                ? " — presque vue de dessus"
-                : anchor - horizon <= 70
-                  ? " — sol très rasant"
-                  : ""}
-              . Le héros se tient sur la ligne d'ancrage.
-            </p>
           </div>
         </>
       )}

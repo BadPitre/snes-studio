@@ -56,24 +56,22 @@ export default function NewSceneModal({ existing, parent, onCreate, onClose }: P
               const k = e.target.value as SceneKind;
               setKind(k);
             }}
+            title={
+              "Mode 7 : la scène se peint comme une autre, avec les mêmes " +
+              "tilesets, mais elle est projetée sur un plan unique (carte du " +
+              "monde). Elle perd donc la couche supérieure, la couche " +
+              "d'effet, les miroirs de tuiles et le ☆. Les dialogues, les " +
+              "PNJ, les warps et les déclencheurs Contact / Auto " +
+              "fonctionnent. Taille maximale 255x255 — l'échelle de la carte " +
+              "du monde de FF6. Au-delà de 64x64 la distance de vue diminue " +
+              "(le moteur charge la carte par bandes autour du héros), et " +
+              "au-delà de 16384 cases la carte coûte jusqu'à 64 Ko de ROM."
+            }
           >
             <option value="map">Scène classique</option>
-            <option value="worldmap">Carte du monde (projetée en Mode 7)</option>
+            <option value="worldmap">Mode 7</option>
           </select>
         </label>
-        {world && (
-          <p className="hint">
-            La scène se peint comme une autre, avec les mêmes tilesets, mais
-            elle est <b>projetée sur un plan unique</b>. Elle perd donc la
-            couche supérieure, la couche d'effet, les miroirs de tuiles et
-            le ☆. Les dialogues, les PNJ, les warps et les déclencheurs
-            Contact / Auto fonctionnent : c'est le vocabulaire d'une
-            mappemonde. Taille maximale 255x255 — l'échelle de la carte du
-            monde de FF6. Au-delà de 64x64 la distance de vue diminue (le
-            moteur charge la carte par bandes autour du héros), et au-delà
-            de 16384 cases la carte coûte jusqu'à 64 Ko de ROM.
-          </p>
-        )}
         <div className="row">
           <label>
             Largeur (tiles)
