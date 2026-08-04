@@ -20,6 +20,8 @@
 #define BTL_VAR_ISSUE 248
 #define BTL_VAR_XP 249
 #define BTL_VAR_GOLD 250
+/* Per hero h: current MP (C3) — max MP is build data, shown by labels. */
+#define BTL_VAR_MP 244
 
 /* Reserved switch, raised as the battle closes. A scene change ENDS the
    running script (the engine's warp invariant — even scripted warps),

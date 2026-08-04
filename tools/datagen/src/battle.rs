@@ -48,6 +48,7 @@ pub struct Hero {
     pub speed: u8,
     pub attack: u8,
     pub defense: u8,
+    pub magic: u8,
 }
 
 /// One monster INSTANCE in a troop — its stats baked at build time
@@ -63,6 +64,7 @@ pub struct TroopMon {
     pub spd: u8,
     pub xp: u16,
     pub gold: u16,
+    pub mdef: u8,
 }
 
 pub struct Troop {
@@ -70,9 +72,26 @@ pub struct Troop {
     pub mons: Vec<TroopMon>,
 }
 
+/// A skill (C3): the built-in magical formula uses `power`; `target`
+/// 0 = one enemy, 1 = one ally; `anim` is a project animation (0xFF
+/// none — the hit flash stands in).
+pub struct Skill {
+    pub mp: u8,
+    pub power: u8,
+    pub target: u8,
+    pub anim: u8,
+}
+
 pub struct Battle {
     pub heroes: Vec<Hero>,
     pub troops: Vec<Troop>,
+    /// The command menu's SEMANTICS, one entry per widget item:
+    /// kind 0 = attack, 1 = skill (arg = skill index), 2 = flee,
+    /// 3 = inert (C5's items). The menu's TEXT stays in the layout —
+    /// the author binds meaning to his own labels.
+    pub act_kind: Vec<u8>,
+    pub act_arg: Vec<u8>,
+    pub skills: Vec<Skill>,
     /// Widget index of the command menu (a cursor list of the project's
     /// UI layout), 0xFF when the project names none — btl then attacks
     /// without a menu.
@@ -144,6 +163,7 @@ pub fn build(
     db: Option<&Db>,
     pic_names: &[String],
     ui_widgets: &[String],
+    anims: &[String],
 ) -> Result<Option<Battle>> {
     let hp = proj_dir.join("data/heroes.toml");
     let tp = proj_dir.join("data/troops.toml");
@@ -180,6 +200,7 @@ pub fn build(
             speed: h.get("speed").and_then(|v| v.as_integer()).unwrap_or(50) as u8,
             attack: h.get("attack").and_then(|v| v.as_integer()).unwrap_or(5) as u8,
             defense: h.get("defense").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
+            magic: h.get("magic").and_then(|v| v.as_integer()).unwrap_or(5) as u8,
         });
     }
     if heroes.is_empty() || heroes.len() > MAX_HEROES {
@@ -188,6 +209,70 @@ pub fn build(
     // The command menu: a cursor-list widget of the project's UI layout,
     // named in heroes.toml (`menu = "menu_combat"`). Optional — without
     // it the heroes attack unprompted, which keeps a bare project alive.
+    // Skills (C3): data/skills.toml, optional.
+    let mut skills: Vec<Skill> = Vec::new();
+    let mut skill_ids: Vec<String> = Vec::new();
+    let sp = proj_dir.join("data/skills.toml");
+    if sp.exists() {
+        let sv: toml::Table = toml::from_str(&std::fs::read_to_string(&sp)?)
+            .context("data/skills.toml")?;
+        for sk in sv.get("skill").and_then(|v| v.as_array()).unwrap_or(&Vec::new()) {
+            let sid = sk.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+            let anim = match sk.get("anim").and_then(|v| v.as_str()) {
+                Some(a) => anims
+                    .iter()
+                    .position(|n| n == a)
+                    .map(|i| i as u8)
+                    .with_context(|| {
+                        format!("compétence '{}' : animation '{}' inconnue", sid, a)
+                    })?,
+                None => 0xFF,
+            };
+            let target = match sk.get("target").and_then(|v| v.as_str()).unwrap_or("enemy") {
+                "enemy" => 0u8,
+                "ally" => 1,
+                other => bail!("compétence '{}' : target '{}' (enemy, ally)", sid, other),
+            };
+            skill_ids.push(sid.to_string());
+            skills.push(Skill {
+                mp: sk.get("mp").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
+                power: sk.get("power").and_then(|v| v.as_integer()).unwrap_or(1) as u8,
+                target,
+                anim,
+            });
+        }
+    }
+    // Menu ACTIONS (C3): heroes.toml `actions`, aligned with the menu
+    // widget's items — the author binds meaning to his own labels.
+    let mut act_kind: Vec<u8> = Vec::new();
+    let mut act_arg: Vec<u8> = Vec::new();
+    for a in hv.get("actions").and_then(|v| v.as_array()).unwrap_or(&Vec::new()) {
+        let a = a.as_str().unwrap_or("");
+        if a == "attack" {
+            act_kind.push(0);
+            act_arg.push(0);
+        } else if let Some(sid) = a.strip_prefix("skill:") {
+            let i = skill_ids
+                .iter()
+                .position(|s| s == sid)
+                .with_context(|| format!("actions : compétence '{}' inconnue", sid))?;
+            act_kind.push(1);
+            act_arg.push(i as u8);
+        } else if a == "flee" {
+            act_kind.push(2);
+            act_arg.push(0);
+        } else {
+            act_kind.push(3); /* inert — C5's items and the rest */
+            act_arg.push(0);
+        }
+        if act_kind.len() > 8 {
+            bail!("actions : 8 entrées de menu au plus");
+        }
+    }
+    if act_kind.is_empty() {
+        act_kind.push(0); /* no list: plain attack */
+        act_arg.push(0);
+    }
     let menu_widget = match hv.get("menu").and_then(|v| v.as_str()) {
         Some(name) => ui_widgets
             .iter()
@@ -235,6 +320,7 @@ pub fn build(
                 spd: n("speed", 40) as u8,
                 xp: n("xp", 0) as u16,
                 gold: n("gold", 0) as u16,
+                mdef: n("magic_def", 0) as u8,
             });
         }
         if mons.is_empty() || mons.len() > MAX_MONS {
@@ -250,7 +336,7 @@ pub fn build(
         heroes.len(),
         troops.len()
     );
-    Ok(Some(Battle { heroes, troops, menu_widget }))
+    Ok(Some(Battle { heroes, troops, act_kind, act_arg, skills, menu_widget }))
 }
 
 /// The troop ids, in table order — the BATTLE command resolves by name.
@@ -300,6 +386,15 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str("const u16 btl_mon_xp[1] = { 0, };\n");
             s.push_str("const u16 btl_mon_gold[1] = { 0, };\n");
             s.push_str("const u8 btl_menu_widget = 0xFF;\n");
+            s.push_str("const u8 btl_hero_mag[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_mdef[1] = { 0, };\n");
+            s.push_str("const u8 btl_act_n = 1;\n");
+            s.push_str("const u8 btl_act_kind[1] = { 0, };\n");
+            s.push_str("const u8 btl_act_arg[1] = { 0, };\n");
+            s.push_str("const u8 btl_skill_mp[1] = { 0, };\n");
+            s.push_str("const u8 btl_skill_pow[1] = { 0, };\n");
+            s.push_str("const u8 btl_skill_tgt[1] = { 0, };\n");
+            s.push_str("const u8 btl_skill_anim[1] = { 0xFF, };\n");
         }
         Some(b) => {
             let nh = b.heroes.len();
@@ -385,6 +480,36 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str(&emit::u16_array("btl_mon_xp", &mxp));
             s.push_str(&emit::u16_array("btl_mon_gold", &mgold));
             s.push_str(&format!("const u8 btl_menu_widget = {};\n", b.menu_widget));
+            let hmg: Vec<u8> = b.heroes.iter().map(|h| h.magic).collect();
+            s.push_str(&emit::u8_array("btl_hero_mag", &hmg, 16, false));
+            let mut mmd = Vec::new();
+            for t in &b.troops {
+                for k in 0..MAX_MONS {
+                    mmd.push(t.mons.get(k).map(|m| m.mdef).unwrap_or(0));
+                }
+            }
+            s.push_str(&emit::u8_array("btl_mon_mdef", &mmd, 16, false));
+            s.push_str(&format!("const u8 btl_act_n = {};\n", b.act_kind.len()));
+            s.push_str(&emit::u8_array("btl_act_kind", &b.act_kind, 16, false));
+            s.push_str(&emit::u8_array("btl_act_arg", &b.act_arg, 16, false));
+            let (mut smp, mut spw, mut stg, mut san) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for sk in &b.skills {
+                smp.push(sk.mp);
+                spw.push(sk.power);
+                stg.push(sk.target);
+                san.push(sk.anim);
+            }
+            if smp.is_empty() {
+                smp.push(0);
+                spw.push(0);
+                stg.push(0);
+                san.push(0xFF);
+            }
+            s.push_str(&emit::u8_array("btl_skill_mp", &smp, 16, false));
+            s.push_str(&emit::u8_array("btl_skill_pow", &spw, 16, false));
+            s.push_str(&emit::u8_array("btl_skill_tgt", &stg, 16, false));
+            s.push_str(&emit::u8_array("btl_skill_anim", &san, 16, false));
         }
     }
     vec![("data_battle.c".into(), s)]

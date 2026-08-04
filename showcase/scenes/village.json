@@ -989,8 +989,22 @@
        ],
        "else": [
         {
-         "c": "msg",
-         "text": "Defaite... entraine-toi encore."
+         "c": "if_var",
+         "n": 248,
+         "op": "==",
+         "value": 3,
+         "then": [
+          {
+           "c": "msg",
+           "text": "Vous prenez la fuite !"
+          }
+         ],
+         "else": [
+          {
+           "c": "msg",
+           "text": "Defaite... entraine-toi encore."
+          }
+         ]
         }
        ]
       },

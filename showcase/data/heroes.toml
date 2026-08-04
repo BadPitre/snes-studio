@@ -2,6 +2,8 @@
 # L'ordre est l'ordre d'affichage à droite de l'écran de combat.
 # `menu` : le widget liste à curseur du layout qui sert de menu de combat.
 menu = "menu_combat"
+# Le SENS de chaque entrée du menu (alignées sur les items du widget).
+actions = ["attack", "skill:eclair", "skill:soin", "flee"]
 
 [[hero]]
 id = "arven"
@@ -12,6 +14,7 @@ max_mp = 40
 speed = 60
 attack = 12
 defense = 4
+magic = 6
 
 [[hero]]
 id = "nadia"
@@ -22,3 +25,4 @@ max_mp = 80
 speed = 72
 attack = 9
 defense = 3
+magic = 14

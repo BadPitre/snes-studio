@@ -1,0 +1,18 @@
+# Compétences (C3) — format fixe. target : "enemy" ou "ally".
+# La formule intégrée : power + magie*2 - def.magique (ennemi),
+# power + magie en soin (allié). anim : une animation du projet.
+
+[[skill]]
+id = "eclair"
+name = "Eclair"
+mp = 8
+power = 18
+target = "enemy"
+anim = "impact"
+
+[[skill]]
+id = "soin"
+name = "Soin"
+mp = 6
+power = 40
+target = "ally"

@@ -25,6 +25,7 @@
 #include "btl.h"
 #include "stage.h"
 #include "ui_overlay.h"
+#include "anim.h"
 #include "vbudget.h"
 #include "vm.h"
 #include "vram.h"
@@ -51,6 +52,15 @@ extern const u8 btl_mon_spd[];
 extern const u16 btl_mon_xp[];
 extern const u16 btl_mon_gold[];
 extern const u8 btl_menu_widget; /* 0xFF: no menu, attack unprompted */
+extern const u8 btl_hero_mag[];
+extern const u8 btl_mon_mdef[];
+extern const u8 btl_act_n; /* menu entries with a meaning (C3) */
+extern const u8 btl_act_kind[]; /* 0 attack, 1 skill, 2 flee, 3 inert */
+extern const u8 btl_act_arg[];
+extern const u8 btl_skill_mp[];
+extern const u8 btl_skill_pow[];
+extern const u8 btl_skill_tgt[]; /* 0 one enemy, 1 one ally */
+extern const u8 btl_skill_anim[]; /* project animation, 0xFF none */
 
 #define BT_CHAR(h) (448 + (h) * 4) /* the hero's 32x32 OBJ block */
 #define BT_OAM(h) ((u16)(104 + (h)) << 2)
@@ -74,6 +84,8 @@ static u8 bt_row = 0;  /* next 128-byte step of the current cell */
 #define BT_ACT 2
 #define BT_CLEAR 3
 #define BT_END 4
+#define BT_TARGET 5
+#define BT_ANIM 6
 static u8 bt_sub = 0;
 static u16 bh_hp[4];  /* heroes — mirrored into the reserved vars */
 static u16 bm_hp[4];  /* the troop's monsters */
@@ -85,6 +97,13 @@ static u8 bt_sel = 0;   /* menu cursor */
 static u8 bt_timer = 0;
 static u8 bt_dead = 0xFF; /* monster slot fading out, to clear */
 static u8 bt_flip = 0;    /* alternates the monsters' targets */
+static u16 bh_mp[4];      /* mirrored into BTL_VAR_MP + h */
+static u8 bt_pk = 0;      /* pending action kind (menu choice) */
+static u8 bt_pa = 0;      /* pending action arg (skill index) */
+static u8 bt_cur = 0;     /* target cursor (troop slot or hero) */
+static u8 bt_curally = 0; /* cursor walks the party, not the troop */
+static u8 bt_blink = 0;   /* cursor blink clock */
+static u16 bt_rng = 0x2b17; /* flee roll — stirred every fight frame */
 
 u8 btl_active(void)
 {
@@ -123,8 +142,10 @@ void btl_request(u8 troop)
     bt_atb[h + 4] = 0;
     bt_spd[h] = h < btl_hero_count ? btl_hero_speed[h] : 0;
     bt_spd[h + 4] = btl_mon_spd[o + h];
+    bh_mp[h] = h < btl_hero_count ? btl_hero_maxmp[h] : 0;
     vm.vars16[BTL_VAR_BASE + (h << 1)] = bh_hp[h];
     vm.vars16[BTL_VAR_BASE + (h << 1) + 1] = bh_hp[h];
+    vm.vars16[BTL_VAR_MP + h] = bh_mp[h];
   }
   vm.vars16[BTL_VAR_ISSUE] = 0;
   vm.vars16[BTL_VAR_XP] = 0;
@@ -142,9 +163,11 @@ static void bt_oam(void)
 
   for (h = 0; h < btl_hero_count; h++)
   {
-    if (bh_hp[h] == 0)
+    if (bh_hp[h] == 0 ||
+        (bt_sub == BT_TARGET && bt_curally && h == bt_cur &&
+         (bt_blink & 8)))
     {
-      oamSetVisible(BT_OAM(h), OBJ_HIDE);
+      oamSetVisible(BT_OAM(h), OBJ_HIDE); /* KO, or the cursor's blink */
       continue;
     }
     om = oamMemory + BT_OAM(h);
@@ -156,35 +179,96 @@ static void bt_oam(void)
   }
 }
 
-/* One attack, the whole of C2's action vocabulary. Built-in physical
-   formula: atk*2 - def, floor 1 — author formulas are C3. */
+/* Damage on a troop slot, with the B4 feedback. */
+static void bt_hit_mon(u8 t, u16 dmg)
+{
+  bm_hp[t] = bm_hp[t] > dmg ? (u16)(bm_hp[t] - dmg) : 0;
+  if (bm_hp[t])
+    stage_slotfx(t, 1, 12); /* white flash: the B4 hit */
+  else
+  {
+    stage_slotfx(t, 2, 24); /* fade to black: the B4 death */
+    bt_dead = t;
+  }
+}
+
+/* Resolves the hero's CHOSEN action on the CHOSEN target (C3): plain
+   attack, or a skill — built-in magical formula power + mag*2 - mdef,
+   heal power + mag on an ally. The skill's animation plays first when
+   it has one; the damage lands when it ends (BT_ANIM). */
+static void bt_hero_act(void)
+{
+  u16 dmg, o;
+  u8 k;
+
+  o = (u16)bt_troop << 2;
+  if (bt_pk == 0) /* attack */
+  {
+    dmg = (u16)btl_hero_atk[bt_actor] << 1;
+    k = btl_mon_def[o + bt_cur];
+    dmg = dmg > k ? (u16)(dmg - k) : 1;
+    bt_hit_mon(bt_cur, dmg);
+    bt_atb[bt_actor] = 0;
+    bt_timer = 24;
+    bt_sub = BT_ACT;
+    return;
+  }
+  /* skill: spend the MP now — the caster committed */
+  bh_mp[bt_actor] = bh_mp[bt_actor] > btl_skill_mp[bt_pa]
+                        ? (u16)(bh_mp[bt_actor] - btl_skill_mp[bt_pa]) : 0;
+  vm.vars16[BTL_VAR_MP + bt_actor] = bh_mp[bt_actor];
+  if (btl_skill_anim[bt_pa] != 0xFF)
+  {
+    /* aim the animation at the target, then wait for it (BT_ANIM) */
+    if (bt_curally)
+      anim_screen_at(BT_X + 16, (u8)(BT_Y0 + ((u16)bt_cur << 5) + 16));
+    else
+    {
+      o = ((u16)bt_troop << 2) + bt_cur;
+      anim_screen_at((u8)(((u16)btl_troop_x[o] << 3) + 24),
+                     (u8)(((u16)btl_troop_y[o] << 3) + 24));
+    }
+    anim_play(btl_skill_anim[bt_pa], ANIM_ANC_SCREEN, 0);
+    bt_sub = BT_ANIM;
+    return;
+  }
+  bt_sub = BT_ANIM; /* no animation: fall through the same apply path */
+}
+
+/* The skill's effect, once its animation is done. */
+static void bt_skill_apply(void)
+{
+  u16 v, o;
+  u8 k;
+
+  if (bt_curally)
+  {
+    v = (u16)btl_skill_pow[bt_pa] + btl_hero_mag[bt_actor];
+    bh_hp[bt_cur] = (u16)(bh_hp[bt_cur] + v);
+    if (bh_hp[bt_cur] > btl_hero_maxhp[bt_cur])
+      bh_hp[bt_cur] = btl_hero_maxhp[bt_cur];
+    vm.vars16[BTL_VAR_BASE + ((u16)bt_cur << 1)] = bh_hp[bt_cur];
+  }
+  else
+  {
+    o = (u16)bt_troop << 2;
+    v = (u16)btl_skill_pow[bt_pa] + ((u16)btl_hero_mag[bt_actor] << 1);
+    k = btl_mon_mdef[o + bt_cur];
+    v = v > k ? (u16)(v - k) : 1;
+    bt_hit_mon(bt_cur, v);
+  }
+  bt_atb[bt_actor] = 0;
+  bt_timer = 24;
+  bt_sub = BT_ACT;
+}
+
+/* A monster's turn — C2's built-in attack, unchanged. */
 static void bt_attack(u8 actor)
 {
   u16 dmg, o;
   u8 k, t;
 
   o = (u16)bt_troop << 2;
-  if (actor < 4)
-  {
-    /* hero -> first monster still standing (the cursor is C3) */
-    for (t = 0; t < 4; t++)
-      if (bt_mon_alive(t))
-        break;
-    if (t == 4)
-      return;
-    dmg = (u16)btl_hero_atk[actor] << 1;
-    k = btl_mon_def[o + t];
-    dmg = dmg > k ? (u16)(dmg - k) : 1;
-    bm_hp[t] = bm_hp[t] > dmg ? (u16)(bm_hp[t] - dmg) : 0;
-    if (bm_hp[t])
-      stage_slotfx(t, 1, 12); /* white flash: the B4 hit */
-    else
-    {
-      stage_slotfx(t, 2, 24); /* fade to black: the B4 death */
-      bt_dead = t;
-    }
-  }
-  else
   {
     /* monster -> a living hero, alternating so both take hits */
     t = 0xFF;
@@ -258,6 +342,7 @@ static void bt_fight(void)
   u16 down;
 
   bt_oam();
+  bt_rng = (u16)(bt_rng * 25173 + 13849); /* the flee roll's clock */
   switch (bt_sub)
   {
   case BT_TICK:
@@ -298,16 +383,26 @@ static void bt_fight(void)
       break;
     }
     bt_scan = (u8)(ready + 1);
-    if (ready < 4 && btl_menu_widget != 0xFF &&
-        overlay_list_open(btl_menu_widget))
+    if (ready < 4)
     {
       bt_actor = ready;
-      bt_sel = 0;
-      overlay_list_cursor(0);
-      bt_sub = BT_MENU;
+      if (btl_menu_widget != 0xFF && overlay_list_open(btl_menu_widget))
+      {
+        bt_sel = 0;
+        overlay_list_cursor(0);
+        bt_sub = BT_MENU;
+        break;
+      }
+      /* menu-less project: plain attack on the first standing monster */
+      bt_pk = 0;
+      bt_curally = 0;
+      for (bt_cur = 0; bt_cur < 3 && !bt_mon_alive(bt_cur); bt_cur++)
+      {
+      }
+      bt_hero_act();
       break;
     }
-    bt_attack(ready); /* monsters, and heroes of a menu-less project */
+    bt_attack(ready); /* a monster's turn */
     break;
 
   case BT_MENU: /* the LISTSEL vocabulary, driven from here */
@@ -322,7 +417,7 @@ static void bt_fight(void)
     }
     else if (down & KEY_DOWN)
     {
-      if (bt_sel < 2)
+      if ((u8)(bt_sel + 1) < btl_act_n)
       {
         bt_sel++;
         overlay_list_cursor(bt_sel);
@@ -330,14 +425,108 @@ static void bt_fight(void)
     }
     else if (down & KEY_A)
     {
-      /* C2 implements Attaque (entry 0) alone; the other entries are
-         C3's and stay inert rather than lying */
-      if (bt_sel == 0)
+      u8 kind = bt_sel < btl_act_n ? btl_act_kind[bt_sel] : 3;
+
+      if (kind == 0 || kind == 1)
+      {
+        if (kind == 1)
+        {
+          bt_pa = btl_act_arg[bt_sel];
+          if (bh_mp[bt_actor] < btl_skill_mp[bt_pa])
+            break; /* cannot pay: the menu stays open */
+        }
+        bt_pk = kind;
+        overlay_list_close(0);
+        /* the TARGET cursor: allies for a heal, the troop otherwise */
+        bt_curally = (u8)(kind == 1 && btl_skill_tgt[bt_pa] == 1);
+        if (bt_curally)
+        {
+          for (bt_cur = 0; bt_cur < btl_hero_count && !bh_hp[bt_cur];
+               bt_cur++)
+          {
+          }
+        }
+        else
+          for (bt_cur = 0; bt_cur < 3 && !bt_mon_alive(bt_cur); bt_cur++)
+          {
+          }
+        bt_blink = 0;
+        bt_sub = BT_TARGET;
+      }
+      else if (kind == 2) /* Fuir — a coin flip, FF's honest odds */
       {
         overlay_list_close(0);
-        bt_attack(bt_actor);
+        if (bt_rng & 1)
+        {
+          vm.vars16[BTL_VAR_ISSUE] = 3; /* fled: no rewards */
+          bt_timer = 20;
+          bt_sub = BT_END;
+        }
+        else
+        {
+          bt_atb[bt_actor] = 0; /* the failed try costs the turn */
+          bt_timer = 20;
+          bt_sub = BT_ACT;
+        }
+      }
+      /* kind 3: inert (C5's items) — the menu stays open */
+    }
+    break;
+
+  case BT_TARGET: /* pick a target — blink marks the candidate */
+    bt_blink++;
+    if (!bt_curally && (bt_blink & 15) == 0)
+      stage_slotfx(bt_cur, 1, 4); /* a short pulse on the candidate */
+    down = padsDown(0);
+    if (down & (KEY_LEFT | KEY_UP))
+    {
+      for (i = 0; i < 4; i++)
+      {
+        k = (u8)((bt_cur + 3 - i) & 3); /* walk backwards */
+        if (bt_curally ? (k < btl_hero_count && bh_hp[k] != 0)
+                       : bt_mon_alive(k))
+        {
+          bt_cur = k;
+          break;
+        }
       }
     }
+    else if (down & (KEY_RIGHT | KEY_DOWN))
+    {
+      for (i = 0; i < 4; i++)
+      {
+        k = (u8)((bt_cur + 1 + i) & 3);
+        if (bt_curally ? (k < btl_hero_count && bh_hp[k] != 0)
+                       : bt_mon_alive(k))
+        {
+          bt_cur = k;
+          break;
+        }
+      }
+    }
+    else if (down & KEY_A)
+    {
+      if (!bt_curally)
+        stage_slotfx(bt_cur, 0, 0); /* palette back before the hit */
+      bt_hero_act();
+    }
+    else if (down & KEY_B) /* back to the command menu */
+    {
+      if (!bt_curally)
+        stage_slotfx(bt_cur, 0, 0);
+      if (overlay_list_open(btl_menu_widget))
+      {
+        overlay_list_cursor(bt_sel);
+        bt_sub = BT_MENU;
+      }
+      else
+        bt_sub = BT_TICK;
+    }
+    break;
+
+  case BT_ANIM: /* the skill's animation runs; the effect lands after */
+    if (!anim_busy())
+      bt_skill_apply();
     break;
 
   case BT_ACT:

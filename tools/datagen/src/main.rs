@@ -1087,6 +1087,7 @@ fn main() -> Result<()> {
             database.as_ref(),
             &pic_names,
             &ui_widget_ids,
+            &anims.names,
         )?;
         for (name, content) in battle::emit_files(b.as_ref()) {
             write_out(&out_dir, &name, content)?;

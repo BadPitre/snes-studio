@@ -662,11 +662,11 @@
   "Combat: PV max Arven",
   "Combat: PV Nadia",
   "Combat: PV max Nadia",
-  "Combat: ATB Arven (reserve)",
-  "Combat: ATB Nadia (reserve)",
+  "Combat: PM Arven",
+  "Combat: PM Nadia",
   "",
   "",
-  "Combat: issue (1 victoire, 2 defaite)",
+  "Combat: issue (1 victoire, 2 defaite, 3 fuite)",
   "Combat: XP gagnes",
   "Combat: or gagne"
  ],
@@ -1172,5 +1172,55 @@
   "",
   "",
   "Combat termine (reserve moteur)"
+ ],
+ "animations": [
+  {
+   "name": "impact",
+   "vignette": "coup",
+   "layers": 1,
+   "frames": [
+    {
+     "cells": [
+      {
+       "cell": 0,
+       "x": 0,
+       "y": 0
+      }
+     ],
+     "dur": 5,
+     "sfx": "attaque"
+    },
+    {
+     "cells": [
+      {
+       "cell": 1,
+       "x": 0,
+       "y": 0
+      }
+     ],
+     "dur": 5
+    },
+    {
+     "cells": [
+      {
+       "cell": 2,
+       "x": 0,
+       "y": 0
+      }
+     ],
+     "dur": 5
+    },
+    {
+     "cells": [
+      {
+       "cell": 3,
+       "x": 0,
+       "y": 0
+      }
+     ],
+     "dur": 5
+    }
+   ]
+  }
  ]
 }

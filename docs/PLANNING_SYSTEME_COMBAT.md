@@ -238,8 +238,16 @@ adds one during C2.
   both to C3: the damage POPUPS (digits as OBJ) and the visual ATB
   gauges (the gauge widget requires an IconSet the showcase lacks);
   damage reads today through the live PV windows.**
-- **C3 — it casts.** Skills + MP, items, target cursor with all four
-  target modes, A1 animations on targets, Fuir.
+- **C3 — it casts.** Skills + MP, target cursor, A1 animations on
+  targets, Fuir. **Done — with amendments:** the menu's SEMANTICS are
+  data (heroes.toml `actions`, one meaning per widget item: attack /
+  skill:x / flee), because list items are compiled text and a dynamic
+  skill submenu needs UI work that belongs to C5; target modes shipped
+  are one-enemy and one-ally (all-enemies joins the multi-target pass);
+  the animation aims through the new `anim_screen_at` (the ANIMPLAY
+  opcode resets the centre so scripts never inherit the battle's aim);
+  ITEMS moved to C5 where the inventory model lives. Damage popups
+  moved to C4.
 - **C4 — it thinks and it talks.** Monster AI patterns (simple
   weighted action lists in the database) + the hook set.
 - **C5 — it is authorable.** Troop editor window, party window, forms,

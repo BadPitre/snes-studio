@@ -14,7 +14,7 @@ size = [32, 8]
 id = "menu_combat"
 type = "list"
 pos = [2, 2]
-items = ["Attaque", "Objet", "Fuite"]
+items = ["Attaque", "Eclair", "Soin", "Fuite"]
 
 # menu d'inventaire — ouvert par Start (common event « inventaire »)
 [[node]]
