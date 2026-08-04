@@ -20,6 +20,7 @@ import {
   COMBAT_SWITCHES,
   COMBAT_VARIABLES,
 } from "./combatlib";
+import { MENU_COMMON_EVENTS } from "./menulib";
 
 const TILESET_PNG = "iVBORw0KGgoAAAANSUhEUgAAAGAAAAAQCAMAAADeZIrLAAADAFBMVEUAAAAYWCAwgDBgqEhAQEiAgIi4uMCQcEDIqHAYOJBIeNBgOBjIMDDoyEDw8PAQEBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACsQy21AAABAUlEQVR4nJ2T2xKDIAxEidhiQeX//7aEe4JBx50RfNpDsolatAZYFsAD9aVaN6Yfk4ryQepa6I3GBfChegTwXgcJiIURBoBp5vhrLdpaW+7qD8AIRwVkaS1VYPInVJD9AyFZ7sn/OBjgUYvMCKj+mbDviQAkA3x+LGEKMFcV+OqfS8jO0FpUAn4Xsq/+FFBCTu661LEy9QFHQMs33ggAChimiNRQ5r8sQh+wFPLMXwp5LT16sAc+E7oxPTkgjagAMDeATOj9z7POq7BovAIzAwSEc6Q/0Oa1PT9eMG+R2egex01GOacGQDpZh6YZGLECDlAMcBPyzRSJgMspkvbgLeAP/eQbqr5ipc0AAAAASUVORK5CYII=";
 const SPRITES_PNG = "iVBORw0KGgoAAAANSUhEUgAAAYAAAAAYCAYAAADzhSolAAABo0lEQVR4nO3cPU4CQRiA4cF4gInhAJzAGEoLY6ysKSyorC3MnmBjOMHGE1BRWFBbWlkS4wk4AMUewGRtNAI7M7JZ3W+/mfepwNkX+ZlkGP6MAQAAAAAAAAAAAAAAAAAAAAAAWgz2/2DtsAoFZbmpNfT09PT0+vqdM9YOq9uz41Bv5m8f3itBT6+9z7Is2BdFQU8fTX8UPBoAEK3a06WHPA8G80l4XLrXTvr+S73PLk6C40URHBbvtZO+/1Lr2QEAQKLcC8B4akbfz5S2Tx9Kutes7e2V7j1Gk9yY8VRHLz1/mf96e4++zn/3ArBamPVyVj99KOles7a3V7r3WC9nxqwWOnrp+cv819t79HX+hz8yoZD0a8ipv4cBWdpeg4Ys3gMAgETt7AC+Ph9aXT6eOw9+uX8NfhGBnj6G/vr9yTn+fHpDTx9Vzw4AABLFAgAAiaotAPbqzrvFCI3R09PT0+vq2QEAAH5YO6y2f1Vu/zx9f3vXsV32ruOb9r7L6KrX/PjT0zfpO9kBlOVm8NvPmP5n31YM11+y/6v/23QRaNsDsfsEn1RYZGPqL54AAAAASUVORK5CYII=";
@@ -73,10 +74,10 @@ export async function scaffoldProject(root: string): Promise<void> {
       tilesets: ["assets/tileset.png"],
       charsets: ["Héros", "Villageois"],
       pictures: [{ path: "assets/pictures/slime.png", trans: true }],
-      common_events: COMBAT_COMMON_EVENTS,
+      common_events: [...COMBAT_COMMON_EVENTS, ...MENU_COMMON_EVENTS],
       functions: COMBAT_FUNCTIONS,
-      variables: COMBAT_VARIABLES,
-      switches: COMBAT_SWITCHES,
+      variables: nameMenuVars(COMBAT_VARIABLES),
+      switches: nameMenuSwitches(COMBAT_SWITCHES),
     },
     scenes: { scene1: starterScene() },
     texts: [],
@@ -84,6 +85,24 @@ export async function scaffoldProject(root: string): Promise<void> {
     tilesetMeta: { tileset: { autotiles: [], solid: [1, 3, 4], above: [5] } },
   };
   await saveProject(data);
+}
+
+// Names for the menu library's variables and switches, layered over
+// the combat library's.
+function nameMenuVars(base: string[]): string[] {
+  const v = [...base];
+  v[70] = "Menu: touche Start";
+  v[71] = "Menu: choix";
+  v[72] = "Menu: slot choisi";
+  v[73] = "Menu: slot occupe";
+  return v;
+}
+
+function nameMenuSwitches(base: string[]): string[] {
+  const s = [...base];
+  s[20] = "Menu demande";
+  s[22] = "Menu autorise";
+  return s;
 }
 
 // The sample scene: a villager who starts the starter battle, and the
@@ -102,6 +121,19 @@ function starterScene() {
       { c: "msg", text: "Des slimes ! (ouvre combat_tour dans Tools > Common events : ce combat est un script)" },
       { c: "var", n: 17, op: "=", value: 3 },
       { c: "battle", troop: "slimes" },
+    ],
+  });
+  sc.events.push({
+    name: "_init",
+    x: 1,
+    y: 2,
+    trigger: "auto",
+    sprite: -1,
+    dir: "down",
+    condition: { switch: 22, on: false },
+    commands: [
+      { c: "rem", text: "Arme le menu (Start) — la page se desactive une fois le switch pose" },
+      { c: "switch", n: 22, on: true },
     ],
   });
   sc.events.push({
@@ -240,7 +272,8 @@ monsters = [
 `;
 
 const UI_LAYOUT = `# Layout UI du projet — le menu de combat et la fenetre de PV que la
-# bibliotheque (combat_tour) affiche. Positions en tiles (ecran 32x28).
+# bibliotheque (combat_tour) affiche, et le menu de jeu (Start) de la
+# bibliotheque menu. Positions en tiles (ecran 32x28).
 
 [[node]]
 id = "menu_combat"
@@ -255,4 +288,16 @@ pos = [21, 2]
 size = [9, 3]
 var = 240
 label = "PV"
+
+[[node]]
+id = "menu_principal"
+type = "list"
+pos = [2, 9]
+items = ["Objets", "Sauvegarder", "Charger", "Fermer"]
+
+[[node]]
+id = "menu_slots"
+type = "list"
+pos = [16, 9]
+items = ["Partie 1", "Partie 2", "Partie 3"]
 `;

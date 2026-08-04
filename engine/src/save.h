@@ -30,4 +30,10 @@ extern SaveInfo save_info;
    having changed nothing, if the slot is invalid. */
 u8 save_read(u8 slot);
 
+/* M2 — the SRAM event command's load path: the opcode reads the slot
+   and requests the restore; the MAIN LOOP performs the warp (the
+   do_warp discipline). take returns 1 exactly once per request. */
+void save_request_load(void);
+u8 save_take_load(void);
+
 #endif /* SAVE_H */

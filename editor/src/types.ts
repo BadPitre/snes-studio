@@ -411,6 +411,11 @@ export type Command =
   | { c: "popup"; value: number; value_var?: number; x: number; y: number }
   | { c: "clock"; base: number; lanes: number }
   | { c: "target_sel"; var: number; ally?: boolean; cancel: boolean }
+  // M2 — the SRAM primitive: the menus around it are the project's
+  // events (PLANNING_MENU_EN_EVENTS.md). Slot is 1-4 for the author.
+  | { c: "save_slot"; slot: number }
+  | { c: "load_slot"; slot: number }
+  | { c: "slot_info"; slot: number; var: number }
   | { c: "anim_stop" }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }

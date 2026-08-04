@@ -790,17 +790,15 @@ export function formKeyInput(cmd: Extract<Command, { c: "key_input" }>, x: FormC
 }
 
 export function formSysmenu(_cmd: Extract<Command, { c: "sysmenu" }>, _x: FormCtx): FormBody {
-  let body: JSX.Element | null = null;
-  let valid = true;
-  body = (
-    <span className="hint">
-      Ouvre le menu Système (sauvegarder/charger) quand le script se
-      termine. Le mapping START en dur a été retiré : mappe ta touche
-      avec « Touche pressée » + une condition, ou appelle cette
-      commande où tu veux.
+  const body = (
+    <span className="hint" style={{ color: "#ff9860" }}>
+      OBSOLÈTE (M2) : le menu Système est devenu une bibliothèque
+      d'events — remplacer par « Sauvegarder/Charger la partie », ou
+      par le menu du gabarit (common events menu_jeu / menu_sauvegarder).
+      Le build refuse cette commande.
     </span>
   );
-  return { body, valid };
+  return { body, valid: false };
 }
 
 export function formPicShow(cmd: Extract<Command, { c: "pic_show" }>, x: FormCtx): FormBody {
@@ -3101,6 +3099,60 @@ export function formTargetSel(cmd: Extract<Command, { c: "target_sel" }>, x: For
         NUMÉRO du slot (0-4) ou du héros (0-3) : la suite du script
         vise ce slot (effet, dégâts). Rien à viser : 255 direct, sans
         attendre.
+      </span>
+    </>
+  );
+  return { body, valid: true };
+}
+
+
+// ---- The SRAM primitive (M2 — PLANNING_MENU_EN_EVENTS.md) ----
+
+export function formSram(
+  cmd: Extract<Command, { c: "save_slot" | "load_slot" | "slot_info" }>,
+  x: FormCtx
+): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <label>
+        Slot (1-4)
+        <select
+          value={cmd.slot}
+          onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+        >
+          {[1, 2, 3, 4].map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </label>
+      {cmd.c === "slot_info" && (
+        <label>
+          Variable destination (1 = occupé, 0 = vide)
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={cmd.var}
+              onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+            <button className="browse"
+              onClick={() => x.p.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+              …
+            </button>
+          </div>
+          <span className="hint">{x.p.varNames[cmd.var] || ""}</span>
+        </label>
+      )}
+      <span className="hint">
+        {cmd.c === "save_slot"
+          ? "Écrit l'état du jeu (scène, position, switches, variables) " +
+            "dans la SRAM. Immédiat — les menus autour sont tes events " +
+            "(voir menu_sauvegarder dans un projet neuf)."
+          : cmd.c === "load_slot"
+            ? "Recharge la partie du slot : l'écran se rouvre sur la scène " +
+              "sauvegardée et CE SCRIPT S'ARRÊTE (l'invariant du warp). Un " +
+              "slot vide ne change rien et le script continue — tester " +
+              "d'abord avec « Slot occupé ? »."
+            : "Met 1 dans la variable si le slot contient une sauvegarde " +
+              "valide, 0 sinon — pour afficher « Partie 1 / (vide) » et " +
+              "protéger le Charger."}
       </span>
     </>
   );

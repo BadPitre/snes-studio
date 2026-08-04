@@ -103,3 +103,19 @@ u8 save_read(u8 slot)
     vm.vars16[i] = (u16)s[136 + (i << 1)] | ((u16)s[137 + (i << 1)] << 8);
   return 1;
 }
+
+/* M2 — pending restore, consumed by the main loop. */
+static u8 sv_load = 0;
+
+void save_request_load(void)
+{
+  sv_load = 1;
+}
+
+u8 save_take_load(void)
+{
+  u8 c = sv_load;
+
+  sv_load = 0;
+  return c;
+}

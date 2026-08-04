@@ -28,6 +28,7 @@
 #include "anim.h"  /* ANIMPLAY: frame-by-frame animations (A1) */
 #include "m7.h"     /* M7OPEN/M7ZOOM/M7CLOSE: the Mode 7 screen (M7-A) */
 #include "data/db_tables.h" /* Database register (DBREAD, v0.17) */
+#include "save.h"
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
@@ -1021,10 +1022,27 @@ static void vm_step(void)
       textbox_set_style(fetch8());
       break;
 
-    case VM_OP_SYSMENU: /* System menu (saving) — Phase 12: the
-                           hard-wired START mapping is gone, the author
-                           opens the menu with this command */
-      sysmenu_open();
+    case VM_OP_SRAM: /* SRAM (M2): the save primitive — the menus that
+                        used to live in sysmenu.c are the project's
+                        events now (PLANNING_MENU_EN_EVENTS.md) */
+      op = fetch8();  /* 0 save, 1 load, 2 exists */
+      var = fetch8(); /* slot */
+      val = fetch8(); /* destination variable (exists) */
+      if (op == 0)
+        save_write(var);
+      else if (op == 1)
+      {
+        if (save_read(var))
+        {
+          /* restore = a warp from the main loop: the script ends
+             here, the warp invariant (cf. VM_OP_WARP) */
+          save_request_load();
+          vm.active = 0;
+        }
+        /* invalid slot: nothing changed, the script continues */
+      }
+      else
+        vm.vars16[val] = save_exists(var);
       break;
 
     case VM_OP_SHOWPIC: /* picture (S3/S5/S7) — transition DEFERRED to the

@@ -64,6 +64,7 @@ import {
   formSwappos,
   formSwitch,
   formSysmenu,
+  formSram,
   formTimer,
   formTint,
   formUiShow,
@@ -263,7 +264,13 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "key_input":
       return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
     case "sysmenu":
-      return "Ouvrir le menu Système (sauvegarde)";
+      return "Ouvrir le menu Système (OBSOLÈTE — bibliothèque menu, M2)";
+    case "save_slot":
+      return `Sauvegarder la partie (slot ${c.slot})`;
+    case "load_slot":
+      return `Charger la partie (slot ${c.slot})`;
+    case "slot_info":
+      return `Slot ${c.slot} occupé ? → [${c.var}]`;
     case "pic_show":
       return `Afficher l'image ${
         c.pic_var !== undefined ? `n°[${c.pic_var}]` : `« ${c.pic || "?"} »`
@@ -745,6 +752,12 @@ export function CommandListEditor(props: {
         return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
       case "sysmenu":
         return { c: "sysmenu" };
+      case "save_slot":
+        return { c: "save_slot", slot: 1 };
+      case "load_slot":
+        return { c: "load_slot", slot: 1 };
+      case "slot_info":
+        return { c: "slot_info", slot: 1, var: 0 };
       case "pic_show":
         return { c: "pic_show", pic: "" };
       case "pic_move":
@@ -1695,6 +1708,11 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "sysmenu":
       ({ body, valid } = formSysmenu(cmd, x));
+      break;
+    case "save_slot":
+    case "load_slot":
+    case "slot_info":
+      ({ body, valid } = formSram(cmd, x));
       break;
     case "pic_show":
       ({ body, valid } = formPicShow(cmd, x));

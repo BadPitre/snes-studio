@@ -216,11 +216,9 @@
                               10 R, 11 Select, 12 Start; 0 = none).
                               wait = 1 blocks until a FRESH press of a
                               key in the mask */
-#define VM_OP_SYSMENU 0x26 /* opens the System menu (saving) — the
-                              menu takes over when the script ends. The
-                              hardcoded START mapping is gone: the author
-                              maps their own key with KEYIN plus this
-                              command */
+/* 0x26 was VM_OP_SYSMENU — freed in M2: the System menu became the
+   project's event library (PLANNING_MENU_EN_EVENTS.md); saving goes
+   through VM_OP_SRAM. */
 #define VM_OP_DLGSTYLE 0x27 /* style (u8, 0 = default) — dialogue box
                                of the next MSG/CHOICE: window, windowskin
                                and font per style (the ui_styles.c
@@ -434,6 +432,13 @@
    battlers) with the C3 pulse/blink feedback; Left/Up back,
    Right/Down forward, A writes the pick into vars16[var] (255 on
    cancel). BLOCKING. Nothing to point at: var = 255, no wait. */
+#define VM_OP_SRAM 0x4B /* op (u8: 0 save, 1 load, 2 exists), slot
+   (u8 0-3), var (u8) — the SRAM primitive (M2). save writes the game
+   state into the slot; load reads it and ENDS the script (the
+   restore is a warp from the main loop; an invalid slot changes
+   nothing and the script continues); exists puts 1 in vars16[var]
+   if the slot holds a valid save. The menus around it are the
+   project's events. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

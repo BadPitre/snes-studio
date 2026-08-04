@@ -141,7 +141,10 @@ const TABS: Tab[] = [
   {
     title: "Autres",
     items: [
-      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" },
+      { c: "save_slot", label: "Sauvegarder la partie (slot)" },
+      { c: "load_slot", label: "Charger la partie (slot)" },
+      { c: "slot_info", label: "Slot de sauvegarde occupé ?" },
+      { c: "call", label: "Appeler un common event" },
       { c: "call_fn", label: "Appeler une fonction (avec paramètres)" },
       { c: "ret_fn", label: "Retourner un résultat (dans une fonction)" }],
     soon: ["Jouer un son"],

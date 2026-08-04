@@ -70,7 +70,6 @@ const OP_RET: u8 = 0x22;
 const OP_DBREAD: u8 = 0x23;
 const OP_SHOWUI: u8 = 0x24;
 const OP_KEYIN: u8 = 0x25;
-const OP_SYSMENU: u8 = 0x26;
 const OP_DLGSTYLE: u8 = 0x27;
 const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
@@ -107,6 +106,7 @@ const OP_BTLPOSE: u8 = 0x47;
 const OP_POPUP: u8 = 0x48;
 const OP_CLOCK: u8 = 0x49;
 const OP_TARGETSEL: u8 = 0x4A;
+const OP_SRAM: u8 = 0x4B;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -311,6 +311,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "CLOCK" => 3,
         // TARGETSEL <var> <flags> — the target cursor (V1), blocking
         "TARGETSEL" => 3,
+        // SRAM <op 0|1|2> <slot 0-3> <var> — save / load / exists (M2)
+        "SRAM" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -332,7 +334,6 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHOWUI" => 3,
         // KEYIN <wait> <masklo> <maskhi> <var>: Key Input
         "KEYIN" => 5,
-        "SYSMENU" => 1,
         // DLGSTYLE <n>: style of the next dialogue box
         "DLGSTYLE" => 2,
         // SHOWPIC <pic> <x> <y> <flags> <dur> / HIDEPIC <dur> /
@@ -719,10 +720,6 @@ pub fn assemble(
                     code.push(parse_u8(t)?);
                 }
             }
-            "SYSMENU" => {
-                if argc != 0 { bail!("SYSMENU (sans argument)"); }
-                code.push(OP_SYSMENU);
-            }
             "DLGSTYLE" => {
                 if argc != 1 { bail!("DLGSTYLE <style>"); }
                 code.push(OP_DLGSTYLE);
@@ -1066,6 +1063,19 @@ pub fn assemble(
                 code.push(OP_TARGETSEL);
                 code.push(parse_u8(args[0])?);
                 code.push(parse_u8(args[1])?);
+            }
+            // SRAM <op> <slot> <var> — the save primitive (M2): 0 save,
+            // 1 load (ends the script on success), 2 exists -> var
+            "SRAM" => {
+                if argc != 3 { bail!("SRAM <op> <slot> <var>"); }
+                let o = parse_u8(args[0])?;
+                if o > 2 { bail!("SRAM : op {} (0 save, 1 load, 2 exists)", o); }
+                let slot = parse_u8(args[1])?;
+                if slot > 3 { bail!("SRAM : slot {} — 4 slots (0-3)", slot); }
+                code.push(OP_SRAM);
+                code.push(o);
+                code.push(slot);
+                code.push(parse_u8(args[2])?);
             }
             // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
             // is masked by the map's OWN step count at run time, so the

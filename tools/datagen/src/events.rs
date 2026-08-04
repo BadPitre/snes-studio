@@ -408,7 +408,7 @@ impl<'a> EventCompiler<'a> {
                     cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
                 };
                 match cmd["c"].as_str().unwrap_or("") {
-                    "msg" | "choice" | "sysmenu" | "target_sel" => bail!(
+                    "msg" | "choice" | "target_sel" => bail!(
                         "common event « {} » (parallel) : les messages, les \
                          choix et le curseur de cible sont interdits dans un \
                          Parallel process (il tourne en tache de fond, sans \
@@ -482,7 +482,15 @@ impl<'a> EventCompiler<'a> {
                 "pic_hide" => self.cmd_pic_hide(cmd, out)?,
                 "pic_move" => self.cmd_pic_move(cmd, out)?,
                 "key_input" => self.cmd_key_input(cmd, out)?,
-                "sysmenu" => self.cmd_sysmenu(out)?,
+                "sysmenu" => bail!(
+                    "sysmenu : le menu Systeme est devenu une bibliotheque \
+                     d'events (M2) — remplacer par les commandes Sauvegarder/\
+                     Charger la partie, ou par le menu du gabarit \
+                     (PLANNING_MENU_EN_EVENTS.md)"
+                ),
+                "save_slot" => self.cmd_sram(cmd, out, 0)?,
+                "load_slot" => self.cmd_sram(cmd, out, 1)?,
+                "slot_info" => self.cmd_sram(cmd, out, 2)?,
                 "tint" => self.cmd_tint(cmd, out)?,
                 "screen" => self.cmd_screen(cmd, out, depth)?,
                 "screen_call" => self.cmd_screen_call(cmd, out, depth)?,
@@ -1284,10 +1292,6 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
-    fn cmd_sysmenu(&mut self, out: &mut Vec<String>) -> Result<()> {
-        out.push("  SYSMENU".to_string());
-        Ok(())
-    }
 
     fn cmd_tint(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let mode = match cmd["mode"].as_str().unwrap_or("off") {
@@ -1733,6 +1737,25 @@ impl<'a> EventCompiler<'a> {
         let cancel = cmd["cancel"].as_bool().unwrap_or(true);
         let flags = ally as u8 | (cancel as u8) << 1;
         out.push(format!("  TARGETSEL {} {}", var, flags));
+        Ok(())
+    }
+
+    /// `save_slot` / `load_slot` / `slot_info` — the SRAM primitive
+    /// (M2). The menus around it are the project's events.
+    fn cmd_sram(&mut self, cmd: &Value, out: &mut Vec<String>, op: u8) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=4).contains(&v))
+            .with_context(|| "sauvegarde : slot 1-4".to_string())?;
+        let var = if op == 2 {
+            cmd["var"]
+                .as_u64()
+                .filter(|&v| v < 256)
+                .with_context(|| "slot_info : var 0-255".to_string())?
+        } else {
+            0
+        };
+        out.push(format!("  SRAM {} {} {}", op, slot - 1, var));
         Ok(())
     }
 
