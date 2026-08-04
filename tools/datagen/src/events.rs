@@ -620,7 +620,7 @@ impl<'a> EventCompiler<'a> {
             #[allow(clippy::type_complexity)]
             let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8, Option<u16>)> =
                 if ev.pages.is_empty() {
-                    vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
+                    vec![(&ev.condition, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
                           &ev.entry, ev.commands.as_slice(), &ev.r#move,
                           &ev.move_route, &ev.priority, ev.speed.unwrap_or(0),
                           ev.tile)]

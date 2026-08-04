@@ -48,71 +48,6 @@ export default function PartyModal(props: Props) {
     setSel(j);
   };
 
-  // one action row of the menu semantics (aligned with the widget items)
-  const actionRow = (a: string, i: number) => {
-    const kind =
-      a === "attack" ? "attack"
-        : a === "flee" ? "flee"
-        : a.startsWith("skill:") ? "skill"
-        : a.startsWith("item:") ? "item"
-        : "other";
-    const setAction = (v: string) =>
-      setFile({ ...file, actions: file.actions.map((x, j) => (j === i ? v : x)) });
-    return (
-      <div className="row" key={i}>
-        <span style={{ width: 18, opacity: 0.6 }}>{i + 1}.</span>
-        <select
-          value={kind}
-          title="Le SENS de la ligne du menu — le texte vient du widget (Tools → Interface → Widgets)"
-          onChange={(e) => {
-            const k = e.target.value;
-            setAction(
-              k === "attack" ? "attack"
-                : k === "flee" ? "flee"
-                : k === "skill" ? `skill:${props.skills[0]?.id ?? ""}`
-                : k === "item" ? `item:${props.items[0]?.id ?? ""}`
-                : "-"
-            );
-          }}
-        >
-          <option value="attack">Attaque</option>
-          <option value="skill">Compétence</option>
-          <option value="item" disabled={props.items.length === 0}>Objet</option>
-          <option value="flee">Fuite</option>
-          <option value="other">(inerte)</option>
-        </select>
-        {kind === "skill" && (
-          <select
-            value={a.slice(6)}
-            onChange={(e) => setAction(`skill:${e.target.value}`)}
-          >
-            {props.skills.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        )}
-        {kind === "item" && (
-          <select
-            value={a.slice(5)}
-            onChange={(e) => setAction(`item:${e.target.value}`)}
-            title="Un objet de la Database avec heal et count_var (la variable nommée qui compte les exemplaires de l'équipe)"
-          >
-            {props.items.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        )}
-        <button
-          className="danger"
-          onClick={() =>
-            setFile({ ...file, actions: file.actions.filter((_, j) => j !== i) })
-          }
-        >
-          ✕
-        </button>
-      </div>
-    );
-  };
 
   return (
     <div className="modal-backdrop">
@@ -219,36 +154,12 @@ export default function PartyModal(props: Props) {
                     </label>
                   ))}
                 </div>
-                <span className="palette-title" style={{ margin: "8px 0 0" }}>
-                  Menu de combat (toute l'équipe)
+                <span className="hint" style={{ marginTop: 8 }}>
+                  Le menu de combat et le sens de ses lignes vivent dans la
+                  BIBLIOTHEQUE d'events depuis V2 : ouvre combat_tour_heros
+                  (Tools → Common events) — chaque entree du widget
+                  menu_combat y est une branche du script, a toi.
                 </span>
-                <label title="Un widget « liste à curseur » du layout — ses items donnent les TEXTES du menu">
-                  Widget du menu
-                  <select
-                    value={file.menu}
-                    onChange={(e) => setFile({ ...file, menu: e.target.value })}
-                  >
-                    <option value="">(aucun — attaque simple)</option>
-                    {props.listWidgets.map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </label>
-                {file.menu !== "" && (
-                  <>
-                    {file.actions.map(actionRow)}
-                    <button
-                      disabled={file.actions.length >= 8}
-                      onClick={() => setFile({ ...file, actions: [...file.actions, "attack"] })}
-                    >
-                      ＋ Ajouter une ligne
-                    </button>
-                    <span className="hint">
-                      Chaque ligne donne le SENS de l'item du widget de
-                      même rang — le texte s'édite dans le widget.
-                    </span>
-                  </>
-                )}
               </>
             )}
           </div>

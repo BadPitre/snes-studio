@@ -187,6 +187,7 @@ Then, depending on what you are touching:
 | Data formats or the VM | `docs/SPEC_FORMATS.md` |
 | datagen | `docs/TOOLS.md` |
 | The editor | `docs/EDITOR.md` |
+| The battle system | **open `combat_tour`** (Tools > Common events) — the battle IS a script; `docs/PLANNING_COMBAT_EN_EVENTS.md` explains why |
 
 `ENGINE_CONSTRAINTS.md` is not optional reading for engine work. Most of
 what it lists is *silent*: legal C, a green build, and wrong output —

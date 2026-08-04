@@ -377,7 +377,14 @@ pub fn build(
     for (ti, t) in tv.get("troop").and_then(|v| v.as_array()).unwrap_or(&Vec::new()).iter().enumerate() {
         let tid = t.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let back = t.get("backdrop").and_then(|v| v.as_str()).unwrap_or("");
-        let backdrop = pic_id(back, &format!("fond du groupe '{}'", tid))?;
+        // Optional since V4: an empty backdrop is the BLACK screen
+        // (stage_request_open 0xFF) — a new project fights before it
+        // owns a single picture.
+        let backdrop = if back.is_empty() {
+            0xFF
+        } else {
+            pic_id(back, &format!("fond du groupe '{}'", tid))?
+        };
         let mut mons = Vec::new();
         for m in t
             .get("monsters")

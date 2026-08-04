@@ -496,6 +496,13 @@ pub struct Event {
     /// Structured commands (Event Editor).
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
+    /// Page-1 condition, FLAT: the editor serialises a single-page
+    /// event with its condition at the top level, and this field was
+    /// missing — the condition was silently dropped, so a lone AUTO
+    /// page conditioned on a switch fired at boot (found by V4's
+    /// fresh-project battle).
+    #[serde(default)]
+    pub condition: Option<serde_json::Value>,
     /// Movement type: "static" (default), "random", "vertical",
     /// "horizontal", "custom" (which requires move_route).
     #[serde(default)]

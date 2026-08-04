@@ -147,5 +147,22 @@ heroes.toml/skills.toml carve-out; troops keep their editor window).
   templates and the showcase; the Groupes/Équipe windows survive
   (they edit data the library reads); docs rewritten so the FIRST
   thing an author learns is "open combat_tour and read your battle".
+  *Shipped.* A NEW PROJECT IS BORN FIGHTING: scaffoldProject copies
+  the STARTER library (combatlib.ts — attack/potion/flee, heavily
+  commented; the showcase stays the full reference) with the data it
+  reads — a monsters table with one slime (battler PNG included), the
+  items table, a party of one, a troop of two on a BLACK backdrop
+  (troops.toml backdrop is optional now), the menu widget, and a
+  sample Duel event plus the switch-500 AUTO page. Verified end to
+  end: the scaffolded project builds and plays its battle. The Équipe
+  window's menu/actions editor is gone — that semantics lives in
+  combat_tour_heros and the window now says so. Dividend of the
+  fresh-project test: datagen DROPPED the flat `condition` field the
+  editor writes on single-page events (the AUTO page fired at boot) —
+  a silent pipeline bug fixed for every conditioned event, not just
+  battles.
 
-*V0 ends here. V1 starts on the author's go.*
+*The chantier is done: the engine owns four generic primitives and an
+opener; everything that decides is the author's script.*
+
+
