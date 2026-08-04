@@ -393,6 +393,11 @@ export type Command =
   // "this event". wait: blocks the script until the end (never for a
   // looping animation, which never ends).
   | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean }
+  // C5 — "Lancer un combat" (RM2003 vocabulary): opens the battle screen
+  // on a troop of data/troops.toml. The command ENDS the calling script
+  // (the battle's close is an internal warp); the aftermath is an AUTO
+  // page conditioned on the reserved switch 500.
+  | { c: "battle"; troop: string }
   | { c: "anim_stop" }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }

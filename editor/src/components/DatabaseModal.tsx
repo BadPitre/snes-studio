@@ -20,6 +20,7 @@ interface Props {
   pictures: string[];
   sounds: string[];
   musics: string[];
+  skillIds?: string[]; // C5 — data/skills.toml, for the monsters' `ai`
   // removed: deleted tables (their files will be taken off the disk)
   onOk: (db: Database, removed: string[]) => void;
   onClose: () => void;
@@ -134,9 +135,73 @@ export default function DatabaseModal(props: Props) {
 
   function fieldWidget(f: DbField) {
     if (!cur) return null;
-    // build-time fields (C4, e.g. the monsters' `ai` list): consumed by
-    // datagen from the raw TOML, no ROM bytes — edited in the data files
-    // until their dedicated UI lands (C5).
+    // build-time fields: consumed by datagen from the raw TOML, no ROM
+    // bytes. The monsters' `ai` (C4) gets its dedicated widget — a
+    // WEIGHTED action list, "attack" or a skill of data/skills.toml.
+    // Any other build field stays file-edited.
+    if (f.type === "build" && f.name === "ai") {
+      const list = Array.isArray(cur[f.name]) ? (cur[f.name] as unknown[]).map(String) : [];
+      const skills = props.skillIds ?? [];
+      const setList = (l: string[]) => {
+        if (l.length === 0) delete cur[f.name];
+        else cur[f.name] = l;
+        commit();
+      };
+      // "attack[:w]" | "skill:<id>[:w]" -> parts
+      const parse = (a: string) => {
+        const p = a.split(":");
+        return p[0] === "skill"
+          ? { kind: "skill", skill: p[1] ?? "", w: Number(p[2] ?? 1) || 1 }
+          : { kind: "attack", skill: "", w: Number(p[1] ?? 1) || 1 };
+      };
+      const fmt = (e: { kind: string; skill: string; w: number }) =>
+        (e.kind === "skill" ? `skill:${e.skill}` : "attack") + (e.w !== 1 ? `:${e.w}` : "");
+      return (
+        <div key={f.name} className="db-field" style={{ gridColumn: "1 / -1" }}>
+          <span title="Liste d'actions pondérées : à son tour, le monstre tire une action au hasard, chaque ligne pesant son poids. Vide = attaque simple.">
+            IA (actions pondérées)
+          </span>
+          {list.map((a, i) => {
+            const e = parse(a);
+            const upd = (n: Partial<typeof e>) =>
+              setList(list.map((x, j) => (j === i ? fmt({ ...e, ...n }) : x)));
+            return (
+              <div className="row" key={i}>
+                <select
+                  value={e.kind}
+                  onChange={(ev) =>
+                    upd(ev.target.value === "skill" ? { kind: "skill", skill: skills[0] ?? "" } : { kind: "attack", skill: "" })
+                  }
+                >
+                  <option value="attack">Attaque</option>
+                  <option value="skill" disabled={skills.length === 0}>Compétence</option>
+                </select>
+                {e.kind === "skill" && (
+                  <select value={e.skill} onChange={(ev) => upd({ skill: ev.target.value })}>
+                    {skills.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                    {e.skill && !skills.includes(e.skill) && (
+                      <option value={e.skill}>{e.skill} (?)</option>
+                    )}
+                  </select>
+                )}
+                <label title="Poids du tirage (1-255)">
+                  ×
+                  <input
+                    type="number" min={1} max={255} style={{ width: 56 }}
+                    value={e.w}
+                    onChange={(ev) => upd({ w: Math.max(1, Number(ev.target.value) || 1) })}
+                  />
+                </label>
+                <button className="danger" onClick={() => setList(list.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            );
+          })}
+          <button onClick={() => setList([...list, "attack"])}>＋ Ajouter une action</button>
+        </div>
+      );
+    }
     if (f.type === "build") return null;
     const bounds = fieldBounds(f);
     const set = (v: unknown) => {

@@ -40,6 +40,7 @@ import {
   formRoute,
   formScrHideScrShow,
   formScreen,
+  formBattle,
   formScreenCall,
   formSetAdd,
   formSetpos,
@@ -144,6 +145,7 @@ interface Props {
   animNames: string[]; // names of the frame-by-frame animations (A1)
   screenNames: string[]; // composed screens (B6bis)
   screenScriptNames?: string[]; // scripts of the current screen (B6bis-2)
+  troopNames?: string[]; // C5 — data/troops.toml ids ("Lancer un combat")
   onTintPresets: (list: TintPreset[]) => void; // replaces the list (create/delete)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -299,6 +301,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       );
     case "screen":
       return `Aller à l'écran « ${c.name} »`;
+    case "battle":
+      return `Lancer un combat : « ${c.troop} »`;
     case "screen_call":
       return `Appeler le script d'écran « ${c.script} »`;
     case "stage_open":
@@ -432,6 +436,7 @@ function cmdTitle(c: Command["c"]): string {
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
     screen: "Aller à l'écran",
+    battle: "Lancer un combat",
     screen_call: "Appeler un script de l'écran",
     stage_open: "Ouvrir un écran composé",
     stage_pose: "Poser une image (slot)",
@@ -551,6 +556,7 @@ export function CommandListEditor(props: {
   animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
+  troopNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -736,6 +742,8 @@ export function CommandListEditor(props: {
         return { c: "weather", kind: "rain", power: 2 };
       case "screen":
         return { c: "screen", name: "", dur: 20 };
+      case "battle":
+        return { c: "battle", troop: "" };
       case "screen_call":
         return { c: "screen_call", script: "" };
       case "stage_open":
@@ -881,6 +889,7 @@ export function CommandListEditor(props: {
               animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
+              troopNames={props.troopNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1313,6 +1322,7 @@ export default function EventEditorModal(props: Props) {
               animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
+              troopNames={props.troopNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1522,6 +1532,7 @@ export type CommandFormProps = {
   animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
+  troopNames?: string[]; // C5 — "Lancer un combat" picker
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -1691,6 +1702,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "screen":
       ({ body, valid } = formScreen(cmd, x));
+      break;
+    case "battle":
+      ({ body, valid } = formBattle(cmd, x));
       break;
     case "screen_call":
       ({ body, valid } = formScreenCall(cmd, x));

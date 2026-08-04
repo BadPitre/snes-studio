@@ -1471,6 +1471,42 @@ export function formScreen(cmd: Extract<Command, { c: "screen" }>, x: FormCtx): 
   return { body, valid };
 }
 
+export function formBattle(cmd: Extract<Command, { c: "battle" }>, x: FormCtx): FormBody {
+  let body: JSX.Element | null = null;
+  const onChange = x.p.onChange;
+  const troops = x.p.troopNames ?? [];
+  const valid = cmd.troop !== "" && troops.includes(cmd.troop);
+  body = (
+    <>
+      <label>
+        Groupe de monstres (Tools → Combat → Groupes de monstres)
+        <select
+          value={cmd.troop}
+          onChange={(e) => onChange({ ...cmd, troop: e.target.value })}
+        >
+          <option value="">(choisir un groupe…)</option>
+          {troops.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+          {cmd.troop && !troops.includes(cmd.troop) && (
+            <option value={cmd.troop}>{cmd.troop} (?)</option>
+          )}
+        </select>
+      </label>
+      <span className="hint">
+        Ouvre l'écran de combat sur ce groupe : fond, monstres, équipe
+        et menu viennent des données (Groupes de monstres, Équipe,
+        Database). La commande TERMINE ce script — la suite du combat
+        s'écrit dans une page AUTO conditionnée sur le switch 500
+        (« Combat termine ») : l'issue est dans la variable 248
+        (1 victoire, 2 défaite, 3 fuite), les gains dans 249 (XP) et
+        250 (or).
+      </span>
+    </>
+  );
+  return { body, valid };
+}
+
 export function formScreenCall(cmd: Extract<Command, { c: "screen_call" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
   let valid = true;

@@ -114,6 +114,12 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Combat",
+    items: [
+      { c: "battle", label: "Lancer un combat" },
+    ],
+  },
+  {
     title: "Animations",
     items: [
       { c: "anim_play", label: "Jouer une animation" },

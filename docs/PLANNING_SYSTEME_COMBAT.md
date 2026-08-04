@@ -283,6 +283,22 @@ adds one during C2.
 - **C5 — it is authorable.** Troop editor window, party window, forms,
   diagnostics. The showcase's two scripted battles are REPLACED by
   database troops — the deletion of those two screens is the proof.
+  **Done:** Tools → Combat holds "Groupes de monstres" (a canvas with
+  the backdrop, drag-placed monsters from the bestiary, the party
+  column ghosted at the engine's exact anchors, hook dropdowns) and
+  "Équipe" (heroes, stats, screen order, the menu widget and the
+  MEANING of its lines). "Lancer un combat" is a picker command
+  (Combat tab) whose form names the troop and teaches the switch-500
+  aftermath. The monsters' `ai` got its weighted-action widget in the
+  Database window (skills read from data/skills.toml). And the proof
+  stands: combat_gobelin/combat_dragon are DELETED — the plaine's
+  Gobelin and Dragon events now run `battle` on database troops, with
+  one AUTO page (switch 500) branching on the reserved variables and
+  a named "Combat en cours (plaine)" variable telling which fight
+  just ended. Diagnostics stayed with datagen (it refuses an unknown
+  troop/hook by name at build time). ITEMS + inventory and the ATB
+  gauges did not fit this milestone — they move to C6 with the
+  polish pass.
 - **C6 — polish.** Wait/Active option, poison, hold-to-flee, balance
   pass on the showcase, doc §-updates.
 

@@ -40,10 +40,6 @@
   "assets/vignettes/exclam.png",
   "assets/vignettes/coup.png"
  ],
- "screens": [
-  "combat_gobelin",
-  "combat_dragon"
- ],
  "charsets": [
   "Heros",
   "Villageois"
@@ -503,7 +499,7 @@
   "Monstre: defense",
   "Monstre: XP",
   "Monstre: or",
-  "",
+  "Combat en cours (plaine)",
   "",
   "",
   "",
@@ -721,7 +717,7 @@
   "",
   "",
   "",
-  "",
+  "Defaite en combat",
   "",
   "",
   "",

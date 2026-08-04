@@ -80,6 +80,16 @@ import ScreensModal from "./components/ScreensModal";
 import { PrefabsModal, SavePrefabModal } from "./components/PrefabModals";
 import TransferPlayerModal from "./components/TransferPlayerModal";
 import DatabaseModal from "./components/DatabaseModal";
+import TroopsModal from "./components/TroopsModal";
+import PartyModal from "./components/PartyModal";
+import {
+  loadTroops,
+  loadHeroes,
+  loadSkillDefs,
+  saveTroops,
+  saveHeroes,
+} from "./battle";
+import type { Troop, HeroesFile, SkillDef } from "./battle";
 import TextsModal from "./components/TextsModal";
 import UiThemeModal, { loadUiLayout2 } from "./components/UiThemeModal";
 import { layoutToToml, rootsOf } from "./uilayout";
@@ -175,6 +185,12 @@ export default function App() {
   const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
   // Database (Phase 10): schemas + instances (null = no schemas/)
   const [db, setDb] = useState<Database | null>(null);
+  // Battle data (C5): the fixed-format files of data/ (null = none)
+  const [troops, setTroops] = useState<Troop[] | null>(null);
+  const [battleHeroes, setBattleHeroes] = useState<HeroesFile | null>(null);
+  const [battleSkills, setBattleSkills] = useState<SkillDef[]>([]);
+  const [troopsOpen, setTroopsOpen] = useState(false);
+  const [partyOpen, setPartyOpen] = useState(false);
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
@@ -255,6 +271,14 @@ export default function App() {
     setTilesets(bitmaps);
     setAutoImgs(autos);
     setSprites(await loadAssetPng(root, d.project.assets.sprites));
+    // Battle data (C5): heroes/troops/skills, if the project fights
+    try {
+      setTroops(await loadTroops(root));
+      setBattleHeroes(await loadHeroes(root));
+      setBattleSkills(await loadSkillDefs(root));
+    } catch (e) {
+      setStatus(`Données de combat illisibles : ${e}`);
+    }
     // Database (Phase 10): schemas + instances, if the project has one
     try {
       setDb(await loadDatabase(root));
@@ -1473,6 +1497,25 @@ export default function App() {
           ],
         },
         {
+          label: "Combat",
+          tip: "Le système de combat : qui se bat (l'équipe), contre qui (les groupes de monstres)",
+          disabled: !data,
+          sub: [
+            {
+              label: "Groupes de monstres…",
+              tip: "Arranger les monstres de la Database sur un fond — ouverts en jeu par « Lancer un combat »",
+              action: () => setTroopsOpen(true),
+              disabled: !data,
+            },
+            {
+              label: "Équipe…",
+              tip: "Les héros (stats, apparence, ordre) et le menu de combat (widget + sens des lignes)",
+              action: () => setPartyOpen(true),
+              disabled: !data,
+            },
+          ],
+        },
+        {
           label: "Interface",
           tip: "Ce que le joueur a sous les yeux : HUD et boîtes de dialogue",
           disabled: !data,
@@ -2152,6 +2195,7 @@ export default function App() {
           pictures={(data.project.pictures ?? []).map(picPath)}
           sounds={data.project.sounds ?? []}
           musics={data.project.musics ?? []}
+          skillIds={battleSkills.map((s) => s.id)}
           onOk={(next, removedTables) => {
             setDb(next);
             setDbOpen(false);
@@ -2185,6 +2229,45 @@ export default function App() {
           onClose={() => setUiMode(null)}
         />
       )}
+      {troopsOpen && data && (
+        <TroopsModal
+          root={data.root}
+          troops={troops ?? []}
+          db={db}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          picturePaths={Object.fromEntries(
+            projectPictures(data.project).map((e) => [assetStem(picPath(e)), picPath(e)])
+          )}
+          commonNames={(data.project.common_events ?? []).map((c) => c.name)}
+          heroNames={(battleHeroes?.heroes ?? []).map((h) => h.name || h.id)}
+          onOk={(list) => {
+            setTroops(list);
+            void saveTroops(data.root, list).catch((e) =>
+              setStatus(`Écriture de troops.toml impossible : ${e}`)
+            );
+            setTroopsOpen(false);
+            setStatus("Groupes de monstres enregistrés (data/troops.toml).");
+          }}
+          onClose={() => setTroopsOpen(false)}
+        />
+      )}
+      {partyOpen && data && battleHeroes && (
+        <PartyModal
+          heroes={battleHeroes}
+          charsetNames={data.project.charsets ?? []}
+          listWidgets={uiWidgets}
+          skills={battleSkills}
+          onOk={(h) => {
+            setBattleHeroes(h);
+            void saveHeroes(data.root, h).catch((e) =>
+              setStatus(`Écriture de heroes.toml impossible : ${e}`)
+            );
+            setPartyOpen(false);
+            setStatus("Équipe enregistrée (data/heroes.toml).");
+          }}
+          onClose={() => setPartyOpen(false)}
+        />
+      )}
       {screensOpen && data && (
         <ScreensModal
           root={data.root}
@@ -2211,6 +2294,7 @@ export default function App() {
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
           animNames={(data.project.animations ?? []).map((a) => a.name)}
+          troopNames={(troops ?? []).map((t) => t.id)}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
           }
@@ -2250,6 +2334,7 @@ export default function App() {
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
           animNames={(data.project.animations ?? []).map((a) => a.name)}
+          troopNames={(troops ?? []).map((t) => t.id)}
           screenNames={data.project.screens ?? []}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2296,6 +2381,7 @@ export default function App() {
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 animNames={(data.project.animations ?? []).map((a) => a.name)}
+                troopNames={(troops ?? []).map((t) => t.id)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2367,6 +2453,7 @@ export default function App() {
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 animNames={(data.project.animations ?? []).map((a) => a.name)}
+                troopNames={(troops ?? []).map((t) => t.id)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))

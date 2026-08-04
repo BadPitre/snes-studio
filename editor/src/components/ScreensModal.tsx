@@ -13,7 +13,8 @@ import { loadAssetPng } from "../io";
 
 interface Props {
   root: string;
-  screenNames: string[]; // project order
+  screenNames: string[];
+  troopNames?: string[]; // C5 — "Lancer un combat" picker // project order
   screens: Record<string, Screen>;
   picturePaths: Record<string, string>; // stem -> assets/ path
   sceneNames: string[];
@@ -574,6 +575,7 @@ export default function ScreensModal(props: Props) {
                       vigNames={props.vigNames}
                       animNames={props.animNames}
                       screenNames={names}
+                      troopNames={props.troopNames}
                       screenScriptNames={cur.scripts.map((sc) => sc.name)}
                       onTintPresets={props.onTintPresets}
                       onRenameVars={props.onRenameVars}
