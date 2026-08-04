@@ -134,6 +134,10 @@ export default function DatabaseModal(props: Props) {
 
   function fieldWidget(f: DbField) {
     if (!cur) return null;
+    // build-time fields (C4, e.g. the monsters' `ai` list): consumed by
+    // datagen from the raw TOML, no ROM bytes — edited in the data files
+    // until their dedicated UI lands (C5).
+    if (f.type === "build") return null;
     const bounds = fieldBounds(f);
     const set = (v: unknown) => {
       if (v === undefined) delete cur[f.name];

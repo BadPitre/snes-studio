@@ -156,6 +156,30 @@ u16 vm_common_auto(void)
   return common_lookup(0);
 }
 
+/* Battle hook (C4): the CETAB's type-2 entries map a COMMON EVENT index
+   (carried by the switch field) to the body's offset in THIS scene's
+   block. SCRIPT_NONE when the scene compiled without it. */
+u16 vm_common_hook(u8 ce)
+{
+  u8 n, i;
+  u16 p, id;
+
+  n = scene_ctx.scripts[0];
+  p = 1;
+  for (i = 0; i < n; i++)
+  {
+    if (scene_ctx.scripts[p] == 2)
+    {
+      id = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
+      if (id == ce)
+        return (u16)scene_ctx.scripts[p + 3] |
+               ((u16)scene_ctx.scripts[p + 4] << 8);
+    }
+    p += 5;
+  }
+  return SCRIPT_NONE;
+}
+
 /* --- PARALLEL context (v0.16) — a "Parallel process" common event runs
    in the background without freezing the player, restarted as long as
    its switch is ON. The variables and switches are SHARED with the main
@@ -780,9 +804,15 @@ static void vm_step(void)
         vm.wait_mode = VM_WAIT_M7T;
       break;
 
-    case VM_OP_BATTLE: /* battle screen (C1) — BLOCKING until it closes */
+    case VM_OP_BATTLE: /* battle screen (C1) */
+      /* C4: the command ENDS the calling script, it does not wait. The
+         battle's close is an internal warp, which kills any running
+         script anyway (the engine's invariant, cf. VM_OP_WARP) — so
+         nothing after `battle` ever ran. Freeing the VM here is what
+         lets the troop's HOOKS run on it while the battle waits. */
       btl_request(fetch8());
-      vm.wait_mode = VM_WAIT_BATTLE;
+      if (btl_active())
+        vm.active = 0;
       break;
 
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
@@ -1069,13 +1099,6 @@ void vm_update(void)
   if (vm.wait_mode == VM_WAIT_STAGE)
   {
     if (!stage_busy())
-      vm.wait_mode = VM_WAIT_NONE;
-    else
-      return;
-  }
-  if (vm.wait_mode == VM_WAIT_BATTLE)
-  {
-    if (!btl_active())
       vm.wait_mode = VM_WAIT_NONE;
     else
       return;

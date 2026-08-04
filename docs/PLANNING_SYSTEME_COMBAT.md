@@ -199,7 +199,20 @@ BATTLE <troop> ->  transition (mosaic) -> intro hook
   it costs the engine nothing.
 - Hooks are command lists attached to the troop (like screen scripts
   today). While a hook runs, the ATB clock pauses. The showcase's
-  scripted-battle experience maps 1:1 onto hooks.
+  scripted-battle experience maps 1:1 onto hooks. **Built by C4:** a
+  hook is an ordinary COMMON EVENT the troop references by name
+  (troops.toml `intro` / `low_hp`); datagen adds a type-2 entry to
+  every scene's CETAB table mapping the common's index to its body,
+  so a battle started anywhere finds its hooks locally
+  (vm_common_hook). To free the VM for them, the BATTLE opcode now
+  ENDS the calling script instead of waiting — nothing after `battle`
+  ever ran anyway (the close is an internal warp, the C2 amendment
+  above), so the change costs no author anything; the main loop gains
+  a "battle owns the loop" branch so the AUTO scan and the player
+  stay asleep while no hook runs. Hook set shipped: `intro` (before
+  the first tick) and `low_hp` (once, when a living monster falls
+  under HALF its hp). Victory/defeat/flee stay the switch-500 AUTO
+  page's business.
 - The walking scene is suspended exactly like m7 images/stage do it
   today (same takeover recipe, same restore path — scene_load rebuilds
   behind us). This is well-trodden ground.
@@ -249,7 +262,24 @@ adds one during C2.
   ITEMS moved to C5 where the inventory model lives. Damage popups
   moved to C4.
 - **C4 — it thinks and it talks.** Monster AI patterns (simple
-  weighted action lists in the database) + the hook set.
+  weighted action lists in the database) + the hook set. **Done:**
+  monsters gained `speed`/`magic`/`magic_def` (schema fields) and
+  `ai` — a weighted action list ("attack:3", "skill:eclair:1"),
+  carried by a new `build` schema field type (validated by the
+  schema, read raw by datagen, zero ROM bytes in the packed table;
+  its editor UI belongs to C5). Monsters cast through the same
+  BT_ANIM path as heroes — mirrored formulas (btl_mon_mag against
+  btl_hero_mdef), heal on the most wounded ally, capped by the ROM
+  hp; monsters have NO MP — the weights ration their casting, the
+  RM2003 way. Damage POPUPS landed: white 8x8 digits (a datagen-made
+  sheet on OBJ chars 336-383, palette 4, OAM 100-103), risen a few
+  pixels over the hit. And C1's "+256-word VRAM bias" was ELUCIDATED
+  as a misread dump: a battler cell's top char row is transparent
+  (16x24 art centred at y+4), so a correct upload looks exactly like
+  a +16-char shift once the REAL bug (the 4-transfer burst losing its
+  tail) truncated the cells; the one-row-per-frame change was the
+  whole fix, and the compensation — which only slid the art 8 px up
+  inside its frame — is gone.
 - **C5 — it is authorable.** Troop editor window, party window, forms,
   diagnostics. The showcase's two scripted battles are REPLACED by
   database troops — the deletion of those two screens is the proof.

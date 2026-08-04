@@ -15,6 +15,7 @@ speed = 60
 attack = 12
 defense = 4
 magic = 6
+magic_def = 6
 
 [[hero]]
 id = "nadia"
@@ -26,3 +27,4 @@ speed = 72
 attack = 9
 defense = 3
 magic = 14
+magic_def = 4

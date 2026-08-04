@@ -61,6 +61,17 @@ extern const u8 btl_skill_mp[];
 extern const u8 btl_skill_pow[];
 extern const u8 btl_skill_tgt[]; /* 0 one enemy, 1 one ally */
 extern const u8 btl_skill_anim[]; /* project animation, 0xFF none */
+extern const u8 btl_hero_mdef[];
+extern const u8 btl_mon_mag[]; /* stride 4 */
+extern const u8 btl_mon_ai_start[]; /* segment of the ai pools, stride 4 */
+extern const u8 btl_mon_ai_n[]; /* 0: the C2 plain attack */
+extern const u8 btl_ai_kind[]; /* 0 attack, 1 skill */
+extern const u8 btl_ai_arg[];
+extern const u8 btl_ai_w[]; /* weights, 1-255 */
+extern const u8 btl_troop_intro[]; /* hook common event, 0xFF none */
+extern const u8 btl_troop_lowhp[];
+extern const u8 btl_digit_cells[]; /* 32 chars: 0-9 on the even ones */
+extern const u16 btl_digit_pal[]; /* white + shadow, OBJ palette 4 */
 
 #define BT_CHAR(h) (448 + (h) * 4) /* the hero's 32x32 OBJ block */
 #define BT_OAM(h) ((u16)(104 + (h)) << 2)
@@ -86,6 +97,14 @@ static u8 bt_row = 0;  /* next 128-byte step of the current cell */
 #define BT_END 4
 #define BT_TARGET 5
 #define BT_ANIM 6
+#define BT_HOOK 7
+/* Damage popups (C4): digits 0-9 on EVEN chars so each is a 16x16
+   small OBJ with three transparent chars — 0-7 on name row 21 (chars
+   336+), 8-9 on row 22, row 23 blank under them, right below the
+   vignettes' 384. OAM 100-103 sits in the gap between the vignettes
+   (96-99) and the party (104-107). */
+#define BT_DIGCHAR 336
+#define BT_POPOAM(i) ((u16)(100 + (i)) << 2)
 static u8 bt_sub = 0;
 static u16 bh_hp[4];  /* heroes — mirrored into the reserved vars */
 static u16 bm_hp[4];  /* the troop's monsters */
@@ -104,6 +123,11 @@ static u8 bt_cur = 0;     /* target cursor (troop slot or hero) */
 static u8 bt_curally = 0; /* cursor walks the party, not the troop */
 static u8 bt_blink = 0;   /* cursor blink clock */
 static u16 bt_rng = 0x2b17; /* flee roll — stirred every fight frame */
+static u8 bt_lowhp = 0;   /* the low_hp hook fired (once a battle) */
+static u8 pop_t = 0;      /* popup frames left (0: hidden) */
+static u8 pop_n = 0;      /* digit count */
+static u8 pop_d[4];       /* digit values, units first */
+static u8 pop_x, pop_y;
 
 u8 btl_active(void)
 {
@@ -133,6 +157,8 @@ void btl_request(u8 troop)
   bt_timer = 0;
   bt_dead = 0xFF;
   bt_flip = 0;
+  bt_lowhp = 0;
+  pop_t = 0;
   o = (u16)troop << 2;
   for (h = 0; h < 4; h++)
   {
@@ -179,10 +205,71 @@ static void bt_oam(void)
   }
 }
 
+/* Arms the damage popup (C4): the value in white 8x8 digits, OBJ
+   entries 100-103, risen a few pixels then gone. One at a time — the
+   ready queue serialises actions anyway. */
+static void bt_popup(u16 v, u8 x, u8 y)
+{
+  pop_n = 0;
+  if (v > 9999)
+    v = 9999;
+  do
+  {
+    pop_d[pop_n++] = (u8)(v % 10);
+    v /= 10;
+  } while (v && pop_n < 4);
+  pop_x = x;
+  pop_y = y;
+  pop_t = 48;
+}
+
+/* The popup's OAM, reasserted every fight frame like the party's. */
+static void bt_pop_oam(void)
+{
+  u8 i, y;
+  u8 *om;
+
+  y = (u8)(pop_y - ((u8)(48 - pop_t) >> 2)); /* rises 12 px, then holds */
+  for (i = 0; i < 4; i++)
+  {
+    if (!pop_t || i >= pop_n)
+    {
+      oamSetVisible(BT_POPOAM(i), OBJ_HIDE);
+      continue;
+    }
+    om = oamMemory + BT_POPOAM(i);
+    /* units digit (pop_d[0]) rightmost */
+    om[0] = (u8)(pop_x + (((u16)(pop_n - 1 - i)) << 3));
+    om[1] = y;
+    om[2] = (u8)(pop_d[i] < 8
+                     ? BT_DIGCHAR - 256 + (pop_d[i] << 1)
+                     : BT_DIGCHAR - 256 + ((pop_d[i] - 8) << 1) + 16);
+    om[3] = 0x39; /* prio 3, OBJ palette 4, char bit 8 */
+    oamSetEx(BT_POPOAM(i), OBJ_SMALL, OBJ_SHOW);
+  }
+  if (pop_t)
+    pop_t--;
+}
+
+/* Popup anchors: over a troop slot, or on a hero's row. */
+static void bt_pop_mon(u16 v, u8 t)
+{
+  u16 o = ((u16)bt_troop << 2) + t;
+
+  bt_popup(v, (u8)(((u16)btl_troop_x[o] << 3) + 16),
+           (u8)(((u16)btl_troop_y[o] << 3) + 8));
+}
+
+static void bt_pop_hero(u16 v, u8 h)
+{
+  bt_popup(v, BT_X - 4, (u8)(BT_Y0 + ((u16)h << 5) + 8));
+}
+
 /* Damage on a troop slot, with the B4 feedback. */
 static void bt_hit_mon(u8 t, u16 dmg)
 {
   bm_hp[t] = bm_hp[t] > dmg ? (u16)(bm_hp[t] - dmg) : 0;
+  bt_pop_mon(dmg, t);
   if (bm_hp[t])
     stage_slotfx(t, 1, 12); /* white flash: the B4 hit */
   else
@@ -235,12 +322,44 @@ static void bt_hero_act(void)
   bt_sub = BT_ANIM; /* no animation: fall through the same apply path */
 }
 
-/* The skill's effect, once its animation is done. */
+/* The skill's effect, once its animation is done. The caster may be a
+   MONSTER since C4 (bt_actor 4-7): same built-in formulas, the mirror
+   way — btl_mon_mag against btl_hero_mdef, heal capped by the ROM hp. */
 static void bt_skill_apply(void)
 {
   u16 v, o;
   u8 k;
 
+  if (bt_actor >= 4)
+  {
+    o = (u16)bt_troop << 2;
+    v = (u16)btl_skill_pow[bt_pa];
+    k = btl_mon_mag[o + bt_actor - 4];
+    if (bt_curally)
+    {
+      /* offensive, on a hero */
+      v += (u16)k << 1;
+      k = btl_hero_mdef[bt_cur];
+      v = v > k ? (u16)(v - k) : 1;
+      bh_hp[bt_cur] = bh_hp[bt_cur] > v ? (u16)(bh_hp[bt_cur] - v) : 0;
+      vm.vars16[BTL_VAR_BASE + ((u16)bt_cur << 1)] = bh_hp[bt_cur];
+      bt_pop_hero(v, bt_cur);
+    }
+    else
+    {
+      /* heal, on a wounded monster */
+      v += k;
+      bm_hp[bt_cur] = (u16)(bm_hp[bt_cur] + v);
+      if (bm_hp[bt_cur] > btl_mon_hp[o + bt_cur])
+        bm_hp[bt_cur] = btl_mon_hp[o + bt_cur];
+      stage_slotfx(bt_cur, 1, 8); /* a short flash reads as the mend */
+      bt_pop_mon(v, bt_cur);
+    }
+    bt_atb[bt_actor] = 0;
+    bt_timer = 30;
+    bt_sub = BT_ACT;
+    return;
+  }
   if (bt_curally)
   {
     v = (u16)btl_skill_pow[bt_pa] + btl_hero_mag[bt_actor];
@@ -248,6 +367,7 @@ static void bt_skill_apply(void)
     if (bh_hp[bt_cur] > btl_hero_maxhp[bt_cur])
       bh_hp[bt_cur] = btl_hero_maxhp[bt_cur];
     vm.vars16[BTL_VAR_BASE + ((u16)bt_cur << 1)] = bh_hp[bt_cur];
+    bt_pop_hero(v, bt_cur);
   }
   else
   {
@@ -290,10 +410,110 @@ static void bt_attack(u8 actor)
     dmg = dmg > k ? (u16)(dmg - k) : 1;
     bh_hp[t] = bh_hp[t] > dmg ? (u16)(bh_hp[t] - dmg) : 0;
     vm.vars16[BTL_VAR_BASE + ((u16)t << 1)] = bh_hp[t];
+    bt_pop_hero(dmg, t);
   }
   bt_atb[actor] = 0;
   bt_timer = 24; /* let the flash read before the next turn */
   bt_sub = BT_ACT;
+}
+
+/* A monster CASTS (C4): the mirrored target pick, then the same
+   animation-then-apply path as the heroes' skills (BT_ANIM). Note the
+   bt_curally flag keeps its SCREEN meaning — 1 aims the hero column,
+   0 aims a troop slot — whoever the caster is. */
+static void bt_mon_skill(u8 actor, u8 sk)
+{
+  u8 k, t;
+  u16 o;
+
+  bt_actor = actor;
+  bt_pa = sk;
+  if (btl_skill_tgt[sk] == 0)
+  {
+    /* enemy: a living hero, alternating like the plain attack */
+    t = 0xFF;
+    for (k = 0; k < btl_hero_count; k++)
+    {
+      u8 c = (u8)((k + bt_flip) % btl_hero_count);
+
+      if (bh_hp[c])
+      {
+        t = c;
+        break;
+      }
+    }
+    bt_flip++;
+    if (t == 0xFF)
+      return;
+    bt_cur = t;
+    bt_curally = 1;
+  }
+  else
+  {
+    /* ally: the first WOUNDED living monster — a heal wasted on full
+       health falls back to the plain attack */
+    o = (u16)bt_troop << 2;
+    t = 0xFF;
+    for (k = 0; k < btl_troop_n[bt_troop]; k++)
+      if (bm_hp[k] && bm_hp[k] < btl_mon_hp[o + k])
+      {
+        t = k;
+        break;
+      }
+    if (t == 0xFF)
+    {
+      bt_attack(actor);
+      return;
+    }
+    bt_cur = t;
+    bt_curally = 0;
+  }
+  if (btl_skill_anim[sk] != 0xFF)
+  {
+    if (bt_curally)
+      anim_screen_at(BT_X + 16, (u8)(BT_Y0 + ((u16)bt_cur << 5) + 16));
+    else
+    {
+      o = ((u16)bt_troop << 2) + bt_cur;
+      anim_screen_at((u8)(((u16)btl_troop_x[o] << 3) + 24),
+                     (u8)(((u16)btl_troop_y[o] << 3) + 24));
+    }
+    anim_play(btl_skill_anim[sk], ANIM_ANC_SCREEN, 0);
+  }
+  bt_sub = BT_ANIM;
+}
+
+/* A monster's turn (C4): its WEIGHTED action list from the database —
+   roll once, walk the weights. An empty list is the C2 plain attack. */
+static void bt_monster_act(u8 actor)
+{
+  u16 o, sum, r;
+  u8 i, n, s;
+
+  o = ((u16)bt_troop << 2) + (actor - 4);
+  n = btl_mon_ai_n[o];
+  if (n)
+  {
+    s = btl_mon_ai_start[o];
+    sum = 0;
+    for (i = 0; i < n; i++)
+      sum += btl_ai_w[s + i];
+    r = bt_rng % sum;
+    for (i = 0; i < n; i++)
+    {
+      u8 w = btl_ai_w[s + i];
+
+      if (r < w)
+        break;
+      r -= w;
+    }
+    if (btl_ai_kind[s + i] == 1)
+    {
+      bt_mon_skill(actor, btl_ai_arg[s + i]);
+      return;
+    }
+  }
+  bt_attack(actor);
 }
 
 /* Victory / defeat check, after each resolved action. */
@@ -330,6 +550,26 @@ static void bt_check_end(void)
     bt_sub = BT_END;
     return;
   }
+  /* low_hp hook (C4), once a battle: a living monster under HALF its
+     hp starts the troop's common event — the ATB waits (BT_HOOK). */
+  if (!bt_lowhp && btl_troop_lowhp[bt_troop] != 0xFF)
+  {
+    o = (u16)bt_troop << 2;
+    for (k = 0; k < btl_troop_n[bt_troop]; k++)
+      if (bm_hp[k] && bm_hp[k] < (u16)(btl_mon_hp[o + k] >> 1))
+      {
+        u16 ofs = vm_common_hook(btl_troop_lowhp[bt_troop]);
+
+        bt_lowhp = 1;
+        if (ofs != SCRIPT_NONE)
+        {
+          vm_start(ofs);
+          bt_sub = BT_HOOK;
+          return;
+        }
+        break;
+      }
+  }
   bt_sub = BT_TICK;
 }
 
@@ -342,9 +582,15 @@ static void bt_fight(void)
   u16 down;
 
   bt_oam();
+  bt_pop_oam(); /* the damage popup lives across sub-states (C4) */
   bt_rng = (u16)(bt_rng * 25173 + 13849); /* the flee roll's clock */
   switch (bt_sub)
   {
+  case BT_HOOK: /* a troop hook runs on the freed VM; the clock waits */
+    if (!vm_active())
+      bt_sub = BT_TICK;
+    break;
+
   case BT_TICK:
     if (bt_dead != 0xFF)
     {
@@ -402,7 +648,7 @@ static void bt_fight(void)
       bt_hero_act();
       break;
     }
-    bt_attack(ready); /* a monster's turn */
+    bt_monster_act(ready); /* a monster's turn: its AI list (C4) */
     break;
 
   case BT_MENU: /* the LISTSEL vocabulary, driven from here */
@@ -556,6 +802,9 @@ static void bt_fight(void)
     }
     for (k = 0; k < btl_hero_count; k++)
       oamSetVisible(BT_OAM(k), OBJ_HIDE);
+    pop_t = 0;
+    for (k = 0; k < 4; k++)
+      oamSetVisible(BT_POPOAM(k), OBJ_HIDE);
     vm_switch_set(BTL_SW_DONE, 1); /* the post-battle AUTO page's cue */
     stage_request_close(30, 2);
     bt_phase = 5;
@@ -587,8 +836,23 @@ void btl_update(void)
     bt_phase = 3; /* btl_vblank now feeds the party's cells */
     break;
   case 3:
-    if (bt_up >= btl_hero_count)
+    if (bt_up >= btl_hero_count && bt_row >= 2)
+    {
       bt_phase = 4;
+      /* intro hook (C4): the troop's common event opens the fight —
+         boss dialogue, a slotfx, anything the ordinary editor writes.
+         BATTLE ended the calling script, so the VM is free for it. */
+      if (btl_troop_intro[bt_troop] != 0xFF)
+      {
+        u16 ofs = vm_common_hook(btl_troop_intro[bt_troop]);
+
+        if (ofs != SCRIPT_NONE)
+        {
+          vm_start(ofs);
+          bt_sub = BT_HOOK;
+        }
+      }
+    }
     break;
   case 4:
     bt_fight();
@@ -608,8 +872,30 @@ void btl_vblank(void)
   const u8 *src;
   u16 base, ofs;
 
-  if (!bt_on || bt_phase != 3 || bt_up >= btl_hero_count)
+  if (!bt_on || bt_phase != 3)
     return;
+  if (bt_up >= btl_hero_count)
+  {
+    /* after the party: the popup digits (C4) — one 1 KB sheet on name
+       rows 22-23, then their palette (OBJ 4). bt_row is the step. */
+    if (bt_row == 0)
+    {
+      if (!vbl_take(11))
+        return;
+      dmaCopyVram((u8 *)btl_digit_cells,
+                  (u16)(VRAM_OBJ_GFX + ((u16)BT_DIGCHAR << 4)), 1536);
+      bt_row = 1;
+      return;
+    }
+    if (bt_row == 1)
+    {
+      if (!vbl_take(2))
+        return;
+      dmaCopyCGram((u8 *)btl_digit_pal, 192, 32); /* OBJ palette 4 */
+      bt_row = 2;
+    }
+    return;
+  }
   /* ONE 128-byte transfer per frame: a burst straddling the end of the
      window lost its tail (VRAM dumps). The party fits inside the
      opening fade with room to spare. */
@@ -627,11 +913,13 @@ void btl_vblank(void)
     ofs = bt_row;
     ofs <<= 8;
     base += ofs; /* one name row = 16 chars = 256 words */
-    /* MEASURED, unexplained (C1, revisit): a transfer issued HERE lands
-       exactly +256 words past its address — the computed base was
-       proven right by a WRAM probe, and sg_open's writes to the same
-       region land right. Compensate by the measured amount. */
-    base -= 256;
+    /* C1's "+256-word bias" was a misread dump, elucidated in C4: the
+       cell's top char row is TRANSPARENT (a 16x24 battler centred at
+       y+4), so a correct upload leaves chars n..n+3 blank and fills
+       n+17 up — which looks exactly like a +16-char shift when the
+       real bug (the 4-transfer burst losing its tail) truncated the
+       cells. One row per frame was the whole fix; the compensation
+       only slid the art 8 px up inside its 32x32 frame. */
     dmaCopyVram((u8 *)src, base, 128);
     bt_row++;
     return;

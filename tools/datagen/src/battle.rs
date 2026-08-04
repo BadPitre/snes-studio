@@ -49,6 +49,7 @@ pub struct Hero {
     pub attack: u8,
     pub defense: u8,
     pub magic: u8,
+    pub mdef: u8,
 }
 
 /// One monster INSTANCE in a troop — its stats baked at build time
@@ -65,11 +66,20 @@ pub struct TroopMon {
     pub xp: u16,
     pub gold: u16,
     pub mdef: u8,
+    pub mag: u8,
+    /// Weighted action list (C4): a segment of the Battle's ai_* pools.
+    pub ai_start: u8,
+    pub ai_n: u8,
 }
 
 pub struct Troop {
     pub backdrop: u8, // picture id
     pub mons: Vec<TroopMon>,
+    /// Hooks (C4): common event INDEX, 0xFF = none. The battle starts
+    /// them on the freed VM (BATTLE ends the calling script) and the
+    /// ATB clock waits while they run.
+    pub intro: u8,
+    pub low_hp: u8,
 }
 
 /// A skill (C3): the built-in magical formula uses `power`; `target`
@@ -96,6 +106,12 @@ pub struct Battle {
     /// UI layout), 0xFF when the project names none — btl then attacks
     /// without a menu.
     pub menu_widget: u8,
+    /// Monster AI pools (C4): one segment per monster with an `ai`
+    /// list, shared by every troop slot carrying that monster.
+    /// kind 0 = attack, 1 = skill (arg = skill index); w = weight.
+    pub ai_kind: Vec<u8>,
+    pub ai_arg: Vec<u8>,
+    pub ai_w: Vec<u8>,
 }
 
 /// One 8x8 tile of an indexed canvas, encoded 4bpp SNES.
@@ -164,6 +180,7 @@ pub fn build(
     pic_names: &[String],
     ui_widgets: &[String],
     anims: &[String],
+    hook_ids: &[(u8, u8)],
 ) -> Result<Option<Battle>> {
     let hp = proj_dir.join("data/heroes.toml");
     let tp = proj_dir.join("data/troops.toml");
@@ -201,6 +218,7 @@ pub fn build(
             attack: h.get("attack").and_then(|v| v.as_integer()).unwrap_or(5) as u8,
             defense: h.get("defense").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
             magic: h.get("magic").and_then(|v| v.as_integer()).unwrap_or(5) as u8,
+            mdef: h.get("magic_def").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
         });
     }
     if heroes.is_empty() || heroes.len() > MAX_HEROES {
@@ -289,7 +307,14 @@ pub fn build(
     let tv: toml::Table = toml::from_str(&std::fs::read_to_string(&tp)?)
         .context("data/troops.toml")?;
     let mut troops = Vec::new();
-    for t in tv.get("troop").and_then(|v| v.as_array()).unwrap_or(&Vec::new()) {
+    // Monster AI (C4): one pool segment per monster carrying an `ai`
+    // list, parsed once and shared by every slot posing that monster.
+    let mut ai_kind: Vec<u8> = Vec::new();
+    let mut ai_arg: Vec<u8> = Vec::new();
+    let mut ai_w: Vec<u8> = Vec::new();
+    let mut ai_map: std::collections::HashMap<String, (u8, u8)> =
+        std::collections::HashMap::new();
+    for (ti, t) in tv.get("troop").and_then(|v| v.as_array()).unwrap_or(&Vec::new()).iter().enumerate() {
         let tid = t.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let back = t.get("backdrop").and_then(|v| v.as_str()).unwrap_or("");
         let backdrop = pic_id(back, &format!("fond du groupe '{}'", tid))?;
@@ -310,6 +335,59 @@ pub fn build(
             let x = m.get("x").and_then(|v| v.as_integer()).unwrap_or(0) as u8;
             let y = m.get("y").and_then(|v| v.as_integer()).unwrap_or(0) as u8;
             let n = |f: &str, d: i64| db.field_int(mt, e, f).unwrap_or(d);
+            // `ai` (C4): weighted actions, "attack[:w]" / "skill:<id>[:w]",
+            // weight 1 when omitted. Absent or empty: the C2 plain attack.
+            let (ai_start, ai_n) = match ai_map.get(mid) {
+                Some(&seg) => seg,
+                None => {
+                    let start = ai_kind.len() as u8;
+                    let mut cnt = 0u8;
+                    for a in db
+                        .field_raw(mt, e, "ai")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&Vec::new())
+                    {
+                        let a = a.as_str().unwrap_or("");
+                        let parts: Vec<&str> = a.split(':').collect();
+                        let (kind, arg, wpos) = match parts[0] {
+                            "attack" => (0u8, 0u8, 1),
+                            "skill" => {
+                                let sid = *parts.get(1).unwrap_or(&"");
+                                let i = skill_ids
+                                    .iter()
+                                    .position(|s| s == sid)
+                                    .with_context(|| {
+                                        format!(
+                                            "monstre '{}' : compétence '{}' inconnue (ai)",
+                                            mid, sid
+                                        )
+                                    })?;
+                                (1u8, i as u8, 2)
+                            }
+                            other => bail!(
+                                "monstre '{}' : action ai '{}' (attack, skill:<id>)",
+                                mid,
+                                other
+                            ),
+                        };
+                        let w: u8 = match parts.get(wpos) {
+                            Some(t) => t.parse().ok().filter(|&w| w > 0).with_context(
+                                || format!("monstre '{}' : poids ai '{}'", mid, a),
+                            )?,
+                            None => 1,
+                        };
+                        ai_kind.push(kind);
+                        ai_arg.push(arg);
+                        ai_w.push(w);
+                        cnt += 1;
+                        if ai_kind.len() > 255 {
+                            bail!("combat : pool d'actions IA plein (255)");
+                        }
+                    }
+                    ai_map.insert(mid.to_string(), (start, cnt));
+                    (start, cnt)
+                }
+            };
             mons.push(TroopMon {
                 pic: pid,
                 x,
@@ -321,12 +399,16 @@ pub fn build(
                 xp: n("xp", 0) as u16,
                 gold: n("gold", 0) as u16,
                 mdef: n("magic_def", 0) as u8,
+                mag: n("magic", 0) as u8,
+                ai_start,
+                ai_n,
             });
         }
         if mons.is_empty() || mons.len() > MAX_MONS {
             bail!("groupe '{}' : 1 à {} monstres", tid, MAX_MONS);
         }
-        troops.push(Troop { backdrop, mons });
+        let (intro, low_hp) = hook_ids.get(ti).copied().unwrap_or((0xFF, 0xFF));
+        troops.push(Troop { backdrop, mons, intro, low_hp });
     }
     if troops.is_empty() {
         bail!("combat : troops.toml sans groupe");
@@ -336,7 +418,17 @@ pub fn build(
         heroes.len(),
         troops.len()
     );
-    Ok(Some(Battle { heroes, troops, act_kind, act_arg, skills, menu_widget }))
+    Ok(Some(Battle {
+        heroes,
+        troops,
+        act_kind,
+        act_arg,
+        skills,
+        menu_widget,
+        ai_kind,
+        ai_arg,
+        ai_w,
+    }))
 }
 
 /// The troop ids, in table order — the BATTLE command resolves by name.
@@ -356,6 +448,127 @@ pub fn troop_ids(proj_dir: &Path) -> Result<Vec<String>> {
                 .collect()
         })
         .unwrap_or_default())
+}
+
+/// The troops' hook names (C4): (intro, low_hp) per troop, straight
+/// from troops.toml — read EARLY like troop_ids, because the scene
+/// compiler needs the referenced common events before battle::build.
+pub fn troop_hooks(proj_dir: &Path) -> Result<Vec<(Option<String>, Option<String>)>> {
+    let tp = proj_dir.join("data/troops.toml");
+    if !tp.exists() {
+        return Ok(Vec::new());
+    }
+    let tv: toml::Table = toml::from_str(&std::fs::read_to_string(&tp)?)
+        .context("data/troops.toml")?;
+    Ok(tv
+        .get("troop")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|t| {
+                    let g = |f: &str| {
+                        t.get(f)
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string())
+                    };
+                    (g("intro"), g("low_hp"))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Hook names -> common event indices, one (intro, low_hp) pair per
+/// troop (0xFF = none). An unknown name is refused plainly.
+pub fn resolve_hooks(
+    hooks: &[(Option<String>, Option<String>)],
+    ce_names: &[String],
+) -> Result<Vec<(u8, u8)>> {
+    let find = |n: &Option<String>, what: &str, ti: usize| -> Result<u8> {
+        match n {
+            None => Ok(0xFF),
+            Some(n) => ce_names
+                .iter()
+                .position(|c| c == n)
+                .map(|i| i as u8)
+                .with_context(|| {
+                    format!(
+                        "groupe {} : hook {} « {} » n'est pas un common event",
+                        ti + 1,
+                        what,
+                        n
+                    )
+                }),
+        }
+    };
+    hooks
+        .iter()
+        .enumerate()
+        .map(|(ti, (i, l))| Ok((find(i, "intro", ti)?, find(l, "low_hp", ti)?)))
+        .collect()
+}
+
+/// The damage popups' digit glyphs (C4): 0-9 as 8x8 white-on-shadow
+/// tiles, each on an EVEN char so a digit is a 16x16 small object
+/// (OBJ_SIZE16_L32) whose other three chars stay transparent. A name
+/// row holds 16 chars = 8 spaced glyphs, so 0-7 take row 21 and 8-9
+/// row 22; row 23 stays blank under them. 48 chars, 1536 bytes.
+fn digit_cells() -> Vec<u8> {
+    const GLYPHS: [[&str; 8]; 10] = [
+        [".####...", "#....#..", "#...##..", "#..#.#..", "##...#..", "#....#..", ".####...", "........"],
+        ["..##....", ".###....", "..##....", "..##....", "..##....", "..##....", "######..", "........"],
+        [".####...", "#....#..", ".....#..", "...##...", "..#.....", ".#......", "######..", "........"],
+        [".####...", "#....#..", "....#...", "..###...", ".....#..", "#....#..", ".####...", "........"],
+        ["...##...", "..#.#...", ".#..#...", "#...#...", "######..", "....#...", "....#...", "........"],
+        ["######..", "#.......", "#####...", ".....#..", ".....#..", "#....#..", ".####...", "........"],
+        [".####...", "#.......", "#####...", "#....#..", "#....#..", "#....#..", ".####...", "........"],
+        ["######..", ".....#..", "....#...", "...#....", "..##....", "..##....", "..##....", "........"],
+        [".####...", "#....#..", ".####...", "#....#..", "#....#..", "#....#..", ".####...", "........"],
+        [".####...", "#....#..", "#....#..", "#....#..", ".#####..", ".....#..", ".####...", "........"],
+    ];
+    let mut cells = Vec::with_capacity(1536);
+    // canvas: 128 px wide (16 chars) x 24 px tall (3 char rows)
+    let w = 128usize;
+    let mut canvas = vec![0u8; w * 24];
+    for (d, g) in GLYPHS.iter().enumerate() {
+        let ox = (d % 8) * 16; // even char = 16 px step
+        let oy = (d / 8) * 8; // glyphs 8-9 on the second char row
+        for (y, line) in g.iter().enumerate() {
+            for (x, c) in line.bytes().enumerate() {
+                if c == b'#' {
+                    canvas[(oy + y) * w + ox + x] = 2; // white
+                    // drop shadow, bottom-right, where nothing is drawn
+                    let (sx, sy) = (ox + x + 1, oy + y + 1);
+                    if canvas[sy * w + sx] == 0 {
+                        canvas[sy * w + sx] = 1;
+                    }
+                }
+            }
+        }
+    }
+    for ty in 0..3 {
+        for tx in 0..16 {
+            let mut out = [0u8; 32];
+            for y in 0..8 {
+                let (mut b0, mut b1, mut b2, mut b3) = (0u8, 0u8, 0u8, 0u8);
+                for x in 0..8 {
+                    let c = canvas[(ty * 8 + y) * w + tx * 8 + x];
+                    let bit = 7 - x;
+                    b0 |= (c & 1) << bit;
+                    b1 |= ((c >> 1) & 1) << bit;
+                    b2 |= ((c >> 2) & 1) << bit;
+                    b3 |= ((c >> 3) & 1) << bit;
+                }
+                out[y * 2] = b0;
+                out[y * 2 + 1] = b1;
+                out[16 + y * 2] = b2;
+                out[16 + y * 2 + 1] = b3;
+            }
+            cells.extend_from_slice(&out);
+        }
+    }
+    cells
 }
 
 /// data_battle.c — ALWAYS emitted, dummy when the project has no battle
@@ -395,6 +608,17 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str("const u8 btl_skill_pow[1] = { 0, };\n");
             s.push_str("const u8 btl_skill_tgt[1] = { 0, };\n");
             s.push_str("const u8 btl_skill_anim[1] = { 0xFF, };\n");
+            s.push_str("const u8 btl_hero_mdef[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_mag[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_ai_start[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_ai_n[1] = { 0, };\n");
+            s.push_str("const u8 btl_ai_kind[1] = { 0, };\n");
+            s.push_str("const u8 btl_ai_arg[1] = { 0, };\n");
+            s.push_str("const u8 btl_ai_w[1] = { 0, };\n");
+            s.push_str("const u8 btl_troop_intro[1] = { 0xFF, };\n");
+            s.push_str("const u8 btl_troop_lowhp[1] = { 0xFF, };\n");
+            s.push_str("const u8 btl_digit_cells[1] = { 0, };\n");
+            s.push_str("const u16 btl_digit_pal[1] = { 0, };\n");
         }
         Some(b) => {
             let nh = b.heroes.len();
@@ -510,6 +734,36 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str(&emit::u8_array("btl_skill_pow", &spw, 16, false));
             s.push_str(&emit::u8_array("btl_skill_tgt", &stg, 16, false));
             s.push_str(&emit::u8_array("btl_skill_anim", &san, 16, false));
+            // C4 — hero magic defence, monster magic + AI, hooks, digits
+            let hmd: Vec<u8> = b.heroes.iter().map(|h| h.mdef).collect();
+            s.push_str(&emit::u8_array("btl_hero_mdef", &hmd, 16, false));
+            let (mut mmg, mut mas, mut man) = (Vec::new(), Vec::new(), Vec::new());
+            for t in &b.troops {
+                for k in 0..MAX_MONS {
+                    mmg.push(t.mons.get(k).map(|m| m.mag).unwrap_or(0));
+                    mas.push(t.mons.get(k).map(|m| m.ai_start).unwrap_or(0));
+                    man.push(t.mons.get(k).map(|m| m.ai_n).unwrap_or(0));
+                }
+            }
+            s.push_str(&emit::u8_array("btl_mon_mag", &mmg, 16, false));
+            s.push_str(&emit::u8_array("btl_mon_ai_start", &mas, 16, false));
+            s.push_str(&emit::u8_array("btl_mon_ai_n", &man, 16, false));
+            let (aik, aia, aiw) = if b.ai_kind.is_empty() {
+                (vec![0u8], vec![0u8], vec![1u8])
+            } else {
+                (b.ai_kind.clone(), b.ai_arg.clone(), b.ai_w.clone())
+            };
+            s.push_str(&emit::u8_array("btl_ai_kind", &aik, 16, false));
+            s.push_str(&emit::u8_array("btl_ai_arg", &aia, 16, false));
+            s.push_str(&emit::u8_array("btl_ai_w", &aiw, 16, false));
+            let ti: Vec<u8> = b.troops.iter().map(|t| t.intro).collect();
+            let tl: Vec<u8> = b.troops.iter().map(|t| t.low_hp).collect();
+            s.push_str(&emit::u8_array("btl_troop_intro", &ti, 16, false));
+            s.push_str(&emit::u8_array("btl_troop_lowhp", &tl, 16, false));
+            s.push_str(&emit::u8_array("btl_digit_cells", &digit_cells(), 16, false));
+            // white digits, black drop shadow, on OBJ palette 4
+            let dpal: Vec<u16> = vec![0, 0x0000, 0x7FFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            s.push_str(&emit::u16_array("btl_digit_pal", &dpal));
         }
     }
     vec![("data_battle.c".into(), s)]

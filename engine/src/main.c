@@ -256,6 +256,12 @@ int main(void)
       vm_was_active = 0;
       actors_resolve_pages();
     }
+    else if (btl_active())
+    {
+      /* The battle owns the loop (C4): BATTLE freed the VM, so without
+         this branch the AUTO scan and the player would wake up mid-
+         fight. Hooks re-enter through vm_active() above. */
+    }
     else if (sysmenu_active())
     {
       sysmenu_update(); /* System menu: save / load */

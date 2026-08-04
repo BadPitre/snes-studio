@@ -5,6 +5,9 @@
 [[troop]]
 id = "gobelins"
 backdrop = "fond_prairie"
+# Hooks (C4) : des common events joues par le moteur — l'ATB attend.
+intro = "intro_gobelins"
+low_hp = "gobelins_blesses"
 monsters = [
   { id = "gobelin", x = 4, y = 9 },
   { id = "gobelin", x = 8, y = 13 },

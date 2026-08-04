@@ -562,6 +562,7 @@ impl<'a> EventCompiler<'a> {
         pic_dims: &[(usize, usize)],
         sounds: &[String],
         troops: &[String],
+        hook_commons: &[usize],
         musics: &[String],
         vignettes: &[String],
         animations: &[String],
@@ -848,6 +849,15 @@ impl<'a> EventCompiler<'a> {
                     other
                 ),
             }
+        }
+        // Battle hooks (C4): the troops' intro/low_hp common events get a
+        // type-b entry — the id field carries the COMMON EVENT INDEX and
+        // the engine's vm_common_hook finds the body by it. Marking the
+        // common used pulls its body into this scene's block, so a
+        // battle started from ANY scene finds its hooks locally.
+        for &k in hook_commons {
+            self.used_commons[k] = true;
+            cetab.push_str(&format!(" b {} __ce{}_{}", k, k, scene_name));
         }
         // Referenced bodies are emitted once each, and the loop alternates
         // between the two lists: a common event may call a function, a

@@ -79,6 +79,9 @@ fn field_size(ty: &str) -> Result<usize> {
         // of the project.json lists, the same one the SHOWPIC/PLAYSFX/
         // PLAYBGM opcodes use. 0xFF means absent (optional).
         "picture" | "sound" | "music" => 1,
+        // Build-time data (C4): validated by the schema's presence, read
+        // raw by build modules (battle's `ai`), never packed into ROM.
+        "build" => 0,
         t if t.starts_with("ref:") => 1,
         other => bail!("type de champ inconnu : « {} »", other),
     })
@@ -142,6 +145,14 @@ impl Db {
             .find(|f| f.name == field)
             .and_then(|f| f.default.as_ref())
             .and_then(|d| d.as_integer())
+    }
+
+    /// A RAW field of one entry, whatever its TOML shape — for
+    /// build-time consumers with formats richer than the packed table
+    /// (the battle module reads a monster's `ai` action list, an array
+    /// of strings that never lands in ROM as a db column).
+    pub fn field_raw(&self, table: usize, entry: usize, field: &str) -> Option<&toml::Value> {
+        self.entries[table].get(entry)?.get(field)
     }
 
     /// (offset, size in bytes) of a table's field.
@@ -323,6 +334,7 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                 let ctx = || format!("data/{}.toml : entree « {} », champ « {} »",
                                      sc.name, ids[ti][ei], f.name);
                 match f.ty.as_str() {
+                    "build" => {} /* consumed at build time, no ROM bytes */
                     "u8" | "u16" | "s8" | "s16" => {
                         let v = match raw {
                             None => 0,

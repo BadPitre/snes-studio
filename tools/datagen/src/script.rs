@@ -742,7 +742,8 @@ pub fn assemble(
                     code.push(match args[i] {
                         "a" => 0,
                         "p" => 1,
-                        o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
+                        "b" => 2, /* battle hook: field 2 = common event id */
+                        o => bail!("CETAB : type inconnu '{}' (a, p, b)", o),
                     });
                     // "-" means no condition (always active) -> 0xFFFF
                     let sw: u16 = if args[i + 1] == "-" {

@@ -25,7 +25,7 @@
                              Mode 7 zoom ramp */
 #define VM_WAIT_M7T 12    /* M7TURN "wait for the end": a world map's
                              animated rotation */
-#define VM_WAIT_BATTLE 13 /* BATTLE: the battle screen closed (C1) */
+/* 13 was VM_WAIT_BATTLE — freed in C4: BATTLE ends the script. */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)
@@ -85,6 +85,10 @@ void vm_switch_set(u16 idx, u8 on);
    the switch stays ON — RM2003's model, where turning the switch off is
    the script's job. */
 u16 vm_common_auto(void);
+
+/* Battle hook (C4): offset of common event `ce`'s body in the current
+   scene's block (a type-2 CETAB entry), or SCRIPT_NONE. */
+u16 vm_common_hook(u8 ce);
 
 /* PARALLEL common events (type 1): one step of the background context,
    every frame outside the System menu. Does not freeze the player, is

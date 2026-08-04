@@ -415,6 +415,26 @@
      "else": []
     }
    ]
+  },
+  {
+   "name": "intro_gobelins",
+   "trigger": "none",
+   "commands": [
+    {
+     "c": "msg",
+     "text": "Des gobelins surgissent !"
+    }
+   ]
+  },
+  {
+   "name": "gobelins_blesses",
+   "trigger": "none",
+   "commands": [
+    {
+     "c": "msg",
+     "text": "Un gobelin chancelle..."
+    }
+   ]
   }
  ],
  "variables": [
