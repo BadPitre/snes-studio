@@ -130,6 +130,19 @@ heroes.toml/skills.toml carve-out; troops keep their editor window).
   library IS a script), poison, items, flee (menu + L+R), Wait/Active
   as a library variable. btl.c reduced to §3's residue. C1-C6 pixel
   behavior reproduced; regression cases re-blessed once, deliberately.
+  *Shipped.* The monster turn rolls its WEIGHTED action per monster id
+  (the database `ai` column's numbers, played by the script — gobelin
+  3:1 Eclair, dragon 2:1:1 with Morsure); monster casts share the
+  formula functions and aim their animation at the party column;
+  Morsure poisons (v78/79) and the bite lands on the victim's own
+  action, 1/16 max HP — Potion lifts it. The low_hp hook is a library
+  call (the engine no longer watches HP). L+R flee lives in a
+  PARALLEL common event armed by switch 41 — it counts even while a
+  menu waits; the Start-menu poller (switch 22) sleeps during battles
+  since only one parallel runs at a time, and a won flee preempts the
+  next menu action. Wait/Active is v89 (default Wait). No re-bless
+  was needed: the pixel cases never crossed a battle. One harness
+  note for posterity: shoulder L is the undocumented 'Q'.
 - **V4 — authorable + shipped.** The library lands in new-project
   templates and the showcase; the Groupes/Équipe windows survive
   (they edit data the library reads); docs rewritten so the FIRST

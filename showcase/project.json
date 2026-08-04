@@ -446,7 +446,7 @@
    "commands": [
     {
      "c": "rem",
-     "text": "=== BIBLIOTHEQUE COMBAT (V2) : la boucle ATB, en events — modifie-la ! ==="
+     "text": "=== BIBLIOTHEQUE COMBAT (V3) : la boucle ATB, en events — modifie-la ! ==="
     },
     {
      "c": "rem",
@@ -459,6 +459,46 @@
     {
      "c": "rem",
      "text": "monstres (index database) 252+. Ici tout est a toi."
+    },
+    {
+     "c": "rem",
+     "text": "v89 : 0 = Attente (le temps s'arrete dans les menus), 1 = Actif"
+    },
+    {
+     "c": "var",
+     "n": 89,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 78,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 79,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 95,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 98,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 99,
+     "op": "=",
+     "value": 0
     },
     {
      "c": "rem",
@@ -570,6 +610,24 @@
      "c": "clock",
      "base": 100,
      "lanes": 4
+    },
+    {
+     "c": "rem",
+     "text": "Fuite L+R : un PARALLEL PROCESS (switch 41) — il compte meme"
+    },
+    {
+     "c": "rem",
+     "text": "pendant les menus. Le poll du menu Start (switch 22) dort en combat."
+    },
+    {
+     "c": "switch",
+     "n": 22,
+     "on": false
+    },
+    {
+     "c": "switch",
+     "n": 41,
+     "on": true
     },
     {
      "c": "loop",
@@ -821,6 +879,16 @@
      "show": false
     },
     {
+     "c": "switch",
+     "n": 41,
+     "on": false
+    },
+    {
+     "c": "switch",
+     "n": 22,
+     "on": true
+    },
+    {
      "c": "stage_close",
      "dur": 30,
      "trans": "mosaic"
@@ -833,12 +901,28 @@
    "commands": [
     {
      "c": "rem",
-     "text": "Le tour d'un heros (v90). Le temps s'arrete pendant le menu (Attente)."
+     "text": "Le tour d'un heros (v90). En mode Attente le temps s'arrete au menu."
     },
     {
-     "c": "clock",
-     "base": 100,
-     "lanes": 0
+     "c": "if_var",
+     "n": 89,
+     "op": "==",
+     "value": 0,
+     "left": {
+      "from": "var",
+      "value": 89
+     },
+     "right": {
+      "value": 0
+     },
+     "then": [
+      {
+       "c": "clock",
+       "base": 100,
+       "lanes": 0
+      }
+     ],
+     "else": []
     },
     {
      "c": "loop",
@@ -848,6 +932,21 @@
        "widget": "menu_combat",
        "var": 92,
        "cancel": false
+      },
+      {
+       "c": "if_sw",
+       "n": 500,
+       "on": true,
+       "then": [
+        {
+         "c": "rem",
+         "text": "la fuite L+R a gagne pendant le menu : on sort"
+        },
+        {
+         "c": "break"
+        }
+       ],
+       "else": []
       },
       {
        "c": "rem",
@@ -1077,10 +1176,6 @@
                "value": 8
               },
               {
-               "c": "rem",
-               "text": "def. magique de la cible, puis la formule (fonction 2)"
-              },
-              {
                "c": "if_var",
                "n": 91,
                "op": "==",
@@ -1216,10 +1311,6 @@
                "n": 233,
                "op": "-",
                "value": 8
-              },
-              {
-               "c": "rem",
-               "text": "def. magique de la cible, puis la formule (fonction 2)"
               },
               {
                "c": "if_var",
@@ -1490,7 +1581,7 @@
       },
       {
        "c": "rem",
-       "text": "3 Potion — comptee par la variable 17, soin lu dans la database"
+       "text": "3 Potion — comptee par la variable 17, soigne ET leve le poison"
       },
       {
        "c": "if_var",
@@ -1554,6 +1645,35 @@
             {
              "c": "call",
              "n": 11
+            },
+            {
+             "c": "if_var",
+             "n": 91,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 91
+             },
+             "right": {
+              "value": 0
+             },
+             "then": [
+              {
+               "c": "var",
+               "n": 78,
+               "op": "=",
+               "value": 0
+              }
+             ],
+             "else": [
+              {
+               "c": "var",
+               "n": 79,
+               "op": "=",
+               "value": 0
+              }
+             ]
             },
             {
              "c": "break"
@@ -1627,7 +1747,256 @@
     },
     {
      "c": "rem",
-     "text": "Jauge a zero, l'horloge repart"
+     "text": "Fin d'action : le poison mord l'ACTEUR (1/16 des PV max, cadence FF)"
+    },
+    {
+     "c": "if_var",
+     "n": 90,
+     "op": "==",
+     "value": 0,
+     "left": {
+      "from": "var",
+      "value": 90
+     },
+     "right": {
+      "value": 0
+     },
+     "then": [
+      {
+       "c": "if_var",
+       "n": 78,
+       "op": "==",
+       "value": 1,
+       "left": {
+        "from": "var",
+        "value": 78
+       },
+       "right": {
+        "value": 1
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 84,
+         "op": "=",
+         "value": 241,
+         "from": "var"
+        },
+        {
+         "c": "var",
+         "n": 84,
+         "op": "/",
+         "value": 16
+        },
+        {
+         "c": "if_var",
+         "n": 84,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 84
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "var",
+           "n": 84,
+           "op": "=",
+           "value": 1
+          }
+         ],
+         "else": []
+        },
+        {
+         "c": "if_var",
+         "n": 84,
+         "op": ">=",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 84
+         },
+         "right": {
+          "from": "var",
+          "value": 240
+         },
+         "then": [
+          {
+           "c": "var",
+           "n": 240,
+           "op": "=",
+           "value": 0
+          }
+         ],
+         "else": [
+          {
+           "c": "var",
+           "n": 240,
+           "op": "-",
+           "value": 84,
+           "from": "var"
+          }
+         ]
+        },
+        {
+         "c": "popup",
+         "value": 100,
+         "value_var": 84,
+         "x": 196,
+         "y": 48
+        },
+        {
+         "c": "if_var",
+         "n": 240,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 240
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "btl_pose",
+           "hero": 0,
+           "x": 200,
+           "y": 40,
+           "show": false
+          }
+         ],
+         "else": []
+        },
+        {
+         "c": "wait",
+         "frames": 20
+        }
+       ],
+       "else": []
+      }
+     ],
+     "else": [
+      {
+       "c": "if_var",
+       "n": 79,
+       "op": "==",
+       "value": 1,
+       "left": {
+        "from": "var",
+        "value": 79
+       },
+       "right": {
+        "value": 1
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 84,
+         "op": "=",
+         "value": 243,
+         "from": "var"
+        },
+        {
+         "c": "var",
+         "n": 84,
+         "op": "/",
+         "value": 16
+        },
+        {
+         "c": "if_var",
+         "n": 84,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 84
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "var",
+           "n": 84,
+           "op": "=",
+           "value": 1
+          }
+         ],
+         "else": []
+        },
+        {
+         "c": "if_var",
+         "n": 84,
+         "op": ">=",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 84
+         },
+         "right": {
+          "from": "var",
+          "value": 242
+         },
+         "then": [
+          {
+           "c": "var",
+           "n": 242,
+           "op": "=",
+           "value": 0
+          }
+         ],
+         "else": [
+          {
+           "c": "var",
+           "n": 242,
+           "op": "-",
+           "value": 84,
+           "from": "var"
+          }
+         ]
+        },
+        {
+         "c": "popup",
+         "value": 100,
+         "value_var": 84,
+         "x": 196,
+         "y": 80
+        },
+        {
+         "c": "if_var",
+         "n": 242,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 242
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "btl_pose",
+           "hero": 1,
+           "x": 200,
+           "y": 72,
+           "show": false
+          }
+         ],
+         "else": []
+        },
+        {
+         "c": "wait",
+         "frames": 20
+        }
+       ],
+       "else": []
+      }
+     ]
     },
     {
      "c": "if_var",
@@ -1671,11 +2040,15 @@
    "commands": [
     {
      "c": "rem",
-     "text": "Le tour d'un monstre (v90 = slot) : l'attaque simple de C2,"
+     "text": "Le tour d'un monstre (v90 = slot) : le tirage PONDERE de son IA."
     },
     {
      "c": "rem",
-     "text": "en alternant les cibles vivantes. L'IA ponderee arrive en V3."
+     "text": "gobelin = attaque 3 / eclair 1 ; dragon = attaque 2 / eclair 1 /"
+    },
+    {
+     "c": "rem",
+     "text": "morsure 1 (poison) — les poids de la database, joues ici."
     },
     {
      "c": "clock",
@@ -1702,6 +2075,21 @@
        "entry": 252,
        "field": "attack",
        "dst": 84
+      },
+      {
+       "c": "db_read",
+       "table": "monsters",
+       "from": "var",
+       "entry": 252,
+       "field": "magic",
+       "dst": 85
+      },
+      {
+       "c": "var",
+       "n": 87,
+       "op": "=",
+       "value": 252,
+       "from": "var"
       }
      ],
      "else": [
@@ -1712,8 +2100,133 @@
        "entry": 253,
        "field": "attack",
        "dst": 84
+      },
+      {
+       "c": "db_read",
+       "table": "monsters",
+       "from": "var",
+       "entry": 253,
+       "field": "magic",
+       "dst": 85
+      },
+      {
+       "c": "var",
+       "n": 87,
+       "op": "=",
+       "value": 253,
+       "from": "var"
       }
      ]
+    },
+    {
+     "c": "var",
+     "n": 88,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 94,
+     "op": "rand",
+     "value": 3
+    },
+    {
+     "c": "if_var",
+     "n": 87,
+     "op": "==",
+     "value": 0,
+     "left": {
+      "from": "var",
+      "value": 87
+     },
+     "right": {
+      "value": 0
+     },
+     "then": [
+      {
+       "c": "if_var",
+       "n": 94,
+       "op": "==",
+       "value": 3,
+       "left": {
+        "from": "var",
+        "value": 94
+       },
+       "right": {
+        "value": 3
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 88,
+         "op": "=",
+         "value": 1
+        }
+       ],
+       "else": []
+      }
+     ],
+     "else": []
+    },
+    {
+     "c": "if_var",
+     "n": 87,
+     "op": "==",
+     "value": 1,
+     "left": {
+      "from": "var",
+      "value": 87
+     },
+     "right": {
+      "value": 1
+     },
+     "then": [
+      {
+       "c": "if_var",
+       "n": 94,
+       "op": "==",
+       "value": 2,
+       "left": {
+        "from": "var",
+        "value": 94
+       },
+       "right": {
+        "value": 2
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 88,
+         "op": "=",
+         "value": 1
+        }
+       ],
+       "else": []
+      },
+      {
+       "c": "if_var",
+       "n": 94,
+       "op": "==",
+       "value": 3,
+       "left": {
+        "from": "var",
+        "value": 94
+       },
+       "right": {
+        "value": 3
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 88,
+         "op": "=",
+         "value": 2
+        }
+       ],
+       "else": []
+      }
+     ],
+     "else": []
     },
     {
      "c": "var",
@@ -1811,193 +2324,315 @@
     },
     {
      "c": "if_var",
-     "n": 91,
+     "n": 88,
      "op": "==",
      "value": 0,
      "left": {
       "from": "var",
-      "value": 91
+      "value": 88
      },
      "right": {
       "value": 0
      },
      "then": [
       {
-       "c": "call_fn",
-       "n": 0,
-       "args": [
+       "c": "if_var",
+       "n": 91,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 91
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
         {
-         "from": "var",
-         "value": 84
-        },
-        {
-         "from": "var",
-         "value": 212
+         "c": "call_fn",
+         "n": 0,
+         "args": [
+          {
+           "from": "var",
+           "value": 84
+          },
+          {
+           "from": "var",
+           "value": 212
+          }
+         ],
+         "dst": 93
         }
        ],
-       "dst": 93
+       "else": [
+        {
+         "c": "call_fn",
+         "n": 0,
+         "args": [
+          {
+           "from": "var",
+           "value": 84
+          },
+          {
+           "from": "var",
+           "value": 213
+          }
+         ],
+         "dst": 93
+        }
+       ]
+      },
+      {
+       "c": "call",
+       "n": 14
       }
      ],
-     "else": [
-      {
-       "c": "call_fn",
-       "n": 0,
-       "args": [
-        {
-         "from": "var",
-         "value": 84
-        },
-        {
-         "from": "var",
-         "value": 213
-        }
-       ],
-       "dst": 93
-      }
-     ]
-    },
-    {
-     "c": "rem",
-     "text": "Toucher le heros : PV plancher 0, popup sur son rang, KO = il disparait"
+     "else": []
     },
     {
      "c": "if_var",
-     "n": 91,
+     "n": 88,
      "op": "==",
-     "value": 0,
+     "value": 1,
      "left": {
       "from": "var",
-      "value": 91
+      "value": 88
      },
      "right": {
-      "value": 0
+      "value": 1
      },
      "then": [
       {
        "c": "if_var",
-       "n": 93,
-       "op": ">=",
-       "value": 0,
-       "left": {
-        "from": "var",
-        "value": 93
-       },
-       "right": {
-        "from": "var",
-        "value": 240
-       },
-       "then": [
-        {
-         "c": "var",
-         "n": 240,
-         "op": "=",
-         "value": 0
-        }
-       ],
-       "else": [
-        {
-         "c": "var",
-         "n": 240,
-         "op": "-",
-         "value": 93,
-         "from": "var"
-        }
-       ]
-      },
-      {
-       "c": "popup",
-       "value": 100,
-       "value_var": 93,
-       "x": 196,
-       "y": 48
-      },
-      {
-       "c": "if_var",
-       "n": 240,
+       "n": 91,
        "op": "==",
        "value": 0,
        "left": {
         "from": "var",
-        "value": 240
+        "value": 91
        },
        "right": {
         "value": 0
        },
        "then": [
         {
-         "c": "btl_pose",
-         "hero": 0,
-         "x": 200,
-         "y": 40,
-         "show": false
+         "c": "call_fn",
+         "n": 1,
+         "args": [
+          {
+           "value": 18
+          },
+          {
+           "from": "var",
+           "value": 85
+          },
+          {
+           "from": "var",
+           "value": 220
+          }
+         ],
+         "dst": 93
         }
        ],
-       "else": []
+       "else": [
+        {
+         "c": "call_fn",
+         "n": 1,
+         "args": [
+          {
+           "value": 18
+          },
+          {
+           "from": "var",
+           "value": 85
+          },
+          {
+           "from": "var",
+           "value": 221
+          }
+         ],
+         "dst": 93
+        }
+       ]
+      },
+      {
+       "c": "if_var",
+       "n": 91,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 91
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
+        {
+         "c": "anim_play",
+         "anim": "impact",
+         "anchor": "screen",
+         "wait": true,
+         "x": 216,
+         "y": 56
+        }
+       ],
+       "else": [
+        {
+         "c": "anim_play",
+         "anim": "impact",
+         "anchor": "screen",
+         "wait": true,
+         "x": 216,
+         "y": 88
+        }
+       ]
+      },
+      {
+       "c": "call",
+       "n": 14
       }
      ],
-     "else": [
+     "else": []
+    },
+    {
+     "c": "if_var",
+     "n": 88,
+     "op": "==",
+     "value": 2,
+     "left": {
+      "from": "var",
+      "value": 88
+     },
+     "right": {
+      "value": 2
+     },
+     "then": [
       {
        "c": "if_var",
-       "n": 93,
-       "op": ">=",
-       "value": 0,
-       "left": {
-        "from": "var",
-        "value": 93
-       },
-       "right": {
-        "from": "var",
-        "value": 242
-       },
-       "then": [
-        {
-         "c": "var",
-         "n": 242,
-         "op": "=",
-         "value": 0
-        }
-       ],
-       "else": [
-        {
-         "c": "var",
-         "n": 242,
-         "op": "-",
-         "value": 93,
-         "from": "var"
-        }
-       ]
-      },
-      {
-       "c": "popup",
-       "value": 100,
-       "value_var": 93,
-       "x": 196,
-       "y": 80
-      },
-      {
-       "c": "if_var",
-       "n": 242,
+       "n": 91,
        "op": "==",
        "value": 0,
        "left": {
         "from": "var",
-        "value": 242
+        "value": 91
        },
        "right": {
         "value": 0
        },
        "then": [
         {
-         "c": "btl_pose",
-         "hero": 1,
-         "x": 200,
-         "y": 72,
-         "show": false
+         "c": "call_fn",
+         "n": 1,
+         "args": [
+          {
+           "value": 8
+          },
+          {
+           "from": "var",
+           "value": 85
+          },
+          {
+           "from": "var",
+           "value": 220
+          }
+         ],
+         "dst": 93
         }
        ],
-       "else": []
+       "else": [
+        {
+         "c": "call_fn",
+         "n": 1,
+         "args": [
+          {
+           "value": 8
+          },
+          {
+           "from": "var",
+           "value": 85
+          },
+          {
+           "from": "var",
+           "value": 221
+          }
+         ],
+         "dst": 93
+        }
+       ]
+      },
+      {
+       "c": "if_var",
+       "n": 91,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 91
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
+        {
+         "c": "anim_play",
+         "anim": "impact",
+         "anchor": "screen",
+         "wait": true,
+         "x": 216,
+         "y": 56
+        }
+       ],
+       "else": [
+        {
+         "c": "anim_play",
+         "anim": "impact",
+         "anchor": "screen",
+         "wait": true,
+         "x": 216,
+         "y": 88
+        }
+       ]
+      },
+      {
+       "c": "call",
+       "n": 14
+      },
+      {
+       "c": "rem",
+       "text": "La morsure empoisonne (statut C6)"
+      },
+      {
+       "c": "if_var",
+       "n": 91,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 91
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 78,
+         "op": "=",
+         "value": 1
+        }
+       ],
+       "else": [
+        {
+         "c": "var",
+         "n": 79,
+         "op": "=",
+         "value": 1
+        }
+       ]
       }
-     ]
+     ],
+     "else": []
     },
     {
      "c": "wait",
@@ -2184,6 +2819,83 @@
         {
          "c": "wait",
          "frames": 24
+        },
+        {
+         "c": "rem",
+         "text": "Le hook low_hp du groupe (une fois) : un gobelin sous la moitie"
+        },
+        {
+         "c": "if_var",
+         "n": 251,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 251
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "if_var",
+           "n": 98,
+           "op": "==",
+           "value": 0,
+           "left": {
+            "from": "var",
+            "value": 98
+           },
+           "right": {
+            "value": 0
+           },
+           "then": [
+            {
+             "c": "db_read",
+             "table": "monsters",
+             "from": "var",
+             "entry": 252,
+             "field": "max_hp",
+             "dst": 84
+            },
+            {
+             "c": "var",
+             "n": 84,
+             "op": "/",
+             "value": 2
+            },
+            {
+             "c": "if_var",
+             "n": 80,
+             "op": ">=",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 80
+             },
+             "right": {
+              "from": "var",
+              "value": 84
+             },
+             "then": [],
+             "else": [
+              {
+               "c": "var",
+               "n": 98,
+               "op": "=",
+               "value": 1
+              },
+              {
+               "c": "call",
+               "n": 6
+              }
+             ]
+            }
+           ],
+           "else": []
+          }
+         ],
+         "else": []
         }
        ]
       }
@@ -2262,6 +2974,83 @@
         {
          "c": "wait",
          "frames": 24
+        },
+        {
+         "c": "rem",
+         "text": "Le hook low_hp du groupe (une fois) : un gobelin sous la moitie"
+        },
+        {
+         "c": "if_var",
+         "n": 251,
+         "op": "==",
+         "value": 0,
+         "left": {
+          "from": "var",
+          "value": 251
+         },
+         "right": {
+          "value": 0
+         },
+         "then": [
+          {
+           "c": "if_var",
+           "n": 98,
+           "op": "==",
+           "value": 0,
+           "left": {
+            "from": "var",
+            "value": 98
+           },
+           "right": {
+            "value": 0
+           },
+           "then": [
+            {
+             "c": "db_read",
+             "table": "monsters",
+             "from": "var",
+             "entry": 253,
+             "field": "max_hp",
+             "dst": 84
+            },
+            {
+             "c": "var",
+             "n": 84,
+             "op": "/",
+             "value": 2
+            },
+            {
+             "c": "if_var",
+             "n": 81,
+             "op": ">=",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 81
+             },
+             "right": {
+              "from": "var",
+              "value": 84
+             },
+             "then": [],
+             "else": [
+              {
+               "c": "var",
+               "n": 98,
+               "op": "=",
+               "value": 1
+              },
+              {
+               "c": "call",
+               "n": 6
+              }
+             ]
+            }
+           ],
+           "else": []
+          }
+         ],
+         "else": []
         }
        ]
       }
@@ -2651,6 +3440,298 @@
      ]
     }
    ]
+  },
+  {
+   "name": "combat_toucher_heros",
+   "trigger": "none",
+   "commands": [
+    {
+     "c": "rem",
+     "text": "Applique v93 degats au heros v91 : plancher 0, popup, KO = disparait."
+    },
+    {
+     "c": "if_var",
+     "n": 91,
+     "op": "==",
+     "value": 0,
+     "left": {
+      "from": "var",
+      "value": 91
+     },
+     "right": {
+      "value": 0
+     },
+     "then": [
+      {
+       "c": "if_var",
+       "n": 93,
+       "op": ">=",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 93
+       },
+       "right": {
+        "from": "var",
+        "value": 240
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 240,
+         "op": "=",
+         "value": 0
+        }
+       ],
+       "else": [
+        {
+         "c": "var",
+         "n": 240,
+         "op": "-",
+         "value": 93,
+         "from": "var"
+        }
+       ]
+      },
+      {
+       "c": "popup",
+       "value": 100,
+       "value_var": 93,
+       "x": 196,
+       "y": 48
+      },
+      {
+       "c": "if_var",
+       "n": 240,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 240
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
+        {
+         "c": "btl_pose",
+         "hero": 0,
+         "x": 200,
+         "y": 40,
+         "show": false
+        }
+       ],
+       "else": []
+      }
+     ],
+     "else": [
+      {
+       "c": "if_var",
+       "n": 93,
+       "op": ">=",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 93
+       },
+       "right": {
+        "from": "var",
+        "value": 242
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 242,
+         "op": "=",
+         "value": 0
+        }
+       ],
+       "else": [
+        {
+         "c": "var",
+         "n": 242,
+         "op": "-",
+         "value": 93,
+         "from": "var"
+        }
+       ]
+      },
+      {
+       "c": "popup",
+       "value": 100,
+       "value_var": 93,
+       "x": 196,
+       "y": 80
+      },
+      {
+       "c": "if_var",
+       "n": 242,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 242
+       },
+       "right": {
+        "value": 0
+       },
+       "then": [
+        {
+         "c": "btl_pose",
+         "hero": 1,
+         "x": 200,
+         "y": 72,
+         "show": false
+        }
+       ],
+       "else": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "combat_fuite_lr",
+   "trigger": "parallel",
+   "switch": 41,
+   "commands": [
+    {
+     "c": "rem",
+     "text": "L+R tenus ~45 frames : memes chances que le menu Fuir. La fuite"
+    },
+    {
+     "c": "rem",
+     "text": "prend effet des que l'interaction en cours se resout."
+    },
+    {
+     "c": "key_input",
+     "var": 86,
+     "wait": false,
+     "keys": [
+      9
+     ]
+    },
+    {
+     "c": "if_var",
+     "n": 86,
+     "op": "==",
+     "value": 9,
+     "left": {
+      "from": "var",
+      "value": 86
+     },
+     "right": {
+      "value": 9
+     },
+     "then": [
+      {
+       "c": "key_input",
+       "var": 86,
+       "wait": false,
+       "keys": [
+        10
+       ]
+      },
+      {
+       "c": "if_var",
+       "n": 86,
+       "op": "==",
+       "value": 10,
+       "left": {
+        "from": "var",
+        "value": 86
+       },
+       "right": {
+        "value": 10
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 99,
+         "op": "+",
+         "value": 1
+        },
+        {
+         "c": "if_var",
+         "n": 99,
+         "op": ">=",
+         "value": 45,
+         "left": {
+          "from": "var",
+          "value": 99
+         },
+         "right": {
+          "value": 45
+         },
+         "then": [
+          {
+           "c": "var",
+           "n": 99,
+           "op": "=",
+           "value": 0
+          },
+          {
+           "c": "var",
+           "n": 94,
+           "op": "rand",
+           "value": 1
+          },
+          {
+           "c": "if_var",
+           "n": 94,
+           "op": "==",
+           "value": 1,
+           "left": {
+            "from": "var",
+            "value": 94
+           },
+           "right": {
+            "value": 1
+           },
+           "then": [
+            {
+             "c": "var",
+             "n": 248,
+             "op": "=",
+             "value": 3
+            },
+            {
+             "c": "switch",
+             "n": 500,
+             "on": true
+            },
+            {
+             "c": "switch",
+             "n": 41,
+             "on": false
+            }
+           ],
+           "else": []
+          }
+         ],
+         "else": []
+        }
+       ],
+       "else": [
+        {
+         "c": "var",
+         "n": 99,
+         "op": "=",
+         "value": 0
+        }
+       ]
+      }
+     ],
+     "else": [
+      {
+       "c": "var",
+       "n": 99,
+       "op": "=",
+       "value": 0
+      }
+     ]
+    }
+   ]
   }
  ],
  "variables": [
@@ -2732,18 +3813,18 @@
   "",
   "",
   "",
-  "",
-  "",
+  "Combat: poison Arven",
+  "Combat: poison Nadia",
   "Combat: PV monstre 1",
   "Combat: PV monstre 2",
   "",
   "",
   "Combat: scratch",
-  "",
-  "",
-  "",
-  "",
-  "",
+  "Combat: scratch magie",
+  "Combat: touche L/R",
+  "Combat: monstre qui agit",
+  "Combat: action IA",
+  "Combat: mode Actif (0 = Attente)",
   "Combat: acteur",
   "Combat: cible",
   "Combat: choix menu",
@@ -2752,8 +3833,8 @@
   "Combat: alternance",
   "Combat: scratch 2",
   "",
-  "",
-  "",
+  "Combat: hook low_hp joue",
+  "Combat: fuite L+R (compteur)",
   "Combat: jauge Arven",
   "Combat: vitesse Arven",
   "Combat: jauge Nadia",
@@ -2953,7 +4034,7 @@
   "",
   "",
   "",
-  "",
+  "Combat: fuite L+R armee",
   "",
   "",
   "",
