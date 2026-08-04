@@ -26,6 +26,8 @@
 #define VM_WAIT_M7T 12    /* M7TURN "wait for the end": a world map's
                              animated rotation */
 /* 13 was VM_WAIT_BATTLE — freed in C4: BATTLE ends the script. */
+#define VM_WAIT_TARGET 13 /* TARGETSEL: the target cursor (V1) */
+#define VM_WAIT_BTLUP 14  /* BTLPOSE: a battler cell upload (V1) */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)

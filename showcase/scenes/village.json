@@ -1016,6 +1016,25 @@
      ]
     }
    ]
+  },
+  {
+   "name": "Testeur V1",
+   "x": 9,
+   "y": 12,
+   "trigger": "action",
+   "sprite": 1,
+   "dir": "down",
+   "commands": [
+    {
+     "c": "msg",
+     "text": "Testeur : les primitives du combat, en script !"
+    },
+    {
+     "c": "screen",
+     "name": "test_v1",
+     "dur": 20
+    }
+   ]
   }
  ]
 }

@@ -248,9 +248,10 @@ static void bt_pop_oam(void)
       continue;
     }
     om = oamMemory + BT_POPOAM(i);
-    /* units digit (pop_d[0]) rightmost */
+    /* units digit (pop_d[0]) rightmost; 8 and 9 live in the BOTTOM
+       half of their cell (sheet rule) — risen 8 px to line up */
     om[0] = (u8)(pop_x + (((u16)(pop_n - 1 - i)) << 3));
-    om[1] = y;
+    om[1] = pop_d[i] < 8 ? y : (u8)(y - 8);
     om[2] = (u8)(pop_d[i] < 8
                      ? BT_DIGCHAR - 256 + (pop_d[i] << 1)
                      : BT_DIGCHAR - 256 + ((pop_d[i] - 8) << 1) + 16);

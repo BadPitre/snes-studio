@@ -570,8 +570,9 @@ pub fn resolve_hooks(
 /// The damage popups' digit glyphs (C4): 0-9 as 8x8 white-on-shadow
 /// tiles, each on an EVEN char so a digit is a 16x16 small object
 /// (OBJ_SIZE16_L32) whose other three chars stay transparent. A name
-/// row holds 16 chars = 8 spaced glyphs, so 0-7 take row 21 and 8-9
-/// row 22; row 23 stays blank under them. 48 chars, 1536 bytes.
+/// row holds 16 chars = 8 spaced glyphs: 0-7 take row 21 (bottom
+/// halves on row 22, blank), 8-9 sit on row 23 as the bottom halves
+/// of cells whose tiles point at row 22. 48 chars, 1536 bytes.
 fn digit_cells() -> Vec<u8> {
     const GLYPHS: [[&str; 8]; 10] = [
         [".####...", "#....#..", "#...##..", "#..#.#..", "##...#..", "#....#..", ".####...", "........"],
@@ -591,7 +592,14 @@ fn digit_cells() -> Vec<u8> {
     let mut canvas = vec![0u8; w * 24];
     for (d, g) in GLYPHS.iter().enumerate() {
         let ox = (d % 8) * 16; // even char = 16 px step
-        let oy = (d / 8) * 8; // glyphs 8-9 on the second char row
+        // 8-9 go to row 23 — the BOTTOM half of a cell whose tile
+        // points at row 22 (blank). Row 22 must stay entirely blank:
+        // it is the bottom half of every 0-7 cell, and the old layout
+        // parked 8-9 there, so a popup showing a 0 or a 1 also showed
+        // the top of an 8 or a 9 under it (latent since C4, caught by
+        // V1's scripted popup). The engine offsets these two digits
+        // 8 px up to compensate.
+        let oy = (d / 8) * 16;
         for (y, line) in g.iter().enumerate() {
             for (x, c) in line.bytes().enumerate() {
                 if c == b'#' {

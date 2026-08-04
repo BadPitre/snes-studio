@@ -398,6 +398,17 @@ export type Command =
   // (the battle's close is an internal warp); the aftermath is an AUTO
   // page conditioned on the reserved switch 500.
   | { c: "battle"; troop: string }
+  // V1 — the battle PRIMITIVES (PLANNING_COMBAT_EN_EVENTS.md §2): the
+  // four generic services scripted battles are built on. btl_pose
+  // shows/hides a hero's battler on the composed screen; popup pops a
+  // number (constant, or value_var when set); clock serves `lanes`
+  // (gauge, speed) variable pairs from `base` every frame (0 stops);
+  // target_sel walks the stage's occupied slots (or the posed party
+  // when ally) and writes the pick (255 on cancel).
+  | { c: "btl_pose"; hero: number; x: number; y: number; show: boolean }
+  | { c: "popup"; value: number; value_var?: number; x: number; y: number }
+  | { c: "clock"; base: number; lanes: number }
+  | { c: "target_sel"; var: number; ally?: boolean; cancel: boolean }
   | { c: "anim_stop" }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }

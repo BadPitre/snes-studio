@@ -110,6 +110,11 @@ u8 stage_busy(void)
   return up_act != 0;
 }
 
+u8 stage_slot_used(u8 slot)
+{
+  return slot < STAGE_SLOTS && sl_pic[slot] != 0xFF;
+}
+
 void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans)
 {
   sg_req = 1;

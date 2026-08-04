@@ -408,10 +408,11 @@ impl<'a> EventCompiler<'a> {
                     cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
                 };
                 match cmd["c"].as_str().unwrap_or("") {
-                    "msg" | "choice" | "sysmenu" => bail!(
-                        "common event « {} » (parallel) : les messages et les \
-                         choix sont interdits dans un Parallel process (il \
-                         tourne en tache de fond, sans dialogue)",
+                    "msg" | "choice" | "sysmenu" | "target_sel" => bail!(
+                        "common event « {} » (parallel) : les messages, les \
+                         choix et le curseur de cible sont interdits dans un \
+                         Parallel process (il tourne en tache de fond, sans \
+                         dialogue)",
                         root_name
                     ),
                     "loop" => scan(sub("do"), commons, functions, seen, root_name)?,
@@ -499,6 +500,10 @@ impl<'a> EventCompiler<'a> {
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
                 "m7_rot" => self.cmd_m7_rot(cmd, out)?,
                 "battle" => self.cmd_battle(cmd, out)?,
+                "btl_pose" => self.cmd_btl_pose(cmd, out)?,
+                "popup" => self.cmd_popup(cmd, out)?,
+                "clock" => self.cmd_clock(cmd, out)?,
+                "target_sel" => self.cmd_target_sel(cmd, out)?,
                 "m7_turn" => self.cmd_m7_turn(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
@@ -1654,6 +1659,75 @@ impl<'a> EventCompiler<'a> {
                 )
             })?;
         out.push(format!("  BATTLE {}", id));
+        Ok(())
+    }
+
+    /// `btl_pose` — a hero's battler cell on the composed screen (V1).
+    /// Blocking while the session's first show uploads the cell.
+    fn cmd_btl_pose(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let hero = cmd["hero"]
+            .as_u64()
+            .filter(|&v| v < 4)
+            .with_context(|| "btl_pose : hero 0-3".to_string())?;
+        let show = cmd["show"].as_bool().unwrap_or(true);
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(200);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(40);
+        out.push(format!("  BTLPOSE {} {} {} {}", hero, x, y, show as u8));
+        Ok(())
+    }
+
+    /// `popup` — a number in white digits over the composed screen
+    /// (V1), from a constant or a variable.
+    fn cmd_popup(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let (src, value) = match cmd["value_var"].as_u64() {
+            Some(v) => {
+                if v > 255 {
+                    bail!("popup : value_var 0-255");
+                }
+                (1u8, v)
+            }
+            None => (0u8, cmd["value"].as_u64().filter(|&v| v <= 9999).unwrap_or(0)),
+        };
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96);
+        out.push(format!("  POPUP {} {} {} {}", src, value, x, y));
+        Ok(())
+    }
+
+    /// `clock` — the gauge clock (V1): n lanes of (gauge, speed)
+    /// variable pairs from base; 0 lanes stops the service.
+    fn cmd_clock(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let base = cmd["base"]
+            .as_u64()
+            .filter(|&v| v < 256)
+            .with_context(|| "clock : base 0-255".to_string())?;
+        let lanes = cmd["lanes"]
+            .as_u64()
+            .filter(|&v| v <= 8)
+            .with_context(|| "clock : lanes 0-8".to_string())?;
+        if lanes > 0 && base + lanes * 2 > 256 {
+            bail!(
+                "clock : base {} + {} paires (jauge, vitesse) déborde des \
+                 256 variables",
+                base,
+                lanes
+            );
+        }
+        out.push(format!("  CLOCK {} {}", base, lanes));
+        Ok(())
+    }
+
+    /// `target_sel` — the target cursor (V1): walks the stage's
+    /// occupied slots (or the posed party), pick into a variable.
+    fn cmd_target_sel(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let var = cmd["var"]
+            .as_u64()
+            .filter(|&v| v < 256)
+            .with_context(|| "target_sel : var 0-255".to_string())?;
+        let ally = cmd["ally"].as_bool().unwrap_or(false);
+        let cancel = cmd["cancel"].as_bool().unwrap_or(true);
+        let flags = ally as u8 | (cancel as u8) << 1;
+        out.push(format!("  TARGETSEL {} {}", var, flags));
         Ok(())
     }
 

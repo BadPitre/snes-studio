@@ -412,6 +412,26 @@
 #define VM_OP_BATTLE 0x46 /* troop (u8) — opens the BATTLE screen on a
    monster group (C1). BLOCKING: the event resumes when the battle
    closes. Design doc PLANNING_SYSTEME_COMBAT.md. */
+#define VM_OP_BTLPOSE 0x47 /* hero (u8 0-3), x (u8), y (u8), op (u8:
+   1 show, 0 hide) — poses the hero's 32x32 battler cell on the
+   composed screen (chars 448+, OAM 104-107, the C1 recipe). BLOCKING
+   while the session's first show of that hero uploads the cell.
+   Ignored with no stage up. PLANNING_COMBAT_EN_EVENTS.md (V1). */
+#define VM_OP_POPUP 0x48 /* src (u8: 0 constant, 1 variable), value
+   (u16), x (u8), y (u8) — a number in white 8x8 digits at screen
+   (x,y), risen then gone (the C4 damage popup). NON-blocking; one at
+   a time, the newer replaces the older. Stage only. */
+#define VM_OP_CLOCK 0x49 /* base (u8), n (u8 0-8) — the GAUGE CLOCK:
+   every frame, vars16[base+2i] += vars16[base+2i+1]/4 for the n
+   (gauge, speed) variable pairs, saturating at 255. The gauges are
+   ordinary variables — scripts read them, widgets draw them. n = 0
+   stops the service. Persists until stopped, stage or not. */
+#define VM_OP_TARGETSEL 0x4A /* var (u8), flags (u8: bit 0 = the
+   posed PARTY instead of the stage slots, bit 1 = B cancels) — the
+   TARGET CURSOR: walks the occupied stage slots (or the posed
+   battlers) with the C3 pulse/blink feedback; Left/Up back,
+   Right/Down forward, A writes the pick into vars16[var] (255 on
+   cancel). BLOCKING. Nothing to point at: var = 255, no wait. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

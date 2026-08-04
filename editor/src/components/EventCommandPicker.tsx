@@ -117,6 +117,10 @@ const TABS: Tab[] = [
     title: "Combat",
     items: [
       { c: "battle", label: "Lancer un combat" },
+      { c: "btl_pose", label: "Poser un combattant (équipe)" },
+      { c: "popup", label: "Nombre qui saute (popup)" },
+      { c: "clock", label: "Horloge de jauges (ATB)" },
+      { c: "target_sel", label: "Curseur de cible" },
     ],
   },
   {

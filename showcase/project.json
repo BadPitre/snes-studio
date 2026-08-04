@@ -504,9 +504,9 @@
   "",
   "",
   "",
-  "",
-  "",
-  "",
+  "Test V1: jauge",
+  "Test V1: vitesse",
+  "Test V1: cible",
   "",
   "",
   "",
@@ -1243,5 +1243,8 @@
     }
    ]
   }
+ ],
+ "screens": [
+  "test_v1"
  ]
 }

@@ -50,3 +50,15 @@ pos = [22, 16]
 size = [9, 3]
 var = 242
 label = "Nadia"
+
+# V1 — the toy screen's ATB gauge: DRAWS the clock's variable 70.
+# Hidden until the test script shows it.
+[[node]]
+id = "jauge_v1"
+type = "gauge"
+pos = [12, 2]
+size = [8, 1]
+var = 70
+max = 255
+icon = 3
+frame = false

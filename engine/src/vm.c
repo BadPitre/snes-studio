@@ -19,6 +19,8 @@
 #include "picture.h" /* SHOWPIC/HIDEPIC: full-screen pictures (S3) */
 #include "weather.h" /* WEATHER: particle weather (S13) */
 #include "btl.h" /* BATTLE: the battle screen (C1) */
+#include "btlprim.h" /* BTLPOSE/POPUP/CLOCK/TARGETSEL: the battle
+                        primitives (V1) */
 #include "hdmafx.h"  /* WAVE: screen ripple (S14) */
 #include "audio.h"   /* PLAYSFX / PLAYBGM: sound and music (B1) */
 #include "stage.h"   /* composed screen (B3) */
@@ -815,6 +817,43 @@ static void vm_step(void)
         vm.active = 0;
       break;
 
+    case VM_OP_BTLPOSE: /* battler pose (V1) — BLOCKING on the upload */
+      var = fetch8();   /* hero */
+      val = fetch8();   /* x */
+      idx16 = fetch8(); /* y */
+      btlprim_pose(var, val, (u8)idx16, fetch8());
+      if (btlprim_busy())
+        vm.wait_mode = VM_WAIT_BTLUP;
+      break;
+
+    case VM_OP_POPUP: /* digit popup (V1) — NON blocking */
+      var = fetch8();    /* src: 0 constant, 1 variable */
+      val16 = fetch16(); /* value (or variable number) */
+      if (var)
+        val16 = vm.vars16[val16 & 255];
+      val = fetch8(); /* x */
+      btlprim_popup(val16, val, fetch8());
+      break;
+
+    case VM_OP_CLOCK: /* gauge clock (V1) — NON blocking, persistent */
+      var = fetch8(); /* base variable */
+      btlprim_clock(var, fetch8());
+      break;
+
+    case VM_OP_TARGETSEL: /* target cursor (V1) — BLOCKING */
+      var = fetch8(); /* destination variable */
+      val = fetch8(); /* flags: bit 0 ally, bit 1 B cancels */
+      op = btlprim_target_begin((u8)(val & 1));
+      if (op == 0xFF)
+      {
+        vm.vars16[var] = 255; /* nothing to point at */
+        break;
+      }
+      vm.choice_var = var;
+      vm.list_flags = val;
+      vm.wait_mode = VM_WAIT_TARGET;
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
@@ -1141,6 +1180,36 @@ void vm_update(void)
     vm.vars16[vm.keyin_dst] = down;
     vm.wait_mode = VM_WAIT_NONE;
   }
+  if (vm.wait_mode == VM_WAIT_BTLUP)
+  {
+    if (!btlprim_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_TARGET)
+  {
+    /* the target cursor (V1): the same pads vocabulary as the C3
+       cursor — the feedback (pulse/blink) is btlprim's business */
+    btlprim_target_tick();
+    down = padsDown(0);
+    if (down & (KEY_LEFT | KEY_UP))
+      btlprim_target_step(0);
+    else if (down & (KEY_RIGHT | KEY_DOWN))
+      btlprim_target_step(1);
+    else if (down & KEY_A)
+    {
+      vm.vars16[vm.choice_var] = btlprim_target_end();
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    else if ((down & KEY_B) && (vm.list_flags & 2))
+    {
+      btlprim_target_end();
+      vm.vars16[vm.choice_var] = 255;
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    return;
+  }
   if (vm.wait_mode == VM_WAIT_LIST)
   {
     /* cursor menu (B6): wrap around top/bottom — the reflex of SNES
@@ -1253,6 +1322,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_ANIM)
   {
     if (anim_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_BTLUP)
+  {
+    if (btlprim_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

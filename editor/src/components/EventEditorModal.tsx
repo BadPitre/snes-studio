@@ -41,6 +41,10 @@ import {
   formScrHideScrShow,
   formScreen,
   formBattle,
+  formBtlPose,
+  formPopup,
+  formClock,
+  formTargetSel,
   formScreenCall,
   formSetAdd,
   formSetpos,
@@ -303,6 +307,21 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       return `Aller à l'écran « ${c.name} »`;
     case "battle":
       return `Lancer un combat : « ${c.troop} »`;
+    case "btl_pose":
+      return c.show
+        ? `Poser le combattant ${c.hero + 1} en (${c.x},${c.y})`
+        : `Cacher le combattant ${c.hero + 1}`;
+    case "popup":
+      return `Popup : ${
+        c.value_var !== undefined ? `[${c.value_var}]` : c.value
+      } en (${c.x},${c.y})`;
+    case "clock":
+      return c.lanes
+        ? `Horloge de jauges : ${c.lanes} voie(s) depuis [${c.base}]`
+        : "Horloge de jauges : stop";
+    case "target_sel":
+      return `Curseur de cible (${c.ally ? "équipe" : "monstres"}) → [${
+        c.var}]${c.cancel ? "" : " (B désactivé)"}`;
     case "screen_call":
       return `Appeler le script d'écran « ${c.script} »`;
     case "stage_open":
@@ -744,6 +763,14 @@ export function CommandListEditor(props: {
         return { c: "screen", name: "", dur: 20 };
       case "battle":
         return { c: "battle", troop: "" };
+      case "btl_pose":
+        return { c: "btl_pose", hero: 0, x: 200, y: 40, show: true };
+      case "popup":
+        return { c: "popup", value: 100, x: 112, y: 96 };
+      case "clock":
+        return { c: "clock", base: 236, lanes: 4 };
+      case "target_sel":
+        return { c: "target_sel", var: 0, ally: false, cancel: true };
       case "screen_call":
         return { c: "screen_call", script: "" };
       case "stage_open":
@@ -1705,6 +1732,18 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "battle":
       ({ body, valid } = formBattle(cmd, x));
+      break;
+    case "btl_pose":
+      ({ body, valid } = formBtlPose(cmd, x));
+      break;
+    case "popup":
+      ({ body, valid } = formPopup(cmd, x));
+      break;
+    case "clock":
+      ({ body, valid } = formClock(cmd, x));
+      break;
+    case "target_sel":
+      ({ body, valid } = formTargetSel(cmd, x));
       break;
     case "screen_call":
       ({ body, valid } = formScreenCall(cmd, x));

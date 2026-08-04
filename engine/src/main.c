@@ -28,6 +28,7 @@
 #include "hdmafx.h"
 #include "stage.h"
 #include "btl.h"
+#include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
 #include "anim.h"
@@ -347,6 +348,7 @@ int main(void)
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
     btl_update();      /* battle screen phases (C1) — drives stage + OBJ */
+    btlprim_update();  /* battle primitives (V1): clock + stage OAM */
     m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();
     if (!picture_active() && !stage_active() && !m7_active())
@@ -423,6 +425,7 @@ int main(void)
       ui_screen_vblank();
       vig_vblank();      /* vignette frames (B5) */
       btl_vblank();      /* party battler cells (C1), under the budget */
+      btlprim_vblank();  /* scripted battler cells + digits (V1) */
     }
     else
     {

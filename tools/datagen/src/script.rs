@@ -103,6 +103,10 @@ const OP_M7VIEW: u8 = 0x43;
 const OP_M7ROT: u8 = 0x44;
 const OP_M7TURN: u8 = 0x45;
 const OP_BATTLE: u8 = 0x46;
+const OP_BTLPOSE: u8 = 0x47;
+const OP_POPUP: u8 = 0x48;
+const OP_CLOCK: u8 = 0x49;
+const OP_TARGETSEL: u8 = 0x4A;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -298,6 +302,14 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7TURN" => 4,
         // BATTLE <groupe> — opens the battle screen (C1), blocking
         "BATTLE" => 2,
+        // BTLPOSE <hero 0-3> <x> <y> <op 0|1> — battler pose (V1)
+        "BTLPOSE" => 5,
+        // POPUP <src 0|1> <value u16> <x> <y> — digit popup (V1)
+        "POPUP" => 6,
+        // CLOCK <base> <n 0-8> — the gauge clock (V1)
+        "CLOCK" => 3,
+        // TARGETSEL <var> <flags> — the target cursor (V1), blocking
+        "TARGETSEL" => 3,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -1002,6 +1014,54 @@ pub fn assemble(
                 if argc != 1 { bail!("BATTLE <groupe>"); }
                 code.push(OP_BATTLE);
                 code.push(parse_u8(args[0])?);
+            }
+            // BTLPOSE <hero 0-3> <x> <y> <op 0|1> — a hero's battler
+            // cell on the composed screen (V1); blocking on the upload
+            "BTLPOSE" => {
+                if argc != 4 { bail!("BTLPOSE <hero> <x> <y> <op>"); }
+                let h = parse_u8(args[0])?;
+                if h > 3 { bail!("BTLPOSE : héros {} — 4 au maximum (0-3)", h); }
+                code.push(OP_BTLPOSE);
+                code.push(h);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+            }
+            // POPUP <src 0|1> <value u16> <x> <y> — a number in digits
+            // over the composed screen (V1)
+            "POPUP" => {
+                if argc != 4 { bail!("POPUP <src> <valeur> <x> <y>"); }
+                code.push(OP_POPUP);
+                code.push(parse_u8(args[0])?);
+                let v: u16 = args[1]
+                    .parse()
+                    .with_context(|| format!("POPUP : valeur invalide '{}'", args[1]))?;
+                code.push((v & 0xFF) as u8);
+                code.push((v >> 8) as u8);
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+            }
+            // CLOCK <base> <n 0-8> — the gauge clock (V1): n lanes of
+            // (gauge, speed) variable pairs from base; 0 stops it
+            "CLOCK" => {
+                if argc != 2 { bail!("CLOCK <base> <n>"); }
+                let base = parse_u8(args[0])?;
+                let n = parse_u8(args[1])?;
+                if n > 8 { bail!("CLOCK : {} voies — 8 au maximum", n); }
+                if n > 0 && base as u16 + (n as u16) * 2 > 256 {
+                    bail!("CLOCK : base {} + {} paires déborde des 256 variables", base, n);
+                }
+                code.push(OP_CLOCK);
+                code.push(base);
+                code.push(n);
+            }
+            // TARGETSEL <var> <flags bit0 = équipe, bit1 = B annule> —
+            // the target cursor (V1); blocking
+            "TARGETSEL" => {
+                if argc != 2 { bail!("TARGETSEL <var> <flags>"); }
+                code.push(OP_TARGETSEL);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
             }
             // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
             // is masked by the map's OWN step count at run time, so the

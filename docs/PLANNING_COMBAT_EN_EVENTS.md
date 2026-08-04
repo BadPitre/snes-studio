@@ -99,6 +99,12 @@ heroes.toml/skills.toml carve-out; troops keep their editor window).
   event commands (datagen + VM + forms), btl.c untouched beside them.
   Proof: a toy screen script poses the party, pops a number, fills a
   gauge into a widget, points at a slot.
+  *Shipped.* Module `btlprim.c`, opcodes 0x47-0x4A, wait modes 13-14;
+  the toy screen is the showcase's `test_v1` (village, the Testeur
+  event). First dividend: the scripted popup showed a stray 8/9 under
+  every 0/1 — a DIGIT-SHEET cell overlap latent in btl.c since C4,
+  fixed for both (glyphs 8-9 moved to the sheet's row 23, the engine
+  raises those two digits 8 px).
 - **V2 — the library, fighting.** `combat_tour` + functions reproduce
   C2-C3 (menu, attack, skills, MP, targeting, KO, issue, rewards) on
   the gobelins. btl.c's FIGHT machine deleted. The village duel plays
