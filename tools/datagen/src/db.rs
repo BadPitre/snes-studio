@@ -128,6 +128,22 @@ impl Db {
             .map(|s| s.to_string())
     }
 
+    /// An INTEGER field of one entry, raw from the TOML (or the schema
+    /// default when the entry omits it). For build-time consumers — the
+    /// battle module bakes monster stats into troop tables.
+    pub fn field_int(&self, table: usize, entry: usize, field: &str) -> Option<i64> {
+        let e = self.entries[table].get(entry)?;
+        if let Some(v) = e.get(field).and_then(|v| v.as_integer()) {
+            return Some(v);
+        }
+        self.schemas[table]
+            .fields
+            .iter()
+            .find(|f| f.name == field)
+            .and_then(|f| f.default.as_ref())
+            .and_then(|d| d.as_integer())
+    }
+
     /// (offset, size in bytes) of a table's field.
     pub fn field_info(&self, table: usize, field: &str) -> Option<(usize, usize)> {
         let mut ofs = 0usize;

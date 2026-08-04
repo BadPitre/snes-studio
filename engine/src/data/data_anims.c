@@ -6,34 +6,34 @@
 
 const u8 anim_count = 0;
 
-/* vignette servant de planche de cellules, par animation */
+/* the vignette used as the cell sheet, per animation */
 const u8 anim_vig[] = {
   0x00,
 };
 
-/* bit 0 = boucle */
+/* bit 0 = loop */
 const u8 anim_flags[] = {
   0x00,
 };
 
-/* cellules simultanees (calques) : pas de piste = 3L + 2 */
+/* simultaneous cells (layers): track stride = 3L + 2 */
 const u8 anim_layers[] = {
   0x00,
 };
 
-/* nombre de frames */
+/* frame count */
 const u8 anim_nframes[] = {
   0x00,
 };
 
-/* offset de la premiere frame dans anim_track */
+/* offset of the first frame in anim_track */
 const u16 anim_ofs[1] = {
   0x0000,
 };
 
-/* piste aplatie, pas FIXE de 3L + 2 octets par frame :
-                L x [cellule (0xFF = calque vide)][dx signe][dy signe]
-                puis [duree][son, 0xFF = aucun] */
+/* flattened track, FIXED stride of 3L + 2 bytes per frame:
+                L x [cell (0xFF = empty layer)][signed dx][signed dy]
+                then [duration][sound, 0xFF = none] */
 const u8 anim_track[] = {
   0x00,
 };

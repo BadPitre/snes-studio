@@ -945,20 +945,61 @@
     {
      "c": "battle",
      "troop": "gobelins"
-    },
+    }
+   ]
+  },
+  {
+   "name": "_apres_combat",
+   "x": 1,
+   "y": 2,
+   "trigger": "auto",
+   "sprite": -1,
+   "dir": "down",
+   "commands": [],
+   "pages": [
     {
-     "c": "ui_show",
-     "widget": "combat_pv1",
-     "on": false
-    },
-    {
-     "c": "ui_show",
-     "widget": "combat_pv2",
-     "on": false
-    },
-    {
-     "c": "msg",
-     "text": "Bien combattu !"
+     "condition": {
+      "switch": 500,
+      "on": true
+     },
+     "trigger": "auto",
+     "sprite": -1,
+     "dir": "down",
+     "commands": [
+      {
+       "c": "ui_show",
+       "widget": "combat_pv1",
+       "on": false
+      },
+      {
+       "c": "ui_show",
+       "widget": "combat_pv2",
+       "on": false
+      },
+      {
+       "c": "if_var",
+       "n": 248,
+       "op": "==",
+       "value": 1,
+       "then": [
+        {
+         "c": "msg",
+         "text": "Victoire ! \\v[249] XP et \\v[250] pieces d'or."
+        }
+       ],
+       "else": [
+        {
+         "c": "msg",
+         "text": "Defaite... entraine-toi encore."
+        }
+       ]
+      },
+      {
+       "c": "switch",
+       "n": 500,
+       "on": false
+      }
+     ]
     }
    ]
   }

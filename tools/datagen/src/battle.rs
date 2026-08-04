@@ -46,16 +46,37 @@ pub struct Hero {
     pub max_hp: u16,
     pub max_mp: u16,
     pub speed: u8,
+    pub attack: u8,
+    pub defense: u8,
+}
+
+/// One monster INSTANCE in a troop — its stats baked at build time
+/// from the database's `monsters` table, so the engine never walks the
+/// generic table registry on the battle's hot path.
+pub struct TroopMon {
+    pub pic: u8,
+    pub x: u8,
+    pub y: u8,
+    pub hp: u16,
+    pub atk: u8,
+    pub def: u8,
+    pub spd: u8,
+    pub xp: u16,
+    pub gold: u16,
 }
 
 pub struct Troop {
-    pub backdrop: u8,             // picture id
-    pub mons: Vec<(u8, u8, u8)>,  // picture id, tile x, tile y
+    pub backdrop: u8, // picture id
+    pub mons: Vec<TroopMon>,
 }
 
 pub struct Battle {
     pub heroes: Vec<Hero>,
     pub troops: Vec<Troop>,
+    /// Widget index of the command menu (a cursor list of the project's
+    /// UI layout), 0xFF when the project names none — btl then attacks
+    /// without a menu.
+    pub menu_widget: u8,
 }
 
 /// One 8x8 tile of an indexed canvas, encoded 4bpp SNES.
@@ -122,6 +143,7 @@ pub fn build(
     sheet: &IndexedImage,
     db: Option<&Db>,
     pic_names: &[String],
+    ui_widgets: &[String],
 ) -> Result<Option<Battle>> {
     let hp = proj_dir.join("data/heroes.toml");
     let tp = proj_dir.join("data/troops.toml");
@@ -156,11 +178,24 @@ pub fn build(
             max_hp: h.get("max_hp").and_then(|v| v.as_integer()).unwrap_or(1) as u16,
             max_mp: h.get("max_mp").and_then(|v| v.as_integer()).unwrap_or(0) as u16,
             speed: h.get("speed").and_then(|v| v.as_integer()).unwrap_or(50) as u8,
+            attack: h.get("attack").and_then(|v| v.as_integer()).unwrap_or(5) as u8,
+            defense: h.get("defense").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
         });
     }
     if heroes.is_empty() || heroes.len() > MAX_HEROES {
         bail!("combat : 1 à {} héros dans heroes.toml", MAX_HEROES);
     }
+    // The command menu: a cursor-list widget of the project's UI layout,
+    // named in heroes.toml (`menu = "menu_combat"`). Optional — without
+    // it the heroes attack unprompted, which keeps a bare project alive.
+    let menu_widget = match hv.get("menu").and_then(|v| v.as_str()) {
+        Some(name) => ui_widgets
+            .iter()
+            .position(|w| w == name)
+            .map(|i| i as u8)
+            .with_context(|| format!("combat : widget menu '{}' absent du layout", name))?,
+        None => 0xFF,
+    };
 
     let db = db.with_context(|| "combat : pas de database (table monsters requise)")?;
     let mt = db
@@ -189,7 +224,18 @@ pub fn build(
             let pid = pic_id(&pic, &format!("battler du monstre '{}'", mid))?;
             let x = m.get("x").and_then(|v| v.as_integer()).unwrap_or(0) as u8;
             let y = m.get("y").and_then(|v| v.as_integer()).unwrap_or(0) as u8;
-            mons.push((pid, x, y));
+            let n = |f: &str, d: i64| db.field_int(mt, e, f).unwrap_or(d);
+            mons.push(TroopMon {
+                pic: pid,
+                x,
+                y,
+                hp: n("max_hp", 1) as u16,
+                atk: n("attack", 1) as u8,
+                def: n("defense", 0) as u8,
+                spd: n("speed", 40) as u8,
+                xp: n("xp", 0) as u16,
+                gold: n("gold", 0) as u16,
+            });
         }
         if mons.is_empty() || mons.len() > MAX_MONS {
             bail!("groupe '{}' : 1 à {} monstres", tid, MAX_MONS);
@@ -204,7 +250,7 @@ pub fn build(
         heroes.len(),
         troops.len()
     );
-    Ok(Some(Battle { heroes, troops }))
+    Ok(Some(Battle { heroes, troops, menu_widget }))
 }
 
 /// The troop ids, in table order — the BATTLE command resolves by name.
@@ -245,6 +291,15 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str("const u8 btl_troop_pic[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_x[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_y[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_atk[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_def[1] = { 0, };\n");
+            s.push_str("const u16 btl_mon_hp[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_atk[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_def[1] = { 0, };\n");
+            s.push_str("const u8 btl_mon_spd[1] = { 0, };\n");
+            s.push_str("const u16 btl_mon_xp[1] = { 0, };\n");
+            s.push_str("const u16 btl_mon_gold[1] = { 0, };\n");
+            s.push_str("const u8 btl_menu_widget = 0xFF;\n");
         }
         Some(b) => {
             let nh = b.heroes.len();
@@ -286,17 +341,50 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             let mut pic = Vec::new();
             let mut xs = Vec::new();
             let mut ys = Vec::new();
+            let (mut mhp, mut mxp, mut mgold) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut matk, mut mdef, mut mspd) = (Vec::new(), Vec::new(), Vec::new());
             for t in &b.troops {
                 for k in 0..MAX_MONS {
-                    let (p, x, y) = t.mons.get(k).copied().unwrap_or((0, 0, 0));
-                    pic.push(p);
-                    xs.push(x);
-                    ys.push(y);
+                    match t.mons.get(k) {
+                        Some(m) => {
+                            pic.push(m.pic);
+                            xs.push(m.x);
+                            ys.push(m.y);
+                            mhp.push(m.hp);
+                            matk.push(m.atk);
+                            mdef.push(m.def);
+                            mspd.push(m.spd);
+                            mxp.push(m.xp);
+                            mgold.push(m.gold);
+                        }
+                        None => {
+                            pic.push(0);
+                            xs.push(0);
+                            ys.push(0);
+                            mhp.push(0);
+                            matk.push(0);
+                            mdef.push(0);
+                            mspd.push(0);
+                            mxp.push(0);
+                            mgold.push(0);
+                        }
+                    }
                 }
             }
             s.push_str(&emit::u8_array("btl_troop_pic", &pic, 16, false));
             s.push_str(&emit::u8_array("btl_troop_x", &xs, 16, false));
             s.push_str(&emit::u8_array("btl_troop_y", &ys, 16, false));
+            let hat: Vec<u8> = b.heroes.iter().map(|h| h.attack).collect();
+            let hde: Vec<u8> = b.heroes.iter().map(|h| h.defense).collect();
+            s.push_str(&emit::u8_array("btl_hero_atk", &hat, 16, false));
+            s.push_str(&emit::u8_array("btl_hero_def", &hde, 16, false));
+            s.push_str(&emit::u16_array("btl_mon_hp", &mhp));
+            s.push_str(&emit::u8_array("btl_mon_atk", &matk, 16, false));
+            s.push_str(&emit::u8_array("btl_mon_def", &mdef, 16, false));
+            s.push_str(&emit::u8_array("btl_mon_spd", &mspd, 16, false));
+            s.push_str(&emit::u16_array("btl_mon_xp", &mxp));
+            s.push_str(&emit::u16_array("btl_mon_gold", &mgold));
+            s.push_str(&format!("const u8 btl_menu_widget = {};\n", b.menu_widget));
         }
     }
     vec![("data_battle.c".into(), s)]

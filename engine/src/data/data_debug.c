@@ -4,7 +4,7 @@
  */
 #include <snes.h>
 
-/* menu de debug en jeu (Start+Select+R) — S6/M1 */
+/* in-game debug menu (Start+Select+R) — S6/M1 */
 const u8 dbg_enabled = 0;
-/* rangée budgets pré-formatée (32 colonnes max) */
-const char dbg_banks_txt[] = "SCN 2903/32768 TXT 653/32768";
+/* pre-formatted budget row (32 columns max) */
+const char dbg_banks_txt[] = "SCN 2665/32768 TXT 653/32768";

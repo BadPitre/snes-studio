@@ -188,10 +188,15 @@ BATTLE <troop> ->  transition (mosaic) -> intro hook
 ```
 
 - `BATTLE` is an event command ("Lancer un combat", RM2003's exact
-  vocabulary), with the troop by const or variable, and a result
-  variable (win / flee) so the calling event can branch — the wild
-  encounter loop is then an ordinary parallel common event using the
-  existing step machinery, NOT an engine feature.
+  vocabulary). **Amended by C2:** the design above said "the calling
+  event branches on a result variable" — it cannot. The battle closes
+  through the internal warp, and a scene change ENDS the running
+  script (the engine's invariant, true even of scripted warps). The
+  post-battle sequence is therefore an AUTO event page conditioned on
+  the reserved switch 500, which btl raises as the curtain falls and
+  the page turns back off; the outcome and the rewards travel in the
+  reserved variables 248-250. More RM2003 than the original idea, and
+  it costs the engine nothing.
 - Hooks are command lists attached to the troop (like screen scripts
   today). While a hook runs, the ATB clock pauses. The showcase's
   scripted-battle experience maps 1:1 onto hooks.
@@ -227,9 +232,12 @@ adds one during C2.
   the database (backdrop, monsters, party battlers, windows, static
   gauges), returns on a button. Gate: harness capture vs layout.
 - **C2 — it fights.** ATB clock, command menu, Attaque, damage via
-  default formula, popups, KO, victory/defeat, rewards, `BATTLE`
-  command wired from an event. THE demo: two heroes vs two gobelins,
-  end to end, scripted inputs in the harness.
+  default formula, KO, victory/defeat, rewards, `BATTLE` command
+  wired from an event. THE demo: two heroes vs two gobelins, end to
+  end, scripted inputs in the harness. **Done — with two deferrals,
+  both to C3: the damage POPUPS (digits as OBJ) and the visual ATB
+  gauges (the gauge widget requires an IconSet the showcase lacks);
+  damage reads today through the live PV windows.**
 - **C3 — it casts.** Skills + MP, items, target cursor with all four
   target modes, A1 animations on targets, Fuir.
 - **C4 — it thinks and it talks.** Monster AI patterns (simple
