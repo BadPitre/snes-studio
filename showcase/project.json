@@ -1,420 +1,666 @@
 {
-  "assets": {
-    "font": "assets/fonts/font.png",
-    "sprites": "assets/charsets/sprites.png",
-    "tileset": "assets/tilesets/tileset.png"
-  },
-  "boot_scene": "titre",
-  "name": "Legende de la Plaine",
-  "scenes": [
-    "titre",
-    "village",
-    "plaine"
-  ],
-  "tilesets": [
-    "assets/tilesets/tileset.png"
-  ],
-  "tileset_defs": [
+ "assets": {
+  "font": "assets/fonts/font.png",
+  "sprites": "assets/charsets/sprites.png",
+  "tileset": "assets/tilesets/tileset.png"
+ },
+ "boot_scene": "titre",
+ "name": "Legende de la Plaine",
+ "scenes": [
+  "titre",
+  "village",
+  "plaine"
+ ],
+ "tilesets": [
+  "assets/tilesets/tileset.png"
+ ],
+ "tileset_defs": [
+  {
+   "name": "tileset",
+   "file": "assets/tilesets/tileset.png"
+  }
+ ],
+ "musics": [
+  "assets/music/pollen8.it",
+  "assets/music/village.it",
+  "assets/music/battle.it",
+  "assets/music/victory.it"
+ ],
+ "sounds": [
+  "assets/sounds/curseur.wav",
+  "assets/sounds/attaque.wav"
+ ],
+ "pictures": [
+  "assets/pictures/titre.png",
+  "assets/pictures/fond_prairie.png",
+  "assets/pictures/gobelin.png",
+  "assets/pictures/dragon.png"
+ ],
+ "vignettes": [
+  "assets/vignettes/exclam.png",
+  "assets/vignettes/coup.png"
+ ],
+ "screens": [
+  "combat_gobelin",
+  "combat_dragon"
+ ],
+ "charsets": [
+  "Heros",
+  "Villageois"
+ ],
+ "ui": {
+  "windowskin": "assets/windowskins/windowskin.png",
+  "text_speed": 2,
+  "icons": "assets/iconsets/icons.png"
+ },
+ "common_events": [
+  {
+   "name": "nouvelle_partie",
+   "trigger": "none",
+   "commands": [
     {
-      "name": "tileset",
-      "file": "assets/tilesets/tileset.png"
+     "c": "var",
+     "n": 10,
+     "op": "=",
+     "value": 30
+    },
+    {
+     "c": "var",
+     "n": 11,
+     "op": "=",
+     "value": 30
+    },
+    {
+     "c": "var",
+     "n": 12,
+     "op": "=",
+     "value": 8
+    },
+    {
+     "c": "var",
+     "n": 13,
+     "op": "=",
+     "value": 3
+    },
+    {
+     "c": "var",
+     "n": 14,
+     "op": "=",
+     "value": 1
+    },
+    {
+     "c": "var",
+     "n": 15,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 16,
+     "op": "=",
+     "value": 20
+    },
+    {
+     "c": "var",
+     "n": 17,
+     "op": "=",
+     "value": 2
+    },
+    {
+     "c": "var",
+     "n": 18,
+     "op": "=",
+     "value": 15
+    },
+    {
+     "c": "switch",
+     "n": 31,
+     "on": false
+    },
+    {
+     "c": "switch",
+     "n": 32,
+     "on": false
+    },
+    {
+     "c": "switch",
+     "n": 22,
+     "on": true
     }
-  ],
-  "musics": [
-    "assets/music/pollen8.it",
-    "assets/music/village.it",
-    "assets/music/battle.it",
-    "assets/music/victory.it"
-  ],
-  "sounds": [
-    "assets/sounds/curseur.wav",
-    "assets/sounds/attaque.wav"
-  ],
-  "pictures": [
-    "assets/pictures/titre.png",
-    "assets/pictures/fond_prairie.png",
-    "assets/pictures/gobelin.png",
-    "assets/pictures/dragon.png"
-  ],
-  "vignettes": [
-    "assets/vignettes/exclam.png",
-    "assets/vignettes/coup.png"
-  ],
-  "screens": [
-    "combat_gobelin",
-    "combat_dragon"
-  ],
-  "charsets": [
-    "Heros",
-    "Villageois"
-  ],
-  "ui": {
-    "windowskin": "assets/windowskins/windowskin.png",
-    "text_speed": 2,
-    "icons": "assets/iconsets/icons.png"
+   ]
   },
-  "common_events": [
+  {
+   "name": "gagner_niveau",
+   "trigger": "none",
+   "commands": [
     {
-      "name": "nouvelle_partie",
-      "trigger": "none",
-      "commands": [
+     "c": "loop",
+     "do": [
+      {
+       "c": "rem",
+       "text": "v43 = XP - seuil ; wrap >= 32768 = pas assez"
+      },
+      {
+       "c": "var",
+       "n": 43,
+       "op": "=",
+       "from": "var",
+       "value": 15
+      },
+      {
+       "c": "var",
+       "n": 43,
+       "op": "-",
+       "from": "var",
+       "value": 16
+      },
+      {
+       "c": "if_var",
+       "n": 43,
+       "op": ">=",
+       "value": 32768,
+       "then": [
         {
-          "c": "var",
-          "n": 10,
-          "op": "=",
-          "value": 30
-        },
-        {
-          "c": "var",
-          "n": 11,
-          "op": "=",
-          "value": 30
-        },
-        {
-          "c": "var",
-          "n": 12,
-          "op": "=",
-          "value": 8
-        },
-        {
-          "c": "var",
-          "n": 13,
-          "op": "=",
-          "value": 3
-        },
-        {
-          "c": "var",
-          "n": 14,
-          "op": "=",
-          "value": 1
-        },
-        {
-          "c": "var",
-          "n": 15,
-          "op": "=",
-          "value": 0
-        },
-        {
-          "c": "var",
-          "n": 16,
-          "op": "=",
-          "value": 20
-        },
-        {
-          "c": "var",
-          "n": 17,
-          "op": "=",
-          "value": 2
-        },
-        {
-          "c": "var",
-          "n": 18,
-          "op": "=",
-          "value": 15
-        },
-        {
-          "c": "switch",
-          "n": 31,
-          "on": false
-        },
-        {
-          "c": "switch",
-          "n": 32,
-          "on": false
-        },
-        {
-          "c": "switch",
-          "n": 22,
-          "on": true
+         "c": "break"
         }
-      ]
-    },
-    {
-      "name": "gagner_niveau",
-      "trigger": "none",
-      "commands": [
-        {
-          "c": "loop",
-          "do": [
-            {
-              "c": "rem",
-              "text": "v43 = XP - seuil ; wrap >= 32768 = pas assez"
-            },
-            {
-              "c": "var",
-              "n": 43,
-              "op": "=",
-              "from": "var",
-              "value": 15
-            },
-            {
-              "c": "var",
-              "n": 43,
-              "op": "-",
-              "from": "var",
-              "value": 16
-            },
-            {
-              "c": "if_var",
-              "n": 43,
-              "op": ">=",
-              "value": 32768,
-              "then": [
-                {
-                  "c": "break"
-                }
-              ],
-              "else": []
-            },
-            {
-              "c": "var",
-              "n": 15,
-              "op": "=",
-              "from": "var",
-              "value": 43
-            },
-            {
-              "c": "var",
-              "n": 14,
-              "op": "+",
-              "value": 1
-            },
-            {
-              "c": "var",
-              "n": 11,
-              "op": "+",
-              "value": 6
-            },
-            {
-              "c": "var",
-              "n": 12,
-              "op": "+",
-              "value": 2
-            },
-            {
-              "c": "var",
-              "n": 13,
-              "op": "+",
-              "value": 1
-            },
-            {
-              "c": "var",
-              "n": 10,
-              "op": "=",
-              "from": "var",
-              "value": 11
-            },
-            {
-              "c": "var",
-              "n": 16,
-              "op": "+",
-              "value": 15
-            },
-            {
-              "c": "sfx",
-              "sound": "curseur"
-            },
-            {
-              "c": "flash",
-              "r": 31,
-              "g": 31,
-              "b": 12,
-              "frames": 16
-            },
-            {
-              "c": "msg",
-              "text": "Niveau \\v[14] ! PV max \\v[11], ATK \\v[12], DEF \\v[13]."
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "game_over",
-      "trigger": "auto",
-      "switch": 30,
-      "commands": [
-        {
-          "c": "switch",
-          "n": 30,
-          "on": false
-        },
-        {
-          "c": "switch",
-          "n": 22,
-          "on": false
-        },
-        {
-          "c": "tint",
-          "mode": "sub",
-          "r": 24,
-          "g": 28,
-          "b": 28
-        },
-        {
-          "c": "wait",
-          "frames": 40
-        },
-        {
-          "c": "msg",
-          "text": "Vous etes vaincu... GAME OVER."
-        },
-        {
-          "c": "tint",
-          "mode": "off"
-        },
-        {
-          "c": "warp",
-          "to": "titre",
-          "x": 8,
-          "y": 11
-        }
-      ]
-    },
-    {
-      "name": "inventaire",
-      "trigger": "auto",
-      "switch": 20,
-      "commands": [
-        {
-          "c": "switch",
-          "n": 20,
-          "on": false
-        },
-        {
-          "c": "sfx",
-          "sound": "curseur"
-        },
-        {
-          "c": "list_select",
-          "widget": "menu_objets",
-          "var": 22,
-          "cancel": true
-        },
-        {
-          "c": "if_var",
-          "n": 22,
-          "op": "==",
-          "value": 0,
-          "then": [
-            {
-              "c": "if_var",
-              "n": 17,
-              "op": "==",
-              "value": 0,
-              "then": [
-                {
-                  "c": "msg",
-                  "text": "Aucune potion ! Le marchand du village en vend."
-                }
-              ],
-              "else": [
-                {
-                  "c": "var",
-                  "n": 17,
-                  "op": "-",
-                  "value": 1
-                },
-                {
-                  "c": "var",
-                  "n": 10,
-                  "op": "+",
-                  "value": 25
-                },
-                {
-                  "c": "rem",
-                  "text": "cap aux PV max : v44 = PV - max, wrap = sous le max"
-                },
-                {
-                  "c": "var",
-                  "n": 44,
-                  "op": "=",
-                  "from": "var",
-                  "value": 10
-                },
-                {
-                  "c": "var",
-                  "n": 44,
-                  "op": "-",
-                  "from": "var",
-                  "value": 11
-                },
-                {
-                  "c": "if_var",
-                  "n": 44,
-                  "op": ">=",
-                  "value": 32768,
-                  "then": [],
-                  "else": [
-                    {
-                      "c": "var",
-                      "n": 10,
-                      "op": "=",
-                      "from": "var",
-                      "value": 11
-                    }
-                  ]
-                },
-                {
-                  "c": "sfx",
-                  "sound": "curseur"
-                },
-                {
-                  "c": "msg",
-                  "text": "Glou glou... PV \\v[10]/\\v[11]. (Potions : \\v[17])"
-                }
-              ]
-            }
-          ],
-          "else": []
-        },
-        {
-          "c": "if_var",
-          "n": 22,
-          "op": "==",
-          "value": 1,
-          "then": [
-            {
-              "c": "msg",
-              "text": "Niv \\v[14]  PV \\v[10]/\\v[11]  ATK \\v[12]  DEF \\v[13] XP \\v[15]/\\v[16]  Or \\v[18]  Potions \\v[17]"
-            }
-          ],
-          "else": []
-        }
-      ]
-    },
-    {
-      "name": "poll_menu",
-      "trigger": "parallel",
-      "switch": 22,
-      "commands": [
-        {
-          "c": "key_input",
-          "var": 45,
-          "wait": false,
-          "keys": [
-            12
-          ]
-        },
-        {
-          "c": "if_var",
-          "n": 45,
-          "op": "==",
-          "value": 12,
-          "then": [
-            {
-              "c": "switch",
-              "n": 20,
-              "on": true
-            },
-            {
-              "c": "wait",
-              "frames": 20
-            }
-          ],
-          "else": []
-        }
-      ]
+       ],
+       "else": []
+      },
+      {
+       "c": "var",
+       "n": 15,
+       "op": "=",
+       "from": "var",
+       "value": 43
+      },
+      {
+       "c": "var",
+       "n": 14,
+       "op": "+",
+       "value": 1
+      },
+      {
+       "c": "var",
+       "n": 11,
+       "op": "+",
+       "value": 6
+      },
+      {
+       "c": "var",
+       "n": 12,
+       "op": "+",
+       "value": 2
+      },
+      {
+       "c": "var",
+       "n": 13,
+       "op": "+",
+       "value": 1
+      },
+      {
+       "c": "var",
+       "n": 10,
+       "op": "=",
+       "from": "var",
+       "value": 11
+      },
+      {
+       "c": "var",
+       "n": 16,
+       "op": "+",
+       "value": 15
+      },
+      {
+       "c": "sfx",
+       "sound": "curseur"
+      },
+      {
+       "c": "flash",
+       "r": 31,
+       "g": 31,
+       "b": 12,
+       "frames": 16
+      },
+      {
+       "c": "msg",
+       "text": "Niveau \\v[14] ! PV max \\v[11], ATK \\v[12], DEF \\v[13]."
+      }
+     ]
     }
-  ]
+   ]
+  },
+  {
+   "name": "game_over",
+   "trigger": "auto",
+   "switch": 30,
+   "commands": [
+    {
+     "c": "switch",
+     "n": 30,
+     "on": false
+    },
+    {
+     "c": "switch",
+     "n": 22,
+     "on": false
+    },
+    {
+     "c": "tint",
+     "mode": "sub",
+     "r": 24,
+     "g": 28,
+     "b": 28
+    },
+    {
+     "c": "wait",
+     "frames": 40
+    },
+    {
+     "c": "msg",
+     "text": "Vous etes vaincu... GAME OVER."
+    },
+    {
+     "c": "tint",
+     "mode": "off"
+    },
+    {
+     "c": "warp",
+     "to": "titre",
+     "x": 8,
+     "y": 11
+    }
+   ]
+  },
+  {
+   "name": "inventaire",
+   "trigger": "auto",
+   "switch": 20,
+   "commands": [
+    {
+     "c": "switch",
+     "n": 20,
+     "on": false
+    },
+    {
+     "c": "sfx",
+     "sound": "curseur"
+    },
+    {
+     "c": "list_select",
+     "widget": "menu_objets",
+     "var": 22,
+     "cancel": true
+    },
+    {
+     "c": "if_var",
+     "n": 22,
+     "op": "==",
+     "value": 0,
+     "then": [
+      {
+       "c": "if_var",
+       "n": 17,
+       "op": "==",
+       "value": 0,
+       "then": [
+        {
+         "c": "msg",
+         "text": "Aucune potion ! Le marchand du village en vend."
+        }
+       ],
+       "else": [
+        {
+         "c": "var",
+         "n": 17,
+         "op": "-",
+         "value": 1
+        },
+        {
+         "c": "var",
+         "n": 10,
+         "op": "+",
+         "value": 25
+        },
+        {
+         "c": "rem",
+         "text": "cap aux PV max : v44 = PV - max, wrap = sous le max"
+        },
+        {
+         "c": "var",
+         "n": 44,
+         "op": "=",
+         "from": "var",
+         "value": 10
+        },
+        {
+         "c": "var",
+         "n": 44,
+         "op": "-",
+         "from": "var",
+         "value": 11
+        },
+        {
+         "c": "if_var",
+         "n": 44,
+         "op": ">=",
+         "value": 32768,
+         "then": [],
+         "else": [
+          {
+           "c": "var",
+           "n": 10,
+           "op": "=",
+           "from": "var",
+           "value": 11
+          }
+         ]
+        },
+        {
+         "c": "sfx",
+         "sound": "curseur"
+        },
+        {
+         "c": "msg",
+         "text": "Glou glou... PV \\v[10]/\\v[11]. (Potions : \\v[17])"
+        }
+       ]
+      }
+     ],
+     "else": []
+    },
+    {
+     "c": "if_var",
+     "n": 22,
+     "op": "==",
+     "value": 1,
+     "then": [
+      {
+       "c": "msg",
+       "text": "Niv \\v[14]  PV \\v[10]/\\v[11]  ATK \\v[12]  DEF \\v[13] XP \\v[15]/\\v[16]  Or \\v[18]  Potions \\v[17]"
+      }
+     ],
+     "else": []
+    }
+   ]
+  },
+  {
+   "name": "poll_menu",
+   "trigger": "parallel",
+   "switch": 22,
+   "commands": [
+    {
+     "c": "key_input",
+     "var": 45,
+     "wait": false,
+     "keys": [
+      12
+     ]
+    },
+    {
+     "c": "if_var",
+     "n": 45,
+     "op": "==",
+     "value": 12,
+     "then": [
+      {
+       "c": "switch",
+       "n": 20,
+       "on": true
+      },
+      {
+       "c": "wait",
+       "frames": 20
+      }
+     ],
+     "else": []
+    }
+   ]
+  }
+ ],
+ "variables": [
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "PV heros (script)",
+  "PV max heros (script)",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "Potions",
+  "",
+  "",
+  "Choix menu combat",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "Alea fuite",
+  "",
+  "Calcul degats",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "Monstre: PV max",
+  "Monstre: attaque",
+  "Monstre: defense",
+  "Monstre: XP",
+  "Monstre: or",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "Combat: PV Arven",
+  "Combat: PV max Arven",
+  "Combat: PV Nadia",
+  "Combat: PV max Nadia"
+ ]
 }

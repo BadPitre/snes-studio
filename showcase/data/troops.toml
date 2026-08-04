@@ -1,0 +1,16 @@
+# Groupes de monstres (C1) — les stats et le battler de chaque monstre
+# viennent de la table `monsters` de la database ; le groupe ARRANGE.
+# x, y en tiles d'écran (32x28).
+
+[[troop]]
+id = "gobelins"
+backdrop = "fond_prairie"
+monsters = [
+  { id = "gobelin", x = 4, y = 9 },
+  { id = "gobelin", x = 8, y = 13 },
+]
+
+[[troop]]
+id = "dragon_seul"
+backdrop = "fond_prairie"
+monsters = [ { id = "dragon", x = 5, y = 9 } ]

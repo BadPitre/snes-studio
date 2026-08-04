@@ -10,6 +10,7 @@
 //!  - engine/src/data/*.c — graphics and tables as generated C
 
 mod anim;
+mod battle;
 mod binbank;
 mod charset;
 mod chipset;
@@ -92,6 +93,9 @@ fn main() -> Result<()> {
     // The database loads BEFORE the events (db_read resolves tables,
     // entries and fields) and is encoded AFTER, against a closed text bank.
     let mut database = db::load(&proj_dir)?;
+    // Battle troop ids (C1): the "Lancer un combat" command resolves by
+    // name at compile time, so the list must exist before the scenes.
+    let troop_names = battle::troop_ids(&proj_dir)?;
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
     // The UI layout loads EARLY: the "show a UI widget" event command
@@ -317,6 +321,7 @@ fn main() -> Result<()> {
                 &pic_names,
                 &pic_dims,
                 &sound_names,
+                &troop_names,
                 &music_names,
                 &vig_names,
                 &anims.names,
@@ -1069,6 +1074,20 @@ fn main() -> Result<()> {
             write_out(&out_dir, &name, content)?;
         }
         for (name, content) in gen_worldmap_files(&worlds) {
+            write_out(&out_dir, &name, content)?;
+        }
+    }
+    // BATTLE (C1). data_battle.c is ALWAYS emitted — btl.c links
+    // unconditionally, with zeroed tables when the project fights nobody.
+    {
+        let b = battle::build(
+            &proj_dir,
+            &project.charsets,
+            &sprites,
+            database.as_ref(),
+            &pic_names,
+        )?;
+        for (name, content) in battle::emit_files(b.as_ref()) {
             write_out(&out_dir, &name, content)?;
         }
     }

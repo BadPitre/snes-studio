@@ -27,6 +27,7 @@
 #include "weather.h"
 #include "hdmafx.h"
 #include "stage.h"
+#include "btl.h"
 #include "m7.h"
 #include "vignette.h"
 #include "anim.h"
@@ -339,6 +340,7 @@ int main(void)
     debug_update();    /* Start+Select+R panel (S6) — inert without
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
+    btl_update();      /* battle screen phases (C1) — drives stage + OBJ */
     m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();
     if (!picture_active() && !stage_active() && !m7_active())
@@ -414,6 +416,7 @@ int main(void)
       vbl_open();        /* stage_vblank is not counted either */
       ui_screen_vblank();
       vig_vblank();      /* vignette frames (B5) */
+      btl_vblank();      /* party battler cells (C1), under the budget */
     }
     else
     {

@@ -116,6 +116,18 @@ impl Db {
         self.ids[table].iter().position(|s| s == id)
     }
 
+    /// A STRING field of one entry, raw from the TOML — for build-time
+    /// consumers that resolve resources by name (the battle module reads
+    /// a monster's battle_pic to pose it). None when absent or not a
+    /// string.
+    pub fn field_str(&self, table: usize, entry: usize, field: &str) -> Option<String> {
+        self.entries[table]
+            .get(entry)?
+            .get(field)?
+            .as_str()
+            .map(|s| s.to_string())
+    }
+
     /// (offset, size in bytes) of a table's field.
     pub fn field_info(&self, table: usize, field: &str) -> Option<(usize, usize)> {
         let mut ofs = 0usize;

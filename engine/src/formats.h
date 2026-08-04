@@ -409,6 +409,9 @@
                              the short way round. The step count only
                              buys resolution; this is what buys motion.
                              frames 0 = as fast as the steps allow. */
+#define VM_OP_BATTLE 0x46 /* troop (u8) — opens the BATTLE screen on a
+   monster group (C1). BLOCKING: the event resumes when the battle
+   closes. Design doc PLANNING_SYSTEME_COMBAT.md. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

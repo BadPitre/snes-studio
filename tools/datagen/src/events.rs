@@ -61,6 +61,7 @@ pub struct EventCompiler<'a> {
     pic_dims: Vec<(usize, usize)>,
     /// Project sounds (stems), resolved to sfx_id.
     sounds: Vec<String>,
+    troops: Vec<String>,
     /// Project music (stems), resolved to music_id.
     musics: Vec<String>,
     /// Project vignettes (stems), resolved to vig_id.
@@ -117,6 +118,7 @@ impl<'a> EventCompiler<'a> {
             pictures: Vec::new(),
             pic_dims: Vec::new(),
             sounds: Vec::new(),
+            troops: Vec::new(),
             musics: Vec::new(),
             vignettes: Vec::new(),
             animations: Vec::new(),
@@ -496,6 +498,7 @@ impl<'a> EventCompiler<'a> {
                 "m7" => self.cmd_m7(cmd, out)?,
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
                 "m7_rot" => self.cmd_m7_rot(cmd, out)?,
+                "battle" => self.cmd_battle(cmd, out)?,
                 "m7_turn" => self.cmd_m7_turn(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
@@ -558,6 +561,7 @@ impl<'a> EventCompiler<'a> {
         pictures: &[String],
         pic_dims: &[(usize, usize)],
         sounds: &[String],
+        troops: &[String],
         musics: &[String],
         vignettes: &[String],
         animations: &[String],
@@ -599,6 +603,7 @@ impl<'a> EventCompiler<'a> {
         self.pictures = pictures.to_vec();
         self.pic_dims = pic_dims.to_vec();
         self.sounds = sounds.to_vec();
+        self.troops = troops.to_vec();
         self.musics = musics.to_vec();
         self.vignettes = vignettes.to_vec();
         self.animations = animations.to_vec();
@@ -1620,6 +1625,25 @@ impl<'a> EventCompiler<'a> {
     fn cmd_m7_view(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let (horizon, anchor) = m7_view_preset(cmd)?;
         out.push(format!("  M7VIEW {} {}", horizon, anchor));
+        Ok(())
+    }
+
+    /// `battle` — "Lancer un combat": opens the battle screen on a
+    /// TROOP from data/troops.toml, resolved by name at build time.
+    fn cmd_battle(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["troop"].as_str().unwrap_or("");
+        let id = self
+            .troops
+            .iter()
+            .position(|t| t == name)
+            .with_context(|| {
+                format!(
+                    "commande battle : groupe de monstres '{}' introuvable \
+                     dans data/troops.toml",
+                    name
+                )
+            })?;
+        out.push(format!("  BATTLE {}", id));
         Ok(())
     }
 

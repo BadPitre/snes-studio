@@ -25,6 +25,7 @@
                              Mode 7 zoom ramp */
 #define VM_WAIT_M7T 12    /* M7TURN "wait for the end": a world map's
                              animated rotation */
+#define VM_WAIT_BATTLE 13 /* BATTLE: the battle screen closed (C1) */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)

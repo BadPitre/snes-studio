@@ -18,6 +18,7 @@
 #include "ui_overlay.h" /* SHOWUI: widget visibility (Ph. 12) */
 #include "picture.h" /* SHOWPIC/HIDEPIC: full-screen pictures (S3) */
 #include "weather.h" /* WEATHER: particle weather (S13) */
+#include "btl.h" /* BATTLE: the battle screen (C1) */
 #include "hdmafx.h"  /* WAVE: screen ripple (S14) */
 #include "audio.h"   /* PLAYSFX / PLAYBGM: sound and music (B1) */
 #include "stage.h"   /* composed screen (B3) */
@@ -778,6 +779,11 @@ static void vm_step(void)
         vm.wait_mode = VM_WAIT_M7T;
       break;
 
+    case VM_OP_BATTLE: /* battle screen (C1) — BLOCKING until it closes */
+      btl_request(fetch8());
+      vm.wait_mode = VM_WAIT_BATTLE;
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
@@ -1062,6 +1068,13 @@ void vm_update(void)
   if (vm.wait_mode == VM_WAIT_STAGE)
   {
     if (!stage_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_BATTLE)
+  {
+    if (!btl_active())
       vm.wait_mode = VM_WAIT_NONE;
     else
       return;

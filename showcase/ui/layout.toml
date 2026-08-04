@@ -31,3 +31,22 @@ pos = [22, 2]
 size = [8, 3]
 var = 10
 label = "PV"
+
+# C1 — fenetres du combat ATB : PV de l'equipe, liees aux variables
+# RESERVEES du moteur (btl.h : 240 + heros*2). Montrees par l'event qui
+# lance le combat ; C2 en donnera la garde au moteur.
+[[node]]
+id = "combat_pv1"
+type = "variable_display"
+pos = [22, 13]
+size = [9, 3]
+var = 240
+label = "Arven"
+
+[[node]]
+id = "combat_pv2"
+type = "variable_display"
+pos = [22, 16]
+size = [9, 3]
+var = 242
+label = "Nadia"

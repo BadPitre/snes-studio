@@ -102,6 +102,7 @@ const OP_M7CLOSE: u8 = 0x42;
 const OP_M7VIEW: u8 = 0x43;
 const OP_M7ROT: u8 = 0x44;
 const OP_M7TURN: u8 = 0x45;
+const OP_BATTLE: u8 = 0x46;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -295,6 +296,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7ROT" => 2,
         // M7TURN <cran> <frames> <flags> — animated world map rotation
         "M7TURN" => 4,
+        // BATTLE <groupe> — opens the battle screen (C1), blocking
+        "BATTLE" => 2,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -991,6 +994,13 @@ pub fn assemble(
                 if a > 63 { bail!("M7ROT : cran {} — 64 crans au maximum (0-63)", a); }
                 code.push(OP_M7ROT);
                 code.push(a);
+            }
+            // BATTLE <groupe> — the battle screen (C1). Blocking: the
+            // event resumes when the battle closes.
+            "BATTLE" => {
+                if argc != 1 { bail!("BATTLE <groupe>"); }
+                code.push(OP_BATTLE);
+                code.push(parse_u8(args[0])?);
             }
             // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
             // is masked by the map's OWN step count at run time, so the
