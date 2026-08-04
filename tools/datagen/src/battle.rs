@@ -59,6 +59,10 @@ pub struct TroopMon {
     pub pic: u8,
     pub x: u8,
     pub y: u8,
+    /// Index of the monster's entry in the database's `monsters` table
+    /// (V2): the thin BATTLE opcode hands it to the event library in a
+    /// reserved variable, and the library DBREADs the stats itself.
+    pub dbid: u8,
     pub hp: u16,
     pub atk: u8,
     pub def: u8,
@@ -448,6 +452,7 @@ pub fn build(
                 pic: pid,
                 x,
                 y,
+                dbid: e as u8,
                 hp: n("max_hp", 1) as u16,
                 atk: n("attack", 1) as u8,
                 def: n("defense", 0) as u8,
@@ -638,7 +643,12 @@ fn digit_cells() -> Vec<u8> {
 }
 
 /// data_battle.c — ALWAYS emitted, dummy when the project has no battle
-/// data, so btl.c links unconditionally (the m7/pictures recipe).
+/// data, so btl.c and btlprim.c link unconditionally (the m7/pictures
+/// recipe). V2 diet: the engine only opens the field — hero cells and
+/// stats (poured into reserved variables), troop layout plus each
+/// posed monster's DATABASE index, the intro hook, the digit sheet.
+/// Monster stats, skills, menu semantics, AI, items: the event
+/// library's business, via DBREAD and its own commands.
 pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
     let mut s = String::from(emit::HEADER);
     s.push_str("#include <snes.h>\n\n");
@@ -650,46 +660,20 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str("const u16 btl_hero_maxhp[1] = { 0, };\n");
             s.push_str("const u16 btl_hero_maxmp[1] = { 0, };\n");
             s.push_str("const u8 btl_hero_speed[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_atk[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_def[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_mag[1] = { 0, };\n");
+            s.push_str("const u8 btl_hero_mdef[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_count = 0;\n");
             s.push_str("const u8 btl_troop_back[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_n[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_pic[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_x[1] = { 0, };\n");
             s.push_str("const u8 btl_troop_y[1] = { 0, };\n");
-            s.push_str("const u8 btl_hero_atk[1] = { 0, };\n");
-            s.push_str("const u8 btl_hero_def[1] = { 0, };\n");
-            s.push_str("const u16 btl_mon_hp[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_atk[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_def[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_spd[1] = { 0, };\n");
-            s.push_str("const u16 btl_mon_xp[1] = { 0, };\n");
-            s.push_str("const u16 btl_mon_gold[1] = { 0, };\n");
-            s.push_str("const u8 btl_menu_widget = 0xFF;\n");
-            s.push_str("const u8 btl_hero_mag[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_mdef[1] = { 0, };\n");
-            s.push_str("const u8 btl_act_n = 1;\n");
-            s.push_str("const u8 btl_act_kind[1] = { 0, };\n");
-            s.push_str("const u8 btl_act_arg[1] = { 0, };\n");
-            s.push_str("const u8 btl_skill_mp[1] = { 0, };\n");
-            s.push_str("const u8 btl_skill_pow[1] = { 0, };\n");
-            s.push_str("const u8 btl_skill_tgt[1] = { 0, };\n");
-            s.push_str("const u8 btl_skill_anim[1] = { 0xFF, };\n");
-            s.push_str("const u8 btl_hero_mdef[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_mag[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_ai_start[1] = { 0, };\n");
-            s.push_str("const u8 btl_mon_ai_n[1] = { 0, };\n");
-            s.push_str("const u8 btl_ai_kind[1] = { 0, };\n");
-            s.push_str("const u8 btl_ai_arg[1] = { 0, };\n");
-            s.push_str("const u8 btl_ai_w[1] = { 0, };\n");
+            s.push_str("const u8 btl_troop_monid[1] = { 0xFF, };\n");
             s.push_str("const u8 btl_troop_intro[1] = { 0xFF, };\n");
-            s.push_str("const u8 btl_troop_lowhp[1] = { 0xFF, };\n");
             s.push_str("const u8 btl_digit_cells[1] = { 0, };\n");
             s.push_str("const u16 btl_digit_pal[1] = { 0, };\n");
-            s.push_str("const u8 btl_atb_active = 0;\n");
-            s.push_str("const u8 btl_skill_status[1] = { 0, };\n");
-            s.push_str("const u8 btl_item_n = 0;\n");
-            s.push_str("const u16 btl_item_heal[1] = { 0, };\n");
-            s.push_str("const u8 btl_item_var[1] = { 0, };\n");
         }
         Some(b) => {
             let nh = b.heroes.len();
@@ -721,6 +705,14 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str(&emit::u16_array("btl_hero_maxmp", &mp));
             let sp: Vec<u8> = b.heroes.iter().map(|h| h.speed).collect();
             s.push_str(&emit::u8_array("btl_hero_speed", &sp, 16, false));
+            let hat: Vec<u8> = b.heroes.iter().map(|h| h.attack).collect();
+            let hde: Vec<u8> = b.heroes.iter().map(|h| h.defense).collect();
+            let hmg: Vec<u8> = b.heroes.iter().map(|h| h.magic).collect();
+            let hmd: Vec<u8> = b.heroes.iter().map(|h| h.mdef).collect();
+            s.push_str(&emit::u8_array("btl_hero_atk", &hat, 16, false));
+            s.push_str(&emit::u8_array("btl_hero_def", &hde, 16, false));
+            s.push_str(&emit::u8_array("btl_hero_mag", &hmg, 16, false));
+            s.push_str(&emit::u8_array("btl_hero_mdef", &hmd, 16, false));
 
             let nt = b.troops.len();
             s.push_str(&format!("\nconst u8 btl_troop_count = {};\n", nt));
@@ -731,8 +723,7 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             let mut pic = Vec::new();
             let mut xs = Vec::new();
             let mut ys = Vec::new();
-            let (mut mhp, mut mxp, mut mgold) = (Vec::new(), Vec::new(), Vec::new());
-            let (mut matk, mut mdef, mut mspd) = (Vec::new(), Vec::new(), Vec::new());
+            let mut mid = Vec::new();
             for t in &b.troops {
                 for k in 0..MAX_MONS {
                     match t.mons.get(k) {
@@ -740,23 +731,13 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
                             pic.push(m.pic);
                             xs.push(m.x);
                             ys.push(m.y);
-                            mhp.push(m.hp);
-                            matk.push(m.atk);
-                            mdef.push(m.def);
-                            mspd.push(m.spd);
-                            mxp.push(m.xp);
-                            mgold.push(m.gold);
+                            mid.push(m.dbid);
                         }
                         None => {
                             pic.push(0);
                             xs.push(0);
                             ys.push(0);
-                            mhp.push(0);
-                            matk.push(0);
-                            mdef.push(0);
-                            mspd.push(0);
-                            mxp.push(0);
-                            mgold.push(0);
+                            mid.push(0xFF);
                         }
                     }
                 }
@@ -764,91 +745,9 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str(&emit::u8_array("btl_troop_pic", &pic, 16, false));
             s.push_str(&emit::u8_array("btl_troop_x", &xs, 16, false));
             s.push_str(&emit::u8_array("btl_troop_y", &ys, 16, false));
-            let hat: Vec<u8> = b.heroes.iter().map(|h| h.attack).collect();
-            let hde: Vec<u8> = b.heroes.iter().map(|h| h.defense).collect();
-            s.push_str(&emit::u8_array("btl_hero_atk", &hat, 16, false));
-            s.push_str(&emit::u8_array("btl_hero_def", &hde, 16, false));
-            s.push_str(&emit::u16_array("btl_mon_hp", &mhp));
-            s.push_str(&emit::u8_array("btl_mon_atk", &matk, 16, false));
-            s.push_str(&emit::u8_array("btl_mon_def", &mdef, 16, false));
-            s.push_str(&emit::u8_array("btl_mon_spd", &mspd, 16, false));
-            s.push_str(&emit::u16_array("btl_mon_xp", &mxp));
-            s.push_str(&emit::u16_array("btl_mon_gold", &mgold));
-            s.push_str(&format!("const u8 btl_menu_widget = {};\n", b.menu_widget));
-            let hmg: Vec<u8> = b.heroes.iter().map(|h| h.magic).collect();
-            s.push_str(&emit::u8_array("btl_hero_mag", &hmg, 16, false));
-            let mut mmd = Vec::new();
-            for t in &b.troops {
-                for k in 0..MAX_MONS {
-                    mmd.push(t.mons.get(k).map(|m| m.mdef).unwrap_or(0));
-                }
-            }
-            s.push_str(&emit::u8_array("btl_mon_mdef", &mmd, 16, false));
-            s.push_str(&format!("const u8 btl_act_n = {};\n", b.act_kind.len()));
-            s.push_str(&emit::u8_array("btl_act_kind", &b.act_kind, 16, false));
-            s.push_str(&emit::u8_array("btl_act_arg", &b.act_arg, 16, false));
-            let (mut smp, mut spw, mut stg, mut san) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-            for sk in &b.skills {
-                smp.push(sk.mp);
-                spw.push(sk.power);
-                stg.push(sk.target);
-                san.push(sk.anim);
-            }
-            if smp.is_empty() {
-                smp.push(0);
-                spw.push(0);
-                stg.push(0);
-                san.push(0xFF);
-            }
-            s.push_str(&emit::u8_array("btl_skill_mp", &smp, 16, false));
-            s.push_str(&emit::u8_array("btl_skill_pow", &spw, 16, false));
-            s.push_str(&emit::u8_array("btl_skill_tgt", &stg, 16, false));
-            s.push_str(&emit::u8_array("btl_skill_anim", &san, 16, false));
-            let mut sst: Vec<u8> = b.skills.iter().map(|s| s.status).collect();
-            if sst.is_empty() {
-                sst.push(0);
-            }
-            s.push_str(&emit::u8_array("btl_skill_status", &sst, 16, false));
-            s.push_str(&format!("const u8 btl_atb_active = {};\n", b.atb_active));
-            s.push_str(&format!("const u8 btl_item_n = {};\n", b.items.len()));
-            let (mut ihl, mut ivr): (Vec<u16>, Vec<u8>) = (Vec::new(), Vec::new());
-            for &(h, v) in &b.items {
-                ihl.push(h);
-                ivr.push(v);
-            }
-            if ihl.is_empty() {
-                ihl.push(0);
-                ivr.push(0);
-            }
-            s.push_str(&emit::u16_array("btl_item_heal", &ihl));
-            s.push_str(&emit::u8_array("btl_item_var", &ivr, 16, false));
-            // C4 — hero magic defence, monster magic + AI, hooks, digits
-            let hmd: Vec<u8> = b.heroes.iter().map(|h| h.mdef).collect();
-            s.push_str(&emit::u8_array("btl_hero_mdef", &hmd, 16, false));
-            let (mut mmg, mut mas, mut man) = (Vec::new(), Vec::new(), Vec::new());
-            for t in &b.troops {
-                for k in 0..MAX_MONS {
-                    mmg.push(t.mons.get(k).map(|m| m.mag).unwrap_or(0));
-                    mas.push(t.mons.get(k).map(|m| m.ai_start).unwrap_or(0));
-                    man.push(t.mons.get(k).map(|m| m.ai_n).unwrap_or(0));
-                }
-            }
-            s.push_str(&emit::u8_array("btl_mon_mag", &mmg, 16, false));
-            s.push_str(&emit::u8_array("btl_mon_ai_start", &mas, 16, false));
-            s.push_str(&emit::u8_array("btl_mon_ai_n", &man, 16, false));
-            let (aik, aia, aiw) = if b.ai_kind.is_empty() {
-                (vec![0u8], vec![0u8], vec![1u8])
-            } else {
-                (b.ai_kind.clone(), b.ai_arg.clone(), b.ai_w.clone())
-            };
-            s.push_str(&emit::u8_array("btl_ai_kind", &aik, 16, false));
-            s.push_str(&emit::u8_array("btl_ai_arg", &aia, 16, false));
-            s.push_str(&emit::u8_array("btl_ai_w", &aiw, 16, false));
+            s.push_str(&emit::u8_array("btl_troop_monid", &mid, 16, false));
             let ti: Vec<u8> = b.troops.iter().map(|t| t.intro).collect();
-            let tl: Vec<u8> = b.troops.iter().map(|t| t.low_hp).collect();
             s.push_str(&emit::u8_array("btl_troop_intro", &ti, 16, false));
-            s.push_str(&emit::u8_array("btl_troop_lowhp", &tl, 16, false));
             s.push_str(&emit::u8_array("btl_digit_cells", &digit_cells(), 16, false));
             // white digits, black drop shadow, on OBJ palette 4
             let dpal: Vec<u16> = vec![0, 0x0000, 0x7FFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];

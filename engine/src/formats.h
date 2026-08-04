@@ -330,7 +330,9 @@
                               frames per image of the sheet.
                               NON-blocking. */
 #define VM_OP_VIGHIDE 0x39 /* slot u8 — hides the slot's vignette. */
-#define VM_OP_ANIMPLAY 0x3B /* anim u8, anchor u8, target u8, flags u8 —
+#define VM_OP_ANIMPLAY 0x3B /* anim u8, anchor u8, target u8, flags u8,
+   x u8, y u8 (V2: the SCREEN anchor's aim point — 112,96 is the old
+   fixed centre; the event library lands skills on their target) —
                                frame-by-frame ANIMATION: plays on a
                                vignette slot, since its cell sheet IS a
                                vignette. anchor: 0 screen (offsets around

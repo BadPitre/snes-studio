@@ -2228,6 +2228,24 @@ export function formAnimPlay(cmd: Extract<Command, { c: "anim_play" }>, x: FormC
             </select>
           </label>
         )}
+        {cmd.anchor === "screen" && (
+          <>
+            <label>
+              X (px, centre 112)
+              <input
+                type="number" min={0} max={255} value={cmd.x ?? 112}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Y (px, centre 96)
+              <input
+                type="number" min={0} max={216} value={cmd.y ?? 96}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </>
+        )}
       </div>
       <label className="checkline">
         <input

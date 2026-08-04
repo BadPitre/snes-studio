@@ -347,7 +347,8 @@ int main(void)
     debug_update();    /* Start+Select+R panel (S6) — inert without
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
-    btl_update();      /* battle screen phases (C1) — drives stage + OBJ */
+    btl_update();      /* battle opener (V2): stage + poses, then the
+                          troop's intro common event takes the field */
     btlprim_update();  /* battle primitives (V1): clock + stage OAM */
     m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();
@@ -424,8 +425,7 @@ int main(void)
       vbl_open();        /* stage_vblank is not counted either */
       ui_screen_vblank();
       vig_vblank();      /* vignette frames (B5) */
-      btl_vblank();      /* party battler cells (C1), under the budget */
-      btlprim_vblank();  /* scripted battler cells + digits (V1) */
+      btlprim_vblank();  /* battler cells + digits (V1), under the budget */
     }
     else
     {

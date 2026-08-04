@@ -392,7 +392,9 @@ export type Command =
   // A1 — frame-by-frame animations. anchor "event" + event = -1 for
   // "this event". wait: blocks the script until the end (never for a
   // looping animation, which never ends).
-  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean }
+  // x/y (V2): where a SCREEN-anchored animation lands (default 112,96,
+  // the screen centre) — the combat library aims skills at their target.
+  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number }
   // C5 — "Lancer un combat" (RM2003 vocabulary): opens the battle screen
   // on a troop of data/troops.toml. The command ENDS the calling script
   // (the battle's close is an internal warp); the aftermath is an AUTO

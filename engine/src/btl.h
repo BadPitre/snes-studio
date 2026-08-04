@@ -1,52 +1,57 @@
 /*
- * btl.h — the battle screen (design doc PLANNING_SYSTEME_COMBAT.md).
+ * btl.h — the battle OPENER (PLANNING_COMBAT_EN_EVENTS.md, V2).
  *
- * C1: the screen stands. C2: it fights — the ATB clock, the command
- * menu (the project's own cursor-list widget), the built-in attack,
- * KO, victory/defeat and rewards. The engine owns the clock and the
- * queues; the database owns the numbers; the project's UI layer draws
- * every window.
+ * The BATTLE command no longer runs the fight: it sets the table and
+ * leaves. It opens the composed screen on the troop's backdrop, poses
+ * the monsters, pours the party's stats and the troop's identity into
+ * RESERVED VARIABLES, then starts the troop's intro common event —
+ * which IS the battle: the project's event library (combat_tour) runs
+ * the loop on the primitives (BTLPOSE/POPUP/CLOCK/TARGETSEL, LISTSEL,
+ * DBREAD, functions). C1-C6's machine lived here; it now lives in the
+ * project, where the author can read and rewrite it.
  */
 #ifndef BTL_H
 #define BTL_H
 
 #include <snes.h>
 
-/* Reserved battle variables (C0 §6): the UI widgets bind to these.
-   Per hero h (0-3): BTL_VAR_BASE + h*2 = current HP, +1 = max HP.
-   After the battle: ISSUE = 1 victory / 2 defeat, XP and GOLD carry
-   the summed rewards — the post-battle event branches and spends them. */
-#define BTL_VAR_BASE 240
-#define BTL_VAR_ISSUE 248
-#define BTL_VAR_XP 249
+/* Reserved battle variables — written by the opener, read (and owned
+   from then on) by the event library. The UI widgets bind to these. */
+#define BTL_VAR_BASE 240 /* +h*2 = hero h's current HP, +1 = max HP */
+#define BTL_VAR_ISSUE 248 /* 1 victory / 2 defeat / 3 fled — LIBRARY-set */
+#define BTL_VAR_XP 249    /* summed rewards — LIBRARY-set */
 #define BTL_VAR_GOLD 250
-/* Per hero h: current MP (C3). MOVED in C6: 244+h collided with the
-   hp pairs (BTL_VAR_BASE + h*2 covers 240-247) from the third hero on
-   — latent while every project fought with two. */
-#define BTL_VAR_MP 232
-/* Per hero h: the ATB gauge, 0-255 (C6) — mirrored every fight frame
-   so the project's widgets can draw it (a gauge, a number). */
-#define BTL_VAR_ATB 236
+#define BTL_VAR_MP 232 /* +h = hero h's current MP (starts at max) */
+/* 236-239 were the engine's ATB mirror (C6). The library owns its
+   gauges now (CLOCK on ordinary variables) — the block is free. */
 
-/* Reserved switch, raised as the battle closes. A scene change ENDS the
-   running script (the engine's warp invariant — even scripted warps),
-   so the commands after `battle` in the calling event never run. The
-   post-battle sequence is therefore an AUTO event page conditioned on
-   this switch, which turns it back off — the RM2003 reflex. */
+/* Hero stats (V2): per hero h, from the Équipe window's data. */
+#define BTL_VAR_ATK 208   /* +h */
+#define BTL_VAR_DEF 212   /* +h */
+#define BTL_VAR_MAG 216   /* +h */
+#define BTL_VAR_MDEF 220  /* +h */
+#define BTL_VAR_SPD 224   /* +h */
+#define BTL_VAR_NHERO 231 /* party size (1-4) */
+
+/* The troop on stage (V2): its id, and per slot i the posed monster's
+   DATABASE index into the `monsters` table (65535 = empty slot) — the
+   library DBREADs the stats itself (entry-from-variable). */
+#define BTL_VAR_TROOP 251
+#define BTL_VAR_MONID 252 /* +i, i = 0-3 */
+
+/* Reserved switch, raised by the LIBRARY as the battle ends; the
+   post-battle sequence is an AUTO page conditioned on it, which turns
+   it back off — the RM2003 reflex, unchanged since C2. */
 #define BTL_SW_DONE 500
 
-/* A battle is up (any phase, opening and closing included). */
+/* The opener is busy (screen opening, monsters being posed). */
 u8 btl_active(void);
 
-/* The BATTLE opcode: opens the screen on a troop. Ignored when one is
-   already up or the troop does not exist. */
+/* The BATTLE opcode: opens the field on a troop. Ignored when one is
+   already opening or the troop does not exist. */
 void btl_request(u8 troop);
 
-/* Main loop: drives the phases (pose, upload, the fight, close). */
+/* Main loop: open, pose, hand over to the intro common event. */
 void btl_update(void);
-
-/* VBlank: uploads the party's OBJ cells, under the budget (vbl_take).
-   Call in the stage_active branch, AFTER vbl_open. */
-void btl_vblank(void);
 
 #endif /* BTL_H */

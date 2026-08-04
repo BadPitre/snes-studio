@@ -238,6 +238,18 @@ void btlprim_update(void)
 
   if (!stage_active())
   {
+    if (bp_have | pop_n)
+    {
+      /* the screen just closed: hide our OAM entries once — nothing
+         else rebuilds 100-107, and a stale popup or battler would
+         float over the map (seen in V2's first full battle) */
+      for (i = 0; i < 4; i++)
+      {
+        oamSetVisible(BP_POPOAM(i), OBJ_HIDE);
+        oamSetVisible(BP_OAM(i), OBJ_HIDE);
+      }
+      pop_n = 0;
+    }
     /* the session's visual state dies with the screen */
     bp_shown = 0;
     bp_have = 0;

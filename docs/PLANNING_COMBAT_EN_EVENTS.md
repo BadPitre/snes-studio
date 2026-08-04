@@ -109,6 +109,23 @@ heroes.toml/skills.toml carve-out; troops keep their editor window).
   C2-C3 (menu, attack, skills, MP, targeting, KO, issue, rewards) on
   the gobelins. btl.c's FIGHT machine deleted. The village duel plays
   the same to the eye.
+  *Shipped.* btl.c is a ~130-line OPENER: stage + posed troop, party
+  stats and posed monsters' database indexes into reserved variables
+  (btl.h: stats 208-227, party size 231, troop 251, monster ids
+  252-255), then the troop's intro common event IS the battle. The
+  showcase library: `combat_tour` + per-turn/apply common events and
+  three F1 formula functions; monster stats, rewards and the Potion
+  heal all come from DBREAD (entry-from-variable on the ids the
+  opener published). ANIMPLAY gained its screen AIM point (§2 assumed
+  it existed; skills land on their target again). Two finds: a
+  cleared stage slot still counted as occupied (sl_pic survives
+  stage_clear for the char allocator — stage.c now keeps a sl_shown
+  flag for the cursor), and OAM 100-107 needed hiding when the stage
+  drops (a popup outlived the curtain). Deferred to V3 as planned:
+  monster AI, the low_hp hook (now a library convention — the engine
+  no longer watches HP), poison, L+R flee, the Wait/Active option
+  (the library stops the CLOCK during menus: Wait). Potion shipped
+  early — it was one DBREAD away.
 - **V3 — the library, complete.** AI, hooks (plain calls now — the
   library IS a script), poison, items, flee (menu + L+R), Wait/Active
   as a library variable. btl.c reduced to §3's residue. C1-C6 pixel

@@ -285,7 +285,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         // LISTSEL <widget> <var> <flags> — cursor menu
         "LISTSEL" => 4,
         // ANIMPLAY <anim> <anchor 0-2> <target> <flags bit0 = wait>
-        "ANIMPLAY" => 5,
+        // <x> <y> — screen-anchor aim point (V2)
+        "ANIMPLAY" => 7,
         // ANIMSTOP — stop every running animation
         "ANIMSTOP" => 1,
         // M7OPEN <img> <dur> — Mode 7 screen (M7-A)
@@ -952,13 +953,16 @@ pub fn assemble(
             }
             // ANIMPLAY/ANIMSTOP — frame-by-frame animations
             "ANIMPLAY" => {
-                if argc != 4 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags>"); }
+                if argc != 6 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags> <x> <y>"); }
                 code.push(OP_ANIMPLAY);
                 code.push(parse_u8(args[0])?);
                 code.push(parse_u8(args[1])?);
                 // "this event": 255, resolved at run time (vm.script_actor)
                 code.push(if args[2] == "self" { 255 } else { parse_u8(args[2])? });
                 code.push(parse_u8(args[3])?);
+                // screen-anchor aim point (V2)
+                code.push(parse_u8(args[4])?);
+                code.push(parse_u8(args[5])?);
             }
             "ANIMSTOP" => {
                 if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }

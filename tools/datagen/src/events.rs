@@ -1563,7 +1563,12 @@ impl<'a> EventCompiler<'a> {
             "0".to_string()
         };
         let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
-        out.push(format!("  ANIMPLAY {} {} {} {}", id, anchor, target, wait));
+        // screen aim (V2): where a screen-anchored animation lands —
+        // the composed-screen centre by default, a target's pixel when
+        // the script says so (the library aims skills at monsters).
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96);
+        out.push(format!("  ANIMPLAY {} {} {} {} {} {}", id, anchor, target, wait, x, y));
         Ok(())
     }
 

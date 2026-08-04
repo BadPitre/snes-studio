@@ -16,4 +16,6 @@ monsters = [
 [[troop]]
 id = "dragon_seul"
 backdrop = "fond_prairie"
+# V2 : l'intro EST le combat — la bibliotheque (common event combat_tour)
+intro = "combat_tour"
 monsters = [ { id = "dragon", x = 5, y = 9 } ]

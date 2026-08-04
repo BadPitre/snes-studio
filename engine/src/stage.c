@@ -66,6 +66,9 @@ static u8 sg_close_tr = 0;  /* transition of the close in progress (S18) */
 static u16 sg_next_char = 1; /* allocator (char 0 = transparent) */
 
 static u8 sl_pic[STAGE_SLOTS];  /* 0xFF = empty slot */
+static u8 sl_shown[STAGE_SLOTS]; /* posed and NOT cleared — sl_pic
+   survives a clear (the char allocator keeps the base), so occupancy
+   for the target cursor (V2) needs its own flag */
 static u16 sl_base[STAGE_SLOTS];
 static u8 sl_x[STAGE_SLOTS]; /* laid region (tiles) — for the erase */
 static u8 sl_y[STAGE_SLOTS];
@@ -112,7 +115,7 @@ u8 stage_busy(void)
 
 u8 stage_slot_used(u8 slot)
 {
-  return slot < STAGE_SLOTS && sl_pic[slot] != 0xFF;
+  return slot < STAGE_SLOTS && sl_shown[slot];
 }
 
 void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans)
@@ -262,6 +265,7 @@ static void sg_open(void)
   for (i = 0; i < STAGE_SLOTS; i++)
   {
     sl_pic[i] = 0xFF;
+    sl_shown[i] = 0;
     fx_mode[i] = 0; /* palette effects (B4) reset */
   }
   fx_dirty = 0;
@@ -373,6 +377,7 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
   up_row = 0;
   up_rows = 0;
   sl_pic[slot] = pic;
+  sl_shown[slot] = 1;
   sl_x[slot] = tx;
   sl_y[slot] = ty;
   /* palette shadow (B4): a copy of the 15 useful colours from ROM — the
@@ -467,6 +472,7 @@ void stage_clear(u8 slot)
 {
   if (!sg_on || up_act || slot >= STAGE_SLOTS || sl_pic[slot] == 0xFF)
     return;
+  sl_shown[slot] = 0;
   up_cx = sl_x[slot];
   up_cy = sl_y[slot];
   up_cw = pic_wt[sl_pic[slot]];

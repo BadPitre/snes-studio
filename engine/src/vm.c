@@ -751,9 +751,12 @@ static void vm_step(void)
       idx16 = fetch8(); /* target (actor), 0xFF = the script's event */
       if (val == ANIM_ANC_ACTOR && (u8)idx16 == 0xFF)
         idx16 = vm.script_actor;
-      anim_screen_at(112, 96); /* scripts get the fixed centre (C3) */
+      op = fetch8();  /* flags */
+      ofs = fetch8(); /* screen-anchor aim point (V2) — the event
+                         library lands skills ON their target */
+      anim_screen_at((u8)ofs, fetch8());
       anim_play(var, val, (u8)idx16);
-      if (fetch8() & 1)
+      if (op & 1)
         vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignores loops */
       break;
 
