@@ -20,8 +20,13 @@
 #define BTL_VAR_ISSUE 248
 #define BTL_VAR_XP 249
 #define BTL_VAR_GOLD 250
-/* Per hero h: current MP (C3) — max MP is build data, shown by labels. */
-#define BTL_VAR_MP 244
+/* Per hero h: current MP (C3). MOVED in C6: 244+h collided with the
+   hp pairs (BTL_VAR_BASE + h*2 covers 240-247) from the third hero on
+   — latent while every project fought with two. */
+#define BTL_VAR_MP 232
+/* Per hero h: the ATB gauge, 0-255 (C6) — mirrored every fight frame
+   so the project's widgets can draw it (a gauge, a number). */
+#define BTL_VAR_ATB 236
 
 /* Reserved switch, raised as the battle closes. A scene change ENDS the
    running script (the engine's warp invariant — even scripted warps),

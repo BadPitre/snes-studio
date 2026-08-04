@@ -11,6 +11,7 @@ interface Props {
   charsetNames: string[];
   listWidgets: string[]; // cursor-list widgets of the UI layout
   skills: SkillDef[]; // data/skills.toml — the skill:<id> actions
+  items: { id: string; name: string }[]; // db items usable in battle (C6)
   onOk: (h: HeroesFile) => void;
   onClose: () => void;
 }
@@ -49,7 +50,12 @@ export default function PartyModal(props: Props) {
 
   // one action row of the menu semantics (aligned with the widget items)
   const actionRow = (a: string, i: number) => {
-    const kind = a === "attack" ? "attack" : a === "flee" ? "flee" : a.startsWith("skill:") ? "skill" : "other";
+    const kind =
+      a === "attack" ? "attack"
+        : a === "flee" ? "flee"
+        : a.startsWith("skill:") ? "skill"
+        : a.startsWith("item:") ? "item"
+        : "other";
     const setAction = (v: string) =>
       setFile({ ...file, actions: file.actions.map((x, j) => (j === i ? v : x)) });
     return (
@@ -64,12 +70,14 @@ export default function PartyModal(props: Props) {
               k === "attack" ? "attack"
                 : k === "flee" ? "flee"
                 : k === "skill" ? `skill:${props.skills[0]?.id ?? ""}`
+                : k === "item" ? `item:${props.items[0]?.id ?? ""}`
                 : "-"
             );
           }}
         >
           <option value="attack">Attaque</option>
           <option value="skill">Compétence</option>
+          <option value="item" disabled={props.items.length === 0}>Objet</option>
           <option value="flee">Fuite</option>
           <option value="other">(inerte)</option>
         </select>
@@ -79,6 +87,17 @@ export default function PartyModal(props: Props) {
             onChange={(e) => setAction(`skill:${e.target.value}`)}
           >
             {props.skills.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        )}
+        {kind === "item" && (
+          <select
+            value={a.slice(5)}
+            onChange={(e) => setAction(`item:${e.target.value}`)}
+            title="Un objet de la Database avec heal et count_var (la variable nommée qui compte les exemplaires de l'équipe)"
+          >
+            {props.items.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>

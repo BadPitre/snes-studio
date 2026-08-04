@@ -16,3 +16,12 @@ name = "Soin"
 mp = 6
 power = 40
 target = "ally"
+
+[[skill]]
+id = "morsure"
+name = "Morsure"
+mp = 0
+power = 8
+target = "enemy"
+status = "poison"
+anim = "impact"

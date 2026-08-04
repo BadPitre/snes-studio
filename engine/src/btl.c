@@ -72,6 +72,11 @@ extern const u8 btl_troop_intro[]; /* hook common event, 0xFF none */
 extern const u8 btl_troop_lowhp[];
 extern const u8 btl_digit_cells[]; /* 32 chars: 0-9 on the even ones */
 extern const u16 btl_digit_pal[]; /* white + shadow, OBJ palette 4 */
+extern const u8 btl_atb_active; /* 1: gauges fill during menus (C6) */
+extern const u8 btl_skill_status[]; /* 0 none, 1 poison (C6) */
+extern const u8 btl_item_n; /* battle items referenced by the menu */
+extern const u16 btl_item_heal[];
+extern const u8 btl_item_var[]; /* count variable (project-named) */
 
 #define BT_CHAR(h) (448 + (h) * 4) /* the hero's 32x32 OBJ block */
 #define BT_OAM(h) ((u16)(104 + (h)) << 2)
@@ -124,6 +129,8 @@ static u8 bt_curally = 0; /* cursor walks the party, not the troop */
 static u8 bt_blink = 0;   /* cursor blink clock */
 static u16 bt_rng = 0x2b17; /* flee roll — stirred every fight frame */
 static u8 bt_lowhp = 0;   /* the low_hp hook fired (once a battle) */
+static u8 bt_psn = 0;     /* poison bits — 0-3 heroes, 4-7 monsters (C6) */
+static u8 bt_fleeh = 0;   /* hold-to-flee: frames of L+R held (C6) */
 static u8 pop_t = 0;      /* popup frames left (0: hidden) */
 static u8 pop_n = 0;      /* digit count */
 static u8 pop_d[4];       /* digit values, units first */
@@ -158,6 +165,8 @@ void btl_request(u8 troop)
   bt_dead = 0xFF;
   bt_flip = 0;
   bt_lowhp = 0;
+  bt_psn = 0;
+  bt_fleeh = 0;
   pop_t = 0;
   o = (u16)troop << 2;
   for (h = 0; h < 4; h++)
@@ -172,6 +181,7 @@ void btl_request(u8 troop)
     vm.vars16[BTL_VAR_BASE + (h << 1)] = bh_hp[h];
     vm.vars16[BTL_VAR_BASE + (h << 1) + 1] = bh_hp[h];
     vm.vars16[BTL_VAR_MP + h] = bh_mp[h];
+    vm.vars16[BTL_VAR_ATB + h] = 0;
   }
   vm.vars16[BTL_VAR_ISSUE] = 0;
   vm.vars16[BTL_VAR_XP] = 0;
@@ -265,6 +275,24 @@ static void bt_pop_hero(u16 v, u8 h)
   bt_popup(v, BT_X - 4, (u8)(BT_Y0 + ((u16)h << 5) + 8));
 }
 
+/* One tick of every living gauge — TICK's clock, and the menus' too
+   when the project picked the ACTIVE option (C6). */
+static void bt_gauges(void)
+{
+  u8 k, i;
+
+  for (k = 0; k < 8; k++)
+  {
+    u8 ok = k < 4 ? (k < btl_hero_count && bh_hp[k] != 0)
+                  : bt_mon_alive((u8)(k - 4));
+
+    if (!ok)
+      continue;
+    i = (u8)(bt_spd[k] >> 2);
+    bt_atb[k] = bt_atb[k] > (u8)(255 - i) ? 255 : (u8)(bt_atb[k] + i);
+  }
+}
+
 /* Damage on a troop slot, with the B4 feedback. */
 static void bt_hit_mon(u8 t, u16 dmg)
 {
@@ -279,6 +307,39 @@ static void bt_hit_mon(u8 t, u16 dmg)
   }
 }
 
+/* Ends a resolved action (C6): gauge reset, then the poison bites the
+   ACTOR — a sixteenth of his max hp, the FF cadence tied to acting.
+   The bite's popup replaces the action's own when both land — one
+   popup at a time is the C4 rule, and the bite is the newer news. */
+static void bt_end_action(u8 actor, u8 frames)
+{
+  u16 v, o;
+
+  bt_atb[actor] = 0;
+  if (bt_psn & (u8)(1 << actor))
+  {
+    if (actor < 4)
+    {
+      v = btl_hero_maxhp[actor] >> 4;
+      if (!v)
+        v = 1;
+      bh_hp[actor] = bh_hp[actor] > v ? (u16)(bh_hp[actor] - v) : 0;
+      vm.vars16[BTL_VAR_BASE + ((u16)actor << 1)] = bh_hp[actor];
+      bt_pop_hero(v, actor);
+    }
+    else
+    {
+      o = ((u16)bt_troop << 2) + actor - 4;
+      v = btl_mon_hp[o] >> 4;
+      if (!v)
+        v = 1;
+      bt_hit_mon((u8)(actor - 4), v);
+    }
+  }
+  bt_timer = frames;
+  bt_sub = BT_ACT;
+}
+
 /* Resolves the hero's CHOSEN action on the CHOSEN target (C3): plain
    attack, or a skill — built-in magical formula power + mag*2 - mdef,
    heal power + mag on an ally. The skill's animation plays first when
@@ -289,15 +350,26 @@ static void bt_hero_act(void)
   u8 k;
 
   o = (u16)bt_troop << 2;
+  if (bt_pk == 4) /* item (C6): spend one, heal, lift the poison */
+  {
+    vm.vars16[btl_item_var[bt_pa]]--;
+    dmg = btl_item_heal[bt_pa];
+    bh_hp[bt_cur] = (u16)(bh_hp[bt_cur] + dmg);
+    if (bh_hp[bt_cur] > btl_hero_maxhp[bt_cur])
+      bh_hp[bt_cur] = btl_hero_maxhp[bt_cur];
+    vm.vars16[BTL_VAR_BASE + ((u16)bt_cur << 1)] = bh_hp[bt_cur];
+    bt_psn &= (u8)~(1 << bt_cur);
+    bt_pop_hero(dmg, bt_cur);
+    bt_end_action(bt_actor, 24);
+    return;
+  }
   if (bt_pk == 0) /* attack */
   {
     dmg = (u16)btl_hero_atk[bt_actor] << 1;
     k = btl_mon_def[o + bt_cur];
     dmg = dmg > k ? (u16)(dmg - k) : 1;
     bt_hit_mon(bt_cur, dmg);
-    bt_atb[bt_actor] = 0;
-    bt_timer = 24;
-    bt_sub = BT_ACT;
+    bt_end_action(bt_actor, 24);
     return;
   }
   /* skill: spend the MP now — the caster committed */
@@ -344,6 +416,8 @@ static void bt_skill_apply(void)
       bh_hp[bt_cur] = bh_hp[bt_cur] > v ? (u16)(bh_hp[bt_cur] - v) : 0;
       vm.vars16[BTL_VAR_BASE + ((u16)bt_cur << 1)] = bh_hp[bt_cur];
       bt_pop_hero(v, bt_cur);
+      if (btl_skill_status[bt_pa]) /* poison rides the hit (C6) */
+        bt_psn |= (u8)(1 << bt_cur);
     }
     else
     {
@@ -355,9 +429,7 @@ static void bt_skill_apply(void)
       stage_slotfx(bt_cur, 1, 8); /* a short flash reads as the mend */
       bt_pop_mon(v, bt_cur);
     }
-    bt_atb[bt_actor] = 0;
-    bt_timer = 30;
-    bt_sub = BT_ACT;
+    bt_end_action(bt_actor, 30);
     return;
   }
   if (bt_curally)
@@ -376,10 +448,13 @@ static void bt_skill_apply(void)
     k = btl_mon_mdef[o + bt_cur];
     v = v > k ? (u16)(v - k) : 1;
     bt_hit_mon(bt_cur, v);
+    if (btl_skill_status[bt_pa] && bm_hp[bt_cur]) /* poison (C6) */
+    {
+      bt_psn |= (u8)(1 << (4 + bt_cur));
+      stage_slotfx(bt_cur, 3, 0); /* darkened: the status reads */
+    }
   }
-  bt_atb[bt_actor] = 0;
-  bt_timer = 24;
-  bt_sub = BT_ACT;
+  bt_end_action(bt_actor, 24);
 }
 
 /* A monster's turn — C2's built-in attack, unchanged. */
@@ -412,9 +487,7 @@ static void bt_attack(u8 actor)
     vm.vars16[BTL_VAR_BASE + ((u16)t << 1)] = bh_hp[t];
     bt_pop_hero(dmg, t);
   }
-  bt_atb[actor] = 0;
-  bt_timer = 24; /* let the flash read before the next turn */
-  bt_sub = BT_ACT;
+  bt_end_action(actor, 24); /* let the flash read before the next turn */
 }
 
 /* A monster CASTS (C4): the mirrored target pick, then the same
@@ -584,6 +657,32 @@ static void bt_fight(void)
   bt_oam();
   bt_pop_oam(); /* the damage popup lives across sub-states (C4) */
   bt_rng = (u16)(bt_rng * 25173 + 13849); /* the flee roll's clock */
+  for (i = 0; i < 4; i++) /* the gauges, readable by widgets (C6) */
+    vm.vars16[BTL_VAR_ATB + i] = bt_atb[i];
+  /* hold-to-flee (C6): L+R held through TICK or a menu — same odds as
+     the menu's Fuir, rolled once every 45 held frames */
+  if (bt_sub == BT_TICK || bt_sub == BT_MENU || bt_sub == BT_TARGET)
+  {
+    if ((padsCurrent(0) & (KEY_L | KEY_R)) == (KEY_L | KEY_R))
+    {
+      if (++bt_fleeh >= 45)
+      {
+        bt_fleeh = 0;
+        if (bt_rng & 1)
+        {
+          if (bt_sub == BT_MENU)
+            overlay_list_close(0);
+          else if (bt_sub == BT_TARGET && !bt_curally)
+            stage_slotfx(bt_cur, 0, 0);
+          vm.vars16[BTL_VAR_ISSUE] = 3;
+          bt_timer = 20;
+          bt_sub = BT_END;
+        }
+      }
+    }
+    else
+      bt_fleeh = 0;
+  }
   switch (bt_sub)
   {
   case BT_HOOK: /* a troop hook runs on the freed VM; the clock waits */
@@ -616,16 +715,7 @@ static void bt_fight(void)
     }
     if (ready == 0xFF)
     {
-      for (k = 0; k < 8; k++)
-      {
-        u8 ok = k < 4 ? (k < btl_hero_count && bh_hp[k] != 0)
-                      : bt_mon_alive((u8)(k - 4));
-
-        if (!ok)
-          continue;
-        i = (u8)(bt_spd[k] >> 2);
-        bt_atb[k] = bt_atb[k] > (u8)(255 - i) ? 255 : (u8)(bt_atb[k] + i);
-      }
+      bt_gauges();
       break;
     }
     bt_scan = (u8)(ready + 1);
@@ -652,6 +742,8 @@ static void bt_fight(void)
     break;
 
   case BT_MENU: /* the LISTSEL vocabulary, driven from here */
+    if (btl_atb_active)
+      bt_gauges(); /* ACTIVE option (C6): dawdling has a price */
     down = padsDown(0);
     if (down & KEY_UP)
     {
@@ -709,17 +801,30 @@ static void bt_fight(void)
           bt_sub = BT_END;
         }
         else
-        {
-          bt_atb[bt_actor] = 0; /* the failed try costs the turn */
-          bt_timer = 20;
-          bt_sub = BT_ACT;
-        }
+          bt_end_action(bt_actor, 20); /* the failed try costs the turn */
       }
-      /* kind 3: inert (C5's items) — the menu stays open */
+      else if (kind == 4) /* item (C6) — counted by a project variable */
+      {
+        bt_pa = btl_act_arg[bt_sel];
+        if (vm.vars16[btl_item_var[bt_pa]] == 0)
+          break; /* none left: the menu stays open */
+        bt_pk = 4;
+        overlay_list_close(0);
+        bt_curally = 1; /* items heal: the cursor walks the party */
+        for (bt_cur = 0; bt_cur < btl_hero_count && !bh_hp[bt_cur];
+             bt_cur++)
+        {
+        }
+        bt_blink = 0;
+        bt_sub = BT_TARGET;
+      }
+      /* kind 3: inert — reserved */
     }
     break;
 
   case BT_TARGET: /* pick a target — blink marks the candidate */
+    if (btl_atb_active)
+      bt_gauges();
     bt_blink++;
     if (!bt_curally && (bt_blink & 15) == 0)
       stage_slotfx(bt_cur, 1, 4); /* a short pulse on the candidate */

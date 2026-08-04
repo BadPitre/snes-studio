@@ -169,7 +169,13 @@ draws. No Mode 2/5/7 exotica anywhere near this system.
 - **`troops`** (NEW): up to 4 (monster id, x, y) + backdrop picture +
   music override + hook script ids. Edited VISUALLY (see §8).
 - **Items in battle:** the existing `items` table gains a `battle_use`
-  field (heal amount / skill ref). v1: consumables only.
+  field (heal amount / skill ref). v1: consumables only. **Amended by
+  C6:** the table's existing `heal` is the battle effect, and a new
+  `count_var` names the (project-named) VARIABLE counting how many the
+  party carries — the RM2003-light inventory the showcase already
+  used (the potion was variable 17 all along). A menu action
+  `item:<id>` spends one, heals the targeted ally and lifts poison;
+  an empty count refuses like unpaid MP.
 - **Rewards:** xp/gold summed by btl, delivered through a hook with
   the totals in reserved variables — progression (levels) is DATA in
   `heroes` growth fields, applied by a default common event the author
@@ -300,7 +306,20 @@ adds one during C2.
   gauges did not fit this milestone — they move to C6 with the
   polish pass.
 - **C6 — polish.** Wait/Active option, poison, hold-to-flee, balance
-  pass on the showcase, doc §-updates.
+  pass on the showcase, doc §-updates. **Done:** heroes.toml
+  `atb = "active"` keeps the gauges filling through the menus (the
+  served-one-at-a-time queue is unchanged — a ready monster strikes
+  the moment the hero's action resolves); skills may carry
+  `status = "poison"` — the bite is a sixteenth of max hp, taken when
+  the POISONED one acts (the popup rides his own turn), a darkened
+  slot marks a poisoned monster, the potion lifts it; holding L+R
+  through a tick or a menu rolls the flee coin every 45 frames;
+  battle items landed (see §6); the gauges are mirrored into the
+  reserved variables 236-239 for the project's widgets; and the
+  reserved-variable map was CORRECTED — MP moved from 244+h to 232+h,
+  where the old spot collided with the hp pairs from the third hero
+  on (latent while every project fought with two). The dragon grew
+  into his boss shoes (90 hp, a poisoned Morsure in his list).
 
 C1+C2 make the system real; the rest is rhythm. Estimated shape: C2 is
 the big one (the clock and the queue), C5 is the wide one (editor).

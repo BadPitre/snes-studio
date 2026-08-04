@@ -3,7 +3,7 @@
 # `menu` : le widget liste à curseur du layout qui sert de menu de combat.
 menu = "menu_combat"
 # Le SENS de chaque entrée du menu (alignées sur les items du widget).
-actions = ["attack", "skill:eclair", "skill:soin", "flee"]
+actions = ["attack", "skill:eclair", "skill:soin", "item:potion", "flee"]
 
 [[hero]]
 id = "arven"

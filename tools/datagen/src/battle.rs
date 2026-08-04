@@ -90,6 +90,8 @@ pub struct Skill {
     pub power: u8,
     pub target: u8,
     pub anim: u8,
+    /// 0 none, 1 poison (C6): rides an offensive hit.
+    pub status: u8,
 }
 
 pub struct Battle {
@@ -112,6 +114,12 @@ pub struct Battle {
     pub ai_kind: Vec<u8>,
     pub ai_arg: Vec<u8>,
     pub ai_w: Vec<u8>,
+    /// C6 — the ACTIVE option: gauges keep filling through the menus.
+    pub atb_active: u8,
+    /// C6 — battle items named by the menu actions ("item:<id>"):
+    /// (heal, count variable). The variable holds how many the party
+    /// carries — the RM2003-light inventory this project already used.
+    pub items: Vec<(u16, u8)>,
 }
 
 /// One 8x8 tile of an indexed canvas, encoded 4bpp SNES.
@@ -251,12 +259,18 @@ pub fn build(
                 "ally" => 1,
                 other => bail!("compétence '{}' : target '{}' (enemy, ally)", sid, other),
             };
+            let status = match sk.get("status").and_then(|v| v.as_str()) {
+                None => 0u8,
+                Some("poison") => 1,
+                Some(other) => bail!("compétence '{}' : status '{}' (poison)", sid, other),
+            };
             skill_ids.push(sid.to_string());
             skills.push(Skill {
                 mp: sk.get("mp").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
                 power: sk.get("power").and_then(|v| v.as_integer()).unwrap_or(1) as u8,
                 target,
                 anim,
+                status,
             });
         }
     }
@@ -264,6 +278,7 @@ pub fn build(
     // widget's items — the author binds meaning to his own labels.
     let mut act_kind: Vec<u8> = Vec::new();
     let mut act_arg: Vec<u8> = Vec::new();
+    let mut item_ids: Vec<String> = Vec::new();
     for a in hv.get("actions").and_then(|v| v.as_array()).unwrap_or(&Vec::new()) {
         let a = a.as_str().unwrap_or("");
         if a == "attack" {
@@ -279,8 +294,19 @@ pub fn build(
         } else if a == "flee" {
             act_kind.push(2);
             act_arg.push(0);
+        } else if let Some(iid) = a.strip_prefix("item:") {
+            // battle item (C6): resolved against the db below, once open
+            let k = match item_ids.iter().position(|s| s == iid) {
+                Some(k) => k,
+                None => {
+                    item_ids.push(iid.to_string());
+                    item_ids.len() - 1
+                }
+            };
+            act_kind.push(4);
+            act_arg.push(k as u8);
         } else {
-            act_kind.push(3); /* inert — C5's items and the rest */
+            act_kind.push(3); /* inert — reserved */
             act_arg.push(0);
         }
         if act_kind.len() > 8 {
@@ -291,6 +317,11 @@ pub fn build(
         act_kind.push(0); /* no list: plain attack */
         act_arg.push(0);
     }
+    let atb_active = match hv.get("atb").and_then(|v| v.as_str()) {
+        None | Some("wait") => 0u8,
+        Some("active") => 1,
+        Some(other) => bail!("heroes.toml : atb = '{}' (wait, active)", other),
+    };
     let menu_widget = match hv.get("menu").and_then(|v| v.as_str()) {
         Some(name) => ui_widgets
             .iter()
@@ -304,6 +335,31 @@ pub fn build(
     let mt = db
         .table_id("monsters")
         .with_context(|| "combat : la database n'a pas de table 'monsters'")?;
+    // battle items (C6): heal + count variable from the items table
+    let mut items: Vec<(u16, u8)> = Vec::new();
+    if !item_ids.is_empty() {
+        let it = db
+            .table_id("items")
+            .with_context(|| "actions item: la database n'a pas de table 'items'")?;
+        for iid in &item_ids {
+            let e = db.entry_index(it, iid).with_context(|| {
+                format!("actions : objet '{}' absent de la database", iid)
+            })?;
+            let heal = db.field_int(it, e, "heal").unwrap_or(0);
+            let cv = db.field_int(it, e, "count_var").unwrap_or(0);
+            if cv == 0 {
+                bail!(
+                    "objet '{}' : count_var manquant — la variable (nommée) qui \
+                     compte les exemplaires de l'équipe",
+                    iid
+                );
+            }
+            if !(0..=255).contains(&cv) {
+                bail!("objet '{}' : count_var {} hors limite (0-255)", iid, cv);
+            }
+            items.push((heal as u16, cv as u8));
+        }
+    }
     let tv: toml::Table = toml::from_str(&std::fs::read_to_string(&tp)?)
         .context("data/troops.toml")?;
     let mut troops = Vec::new();
@@ -428,6 +484,8 @@ pub fn build(
         ai_kind,
         ai_arg,
         ai_w,
+        atb_active,
+        items,
     }))
 }
 
@@ -619,6 +677,11 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str("const u8 btl_troop_lowhp[1] = { 0xFF, };\n");
             s.push_str("const u8 btl_digit_cells[1] = { 0, };\n");
             s.push_str("const u16 btl_digit_pal[1] = { 0, };\n");
+            s.push_str("const u8 btl_atb_active = 0;\n");
+            s.push_str("const u8 btl_skill_status[1] = { 0, };\n");
+            s.push_str("const u8 btl_item_n = 0;\n");
+            s.push_str("const u16 btl_item_heal[1] = { 0, };\n");
+            s.push_str("const u8 btl_item_var[1] = { 0, };\n");
         }
         Some(b) => {
             let nh = b.heroes.len();
@@ -734,6 +797,24 @@ pub fn emit_files(b: Option<&Battle>) -> Vec<(String, String)> {
             s.push_str(&emit::u8_array("btl_skill_pow", &spw, 16, false));
             s.push_str(&emit::u8_array("btl_skill_tgt", &stg, 16, false));
             s.push_str(&emit::u8_array("btl_skill_anim", &san, 16, false));
+            let mut sst: Vec<u8> = b.skills.iter().map(|s| s.status).collect();
+            if sst.is_empty() {
+                sst.push(0);
+            }
+            s.push_str(&emit::u8_array("btl_skill_status", &sst, 16, false));
+            s.push_str(&format!("const u8 btl_atb_active = {};\n", b.atb_active));
+            s.push_str(&format!("const u8 btl_item_n = {};\n", b.items.len()));
+            let (mut ihl, mut ivr): (Vec<u16>, Vec<u8>) = (Vec::new(), Vec::new());
+            for &(h, v) in &b.items {
+                ihl.push(h);
+                ivr.push(v);
+            }
+            if ihl.is_empty() {
+                ihl.push(0);
+                ivr.push(0);
+            }
+            s.push_str(&emit::u16_array("btl_item_heal", &ihl));
+            s.push_str(&emit::u8_array("btl_item_var", &ivr, 16, false));
             // C4 — hero magic defence, monster magic + AI, hooks, digits
             let hmd: Vec<u8> = b.heroes.iter().map(|h| h.mdef).collect();
             s.push_str(&emit::u8_array("btl_hero_mdef", &hmd, 16, false));

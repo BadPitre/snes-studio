@@ -134,6 +134,7 @@ int main(int argc, char **argv)
                 case 'S': pad_state |= 1 << RETRO_DEVICE_ID_JOYPAD_START; break;
                 case 'E': pad_state |= 1 << RETRO_DEVICE_ID_JOYPAD_SELECT; break;
                 case 'W': pad_state |= 1 << RETRO_DEVICE_ID_JOYPAD_R; break;
+                case 'Q': pad_state |= 1 << RETRO_DEVICE_ID_JOYPAD_L; break;
                 }
             }
             p = strchr(p, ',');

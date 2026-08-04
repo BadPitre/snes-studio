@@ -2257,6 +2257,10 @@ export default function App() {
           charsetNames={data.project.charsets ?? []}
           listWidgets={uiWidgets}
           skills={battleSkills}
+          items={(db?.entries.items ?? []).map((e) => ({
+            id: e.id,
+            name: String(e.name || e.id),
+          }))}
           onOk={(h) => {
             setBattleHeroes(h);
             void saveHeroes(data.root, h).catch((e) =>
