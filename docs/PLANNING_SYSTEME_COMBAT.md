@@ -338,3 +338,10 @@ the big one (the clock and the queue), C5 is the wide one (editor).
 
 *C0 ends here. The next step is C1, and the first argument someone has
 with this document should be written INTO it, not around it.*
+
+*Post-C6 note: the author argued with §2's dividing line — the loop
+itself must be HIS, in events, not ours in C. That argument is
+written into docs/PLANNING_COMBAT_EN_EVENTS.md (V0), which plans the
+rebuild of this system on four generic primitives and an editable
+event library. C1-C6 stay as the specification the library must
+reproduce.*
