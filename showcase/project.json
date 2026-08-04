@@ -590,6 +590,20 @@
     },
     {
      "c": "rem",
+     "text": "...et les barres ATB : des jauges liees aux variables de l'horloge"
+    },
+    {
+     "c": "ui_show",
+     "widget": "jauge_atb1",
+     "on": true
+    },
+    {
+     "c": "ui_show",
+     "widget": "jauge_atb2",
+     "on": true
+    },
+    {
+     "c": "rem",
      "text": "La colonne de l'equipe (X 200, un rang de 32 px par heros)"
     },
     {
@@ -853,6 +867,16 @@
      "c": "clock",
      "base": 100,
      "lanes": 0
+    },
+    {
+     "c": "ui_show",
+     "widget": "jauge_atb1",
+     "on": false
+    },
+    {
+     "c": "ui_show",
+     "widget": "jauge_atb2",
+     "on": false
     },
     {
      "c": "ui_show",

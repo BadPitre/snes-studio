@@ -62,3 +62,25 @@ var = 70
 max = 255
 icon = 3
 frame = false
+
+# Barres ATB (V4+) : la jauge DESSINE la variable que l'horloge (CLOCK)
+# remplit — aucune ligne moteur, c'est le contrat de la bibliotheque.
+[[node]]
+id = "jauge_atb1"
+type = "gauge"
+pos = [22, 12]
+size = [9, 1]
+var = 100
+max = 255
+icon = 3
+frame = false
+
+[[node]]
+id = "jauge_atb2"
+type = "gauge"
+pos = [22, 19]
+size = [9, 1]
+var = 102
+max = 255
+icon = 3
+frame = false
