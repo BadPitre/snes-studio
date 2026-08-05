@@ -9,8 +9,8 @@ backdrop = "fond_prairie"
 intro = "intro_gobelins"
 low_hp = "gobelins_blesses"
 monsters = [
-  { id = "gobelin", x = 4, y = 9 },
-  { id = "gobelin", x = 8, y = 13 },
+  { id = "gobelin", x = 4, y = 5 },
+  { id = "gobelin", x = 8, y = 8 },
 ]
 
 [[troop]]
@@ -18,4 +18,4 @@ id = "dragon_seul"
 backdrop = "fond_prairie"
 # V2 : l'intro EST le combat — la bibliotheque (common event combat_tour)
 intro = "combat_tour"
-monsters = [ { id = "dragon", x = 5, y = 9 } ]
+monsters = [ { id = "dragon", x = 5, y = 6 } ]

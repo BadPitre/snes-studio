@@ -266,8 +266,8 @@ const TROOPS_DATA = `# Groupes de monstres (fenetre Tools > Combat > Groupes). S
 id = "slimes"
 intro = "combat_tour"
 monsters = [
-  { id = "slime", x = 5, y = 10 },
-  { id = "slime", x = 10, y = 12 },
+  { id = "slime", x = 5, y = 5 },
+  { id = "slime", x = 10, y = 8 },
 ]
 `;
 
@@ -278,13 +278,13 @@ const UI_LAYOUT = `# Layout UI du projet — le menu de combat et la fenetre de 
 [[node]]
 id = "menu_combat"
 type = "list"
-pos = [2, 2]
+pos = [1, 14]
 items = ["Attaque", "Potion", "Fuir"]
 
 [[node]]
 id = "combat_pv1"
 type = "variable_display"
-pos = [21, 2]
+pos = [21, 16]
 size = [9, 3]
 var = 240
 label = "PV"
@@ -292,12 +292,12 @@ label = "PV"
 [[node]]
 id = "menu_principal"
 type = "list"
-pos = [2, 9]
+pos = [2, 2]
 items = ["Objets", "Sauvegarder", "Charger", "Fermer"]
 
 [[node]]
 id = "menu_slots"
 type = "list"
-pos = [16, 9]
+pos = [16, 2]
 items = ["Partie 1", "Partie 2", "Partie 3"]
 `;

@@ -13,14 +13,14 @@ size = [32, 8]
 [[node]]
 id = "menu_combat"
 type = "list"
-pos = [2, 2]
+pos = [1, 13]
 items = ["Attaque", "Eclair", "Soin", "Potion", "Fuite"]
 
 # menu d'inventaire — ouvert par Start (common event « inventaire »)
 [[node]]
 id = "menu_objets"
 type = "list"
-pos = [2, 10]
+pos = [2, 2]
 items = ["Potion", "Etat", "Fermer"]
 
 # PV du heros pendant le combat (cadre libelle + valeur)
@@ -38,7 +38,7 @@ label = "PV"
 [[node]]
 id = "combat_pv1"
 type = "variable_display"
-pos = [22, 13]
+pos = [12, 14]
 size = [9, 3]
 var = 240
 label = "Arven"
@@ -46,7 +46,7 @@ label = "Arven"
 [[node]]
 id = "combat_pv2"
 type = "variable_display"
-pos = [22, 16]
+pos = [12, 17]
 size = [9, 3]
 var = 242
 label = "Nadia"
@@ -68,7 +68,7 @@ frame = false
 [[node]]
 id = "jauge_atb1"
 type = "gauge"
-pos = [22, 12]
+pos = [22, 15]
 size = [9, 1]
 var = 100
 max = 255
@@ -78,7 +78,7 @@ frame = false
 [[node]]
 id = "jauge_atb2"
 type = "gauge"
-pos = [22, 19]
+pos = [22, 18]
 size = [9, 1]
 var = 102
 max = 255
