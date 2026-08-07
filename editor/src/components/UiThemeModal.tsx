@@ -101,9 +101,8 @@ export default function UiThemeModal(props: Props) {
   const [styleIdx, setStyleIdx] = useState(0);
   const [stSkin, setStSkin] = useState<ImageBitmap | null>(null);
   const [stFont, setStFont] = useState<ImageBitmap | null>(null);
-  // widget (root) being edited — the others are dimmed on the canvas;
-  // null = the whole screen (creating a widget opens the designer
-  // straight onto it)
+  // widget (root) being edited — the canvas shows ONLY that widget;
+  // null = the whole screen ("Vue d'ensemble", every widget in context)
   const [scope, setScope] = useState<string | null>(null);
   // two pages: the widget list -> the designer
   const [view, setView] = useState<"list" | "design">("list");
@@ -199,6 +198,23 @@ export default function UiThemeModal(props: Props) {
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
   const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount, pics]);
 
+  // ids under the edited widget — with a scope the canvas draws (and
+  // hit-tests) ONLY those nodes; null = whole-screen view
+  const scopeIds = useMemo(() => {
+    if (!scope || !lay) return null;
+    const ids = new Set([scope]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const n of lay.nodes)
+        if (n.parent && ids.has(n.parent) && !ids.has(n.id)) {
+          ids.add(n.id);
+          grew = true;
+        }
+    }
+    return ids;
+  }, [scope, lay]);
+
   const iconUrls = useMemo(() => {
     if (!icons) return [] as string[];
     const urls: string[] = [];
@@ -260,8 +276,10 @@ export default function UiThemeModal(props: Props) {
     };
 
     // primitives in emission order (panels come before their children —
-    // the same z-order as the engine)
+    // the same z-order as the engine); a scoped widget hides everything
+    // else
     for (const p of flat.prims) {
+      if (scopeIds && !scopeIds.has(p.nodeId)) continue;
       // the widget's font (S2) — the project's if absent or not loaded
       const pf = p.font ? fontMap[p.font] ?? font : font;
       const f = p.frame;
@@ -326,25 +344,19 @@ export default function UiThemeModal(props: Props) {
       }
     }
     // the dialogue's windows (areas forbidden to widgets) — in dialogs
-    // mode, those of the SELECTED style, with ITS skin and ITS font
-    const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
-    const dSkin = st?.windowskin ? stSkin : skin;
-    const dFont = st?.font ? stFont : font;
-    const m = st ? st.message ?? lay.message : lay.message;
-    win(m.pos[0], m.pos[1], m.size[0], m.size[1], dSkin);
-    text(st ? `Style ${st.id}` : "Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4, dFont);
-    const c = st ? st.choice ?? m : lay.choice;
-    if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
-      win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
-      text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
-    }
-    // widget mode: the OTHER widgets are dimmed (context)
-    if (scope) {
-      ctx.fillStyle = "rgba(10, 12, 16, 0.55)";
-      for (const r of rootsOf(lay.nodes)) {
-        if (r.id === scope || !flat.rects[r.id]) continue;
-        const rr = flat.rects[r.id];
-        ctx.fillRect(rr.x * 8, rr.y * 8, rr.w * 8, rr.h * 8);
+    // mode, those of the SELECTED style, with ITS skin and ITS font.
+    // Hidden while a widget is scoped: only the edited widget is shown.
+    if (!scopeIds) {
+      const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
+      const dSkin = st?.windowskin ? stSkin : skin;
+      const dFont = st?.font ? stFont : font;
+      const m = st ? st.message ?? lay.message : lay.message;
+      win(m.pos[0], m.pos[1], m.size[0], m.size[1], dSkin);
+      text(st ? `Style ${st.id}` : "Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4, dFont);
+      const c = st ? st.choice ?? m : lay.choice;
+      if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
+        win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
+        text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
       }
     }
     // selection: a white/black frame + a resize handle
@@ -362,7 +374,7 @@ export default function UiThemeModal(props: Props) {
         ctx.strokeRect((r.x + r.w) * 8 - 4.5, (r.y + r.h) * 8 - 4.5, 5, 5);
       }
     }
-  }, [lay, flat, font, skin, icons, iconCount, selId, scope, styleIdx, stSkin, stFont, fontMap, props.mode]);
+  }, [lay, flat, font, skin, icons, iconCount, selId, scopeIds, styleIdx, stSkin, stFont, fontMap, props.mode]);
 
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
@@ -421,6 +433,9 @@ export default function UiThemeModal(props: Props) {
     let best: string | null = null;
     let bestD = -1;
     for (const [id, r] of Object.entries(flat.rects)) {
+      // scoped designer: the other widgets are not drawn, so they are
+      // not clickable either
+      if (scopeIds && !scopeIds.has(id)) continue;
       if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) {
         const d = depthOf(id);
         if (d > bestD) {
@@ -452,11 +467,6 @@ export default function UiThemeModal(props: Props) {
       }
     }
     const hit = nodeAt(tx, ty);
-    // in widget mode: clicking ANOTHER widget switches the designer to it
-    if (hit && scope) {
-      const hitRoot = rootAncestor(lay.nodes, hit);
-      if (hitRoot && hitRoot.id !== scope) setScope(hitRoot.id);
-    }
     setSelId(hit);
     if (hit) {
       const root = rootAncestor(lay.nodes, hit);
