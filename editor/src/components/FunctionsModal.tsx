@@ -34,7 +34,6 @@ interface Props {
   vigNames: string[];
   animNames: string[];
   screenNames: string[];
-  troopNames?: string[]; // C5 — "Lancer un combat" picker
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (functions: FunctionDef[]) => void;
@@ -391,7 +390,6 @@ export default function FunctionsModal(props: Props) {
                   vigNames={props.vigNames}
                   animNames={props.animNames}
                   screenNames={props.screenNames}
-                  troopNames={props.troopNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}
                 />

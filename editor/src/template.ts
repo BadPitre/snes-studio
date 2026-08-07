@@ -11,7 +11,7 @@
 // open combat_tour in Tools > Common events and READ his battle.
 
 import { mkdir, writeTextFile } from "@tauri-apps/plugin-fs";
-import type { ProjectData } from "./types";
+import type { ProjectData, Screen } from "./types";
 import { newScene } from "./state";
 import { saveProject, writeBinaryFile } from "./io";
 import {
@@ -49,14 +49,17 @@ export async function scaffoldProject(root: string): Promise<void> {
   await writeBinaryFile(`${root}/assets/font.png`, bytes(FONT_PNG));
   await writeBinaryFile(`${root}/assets/pictures/slime.png`, bytes(SLIME_PNG));
 
-  // The combat starter's data: the library READS all of this (db_read,
-  // list_select, the battle opener) — each file is the author's to grow.
+  // The combat starter's data: ordinary database tables, all of it read
+  // by the library's own events (db_read) — each is the author's to
+  // grow, from the same Database window as everything else.
+  await writeTextFile(`${root}/schemas/_index.json`,
+    JSON.stringify(["monsters", "items", "heroes"]));
   await writeTextFile(`${root}/schemas/monsters.toml`, MONSTERS_SCHEMA);
   await writeTextFile(`${root}/schemas/items.toml`, ITEMS_SCHEMA);
+  await writeTextFile(`${root}/schemas/heroes.toml`, HEROES_SCHEMA);
   await writeTextFile(`${root}/data/monsters.toml`, MONSTERS_DATA);
   await writeTextFile(`${root}/data/items.toml`, ITEMS_DATA);
   await writeTextFile(`${root}/data/heroes.toml`, HEROES_DATA);
-  await writeTextFile(`${root}/data/troops.toml`, TROOPS_DATA);
   await writeTextFile(`${root}/ui/layout.toml`, UI_LAYOUT);
 
   const data: ProjectData = {
@@ -81,7 +84,7 @@ export async function scaffoldProject(root: string): Promise<void> {
     },
     scenes: { scene1: starterScene() },
     texts: [],
-    screens: {},
+    screens: { combat_slimes: STARTER_BATTLE_SCREEN },
     tilesetMeta: { tileset: { autotiles: [], solid: [1, 3, 4], above: [5] } },
   };
   await saveProject(data);
@@ -118,9 +121,9 @@ function starterScene() {
     sprite: 1,
     dir: "down",
     commands: [
-      { c: "msg", text: "Des slimes ! (ouvre combat_tour dans Tools > Common events : ce combat est un script)" },
+      { c: "msg", text: "Des slimes ! (le combat est un ECRAN : Tools > Ecrans > combat_slimes)" },
       { c: "var", n: 17, op: "=", value: 3 },
-      { c: "battle", troop: "slimes" },
+      { c: "screen", name: "combat_slimes", dur: 30, trans: "mosaic" },
     ],
   });
   sc.events.push({
@@ -134,6 +137,8 @@ function starterScene() {
     commands: [
       { c: "rem", text: "Arme le menu (Start) — la page se desactive une fois le switch pose" },
       { c: "switch", n: 22, on: true },
+      { c: "rem", text: "L'equipe de depart : la fiche heroes de la 1re place." },
+      { c: "db_entry", table: "heroes", entry: "heros", dst: 60 },
     ],
   });
   sc.events.push({
@@ -244,9 +249,56 @@ heal = 20
 count_var = 17
 `;
 
-const HEROES_DATA = `# L'equipe (fenetre Tools > Combat > Equipe) — le battler est compose
-# depuis le charset (vue de gauche, au repos).
-[[hero]]
+const HEROES_SCHEMA = `# Table des heros — une table de database ORDINAIRE, editee dans
+# Tools > Database. Le champ \`charset\` est le seul que le generateur
+# lit : il compose le combattant 32x32 depuis ce bloc de la planche de
+# sprites (vue de gauche, au repos). Tout le reste est TA donnee, lue
+# par TES events (« Lire la database »).
+name  = "heroes"
+title = "Heros"
+max   = 8
+
+[[fields]]
+name = "charset"
+type = "charset"
+
+[[fields]]
+name    = "max_hp"
+type    = "u16"
+default = 50
+
+[[fields]]
+name    = "max_mp"
+type    = "u16"
+default = 10
+
+[[fields]]
+name    = "speed"
+type    = "u8"
+default = 60
+
+[[fields]]
+name    = "attack"
+type    = "u8"
+default = 8
+
+[[fields]]
+name    = "defense"
+type    = "u8"
+default = 2
+
+[[fields]]
+name    = "magic"
+type    = "u8"
+default = 5
+
+[[fields]]
+name    = "magic_def"
+type    = "u8"
+default = 2
+`;
+
+const HEROES_DATA = `[[entry]]
 id = "heros"
 name = "Heros"
 charset = "Héros"
@@ -259,17 +311,30 @@ magic = 5
 magic_def = 2
 `;
 
-const TROOPS_DATA = `# Groupes de monstres (fenetre Tools > Combat > Groupes). Sans fond
-# (backdrop), le combat se joue sur fond noir — importe une image et
-# nomme-la ici quand tu en as une. x, y en tiles d'ecran (32x28).
-[[troop]]
-id = "slimes"
-intro = "combat_tour"
-monsters = [
-  { id = "slime", x = 5, y = 5 },
-  { id = "slime", x = 10, y = 8 },
-]
-`;
+// The starter battle: a COMPOSED SCREEN (Tools > Écrans). Its slots
+// place the monsters visually, its script names their database entries
+// for the library, then hands the fight to combat_tour. No backdrop yet
+// — a new project fights on black until it owns a picture.
+const STARTER_BATTLE_SCREEN: Screen = {
+  backdrop: "",
+  slots: [
+    { slot: 1, pic: "slime", x: 40, y: 40, name: "slime_g" },
+    { slot: 2, pic: "slime", x: 80, y: 64, name: "slime_d" },
+  ],
+  scripts: [
+    {
+      name: "principal",
+      trigger: "auto",
+      commands: [
+        { c: "rem", text: "Les monstres de l'ecran, nommes pour la bibliotheque (var 252+)." },
+        { c: "db_entry", table: "monsters", entry: "slime", dst: 252 },
+        { c: "db_entry", table: "monsters", entry: "slime", dst: 253 },
+        { c: "rem", text: "...puis la bibliotheque prend le combat (combat_tour)." },
+        { c: "call", n: 0 },
+      ],
+    },
+  ],
+};
 
 const UI_LAYOUT = `# Layout UI du projet — le menu de combat et la fenetre de PV que la
 # bibliotheque (combat_tour) affiche, et le menu de jeu (Start) de la

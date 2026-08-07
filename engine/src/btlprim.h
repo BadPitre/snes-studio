@@ -5,8 +5,9 @@
  * DECIDES — the loop, the formulas, the AI — lives in the project's
  * events; this module only serves.
  *
- *  - BTLPOSE: a hero's 32x32 battler cell on the composed screen
- *    (chars 448+, OAM 104-107 — the C1 recipe, command-driven).
+ *  - BTLPOSE: a 32x32 battler cell on the composed screen, in one of
+ *    4 slots (chars 448+, OAM 104-107). Which DATABASE entry a slot
+ *    shows is an argument: the party is the script's data.
  *  - POPUP: a number in white 8x8 digits that rises and fades
  *    (the C4 damage popup, from a constant or a variable).
  *  - CLOCK: gauge lanes served every frame — vars16[base+2i] +=
@@ -20,10 +21,12 @@
 
 #include <snes.h>
 
-/* BTLPOSE: show (op 1) or hide (op 0) hero h's battler at pixel (x,y).
-   Ignored without an open composed screen — the stage discipline. A
-   first show queues the cell upload; btlprim_busy() covers it. */
-void btlprim_pose(u8 hero, u8 x, u8 y, u8 op);
+/* BTLPOSE: show (op 1) or hide (op 0) the battler of `entry` (a row of
+   the database's `heroes` table) in `slot` (0-3), at pixel (x,y).
+   Ignored without an open composed screen — the stage discipline.
+   A slot showing a new entry queues the cell upload; btlprim_busy()
+   covers it. */
+void btlprim_pose(u8 slot, u8 entry, u8 x, u8 y, u8 op);
 
 /* 1 while a queued battler upload has not landed (the VM waits). */
 u8 btlprim_busy(void);

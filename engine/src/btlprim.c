@@ -21,13 +21,17 @@
 #include "vram.h"
 
 /* data_battle.c — always emitted, zeroed without battle data */
-extern const u8 btl_hero_count;
-extern const u8 *const btl_hero_cells[];
-extern const u16 btl_hero_pals[]; /* 4 x 16 colours, flat */
+extern const u8 btl_battler_count; /* entries of the `heroes` db table */
+extern const u8 *const btl_battler_cells[];
+extern const u16 btl_battler_pals[]; /* 16 colours per entry, flat */
 extern const u8 btl_digit_cells[]; /* 32 chars: 0-9 on the even ones */
 extern const u16 btl_digit_pal[];  /* white + shadow, OBJ palette 4 */
 
-#define BP_CHAR(h) (448 + (h) * 4) /* the hero's 32x32 OBJ block */
+/* Four battler SLOTS: OBJ char rows 28-31 (448 + slot*4, a 32x32 cell
+   each) and OBJ palettes 0-3 (CGRAM 128 + slot*16). The slot count is
+   what VRAM allows; WHICH database entry a slot shows is the script's
+   business (bp_ent) — that is how a party is swapped. */
+#define BP_CHAR(h) (448 + (h) * 4)
 #define BP_OAM(h) ((u16)(104 + (h)) << 2)
 #define BP_DIGCHAR 336
 #define BP_POPOAM(i) ((u16)(100 + (i)) << 2)
@@ -37,8 +41,10 @@ static u8 bp_shown = 0; /* bit h: battler posed */
 static u8 bp_have = 0;  /* bit h: cells+palette in VRAM this session */
 static u8 bp_x[4];
 static u8 bp_y[4];
+static u8 bp_ent[4] = { 0, 0, 0, 0 }; /* db entry shown per slot
+    (explicit: tcc-816 does not clear the BSS) */
 static u8 bp_q = 0;   /* upload queue, bit h (order: low bit first) */
-static u8 bp_up = 0;  /* hero being uploaded (when bp_q has its bit) */
+static u8 bp_up = 0;  /* slot being uploaded (when bp_q has its bit) */
 static u8 bp_row = 0; /* next 128-byte step of the current cell */
 
 /* ---- popup (POPUP) ---- */
@@ -59,24 +65,32 @@ static u8 tg_ally = 0;
 static u8 tg_cur = 0;
 static u8 tg_blink = 0;
 
-void btlprim_pose(u8 hero, u8 x, u8 y, u8 op)
+void btlprim_pose(u8 slot, u8 entry, u8 x, u8 y, u8 op)
 {
   u8 bit;
 
-  if (hero >= btl_hero_count || !stage_active())
+  if (slot >= 4 || !stage_active())
     return;
-  bit = (u8)(1 << hero);
+  bit = (u8)(1 << slot);
   if (!op)
   {
     bp_shown &= (u8)~bit;
-    oamSetVisible(BP_OAM(hero), OBJ_HIDE);
+    oamSetVisible(BP_OAM(slot), OBJ_HIDE);
     return;
   }
-  bp_x[hero] = x;
-  bp_y[hero] = y;
+  if (entry >= btl_battler_count)
+    return; /* no such entry in the heroes table */
+  if (bp_ent[slot] != entry)
+  {
+    /* the slot changes character: its cells and palette are stale */
+    bp_ent[slot] = entry;
+    bp_have &= (u8)~bit;
+  }
+  bp_x[slot] = x;
+  bp_y[slot] = y;
   bp_shown |= bit;
   if (!(bp_have & bit))
-    bp_q |= bit; /* first show this session: queue the upload */
+    bp_q |= bit; /* not in VRAM yet: queue the upload */
 }
 
 u8 btlprim_busy(void)
@@ -116,7 +130,7 @@ static u8 tg_ok(u8 k)
   return tg_ally ? (u8)((bp_shown >> k) & 1) : stage_slot_used(k);
 }
 
-/* Walked range: 4 heroes, or the stage's 5 slots. */
+/* Walked range: 4 battler slots, or the stage's 5 slots. */
 #define TG_N (tg_ally ? 4 : STAGE_SLOTS)
 
 u8 btlprim_target_begin(u8 ally)
@@ -168,14 +182,14 @@ void btlprim_target_tick(void)
     stage_slotfx(tg_cur, 1, 4); /* a short pulse on the candidate */
 }
 
-/* The party's OAM entries, reasserted every stage frame — the
-   vignette discipline (btl.c's bt_oam, with the cursor's blink). */
+/* The posed battlers' OAM entries, reasserted every stage frame — the
+   vignette discipline, with the target cursor's blink. */
 static void bp_oam(void)
 {
   u8 h;
   u8 *om;
 
-  for (h = 0; h < btl_hero_count; h++)
+  for (h = 0; h < 4; h++)
   {
     if (!((bp_shown >> h) & 1) || !((bp_have >> h) & 1) ||
         (tg_on && tg_ally && h == tg_cur && (tg_blink & 8)))
@@ -289,7 +303,7 @@ void btlprim_vblank(void)
     {
       if (!vbl_take(6))
         return;
-      src = btl_hero_cells[bp_up];
+      src = btl_battler_cells[bp_ent[bp_up]];
       ofs = bp_row;
       ofs <<= 7;
       src += ofs; /* the cell's 128-byte row */
@@ -305,9 +319,12 @@ void btlprim_vblank(void)
     }
     if (!vbl_take(2))
       return;
-    ofs = bp_up;
+    /* palette of the ENTRY, into the SLOT's OBJ palette */
+    ofs = bp_ent[bp_up];
     ofs <<= 4;
-    dmaCopyCGram((u8 *)(btl_hero_pals + ofs), (u16)(128 + ofs), 32);
+    base = bp_up;
+    base <<= 4;
+    dmaCopyCGram((u8 *)(btl_battler_pals + ofs), (u16)(128 + base), 32);
     bp_have |= (u8)(1 << bp_up);
     bp_q &= (u8)~(1 << bp_up);
     bp_row = 0;

@@ -61,7 +61,6 @@ pub struct EventCompiler<'a> {
     pic_dims: Vec<(usize, usize)>,
     /// Project sounds (stems), resolved to sfx_id.
     sounds: Vec<String>,
-    troops: Vec<String>,
     /// Project music (stems), resolved to music_id.
     musics: Vec<String>,
     /// Project vignettes (stems), resolved to vig_id.
@@ -118,7 +117,6 @@ impl<'a> EventCompiler<'a> {
             pictures: Vec::new(),
             pic_dims: Vec::new(),
             sounds: Vec::new(),
-            troops: Vec::new(),
             musics: Vec::new(),
             vignettes: Vec::new(),
             animations: Vec::new(),
@@ -507,7 +505,16 @@ impl<'a> EventCompiler<'a> {
                 "m7" => self.cmd_m7(cmd, out)?,
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
                 "m7_rot" => self.cmd_m7_rot(cmd, out)?,
-                "battle" => self.cmd_battle(cmd, out)?,
+                // G2: "Lancer un combat" is gone — a battle is a
+                // COMPOSED SCREEN the author arranges visually.
+                "battle" => bail!(
+                    "la commande « Lancer un combat » n'existe plus : un combat \
+                     est un ÉCRAN COMPOSÉ. Créer un écran (Tools → Écrans), y \
+                     poser les monstres, et remplacer cette commande par \
+                     « Aller à l'écran ». Le script de l'écran nomme ses \
+                     monstres (« Numéro d'une fiche ») puis appelle la \
+                     bibliothèque (combat_tour)."
+                ),
                 "btl_pose" => self.cmd_btl_pose(cmd, out)?,
                 "popup" => self.cmd_popup(cmd, out)?,
                 "clock" => self.cmd_clock(cmd, out)?,
@@ -528,6 +535,7 @@ impl<'a> EventCompiler<'a> {
                 // Comment: decorative in the editor, no bytecode emitted
                 "rem" => {}
                 "db_read" => self.cmd_db_read(cmd, out)?,
+                "db_entry" => self.cmd_db_entry(cmd, out)?,
                 "call" => self.cmd_call(cmd, out)?,
                 "call_fn" => self.cmd_call_fn(cmd, out)?,
                 "ret_fn" => self.cmd_ret_fn(cmd, out)?,
@@ -574,8 +582,6 @@ impl<'a> EventCompiler<'a> {
         pictures: &[String],
         pic_dims: &[(usize, usize)],
         sounds: &[String],
-        troops: &[String],
-        hook_commons: &[usize],
         musics: &[String],
         vignettes: &[String],
         animations: &[String],
@@ -617,7 +623,6 @@ impl<'a> EventCompiler<'a> {
         self.pictures = pictures.to_vec();
         self.pic_dims = pic_dims.to_vec();
         self.sounds = sounds.to_vec();
-        self.troops = troops.to_vec();
         self.musics = musics.to_vec();
         self.vignettes = vignettes.to_vec();
         self.animations = animations.to_vec();
@@ -862,15 +867,6 @@ impl<'a> EventCompiler<'a> {
                     other
                 ),
             }
-        }
-        // Battle hooks (C4): the troops' intro/low_hp common events get a
-        // type-b entry — the id field carries the COMMON EVENT INDEX and
-        // the engine's vm_common_hook finds the body by it. Marking the
-        // common used pulls its body into this scene's block, so a
-        // battle started from ANY scene finds its hooks locally.
-        for &k in hook_commons {
-            self.used_commons[k] = true;
-            cetab.push_str(&format!(" b {} __ce{}_{}", k, k, scene_name));
         }
         // Referenced bodies are emitted once each, and the loop alternates
         // between the two lists: a common event may call a function, a
@@ -1652,36 +1648,47 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
-    /// `battle` — "Lancer un combat": opens the battle screen on a
-    /// TROOP from data/troops.toml, resolved by name at build time.
-    fn cmd_battle(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
-        let name = cmd["troop"].as_str().unwrap_or("");
-        let id = self
-            .troops
-            .iter()
-            .position(|t| t == name)
-            .with_context(|| {
-                format!(
-                    "commande battle : groupe de monstres '{}' introuvable \
-                     dans data/troops.toml",
-                    name
-                )
-            })?;
-        out.push(format!("  BATTLE {}", id));
-        Ok(())
-    }
-
     /// `btl_pose` — a hero's battler cell on the composed screen (V1).
     /// Blocking while the session's first show uploads the cell.
     fn cmd_btl_pose(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
-        let hero = cmd["hero"]
+        // `hero` was the old name of the slot (V1) — kept as a fallback
+        // so a project written before G1 still compiles.
+        let slot = cmd["slot"]
             .as_u64()
+            .or_else(|| cmd["hero"].as_u64())
             .filter(|&v| v < 4)
-            .with_context(|| "btl_pose : hero 0-3".to_string())?;
+            .with_context(|| "btl_pose : emplacement 0-3".to_string())?;
+        // Which entry of the `heroes` table the slot shows: from a
+        // VARIABLE (a party that changes), or a symbolic id, or its
+        // index; the default is the slot's own number.
+        if let Some(v) = cmd["entry_var"].as_u64() {
+            if v > 255 {
+                bail!("btl_pose : entry_var 0-255");
+            }
+            let show = cmd["show"].as_bool().unwrap_or(true);
+            let x = cmd["x"].as_u64().filter(|&n| n <= 255).unwrap_or(200);
+            let y = cmd["y"].as_u64().filter(|&n| n <= 216).unwrap_or(40);
+            out.push(format!("  BTLPOSE {} 1 {} {} {} {}", slot, v, x, y, show as u8));
+            return Ok(());
+        }
+        let entry = match cmd["entry"].as_str() {
+            Some(id) => {
+                let dbr = self.db.with_context(|| {
+                    "btl_pose : le projet n'a pas de database (schemas/)".to_string()
+                })?;
+                let ti = dbr.table_id("heroes").with_context(|| {
+                    "btl_pose : la database n'a pas de table « heroes »".to_string()
+                })?;
+                dbr.entry_index(ti, id).with_context(|| {
+                    format!("btl_pose : « {} » absent de la table heroes", id)
+                })? as u64
+            }
+            None => cmd["entry"].as_u64().filter(|&v| v < 256).unwrap_or(slot),
+        };
         let show = cmd["show"].as_bool().unwrap_or(true);
         let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(200);
         let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(40);
-        out.push(format!("  BTLPOSE {} {} {} {}", hero, x, y, show as u8));
+        out.push(format!("  BTLPOSE {} 0 {} {} {} {}", slot, entry, x, y, show as u8));
         Ok(())
     }
 
@@ -2037,6 +2044,30 @@ impl<'a> EventCompiler<'a> {
             "  DBREAD {} {} {} {} {} {}",
             ti, esrc, entry, ofs, size, dst
         ));
+        Ok(())
+    }
+
+    /// `db_entry` — the NUMBER of a database entry into a variable.
+    /// No opcode of its own: the index is resolved here, so this is a
+    /// plain "variable = constant". The author names the row; renaming
+    /// or moving it later never silently shifts a script.
+    fn cmd_db_entry(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dbr = self.db.with_context(|| {
+            "db_entry : le projet n'a pas de database (schemas/)".to_string()
+        })?;
+        let table = cmd["table"].as_str().context("db_entry sans table")?;
+        let ti = dbr.table_id(table).with_context(|| {
+            format!("db_entry : table inconnue « {} »", table)
+        })?;
+        let id = cmd["entry"].as_str().with_context(|| {
+            format!("db_entry : entry (id symbolique de {})", table)
+        })?;
+        let idx = dbr.entry_index(ti, id).with_context(|| {
+            format!("db_entry : « {} » absent de la table {}", id, table)
+        })?;
+        let dst = Self::idx_field(cmd, "dst", 256)?;
+        // VAROP, not SETVAR: the 16-bit variable space is 0-255
+        out.push(format!("  VAROP {} = const {}", dst, idx));
         Ok(())
     }
 

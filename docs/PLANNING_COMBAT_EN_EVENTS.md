@@ -1,5 +1,10 @@
 # The battle system, rebuilt on events (V0)
 
+> **Read `PLANNING_COMBAT_GENERIQUE.md` after this one.** V1-V4 left
+> an opener (btl.c), a troops format and the Groupes/Équipe windows;
+> G1-G2 removed all three — heroes became a database table and a
+> battle became a composed screen.
+
 *Design doc, C0-style: the first argument someone has with this
 document should be written INTO it, not around it.*
 

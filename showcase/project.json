@@ -55,6 +55,22 @@
    "trigger": "none",
    "commands": [
     {
+     "c": "rem",
+     "text": "L'equipe de depart : les fiches heroes de chaque place."
+    },
+    {
+     "c": "db_entry",
+     "table": "heroes",
+     "entry": "arven",
+     "dst": 60
+    },
+    {
+     "c": "db_entry",
+     "table": "heroes",
+     "entry": "nadia",
+     "dst": 61
+    },
+    {
      "c": "var",
      "n": 10,
      "op": "=",
@@ -419,14 +435,6 @@
     {
      "c": "msg",
      "text": "Des gobelins surgissent !"
-    },
-    {
-     "c": "rem",
-     "text": "puis la bibliotheque prend le combat"
-    },
-    {
-     "c": "call",
-     "n": 7
     }
    ]
   },
@@ -446,23 +454,27 @@
    "commands": [
     {
      "c": "rem",
-     "text": "=== BIBLIOTHEQUE COMBAT (V3) : la boucle ATB, en events — modifie-la ! ==="
+     "text": "=== BIBLIOTHEQUE COMBAT (G2) : la boucle ATB, en events — modifie-la ! ==="
     },
     {
      "c": "rem",
-     "text": "La commande 'battle' a ouvert l'ecran, pose les monstres et rempli les"
+     "text": "L'ECRAN COMPOSE a pose les monstres et nomme leurs fiches"
     },
     {
      "c": "rem",
-     "text": "variables reservees : PV 240+, PM 232+, stats 208-227, groupe 251,"
+     "text": "database dans les variables 252+. Ici tout est a toi."
     },
     {
      "c": "rem",
-     "text": "monstres (index database) 252+. Ici tout est a toi."
+     "text": "PV 240+, PM 232+, stats 208-227 : conventions de CETTE"
     },
     {
      "c": "rem",
-     "text": "v89 : 0 = Attente (le temps s'arrete dans les menus), 1 = Actif"
+     "text": "bibliotheque, remplies par combat_preparer juste en dessous."
+    },
+    {
+     "c": "call",
+     "n": 16
     },
     {
      "c": "var",
@@ -608,17 +620,19 @@
     },
     {
      "c": "btl_pose",
-     "hero": 0,
      "x": 200,
      "y": 40,
-     "show": true
+     "show": true,
+     "slot": 0,
+     "entry_var": 60
     },
     {
      "c": "btl_pose",
-     "hero": 1,
      "x": 200,
      "y": 72,
-     "show": true
+     "show": true,
+     "slot": 1,
+     "entry_var": 61
     },
     {
      "c": "clock",
@@ -890,17 +904,19 @@
     },
     {
      "c": "btl_pose",
-     "hero": 0,
      "x": 200,
      "y": 40,
-     "show": false
+     "show": false,
+     "slot": 0,
+     "entry_var": 60
     },
     {
      "c": "btl_pose",
-     "hero": 1,
      "x": 200,
      "y": 72,
-     "show": false
+     "show": false,
+     "slot": 1,
+     "entry_var": 61
     },
     {
      "c": "switch",
@@ -3756,6 +3772,180 @@
      ]
     }
    ]
+  },
+  {
+   "name": "combat_preparer",
+   "trigger": "none",
+   "commands": [
+    {
+     "c": "rem",
+     "text": "=== BIBLIOTHEQUE COMBAT : l'equipe entre en scene (G1) ==="
+    },
+    {
+     "c": "rem",
+     "text": "L'equipe est une DONNEE : var 60 et 61 portent le numero de"
+    },
+    {
+     "c": "rem",
+     "text": "la fiche heroes de chaque place. « Numero d'une fiche » les"
+    },
+    {
+     "c": "rem",
+     "text": "remplit (voir nouvelle_partie) — changer d'equipier = 1 ligne."
+    },
+    {
+     "c": "rem",
+     "text": "Ici on recopie ses stats dans les variables de travail :"
+    },
+    {
+     "c": "rem",
+     "text": "PV 240+ (courant, max), PM 232+, atq 208+, def 212+,"
+    },
+    {
+     "c": "rem",
+     "text": "magie 216+, def.mag 220+, vitesse 224+."
+    },
+    {
+     "c": "rem",
+     "text": "place 1"
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "max_hp",
+     "dst": 241
+    },
+    {
+     "c": "var",
+     "n": 240,
+     "op": "=",
+     "from": "var",
+     "value": 241
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "max_mp",
+     "dst": 232
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "attack",
+     "dst": 208
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "defense",
+     "dst": 212
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "magic",
+     "dst": 216
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "magic_def",
+     "dst": 220
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 60,
+     "field": "speed",
+     "dst": 224
+    },
+    {
+     "c": "rem",
+     "text": "place 2"
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "max_hp",
+     "dst": 243
+    },
+    {
+     "c": "var",
+     "n": 242,
+     "op": "=",
+     "from": "var",
+     "value": 243
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "max_mp",
+     "dst": 233
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "attack",
+     "dst": 209
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "defense",
+     "dst": 213
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "magic",
+     "dst": 217
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "magic_def",
+     "dst": 221
+    },
+    {
+     "c": "db_read",
+     "table": "heroes",
+     "from": "var",
+     "entry": 61,
+     "field": "speed",
+     "dst": 225
+    },
+    {
+     "c": "var",
+     "n": 231,
+     "op": "=",
+     "value": 2
+    }
+   ]
   }
  ],
  "variables": [
@@ -3819,8 +4009,8 @@
   "",
   "",
   "",
-  "Monstre: PV max",
-  "Monstre: attaque",
+  "Equipe: fiche place 1",
+  "Equipe: fiche place 2",
   "Monstre: defense",
   "Monstre: XP",
   "Monstre: or",
@@ -4570,7 +4760,9 @@
   }
  ],
  "screens": [
-  "test_v1"
+  "test_v1",
+  "combat_gobelins",
+  "combat_dragon"
  ],
  "functions": [
   {

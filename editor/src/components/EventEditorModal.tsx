@@ -22,6 +22,7 @@ import {
   formCampan,
   formChoice,
   formDbRead,
+  formDbEntry,
   formFace,
   formFlash,
   formHeroLocWarpVar,
@@ -40,7 +41,6 @@ import {
   formRoute,
   formScrHideScrShow,
   formScreen,
-  formBattle,
   formBtlPose,
   formPopup,
   formClock,
@@ -150,7 +150,6 @@ interface Props {
   animNames: string[]; // names of the frame-by-frame animations (A1)
   screenNames: string[]; // composed screens (B6bis)
   screenScriptNames?: string[]; // scripts of the current screen (B6bis-2)
-  troopNames?: string[]; // C5 — data/troops.toml ids ("Lancer un combat")
   onTintPresets: (list: TintPreset[]) => void; // replaces the list (create/delete)
   onRenameVars: (switches: string[], variables: string[]) => void;
   onSave: (ev: GameEvent) => void;
@@ -312,12 +311,10 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       );
     case "screen":
       return `Aller à l'écran « ${c.name} »`;
-    case "battle":
-      return `Lancer un combat : « ${c.troop} »`;
     case "btl_pose":
       return c.show
-        ? `Poser le combattant ${c.hero + 1} en (${c.x},${c.y})`
-        : `Cacher le combattant ${c.hero + 1}`;
+        ? `Poser ${c.entry !== undefined && c.entry !== "" ? `« ${c.entry} »` : `le combattant ${c.slot + 1}`} en (${c.x},${c.y}) [empl. ${c.slot + 1}]`
+        : `Cacher le combattant de l'emplacement ${c.slot + 1}`;
     case "popup":
       return `Popup : ${
         c.value_var !== undefined ? `[${c.value_var}]` : c.value
@@ -425,6 +422,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "db_read":
       return `Variable [${c.dst}] = ${c.table}[${
         c.from === "var" ? `variable [${c.entry}]` : c.entry}].${c.field}`;
+    case "db_entry":
+      return `Variable [${c.dst}] = n° de ${c.table}[${c.entry}]`;
   }
 }
 
@@ -462,7 +461,6 @@ function cmdTitle(c: Command["c"]): string {
     tint: "Teinter l'écran",
     weather: "Météo (pluie / neige)",
     screen: "Aller à l'écran",
-    battle: "Lancer un combat",
     screen_call: "Appeler un script de l'écran",
     stage_open: "Ouvrir un écran composé",
     stage_pose: "Poser une image (slot)",
@@ -484,6 +482,7 @@ function cmdTitle(c: Command["c"]): string {
     shake: "Secouer l'écran",
     call: "Appeler un common event",
     db_read: "Lire la database",
+    db_entry: "Numéro d'une fiche (database)",
     pic_show: "Afficher une image",
     pic_move: "Déplacer l'image",
     pic_hide: "Effacer l'image",
@@ -582,7 +581,6 @@ export function CommandListEditor(props: {
   animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
-  troopNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
 }) {
@@ -774,10 +772,17 @@ export function CommandListEditor(props: {
         return { c: "weather", kind: "rain", power: 2 };
       case "screen":
         return { c: "screen", name: "", dur: 20 };
-      case "battle":
-        return { c: "battle", troop: "" };
       case "btl_pose":
-        return { c: "btl_pose", hero: 0, x: 200, y: 40, show: true };
+        return { c: "btl_pose", slot: 0, x: 200, y: 40, show: true };
+      case "db_entry": {
+        const sc = props.db?.schemas[0];
+        return {
+          c: "db_entry",
+          table: sc?.name ?? "",
+          entry: props.db?.entries[sc?.name ?? ""]?.[0]?.id ?? "",
+          dst: 0,
+        };
+      }
       case "popup":
         return { c: "popup", value: 100, x: 112, y: 96 };
       case "clock":
@@ -929,7 +934,6 @@ export function CommandListEditor(props: {
               animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
-              troopNames={props.troopNames}
               onTintPresets={props.onTintPresets}
               onPickVar={(kind, current, cb) => setVarPick({ kind, current, cb })}
               onChange={setForm}
@@ -1362,7 +1366,6 @@ export default function EventEditorModal(props: Props) {
               animNames={props.animNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
-              troopNames={props.troopNames}
               onTintPresets={props.onTintPresets}
               onRenameVars={props.onRenameVars}
             />
@@ -1572,7 +1575,6 @@ export type CommandFormProps = {
   animNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
-  troopNames?: string[]; // C5 — "Lancer un combat" picker
   onTintPresets: (list: TintPreset[]) => void;
   db: Database | null;
   onPickVar: (kind: VarKind, current: number, cb: (n: number) => void) => void;
@@ -1748,9 +1750,6 @@ function CommandForm(props: CommandFormProps) {
     case "screen":
       ({ body, valid } = formScreen(cmd, x));
       break;
-    case "battle":
-      ({ body, valid } = formBattle(cmd, x));
-      break;
     case "btl_pose":
       ({ body, valid } = formBtlPose(cmd, x));
       break;
@@ -1831,6 +1830,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "db_read":
       ({ body, valid } = formDbRead(cmd, x));
+      break;
+    case "db_entry":
+      ({ body, valid } = formDbEntry(cmd, x));
       break;
     case "shake":
       ({ body, valid } = formShake(cmd, x));

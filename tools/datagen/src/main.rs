@@ -93,26 +93,6 @@ fn main() -> Result<()> {
     // The database loads BEFORE the events (db_read resolves tables,
     // entries and fields) and is encoded AFTER, against a closed text bank.
     let mut database = db::load(&proj_dir)?;
-    // Battle troop ids (C1): the "Lancer un combat" command resolves by
-    // name at compile time, so the list must exist before the scenes.
-    let troop_names = battle::troop_ids(&proj_dir)?;
-    // Battle hooks (C4): resolved BEFORE the scenes compile — each
-    // scene's CETAB pulls the hooked common events into its block.
-    let ce_names: Vec<String> = project
-        .common_events
-        .iter()
-        .map(|c| c.name.clone())
-        .collect();
-    let troop_hook_ids =
-        battle::resolve_hooks(&battle::troop_hooks(&proj_dir)?, &ce_names)?;
-    let mut hook_commons: Vec<usize> = troop_hook_ids
-        .iter()
-        .flat_map(|&(i, l)| [i, l])
-        .filter(|&k| k != 0xFF)
-        .map(|k| k as usize)
-        .collect();
-    hook_commons.sort_unstable();
-    hook_commons.dedup();
     let mut scene_gfx_blocks: Vec<Vec<u8>> = Vec::new();
 
     // The UI layout loads EARLY: the "show a UI widget" event command
@@ -338,8 +318,6 @@ fn main() -> Result<()> {
                 &pic_names,
                 &pic_dims,
                 &sound_names,
-                &troop_names,
-                &hook_commons,
                 &music_names,
                 &vig_names,
                 &anims.names,
@@ -1095,19 +1073,11 @@ fn main() -> Result<()> {
             write_out(&out_dir, &name, content)?;
         }
     }
-    // BATTLE (C1). data_battle.c is ALWAYS emitted — btl.c links
-    // unconditionally, with zeroed tables when the project fights nobody.
+    // Battler cells (G1). data_battle.c is ALWAYS emitted — btlprim.c
+    // links unconditionally, with zeroed tables when the project has no
+    // `heroes` table.
     {
-        let b = battle::build(
-            &proj_dir,
-            &project.charsets,
-            &sprites,
-            database.as_ref(),
-            &pic_names,
-            &ui_widget_ids,
-            &anims.names,
-            &troop_hook_ids,
-        )?;
+        let b = battle::build(&project.charsets, &sprites, database.as_ref())?;
         for (name, content) in battle::emit_files(b.as_ref()) {
             write_out(&out_dir, &name, content)?;
         }
@@ -1412,6 +1382,7 @@ fn main() -> Result<()> {
                 pictures: &pic_names,
                 sounds: &sound_names,
                 musics: &music_names,
+                charsets: &project.charsets,
             })?;
             for (name, content) in db::emit_files(d) {
                 write_out(&out_dir, &name, content)?;

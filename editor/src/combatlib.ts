@@ -24,23 +24,15 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
    },
    {
     "c": "rem",
-    "text": "La commande 'battle' a ouvert l'ecran, pose les monstres et rempli"
+    "text": "L'ECRAN COMPOSE (Tools > Ecrans) a pose les monstres et nomme leurs"
    },
    {
     "c": "rem",
-    "text": "les variables reservees : PV 240+, PM 232+, stats 208-227,"
+    "text": "fiches database dans les variables 252+. Le reste est a toi."
    },
    {
-    "c": "rem",
-    "text": "groupe 251, monstres (index database) 252+."
-   },
-   {
-    "c": "rem",
-    "text": "Version complete (competences, IA, poison, hooks) : le projet showcase."
-   },
-   {
-    "c": "rem",
-    "text": "v89 : 0 = Attente (le temps s'arrete dans les menus), 1 = Actif"
+    "c": "call",
+    "n": 8
    },
    {
     "c": "var",
@@ -149,17 +141,15 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
    },
    {
     "c": "btl_pose",
-    "hero": 0,
+    "slot": 0,
     "x": 200,
     "y": 40,
-    "show": true
+    "show": true,
+    "entry_var": 60
    },
    {
-    "c": "btl_pose",
-    "hero": 1,
-    "x": 200,
-    "y": 72,
-    "show": true
+    "c": "rem",
+    "text": "2e equipier : dupliquer cette ligne en emplacement 2, variable 61."
    },
    {
     "c": "switch",
@@ -408,17 +398,11 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
    },
    {
     "c": "btl_pose",
-    "hero": 0,
+    "slot": 0,
     "x": 200,
     "y": 40,
-    "show": false
-   },
-   {
-    "c": "btl_pose",
-    "hero": 1,
-    "x": 200,
-    "y": 72,
-    "show": false
+    "show": false,
+    "entry_var": 60
    },
    {
     "c": "stage_close",
@@ -1599,7 +1583,7 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       "then": [
        {
         "c": "btl_pose",
-        "hero": 0,
+        "slot": 0,
         "x": 200,
         "y": 40,
         "show": false
@@ -1662,7 +1646,7 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       "then": [
        {
         "c": "btl_pose",
-        "hero": 1,
+        "slot": 1,
         "x": 200,
         "y": 72,
         "show": false
@@ -1814,6 +1798,109 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       "value": 0
      }
     ]
+   }
+  ]
+ },
+ {
+  "name": "combat_preparer",
+  "trigger": "none",
+  "commands": [
+   {
+    "c": "rem",
+    "text": "=== BIBLIOTHEQUE COMBAT : l'equipe entre en scene (G1) ==="
+   },
+   {
+    "c": "rem",
+    "text": "L'equipe est une DONNEE : la variable 60 porte le numero de la"
+   },
+   {
+    "c": "rem",
+    "text": "fiche heroes de la 1re place (61 pour la 2e, si tu en ajoutes)."
+   },
+   {
+    "c": "rem",
+    "text": "« Numero d'une fiche » la remplit — changer d'equipier = 1 ligne."
+   },
+   {
+    "c": "rem",
+    "text": "Ici on recopie ses stats dans les variables de travail :"
+   },
+   {
+    "c": "rem",
+    "text": "PV 240+ (courant, max), PM 232+, atq 208+, def 212+, magie 216+,"
+   },
+   {
+    "c": "rem",
+    "text": "def. magique 220+, vitesse 224+."
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "max_hp",
+    "dst": 241
+   },
+   {
+    "c": "var",
+    "n": 240,
+    "op": "=",
+    "from": "var",
+    "value": 241
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "max_mp",
+    "dst": 232
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "attack",
+    "dst": 208
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "defense",
+    "dst": 212
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "magic",
+    "dst": 216
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "magic_def",
+    "dst": 220
+   },
+   {
+    "c": "db_read",
+    "table": "heroes",
+    "from": "var",
+    "entry": 60,
+    "field": "speed",
+    "dst": 224
+   },
+   {
+    "c": "var",
+    "n": 231,
+    "op": "=",
+    "value": 1
    }
   ]
  }
@@ -2005,6 +2092,6 @@ export const COMBAT_FUNCTIONS: FunctionDef[] = [
 
 // Names for the variables and switches the library and the battle
 // opener use — shown by the editor's pickers.
-export const COMBAT_VARIABLES: string[] = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Potions", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: poison heros 1", "Combat: poison heros 2", "Combat: PV monstre 1", "Combat: PV monstre 2", "", "", "Combat: scratch", "", "Combat: touche L/R", "", "", "Combat: mode Actif (0 = Attente)", "Combat: acteur", "Combat: cible", "Combat: choix menu", "Combat: degats", "Combat: alea", "Combat: alternance", "Combat: scratch 2", "", "", "Combat: fuite L+R (compteur)", "Combat: jauge heros 1", "Combat: vitesse heros 1", "Combat: jauge heros 2", "Combat: vitesse heros 2", "Combat: jauge monstre 1", "Combat: vitesse monstre 1", "Combat: jauge monstre 2", "Combat: vitesse monstre 2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: attaque heros 1", "Combat: attaque heros 2", "", "", "Combat: defense heros 1", "Combat: defense heros 2", "", "", "Combat: magie heros 1", "Combat: magie heros 2", "", "", "Combat: def. magique heros 1", "Combat: def. magique heros 2", "", "", "Combat: vitesse (stat) heros 1", "Combat: vitesse (stat) heros 2", "", "", "", "", "", "Combat: taille de l'equipe", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: issue (1 victoire, 2 defaite, 3 fuite)", "Combat: XP gagnes", "Combat: or gagne", "Combat: groupe en cours", "Combat: monstre 1 (database)", "Combat: monstre 2 (database)", "Combat: monstre 3 (database)", "Combat: monstre 4 (database)"];
+export const COMBAT_VARIABLES: string[] = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Potions", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Equipe: fiche place 1", "Equipe: fiche place 2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: poison heros 1", "Combat: poison heros 2", "Combat: PV monstre 1", "Combat: PV monstre 2", "", "", "Combat: scratch", "", "Combat: touche L/R", "", "", "Combat: mode Actif (0 = Attente)", "Combat: acteur", "Combat: cible", "Combat: choix menu", "Combat: degats", "Combat: alea", "Combat: alternance", "Combat: scratch 2", "", "", "Combat: fuite L+R (compteur)", "Combat: jauge heros 1", "Combat: vitesse heros 1", "Combat: jauge heros 2", "Combat: vitesse heros 2", "Combat: jauge monstre 1", "Combat: vitesse monstre 1", "Combat: jauge monstre 2", "Combat: vitesse monstre 2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: attaque heros 1", "Combat: attaque heros 2", "", "", "Combat: defense heros 1", "Combat: defense heros 2", "", "", "Combat: magie heros 1", "Combat: magie heros 2", "", "", "Combat: def. magique heros 1", "Combat: def. magique heros 2", "", "", "Combat: vitesse (stat) heros 1", "Combat: vitesse (stat) heros 2", "", "", "", "", "", "Combat: taille de l'equipe", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: issue (1 victoire, 2 defaite, 3 fuite)", "Combat: XP gagnes", "Combat: or gagne", "Combat: groupe en cours", "Combat: monstre 1 (database)", "Combat: monstre 2 (database)", "Combat: monstre 3 (database)", "Combat: monstre 4 (database)"];
 
 export const COMBAT_SWITCHES: string[] = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat: fuite L+R armee", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Combat termine (reserve moteur)"];

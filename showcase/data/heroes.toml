@@ -1,11 +1,6 @@
-# L'équipe (C1) — format fixe lu par datagen (module battle).
-# L'ordre est l'ordre d'affichage à droite de l'écran de combat.
-# `menu` : le widget liste à curseur du layout qui sert de menu de combat.
-menu = "menu_combat"
-# Le SENS de chaque entrée du menu (alignées sur les items du widget).
-actions = ["attack", "skill:eclair", "skill:soin", "item:potion", "flee"]
-
-[[hero]]
+# L'equipe du showcase. Une table comme une autre : la fenetre Database
+# l'edite, les events la lisent.
+[[entry]]
 id = "arven"
 name = "Arven"
 charset = "Heros"
@@ -17,7 +12,7 @@ defense = 4
 magic = 6
 magic_def = 6
 
-[[hero]]
+[[entry]]
 id = "nadia"
 name = "Nadia"
 charset = "Villageois"

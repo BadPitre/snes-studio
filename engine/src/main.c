@@ -26,7 +26,6 @@
 #include "weather.h"
 #include "hdmafx.h"
 #include "stage.h"
-#include "btl.h"
 #include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
@@ -255,12 +254,6 @@ int main(void)
       vm_was_active = 0;
       actors_resolve_pages();
     }
-    else if (btl_active())
-    {
-      /* The battle owns the loop (C4): BATTLE freed the VM, so without
-         this branch the AUTO scan and the player would wake up mid-
-         fight. Hooks re-enter through vm_active() above. */
-    }
     else if (save_take_load())
     {
       /* the SRAM load command (M2): the script read the slot and died
@@ -340,8 +333,6 @@ int main(void)
     debug_update();    /* Start+Select+R panel (S6) — inert without
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
-    btl_update();      /* battle opener (V2): stage + poses, then the
-                          troop's intro common event takes the field */
     btlprim_update();  /* battle primitives (V1): clock + stage OAM */
     m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();

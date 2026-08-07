@@ -36,6 +36,7 @@ const TABS: Tab[] = [
       { c: "break", label: "Sortir de la boucle" },
       { c: "rem", label: "Commentaire" },
       { c: "db_read", label: "Lire la database" },
+      { c: "db_entry", label: "Numéro d'une fiche (database)" },
     ],
   },
   {
@@ -116,7 +117,6 @@ const TABS: Tab[] = [
   {
     title: "Combat",
     items: [
-      { c: "battle", label: "Lancer un combat" },
       { c: "btl_pose", label: "Poser un combattant (équipe)" },
       { c: "popup", label: "Nombre qui saute (popup)" },
       { c: "clock", label: "Horloge de jauges (ATB)" },
@@ -173,6 +173,7 @@ const FN_TABS: Tab[] = [
       { c: "loop", label: "Boucle" },
       { c: "break", label: "Sortir de la boucle" },
       { c: "db_read", label: "Lire la database" },
+      { c: "db_entry", label: "Numéro d'une fiche (database)" },
       { c: "rem", label: "Commentaire" },
     ],
   },

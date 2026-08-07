@@ -409,14 +409,19 @@
                              the short way round. The step count only
                              buys resolution; this is what buys motion.
                              frames 0 = as fast as the steps allow. */
-#define VM_OP_BATTLE 0x46 /* troop (u8) — opens the BATTLE screen on a
-   monster group (C1). BLOCKING: the event resumes when the battle
-   closes. Design doc PLANNING_SYSTEME_COMBAT.md. */
-#define VM_OP_BTLPOSE 0x47 /* hero (u8 0-3), x (u8), y (u8), op (u8:
-   1 show, 0 hide) — poses the hero's 32x32 battler cell on the
-   composed screen (chars 448+, OAM 104-107, the C1 recipe). BLOCKING
-   while the session's first show of that hero uploads the cell.
-   Ignored with no stage up. PLANNING_COMBAT_EN_EVENTS.md (V1). */
+/* 0x46 free — was BATTLE (C1-V2). A battle is a COMPOSED SCREEN now:
+   the author arranges the monsters visually, the screen's script names
+   them and calls his event library (PLANNING_COMBAT_GENERIQUE.md, G2). */
+#define VM_OP_BTLPOSE 0x47 /* slot (u8 0-3), src (u8: 0 constant,
+   1 variable), entry (u8), x (u8), y (u8),
+   op (u8: 1 show, 0 hide) — poses a 32x32 battler cell on the composed
+   screen (chars 448+, OAM 104-107). `entry` is a row of the database's
+   `heroes` table, whose battler cell datagen composed from its charset
+   column; `slot` is one of the 4 VRAM/palette slots. Pointing a slot at
+   another entry swaps the character — with src = 1 the entry comes from
+   a VARIABLE, which is how a party is data and not a fixed list.
+   BLOCKING while the cell uploads. Ignored with no stage up.
+   PLANNING_COMBAT_EN_EVENTS.md (V1), PLANNING_COMBAT_GENERIQUE.md (G1). */
 #define VM_OP_POPUP 0x48 /* src (u8: 0 constant, 1 variable), value
    (u16), x (u8), y (u8) — a number in white 8x8 digits at screen
    (x,y), risen then gone (the C4 damage popup). NON-blocking; one at

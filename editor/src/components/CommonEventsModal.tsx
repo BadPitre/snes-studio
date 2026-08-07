@@ -32,7 +32,6 @@ interface Props {
   vigNames: string[]; // vignette stems (B5)
   animNames: string[]; // names of the frame-by-frame animations (A1)
   screenNames: string[];
-  troopNames?: string[]; // C5 — "Lancer un combat" picker // composed screens (B6bis)
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;
@@ -196,7 +195,6 @@ export default function CommonEventsModal(props: Props) {
                   vigNames={props.vigNames}
                   animNames={props.animNames}
                   screenNames={props.screenNames}
-                  troopNames={props.troopNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}
                 />

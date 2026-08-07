@@ -18,7 +18,6 @@
 #include "ui_overlay.h" /* SHOWUI: widget visibility (Ph. 12) */
 #include "picture.h" /* SHOWPIC/HIDEPIC: full-screen pictures (S3) */
 #include "weather.h" /* WEATHER: particle weather (S13) */
-#include "btl.h" /* BATTLE: the battle screen (C1) */
 #include "btlprim.h" /* BTLPOSE/POPUP/CLOCK/TARGETSEL: the battle
                         primitives (V1) */
 #include "hdmafx.h"  /* WAVE: screen ripple (S14) */
@@ -810,22 +809,16 @@ static void vm_step(void)
         vm.wait_mode = VM_WAIT_M7T;
       break;
 
-    case VM_OP_BATTLE: /* battle screen (C1) */
-      /* C4: the command ENDS the calling script, it does not wait. The
-         battle's close is an internal warp, which kills any running
-         script anyway (the engine's invariant, cf. VM_OP_WARP) — so
-         nothing after `battle` ever ran. Freeing the VM here is what
-         lets the troop's HOOKS run on it while the battle waits. */
-      btl_request(fetch8());
-      if (btl_active())
-        vm.active = 0;
-      break;
 
     case VM_OP_BTLPOSE: /* battler pose (V1) — BLOCKING on the upload */
-      var = fetch8();   /* hero */
-      val = fetch8();   /* x */
-      idx16 = fetch8(); /* y */
-      btlprim_pose(var, val, (u8)idx16, fetch8());
+      var = fetch8();   /* slot 0-3 */
+      op = fetch8();    /* entry source: 0 constant, 1 variable */
+      val = fetch8();   /* entry in the heroes table (or variable no) */
+      if (op)
+        val = (u8)vm.vars16[val];
+      idx16 = fetch8(); /* x */
+      op = fetch8();    /* y */
+      btlprim_pose(var, val, (u8)idx16, op, fetch8());
       if (btlprim_busy())
         vm.wait_mode = VM_WAIT_BTLUP;
       break;

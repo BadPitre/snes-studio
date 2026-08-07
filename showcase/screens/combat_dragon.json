@@ -1,0 +1,48 @@
+{
+ "backdrop": "fond_prairie",
+ "slots": [
+  {
+   "slot": 1,
+   "pic": "dragon",
+   "x": 40,
+   "y": 48,
+   "name": "dragon"
+  }
+ ],
+ "scripts": [
+  {
+   "name": "principal",
+   "trigger": "auto",
+   "commands": [
+    {
+     "c": "rem",
+     "text": "Combat : le dragon, seul. Le 2e emplacement reste vide (65535)."
+    },
+    {
+     "c": "rem",
+     "text": "Les monstres de l'ecran, nommes pour la bibliotheque (var 252+)."
+    },
+    {
+     "c": "db_entry",
+     "table": "monsters",
+     "entry": "dragon",
+     "dst": 252
+    },
+    {
+     "c": "var",
+     "n": 253,
+     "op": "=",
+     "value": 65535
+    },
+    {
+     "c": "rem",
+     "text": "...puis la bibliotheque prend le combat (combat_tour)."
+    },
+    {
+     "c": "call",
+     "n": 7
+    }
+   ]
+  }
+ ]
+}

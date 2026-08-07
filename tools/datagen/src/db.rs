@@ -77,8 +77,11 @@ fn field_size(ty: &str) -> Result<usize> {
         "u16" | "s16" | "text_id" => 2,
         // Project resources by NAME become a u8 index in ROM: the order
         // of the project.json lists, the same one the SHOWPIC/PLAYSFX/
-        // PLAYBGM opcodes use. 0xFF means absent (optional).
-        "picture" | "sound" | "music" => 1,
+        // PLAYBGM opcodes use. 0xFF means absent (optional). `charset`
+        // is the same thing for a sprite sheet block — build modules
+        // read it by name (the battler cells), so its ROM byte is the
+        // block index.
+        "picture" | "sound" | "music" | "charset" => 1,
         // Build-time data (C4): validated by the schema's presence, read
         // raw by build modules (battle's `ai`), never packed into ROM.
         "build" => 0,
@@ -132,8 +135,8 @@ impl Db {
     }
 
     /// An INTEGER field of one entry, raw from the TOML (or the schema
-    /// default when the entry omits it). For build-time consumers — the
-    /// battle module bakes monster stats into troop tables.
+    /// default when the entry omits it). For build-time consumers (the
+    /// battle module reads a hero's charset column).
     pub fn field_int(&self, table: usize, entry: usize, field: &str) -> Option<i64> {
         let e = self.entries[table].get(entry)?;
         if let Some(v) = e.get(field).and_then(|v| v.as_integer()) {
@@ -222,7 +225,7 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
                     sc.name, f.name
                 );
             }
-            let is_res = matches!(f.ty.as_str(), "picture" | "sound" | "music");
+            let is_res = matches!(f.ty.as_str(), "picture" | "sound" | "music" | "charset");
             if f.optional && !(f.ty.starts_with("ref:") || f.ty == "text_id" || is_res) {
                 bail!(
                     "schema {}, champ « {} » : optional est reserve aux \
@@ -304,6 +307,7 @@ pub struct ResNames<'a> {
     pub pictures: &'a [String],
     pub sounds: &'a [String],
     pub musics: &'a [String],
+    pub charsets: &'a [String],
 }
 
 pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> Result<()> {
@@ -373,11 +377,12 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                         }
                         blob.push(byte);
                     }
-                    "picture" | "sound" | "music" => {
+                    "picture" | "sound" | "music" | "charset" => {
                         // name -> index in the project list (0xFF absent)
                         let (list, what): (&[String], &str) = match f.ty.as_str() {
                             "picture" => (res.pictures, "picture"),
                             "sound" => (res.sounds, "son"),
+                            "charset" => (res.charsets, "planche de sprites"),
                             _ => (res.musics, "musique"),
                         };
                         match raw.and_then(|v| v.as_str()) {

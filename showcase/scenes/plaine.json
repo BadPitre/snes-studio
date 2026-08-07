@@ -841,8 +841,10 @@
        "music": "battle"
       },
       {
-       "c": "battle",
-       "troop": "gobelins"
+       "c": "screen",
+       "name": "combat_gobelins",
+       "dur": 30,
+       "trans": "mosaic"
       }
      ]
     }
@@ -907,8 +909,10 @@
        "music": "battle"
       },
       {
-       "c": "battle",
-       "troop": "dragon_seul"
+       "c": "screen",
+       "name": "combat_dragon",
+       "dur": 30,
+       "trans": "mosaic"
       }
      ]
     },

@@ -101,7 +101,6 @@ const OP_M7CLOSE: u8 = 0x42;
 const OP_M7VIEW: u8 = 0x43;
 const OP_M7ROT: u8 = 0x44;
 const OP_M7TURN: u8 = 0x45;
-const OP_BATTLE: u8 = 0x46;
 const OP_BTLPOSE: u8 = 0x47;
 const OP_POPUP: u8 = 0x48;
 const OP_CLOCK: u8 = 0x49;
@@ -301,10 +300,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7ROT" => 2,
         // M7TURN <cran> <frames> <flags> — animated world map rotation
         "M7TURN" => 4,
-        // BATTLE <groupe> — opens the battle screen (C1), blocking
-        "BATTLE" => 2,
-        // BTLPOSE <hero 0-3> <x> <y> <op 0|1> — battler pose (V1)
-        "BTLPOSE" => 5,
+        // BTLPOSE <slot 0-3> <src 0|1> <entry> <x> <y> <op 0|1>
+        "BTLPOSE" => 7,
         // POPUP <src 0|1> <value u16> <x> <y> — digit popup (V1)
         "POPUP" => 6,
         // CLOCK <base> <n 0-8> — the gauge clock (V1)
@@ -1009,24 +1006,19 @@ pub fn assemble(
                 code.push(OP_M7ROT);
                 code.push(a);
             }
-            // BATTLE <groupe> — the battle screen (C1). Blocking: the
-            // event resumes when the battle closes.
-            "BATTLE" => {
-                if argc != 1 { bail!("BATTLE <groupe>"); }
-                code.push(OP_BATTLE);
-                code.push(parse_u8(args[0])?);
-            }
-            // BTLPOSE <hero 0-3> <x> <y> <op 0|1> — a hero's battler
-            // cell on the composed screen (V1); blocking on the upload
+            // BTLPOSE <slot 0-3> <entry> <x> <y> <op 0|1> — a battler
+            // cell on the composed screen (V1/G1); blocking on the upload
             "BTLPOSE" => {
-                if argc != 4 { bail!("BTLPOSE <hero> <x> <y> <op>"); }
+                if argc != 6 { bail!("BTLPOSE <slot> <src> <entry> <x> <y> <op>"); }
                 let h = parse_u8(args[0])?;
-                if h > 3 { bail!("BTLPOSE : héros {} — 4 au maximum (0-3)", h); }
+                if h > 3 { bail!("BTLPOSE : emplacement {} — 4 au maximum (0-3)", h); }
                 code.push(OP_BTLPOSE);
                 code.push(h);
                 code.push(parse_u8(args[1])?);
                 code.push(parse_u8(args[2])?);
                 code.push(parse_u8(args[3])?);
+                code.push(parse_u8(args[4])?);
+                code.push(parse_u8(args[5])?);
             }
             // POPUP <src 0|1> <value u16> <x> <y> — a number in digits
             // over the composed screen (V1)

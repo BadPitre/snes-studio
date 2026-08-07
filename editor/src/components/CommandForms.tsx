@@ -1469,41 +1469,6 @@ export function formScreen(cmd: Extract<Command, { c: "screen" }>, x: FormCtx): 
   return { body, valid };
 }
 
-export function formBattle(cmd: Extract<Command, { c: "battle" }>, x: FormCtx): FormBody {
-  let body: JSX.Element | null = null;
-  const onChange = x.p.onChange;
-  const troops = x.p.troopNames ?? [];
-  const valid = cmd.troop !== "" && troops.includes(cmd.troop);
-  body = (
-    <>
-      <label>
-        Groupe de monstres (Tools → Combat → Groupes de monstres)
-        <select
-          value={cmd.troop}
-          onChange={(e) => onChange({ ...cmd, troop: e.target.value })}
-        >
-          <option value="">(choisir un groupe…)</option>
-          {troops.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-          {cmd.troop && !troops.includes(cmd.troop) && (
-            <option value={cmd.troop}>{cmd.troop} (?)</option>
-          )}
-        </select>
-      </label>
-      <span className="hint">
-        Ouvre l'écran de combat sur ce groupe : fond, monstres, équipe
-        et menu viennent des données (Groupes de monstres, Équipe,
-        Database). La commande TERMINE ce script — la suite du combat
-        s'écrit dans une page AUTO conditionnée sur le switch 500
-        (« Combat termine ») : l'issue est dans la variable 248
-        (1 victoire, 2 défaite, 3 fuite), les gains dans 249 (XP) et
-        250 (or).
-      </span>
-    </>
-  );
-  return { body, valid };
-}
 
 export function formScreenCall(cmd: Extract<Command, { c: "screen_call" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
@@ -2649,6 +2614,78 @@ export function formCall(cmd: Extract<Command, { c: "call" }>, x: FormCtx): Form
   return { body, valid };
 }
 
+export function formDbEntry(cmd: Extract<Command, { c: "db_entry" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const entries = x.p.db?.entries[cmd.table] ?? [];
+  const valid =
+    !!x.p.db?.schemas.some((s) => s.name === cmd.table) &&
+    entries.some((e) => e.id === cmd.entry) &&
+    cmd.dst >= 0 && cmd.dst < 256;
+  const body = !x.p.db ? (
+    <span className="hint" style={{ color: "#ff7070" }}>
+      Le projet n'a pas de database — créer une table via Tools → Database…
+    </span>
+  ) : (
+    <>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <label>
+          Table
+          <select
+            value={cmd.table}
+            autoFocus
+            onChange={(e) => {
+              const ns = e.target.value;
+              onChange({
+                ...cmd,
+                table: ns,
+                entry: x.p.db!.entries[ns]?.[0]?.id ?? "",
+              });
+            }}
+          >
+            {x.p.db.schemas.map((s) => (
+              <option key={s.name} value={s.name}>{s.title || s.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Fiche
+          <select
+            value={cmd.entry}
+            onChange={(e) => onChange({ ...cmd, entry: e.target.value })}
+          >
+            {entries.length === 0 && <option value="">(table vide)</option>}
+            {entries.map((en) => (
+              <option key={en.id} value={en.id}>{en.name || en.id}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Variable de destination
+        <div className="row" style={{ gap: 4 }}>
+          <input
+            type="number" min={0} max={255} value={cmd.dst}
+            onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
+          />
+          <button className="browse" title="Choisir dans la liste des variables"
+            onClick={() =>
+              x.p.onPickVar("var", cmd.dst, (n) => onChange({ ...cmd, dst: n }))
+            }>
+            …
+          </button>
+        </div>
+        <span className="hint">
+          Écrit le NUMÉRO de la fiche dans la variable — de quoi la
+          désigner ensuite (« Lire la database » depuis une variable,
+          « Poser un combattant »…). Le numéro est résolu à la
+          génération : renommer ou déplacer la fiche ne casse rien.
+        </span>
+      </label>
+    </>
+  );
+  return { body, valid };
+}
+
 export function formDbRead(cmd: Extract<Command, { c: "db_read" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
   let valid = true;
@@ -2897,16 +2934,37 @@ export function formBtlPose(cmd: Extract<Command, { c: "btl_pose" }>, x: FormCtx
     <>
       <div className="row">
         <label>
-          Héros (ordre de l'Équipe)
+          Emplacement
           <select
-            value={cmd.hero}
-            onChange={(e) => onChange({ ...cmd, hero: Number(e.target.value) })}
+            value={cmd.slot}
+            onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
           >
             {[0, 1, 2, 3].map((v) => (
               <option key={v} value={v}>{v + 1}</option>
             ))}
           </select>
         </label>
+        {cmd.show && (
+          <label>
+            Combattant (table heroes)
+            <select
+              value={cmd.entry_var !== undefined ? "@var" : String(cmd.entry ?? "")}
+              onChange={(e) => {
+                const v = e.target.value;
+                const { entry: _e, entry_var: _v, ...rest } = cmd;
+                if (v === "@var") onChange({ ...rest, entry_var: 0 });
+                else if (v === "") onChange(rest);
+                else onChange({ ...rest, entry: v });
+              }}
+            >
+              <option value="">(même numéro que l'emplacement)</option>
+              <option value="@var">Fiche désignée par une variable…</option>
+              {(x.p.db?.entries["heroes"] ?? []).map((en) => (
+                <option key={en.id} value={en.id}>{en.name || en.id}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Action
           <select
@@ -2918,6 +2976,28 @@ export function formBtlPose(cmd: Extract<Command, { c: "btl_pose" }>, x: FormCtx
           </select>
         </label>
       </div>
+      {cmd.show && cmd.entry_var !== undefined && (
+        <label>
+          Variable qui porte le n° de la fiche
+          <div className="row" style={{ gap: 4 }}>
+            <input
+              type="number" min={0} max={255} value={cmd.entry_var}
+              onChange={(e) => onChange({ ...cmd, entry_var: Number(e.target.value) })}
+            />
+            <button className="browse" title="Choisir dans la liste des variables"
+              onClick={() =>
+                x.p.onPickVar("var", cmd.entry_var ?? 0, (n) =>
+                  onChange({ ...cmd, entry_var: n }))
+              }>
+              …
+            </button>
+          </div>
+          <span className="hint">
+            L'équipe est une donnée : remplir cette variable avec
+            « Numéro d'une fiche » change le combattant posé.
+          </span>
+        </label>
+      )}
       {cmd.show && (
         <div className="row">
           <label>
@@ -2941,8 +3021,8 @@ export function formBtlPose(cmd: Extract<Command, { c: "btl_pose" }>, x: FormCtx
         comme en combat) sur l'écran composé — la colonne de droite
         classique : X 200, Y 40 + 32 par héros. La première pose
         transfère la cellule (le script attend quelques frames) ;
-        les suivantes sont immédiates. Nécessite une Équipe
-        (data/heroes.toml) et un écran composé ouvert.
+        les suivantes sont immédiates. Nécessite une table
+        « heroes » (Tools → Database) et un écran composé ouvert.
       </span>
     </>
   );

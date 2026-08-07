@@ -81,3 +81,66 @@ and nothing that knows the word "combat".**
   comments.
 
 *G0 ends here. G1 starts on the author's go.*
+
+## 5. G1 + G2 — shipped
+
+Delivered in one pass, because the author's instruction ("plus le menu
+combat dans Tools") removes both windows at once and the two windows
+are the two milestones.
+
+**The Tools menu no longer contains the word Combat.** The Groupes and
+Équipe entries, `TroopsModal.tsx`, `PartyModal.tsx` and `battle.ts` are
+deleted. What they held is ordinary project data now.
+
+**Heroes are a database table.** A new `charset` field type (datagen
+`db.rs`, the Schema editor, the Database window's resource picker)
+names a block of the sprite sheet; datagen composes that entry's 32x32
+battler cell at build time and emits nothing else about it. Every other
+column — max_hp, attack, whatever the author invents — is his data,
+read by his events. `battle.rs` shrank from 765 lines to ~280: battler
+cells and the popup digit sheet, nothing more. heroes.toml, troops.toml
+and skills.toml as FORMATS are gone; `heroes.toml` is now an ordinary
+`[[entry]]` data file of the `heroes` table.
+
+**A battle is a composed screen.** `btl.c`, `btl.h`, the BATTLE opcode
+(0x46, freed) and the "Lancer un combat" command are deleted; the
+engine has no battle opener left. The author arranges his monsters
+visually in Tools > Écrans, the screen's script names their database
+entries and calls his library. The showcase's three battles became two
+screens (`combat_gobelins`, `combat_dragon`); the starter kit ships
+`combat_slimes`.
+
+**Two new generic tools carry the weight:**
+
+- **« Numéro d'une fiche » (`db_entry`)** — writes a table row's INDEX
+  into a variable. No opcode: datagen resolves the name at build time
+  and emits a plain assignment, so naming a row never becomes typing a
+  number. This is what lets a screen say "these are gobelins" and a
+  script say "this hero is in place 1".
+- **BTLPOSE takes a slot AND an entry**, the entry optionally from a
+  VARIABLE. The four slots are what VRAM allows (OBJ char rows 28-31,
+  OBJ palettes 0-3); WHICH entry a slot shows is data. Pointing a slot
+  at another row swaps the character — a party is variables now, not a
+  window.
+
+**The library grew one common event**, `combat_preparer`: it DBREADs
+each party slot's hero row into the working variables (PV 240+, PM
+232+, stats 208-227) that the widgets bind to. The opener's reserved
+pour is gone; those numbers are library conventions, written by library
+events the author can read and change.
+
+**Honest costs, as named in §3.** Random encounters lost their
+one-liner: one screen per arrangement, or a chooser script. Projects
+written before G1 get French migration errors on `battle` pointing at
+the screen recipe; `btl_pose`'s old `hero` field is still accepted as
+the slot, so older scripts compile.
+
+**Verified in the emulator**, frame by frame: the showcase's gobelin
+fight opens as a screen, poses both monsters and both battlers from the
+`heroes` table, shows Arven 300 / Nadia 240 read by `combat_preparer`,
+lands a 16-damage popup on an attack and fires the wounded-monster
+hook. The scaffolded fresh project fights its slimes with one battler
+and PV 50. The pixel regression is unchanged.
+
+*The Tools menu now holds scenes, events, screens, database, interface,
+resources — and nothing that knows the word "combat".*

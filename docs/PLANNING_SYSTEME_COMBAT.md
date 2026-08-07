@@ -1,5 +1,12 @@
 # Battle system — design document (C0)
 
+> **Superseded in part.** C1-C6 built a battle MACHINE in C. V1-V4
+> (`PLANNING_COMBAT_EN_EVENTS.md`) moved every decision into events,
+> and G1-G2 (`PLANNING_COMBAT_GENERIQUE.md`) dissolved the last
+> combat-specific tools: heroes are a database table, a battle is a
+> composed screen. Read this for the reasoning; read the other two
+> for what the code does today.
+
 Status: DESIGN — no code yet. This document plays the role
 PLANNING_SYSTEME_MODE7.md played for the world map: decide the
 architecture on paper, cut it into gated milestones, and write down the

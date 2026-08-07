@@ -20,6 +20,7 @@ interface Props {
   pictures: string[];
   sounds: string[];
   musics: string[];
+  charsets: string[]; // G1 — charset fields (a sprite sheet block by NAME)
   skillIds?: string[]; // C5 — data/skills.toml, for the monsters' `ai`
   // removed: deleted tables (their files will be taken off the disk)
   onOk: (db: Database, removed: string[]) => void;
@@ -294,6 +295,29 @@ export default function DatabaseModal(props: Props) {
               <option key={t} value={t}>
                 {t}
               </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    if (f.type === "charset") {
+      // G1: a sprite sheet BLOCK by name (project.charsets) — datagen
+      // resolves it to the block index, and composes the battler cell
+      // from it for the entries a battle poses.
+      const v = String(cur[f.name] ?? "");
+      const broken = v !== "" && !props.charsets.includes(v);
+      return (
+        <label key={f.name} title={tip}>
+          {f.name} (planche de sprites)
+          <select
+            style={broken ? { outline: "1px solid #ff7070" } : undefined}
+            value={v}
+            onChange={(e) => set(e.target.value === "" ? undefined : e.target.value)}
+          >
+            {(f.optional || v === "") && <option value="">(aucune)</option>}
+            {broken && <option value={v}>⚠ {v} (introuvable)</option>}
+            {props.charsets.map((c) => (
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
         </label>
