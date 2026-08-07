@@ -66,6 +66,11 @@ export interface UiNode {
   font?: string;
   // list (B6): items of the cursor menu, one per row
   items?: string[];
+  // list: visible rows — fewer than the item count makes the list
+  // SCROLL (an extra column carries the ^ / v indicators)
+  rows?: number;
+  // list: icon from the ui.icons sheet used as the cursor instead of '>'
+  cursor_icon?: number;
 }
 
 // Dialogue box style (S1) — style 0 (the default) = theme + [message]
@@ -193,11 +198,15 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
     case "list": {
-      // AUTO size: 1 cursor column + the longest item (+ the frame)
+      // AUTO size: 1 cursor column + the longest item (+ the frame);
+      // `rows` below the item count = a SCROLLING list, one extra
+      // column for the ^ / v indicators
       const items = n.items ?? [];
       const f = (n.frame ?? true) ? 2 : 0;
       const wmax = items.reduce((m, t) => Math.max(m, t.length), 1);
-      return [1 + wmax + f, Math.max(items.length, 1) + f];
+      const total = Math.max(items.length, 1);
+      const vis = n.rows && n.rows >= 1 && n.rows < total ? n.rows : total;
+      return [1 + wmax + (vis < total ? 1 : 0) + f, vis + f];
     }
   }
 }
@@ -377,13 +386,17 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       }
       case "list": {
         const items = n.items ?? [];
-        if (items.length < 2 || items.length > 16)
-          errors.push(`« ${n.id} » : la liste demande 2 à 16 items`);
+        if (items.length < 2 || items.length > 32)
+          errors.push(`« ${n.id} » : la liste demande 2 à 32 items`);
         for (const t of items)
           if (!t || !/^[ -~]+$/.test(t)) errors.push(`« ${n.id} » : item vide ou non-ASCII`);
+        if (n.cursor_icon !== undefined) needIcon({ ...n, icon: n.cursor_icon }, 1);
+        // the unused pad flag says "the cursor is an icon" (uigen likewise)
         emit({
           x, y, w: size[0], h: size[1], kind: 7, frame: n.frame ?? true,
-          ...base, text: items.join("\n"),
+          ...base, icon: n.cursor_icon ?? 0,
+          pad: n.cursor_icon !== undefined ? 1 : 0,
+          text: items.join("\n"),
         });
         break;
       }
@@ -505,6 +518,8 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.dir === "v") s += `dir = "v"\n`;
     if (n.pad) s += `pad = ${n.pad}\n`;
     if (n.items) s += `items = [${n.items.map((t) => JSON.stringify(t)).join(", ")}]\n`;
+    if (n.rows) s += `rows = ${n.rows}\n`;
+    if (n.cursor_icon !== undefined) s += `cursor_icon = ${n.cursor_icon}\n`;
     if (n.align === "left") s += `align = "left"\n`;
     if (!n.parent && n.visible) s += `visible = true\n`;
     if (!n.parent && n.font) s += `font = ${JSON.stringify(n.font)}\n`;

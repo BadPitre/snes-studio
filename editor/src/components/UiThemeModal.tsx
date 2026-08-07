@@ -333,12 +333,18 @@ export default function UiThemeModal(props: Props) {
           break;
         }
         case 7: {
-          // cursor list (B6): one item per row, '>' on the first
+          // cursor list (B6): one item per row, the cursor ('>' or an
+          // icon — pad flag) on the first; a scrolling list shows the
+          // 'v' indicator (the preview always sits at the top)
           const items = p.text.split("\n");
           for (let k = 0; k < items.length && k < ch; k++) {
-            if (k === 0) text(">", x0, y0 + k, 1, pf);
+            if (k === 0) {
+              if (p.pad) icon(p.icon, x0 * 8, y0 * 8);
+              else text(">", x0, y0, 1, pf);
+            }
             text(items[k], x0 + 1, y0 + k, cw - 1, pf);
           }
+          if (items.length > ch) text("v", x0 + cw - 1, y0 + ch - 1, 1, pf);
           break;
         }
       }
@@ -1160,7 +1166,8 @@ export default function UiThemeModal(props: Props) {
                     </label>
                   )}
                   {sel.type === "list" && (
-                    <label>Items (un par ligne, 2-16)
+                    <>
+                    <label>Items (un par ligne, 2-32)
                       <textarea rows={6} value={(sel.items ?? []).join("\n")}
                         onChange={(e) =>
                           patchNode(sel.id, {
@@ -1173,6 +1180,42 @@ export default function UiThemeModal(props: Props) {
                         dans une variable, B = 255 (annulé).
                       </span>
                     </label>
+                    {num("Lignes visibles (vide = toutes)", sel.rows ?? "", (v) =>
+                      patchNode(sel.id, { rows: v && v >= 1 ? v : undefined }),
+                      { min: 1, max: 26, empty: true })}
+                    {(sel.rows ?? 0) >= 1 && (sel.rows ?? 0) < (sel.items ?? []).length && (
+                      <span className="hint">
+                        Liste déroulante : {(sel.items ?? []).length} items sur {sel.rows} lignes —
+                        le curseur fait défiler, les flèches ^ / v s'affichent au bord.
+                      </span>
+                    )}
+                    <label>Curseur
+                      <select
+                        value={sel.cursor_icon !== undefined ? "icon" : "text"}
+                        onChange={(e) =>
+                          patchNode(sel.id, {
+                            cursor_icon: e.target.value === "icon" ? 0 : undefined,
+                          })
+                        }>
+                        <option value="text">Chevron « &gt; » (fonte)</option>
+                        <option value="icon" disabled={iconCount === 0}>
+                          Icône de la planche{iconCount === 0 ? " (aucune planche)" : ""}
+                        </option>
+                      </select>
+                    </label>
+                    {sel.cursor_icon !== undefined && iconCount > 0 && (
+                      <div className="iconpick">
+                        {iconUrls.map((u, i) => (
+                          <button key={i}
+                            className={i === sel.cursor_icon ? "sel" : undefined}
+                            title={`icône ${i}`}
+                            onClick={() => patchNode(sel.id, { cursor_icon: i })}>
+                            <img src={u} alt={`icône ${i}`} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    </>
                   )}
                   {(sel.type === "value" || (sel.type === "image" && !sel.pic) || sel.type === "icon_value") &&
                     num(

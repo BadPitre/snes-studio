@@ -21,7 +21,11 @@
 //!     type = "list"     cursor menu: items = ["Attack", ...], frame
 //!                       defaults to true, size is AUTO (one cursor
 //!                       column plus the longest item) — driven by the
-//!                       "choose from a list" event command
+//!                       "choose from a list" event command.
+//!                       rows = n shows only n rows: the list SCROLLS
+//!                       (one extra column for the ^ / v indicators);
+//!                       cursor_icon = n replaces the '>' cursor with
+//!                       an icon from the ui.icons sheet
 //!     parent = "id"     attaches to a container; no parent means a ROOT,
 //!                       which then requires pos = [x, y]
 //!
@@ -178,6 +182,14 @@ pub struct Node {
     /// list: the menu items, one per row.
     #[serde(default)]
     pub items: Option<Vec<String>>,
+    /// list: visible rows — fewer than the item count makes the list
+    /// scroll (an extra column carries the ^ / v indicators).
+    #[serde(default)]
+    pub rows: Option<i64>,
+    /// list: icon from the ui.icons sheet drawn as the cursor instead
+    /// of the '>' glyph.
+    #[serde(default)]
+    pub cursor_icon: Option<u8>,
 }
 
 /// A flattened primitive: what the engine actually draws.
@@ -242,6 +254,8 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         visible: Some(true), // compat W1 : les overlays plats restent visibles
         font: None,
         items: None,
+        rows: None,
+        cursor_icon: None,
     }
 }
 
@@ -368,11 +382,19 @@ impl<'a> Flattener<'a> {
             "icon_value" => [n.width.unwrap_or(4).max(2), 1],
             "list" => {
                 // AUTO size: one cursor column plus the longest item, one
-                // row per item, +2 in each direction when framed
+                // row per item, +2 in each direction when framed. `rows`
+                // below the item count = a SCROLLING list, one extra
+                // column for the ^ / v indicators.
                 let items = n.items.clone().unwrap_or_default();
                 let f = if n.frame.unwrap_or(true) { 2 } else { 0 };
                 let wmax = items.iter().map(|t| t.chars().count() as i64).max().unwrap_or(1);
-                [1 + wmax + f, items.len().max(1) as i64 + f]
+                let total = items.len().max(1) as i64;
+                let vis = match n.rows {
+                    Some(r) if r >= 1 && r < total => r,
+                    _ => total,
+                };
+                let ind = if vis < total { 1 } else { 0 };
+                [1 + wmax + ind + f, vis + f]
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
         })
@@ -564,8 +586,8 @@ impl<'a> Flattener<'a> {
             }
             "list" => {
                 let items = n.items.clone().unwrap_or_default();
-                if items.len() < 2 || items.len() > 16 {
-                    bail!("nœud « {} » : list demande 2 à 16 items", n.id);
+                if items.len() < 2 || items.len() > 32 {
+                    bail!("nœud « {} » : list demande 2 à 32 items", n.id);
                 }
                 for t in &items {
                     if t.is_empty() || !ascii_ok(t) {
@@ -575,10 +597,37 @@ impl<'a> Flattener<'a> {
                         bail!("nœud « {} » : item multi-lignes", n.id);
                     }
                 }
+                if let Some(r) = n.rows {
+                    if r < 1 {
+                        bail!("nœud « {} » : rows = {} invalide (minimum 1)", n.id, r);
+                    }
+                }
+                // the pad flag (unused by lists) says "the cursor is an
+                // icon" — the icon field then carries which one
+                let (cur_icon, cur_flag) = match n.cursor_icon {
+                    Some(ic) => {
+                        if self.icon_count == 0 {
+                            bail!(
+                                "nœud « {} » : cursor_icon demande une planche d'icones — \
+                                 ajouter \"icons\" dans le bloc \"ui\" de project.json \
+                                 (Gestionnaire de ressources, IconSet)",
+                                n.id
+                            );
+                        }
+                        if ic as usize >= self.icon_count {
+                            bail!(
+                                "nœud « {} » : cursor_icon {} hors planche ({} icones)",
+                                n.id, ic, self.icon_count
+                            );
+                        }
+                        (ic, 1)
+                    }
+                    None => (0, 0),
+                };
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
-                    kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: 0,
-                    vertical: false, pad: 0, max: 0, max_var: None, bg: in_window,
+                    kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: cur_icon,
+                    vertical: false, pad: cur_flag, max: 0, max_var: None, bg: in_window,
                     widget: 0, text: items.join("\n"), font: None,
                 })?;
             }

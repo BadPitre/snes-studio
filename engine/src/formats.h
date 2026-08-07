@@ -442,7 +442,10 @@
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at
-                              the top; up/down navigate and wrap, A confirms
+                              the top; a list with more items than content
+                              rows SCROLLS to follow the cursor (^ / v
+                              hints — see ui_overlay.c); up/down navigate
+                              and wrap, A confirms
                               (var = index 0..n-1), B cancels (var = 255)
                               when flags bit 0 is set. flags bit 1: the
                               widget STAYS shown on close (multi-panel,

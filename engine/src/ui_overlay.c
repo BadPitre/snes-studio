@@ -14,7 +14,11 @@
  *   6 image            — a run of icons from the sheet — STATIC
  *   7 list             — cursor menu (B6): items in ui_ov_label
  *                        separated by '\n', 1 column reserved for the
- *                        '>' cursor — driven by the LISTSEL opcode
+ *                        cursor ('>', or an icon when ui_ov_pad is set —
+ *                        ui_ov_icon says which) — driven by the LISTSEL
+ *                        opcode. More items than content rows = the
+ *                        window SCROLLS (ls_top) with ^ / v indicators
+ *                        in the last column
  *   8 image (picture)  — a project PICTURE laid into the UI layer:
  *                        datagen converts it to 2bpp chars brought back
  *                        to the font's 4 colours (no free palette: the
@@ -85,7 +89,8 @@ static char ov_num[5];
 /* the ACTIVE cursor list (B6) — only one at a time, driven by the VM
    (LISTSEL). Explicit init: tcc-816 does not clear the BSS. */
 static u8 ls_prim = 0xFF; /* type 7 primitive in progress (0xFF = none) */
-static u8 ls_sel = 0;     /* row under the cursor */
+static u8 ls_sel = 0;     /* ITEM under the cursor (absolute index) */
+static u8 ls_top = 0;     /* first visible item (scrolling list) */
 
 /* a widget's current maximum: compiled constant or variable */
 static u16 ov_max(u8 i)
@@ -215,12 +220,21 @@ static void ov_draw(u8 i)
         ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
     break;
 
-  case 7: /* list (B6): one item per row, column 0 = the '>' cursor */
+  case 7: /* list (B6): one item per row, column 0 = the cursor ('>'
+             or an icon when ui_ov_pad is set). The active list scrolls
+             when the items outnumber the rows: ls_top items are
+             skipped and the last column carries the ^ / v hints. */
     l = ui_ov_label[i];
+    k = (i == ls_prim) ? ls_top : 0;
+    while (k && *l) /* skip the items scrolled out above */
+      if (*l++ == '\n')
+        k--;
     for (cy = 0; cy < h; cy++)
     {
-      if (i == ls_prim && cy == ls_sel)
-        ui_map[base + (u16)cy * 32 + x] = OV_ENTRY(OV_FCHAR('>'));
+      if (i == ls_prim && (u8)(cy + ls_top) == ls_sel)
+        ui_map[base + (u16)cy * 32 + x] =
+            ui_ov_pad[i] ? OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i])
+                         : OV_ENTRY(OV_FCHAR('>'));
       cx = (u8)(x + 1);
       while (*l && *l != '\n' && cx < (u8)(x + w))
         ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*l++));
@@ -229,8 +243,17 @@ static void ov_draw(u8 i)
       if (*l == '\n')
         l++;
       else
-        break; /* no more items: the remaining rows keep the background */
+      {
+        l = ""; /* no more items: the remaining rows keep the background */
+        break;
+      }
     }
+    /* scroll hints in the last content column (a scrolling list is one
+       column wider precisely so they never cover an item) */
+    if (i == ls_prim && ls_top)
+      ui_map[base + x + w - 1] = OV_ENTRY(OV_FCHAR('^'));
+    if (*l) /* items remain below the window */
+      ui_map[base + (u16)(h - 1) * 32 + x + w - 1] = OV_ENTRY(OV_FCHAR('v'));
     break;
 
   case 3: /* icon_value: icon + right-aligned counter, zero padded */
@@ -351,12 +374,12 @@ void overlay_show(u8 widget, u8 on)
 
 /* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
 
-/* number of items in the label (separated by '\n'), capped to the
-   widget's content rows — the cursor never lands on an empty row */
+/* number of items in the label (separated by '\n') — the FULL count:
+   when it exceeds the widget's content rows the list scrolls (ls_top),
+   so the cursor still never lands on an empty row */
 static u8 ov_list_count(u8 i)
 {
   const char *l = ui_ov_label[i];
-  u8 rows = (u8)(ui_ov_h[i] - (ui_ov_frame[i] << 1));
   u8 n = 1;
 
   if (!*l)
@@ -364,7 +387,7 @@ static u8 ov_list_count(u8 i)
   while (*l)
     if (*l++ == '\n')
       n++;
-  return n < rows ? n : rows;
+  return n;
 }
 
 u8 overlay_list_open(u8 widget)
@@ -377,6 +400,7 @@ u8 overlay_list_open(u8 widget)
     {
       ls_prim = i;
       ls_sel = 0;
+      ls_top = 0;
       overlay_show(widget, 1); /* redraws — the cursor starts at the top */
       return ov_list_count(i);
     }
@@ -386,9 +410,17 @@ u8 overlay_list_open(u8 widget)
 
 void overlay_list_cursor(u8 sel)
 {
+  u8 rows;
+
   if (ls_prim == 0xFF)
     return;
   ls_sel = sel;
+  /* keep the cursor inside the window: scroll the view when needed */
+  rows = (u8)(ui_ov_h[ls_prim] - (ui_ov_frame[ls_prim] << 1));
+  if (ls_sel < ls_top)
+    ls_top = ls_sel;
+  else if (rows && ls_sel >= (u8)(ls_top + rows))
+    ls_top = (u8)(ls_sel - rows + 1);
   ov_draw(ls_prim); /* small rect: a full redraw is simpler */
 }
 
