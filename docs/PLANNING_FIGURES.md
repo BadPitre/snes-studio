@@ -113,6 +113,30 @@ wait-then-revert three times per character.
 index at build time, exactly as it does for widgets, screens, animations
 and database rows. The engine plays state number N of figure number M.
 
+### 3.3 Placed with the mouse, not with coordinates
+
+A first draft had the script place a figure at x,y. Shown a Final
+Fantasy V battle as a reference, that reads as the wrong authoring
+reflex: the four characters on the right are not a computation, they are
+a LAYOUT the author decided once.
+
+A composed screen already holds picture slots the author drags into
+place in the Écrans window. **A figure is the same gesture**: drop a
+character on the screen the way you drop a monster. The script then only
+ever does two things — change a figure's STATE, or change WHO stands
+there (the occupant from a variable, so a party that changes stays
+data).
+
+This is also what makes the genericity visible in the editor: the Écrans
+window offers "pose an image" and "pose a character", two visual
+gestures, neither of which says the word combat.
+
+Coordinates stay available as a command for the cases that need them —
+a character who walks in, a figure whose place depends on the story —
+but they stop being the normal way.
+
+### 3.4 Commands
+
 **Two commands**, both generic:
 
 - *Poser une figure* — slot (0-3), which figure, x, y, show/hide. This
@@ -131,6 +155,25 @@ strip, see the frames, name the states by dragging ranges, set speed and
 `next`, and play the state in the editor. The Animations window already
 does the timeline job for effects; this one is deliberately simpler
 because a state is a range, not a timeline.
+
+### 3.5 The four prohibitions
+
+What keeps this from becoming a battle system wearing another name. Each
+is checkable, and the last one is the one that is easy to lose:
+
+1. **No party.** Slots 0-3, never "hero 1-4". The engine holds no list of
+   who is fighting.
+2. **No implicit layout.** The engine places nobody; the right-hand
+   column of a JRPG is the author's arrangement, not a default.
+3. **No meaning in a state.** `idle`, `attaque`, `sourire` are the
+   author's strings, resolved to indices by datagen. The engine plays
+   state N.
+4. **No automatic trigger.** The engine never plays "hurt" because a
+   variable went down. The library decides. The moment the engine reacts
+   to a stat, a battle system is back in C.
+
+The test is the one G1/G2 already passed: grep the engine for game
+words. If the module names a party, a battle or an enemy, it failed.
 
 ## 4. The honest costs
 
