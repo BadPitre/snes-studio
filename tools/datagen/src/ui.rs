@@ -25,7 +25,15 @@
 //!                       rows = n shows only n rows: the list SCROLLS
 //!                       (one extra column for the ^ / v indicators);
 //!                       cursor_icon = n replaces the '>' cursor with
-//!                       an icon from the ui.icons sheet
+//!                       an icon from the ui.icons sheet.
+//!                       source = "items" makes the rows the ENTRIES of
+//!                       a database table (their names) — an inventory,
+//!                       a spell list; `size` is then required, and
+//!                       LISTSEL answers the chosen ENTRY's number.
+//!                       source_filter = "col" hides a row while the
+//!                       variable that column names holds 0;
+//!                       source_count = "col" draws that variable's
+//!                       value right-aligned (the quantity)
 //!     parent = "id"     attaches to a container; no parent means a ROOT,
 //!                       which then requires pos = [x, y]
 //!
@@ -47,6 +55,8 @@
 //! icons within the sheet, ASCII text.
 
 use anyhow::{bail, Context, Result};
+
+use crate::db::Db;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -190,6 +200,20 @@ pub struct Node {
     /// of the '>' glyph.
     #[serde(default)]
     pub cursor_icon: Option<u8>,
+    /// list: the rows ARE the entries of this database TABLE (their
+    /// display names). `items` is then ignored, `size` is required —
+    /// the table grows without the layout knowing.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// list + source: a u8 column holding a VARIABLE NUMBER. The row is
+    /// hidden while that variable is 0 — an inventory shows what the
+    /// party owns.
+    #[serde(default)]
+    pub source_filter: Option<String>,
+    /// list + source: a u8 column holding a VARIABLE NUMBER whose VALUE
+    /// is drawn right-aligned on the row — the quantity.
+    #[serde(default)]
+    pub source_count: Option<String>,
 }
 
 /// A flattened primitive: what the engine actually draws.
@@ -210,6 +234,11 @@ pub struct Prim {
     pub widget: usize, // index de la RACINE (visibilité par widget)
     pub text: String, // label des types 0 et 5
     pub font: Option<String>, // fonte de la racine (S2) — None = fonte 0
+    /// list sourced on a database table: table id, and the byte offsets
+    /// of the filter / quantity columns (0xFF = none).
+    pub src_table: u8,
+    pub src_filter: u8,
+    pub src_count: u8,
 }
 
 fn ascii_ok(s: &str) -> bool {
@@ -256,6 +285,9 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         items: None,
         rows: None,
         cursor_icon: None,
+        source: None,
+        source_filter: None,
+        source_count: None,
     }
 }
 
@@ -263,6 +295,12 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
 struct Flattener<'a> {
     children: Vec<Vec<usize>>,
     nodes: &'a [Node],
+    /// The project's database — a list widget can source its rows on a
+    /// table, which is resolved here.
+    db: Option<&'a Db>,
+    /// Tables a list draws its rows from: their entry NAMES must reach
+    /// ROM (db::emit_files takes this list).
+    list_tables: Vec<String>,
     icon_count: usize,
     widget: usize, // index de la racine en cours de placement
     font: Option<String>, // fonte de la racine en cours (S2)
@@ -380,6 +418,18 @@ impl<'a> Flattener<'a> {
                 None => [n.width.unwrap_or(1).max(1), 1],
             },
             "icon_value" => [n.width.unwrap_or(4).max(2), 1],
+            "list" if n.source.is_some() => {
+                // Sourced on a table: the row count is a RUNTIME thing
+                // (the table grows, the filter hides rows), so the size
+                // cannot be inferred — the author gives it.
+                n.size.with_context(|| {
+                    format!(
+                        "nœud « {} » : une liste branchée sur une table demande \
+                         size = [w, h] (le nombre de lignes varie en jeu)",
+                        n.id
+                    )
+                })?
+            }
             "list" => {
                 // AUTO size: one cursor column plus the longest item, one
                 // row per item, +2 in each direction when framed. `rows`
@@ -433,7 +483,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 4, frame: true, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
                 // children stack vertically inside the frame
                 let m = n.margin.unwrap_or([1, 1]);
@@ -476,7 +526,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: 1,
                     kind: 5, frame: false, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: t, font: None,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: t, font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "value" => {
@@ -489,7 +539,7 @@ impl<'a> Flattener<'a> {
                     // the "dir" flag, unused by type 0, carries the
                     // alignment: 1 pins the value LEFT
                     vertical: n.align.as_deref() == Some("left"),
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "image" => {
@@ -500,14 +550,14 @@ impl<'a> Flattener<'a> {
                     self.emit(Prim {
                         x, y, w, h,
                         kind: 8, frame: false, var: 0, icon: idx, vertical: false,
-                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                     })?;
                 } else {
                     let icon = self.need_icon(n, size[0], "image")?;
                     self.emit(Prim {
                         x, y, w: size[0], h: 1,
                         kind: 6, frame: false, var: 0, icon, vertical: false,
-                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                        pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                     })?;
                 }
             }
@@ -531,7 +581,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 0, frame: f, var, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "gauge" | "icon_row" => {
@@ -559,7 +609,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: if n.kind == "gauge" { 1 } else { 2 },
                     frame: f, var, icon, vertical: n.vertical(),
-                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None,
+                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "icon_value" => {
@@ -581,7 +631,62 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h,
                     kind: 3, frame: f, var, icon, vertical: false,
-                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None,
+                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                })?;
+            }
+            "list" if n.source.is_some() => {
+                let tname = n.source.clone().unwrap();
+                let db = self.db.with_context(|| {
+                    format!(
+                        "nœud « {} » : source = « {} » demande une database \
+                         (dossier schemas/)",
+                        n.id, tname
+                    )
+                })?;
+                let ti = db.table_id(&tname).with_context(|| {
+                    format!("nœud « {} » : table « {} » inconnue", n.id, tname)
+                })?;
+                // filter / quantity columns: a u8 holding a VARIABLE number
+                let col = |f: &Option<String>, what: &str| -> Result<u8> {
+                    match f {
+                        None => Ok(0xFF),
+                        Some(c) => {
+                            let (ofs, sz) = db.field_info(ti, c).with_context(|| {
+                                format!(
+                                    "nœud « {} » : colonne « {} » absente de la table {}",
+                                    n.id, c, tname
+                                )
+                            })?;
+                            if sz != 1 {
+                                bail!(
+                                    "nœud « {} » : {} « {} » doit tenir sur 1 octet \
+                                     (elle porte un NUMERO DE VARIABLE)",
+                                    n.id, what, c
+                                );
+                            }
+                            if ofs > 254 {
+                                bail!("nœud « {} » : colonne « {} » trop loin", n.id, c);
+                            }
+                            Ok(ofs as u8)
+                        }
+                    }
+                };
+                let filt = col(&n.source_filter, "le filtre")?;
+                let cnt = col(&n.source_count, "la quantité")?;
+                let f = n.frame.unwrap_or(true);
+                let inner = (size[0] - if f { 2 } else { 0 }, size[1] - if f { 2 } else { 0 });
+                if inner.0 < 3 || inner.1 < 1 {
+                    bail!("nœud « {} » : minimum 3 colonnes utiles et 1 ligne", n.id);
+                }
+                self.list_tables.push(tname);
+                self.emit(Prim {
+                    x, y, w: size[0], h: size[1],
+                    kind: 7, frame: f, var: 0, icon: n.cursor_icon.unwrap_or(0),
+                    vertical: false,
+                    pad: if n.cursor_icon.is_some() { 1 } else { 0 },
+                    max: 0, max_var: None, bg: in_window, widget: 0,
+                    text: String::new(), font: None,
+                    src_table: ti as u8, src_filter: filt, src_count: cnt,
                 })?;
             }
             "list" => {
@@ -628,7 +733,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: cur_icon,
                     vertical: false, pad: cur_flag, max: 0, max_var: None, bg: in_window,
-                    widget: 0, text: items.join("\n"), font: None,
+                    widget: 0, text: items.join("\n"), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
@@ -660,7 +765,14 @@ pub fn load(
     icon_count: usize,
     pic_paths: &HashMap<String, String>,
     ui_pal: &[u16],
-) -> Result<(Layout, Vec<Prim>, Vec<(String, bool)>, Vec<(String, Vec<u8>, u8, u8)>)> {
+    db: Option<&Db>,
+) -> Result<(
+    Layout,
+    Vec<Prim>,
+    Vec<(String, bool)>,
+    Vec<(String, Vec<u8>, u8, u8)>,
+    Vec<String>,
+)> {
     let p = proj_dir.join("ui").join("layout.toml");
     let mut lay: Layout = if p.is_file() {
         let src = std::fs::read_to_string(&p)
@@ -765,7 +877,8 @@ pub fn load(
     }
 
     let mut fl = Flattener {
-        children, nodes: &nodes, icon_count, widget: 0, font: None, prims: Vec::new(),
+        children, nodes: &nodes, db, list_tables: Vec::new(),
+        icon_count, widget: 0, font: None, prims: Vec::new(),
         pics: Vec::new(), pic_bg: Vec::new(), pic_size: HashMap::new(),
         pic_dir: proj_dir, pic_paths, ui_pal,
     };
@@ -813,10 +926,13 @@ pub fn load(
     }
     let prims = fl.prims;
     let pics = fl.pics;
+    let mut list_tables = fl.list_tables;
+    list_tables.sort();
+    list_tables.dedup();
 
     lay.message = Some(msg);
     lay.choice = Some(chc);
-    Ok((lay, prims, widgets, pics))
+    Ok((lay, prims, widgets, pics, list_tables))
 }
 
 /// Defines for ui_cfg.h: the message/choice windows and the prim count.
@@ -908,6 +1024,9 @@ pub fn emit_overlays(
     s.push_str(&field("pad", &|o| o.pad as i64));
     s.push_str(&field("bg", &|o| o.bg as i64));
     s.push_str(&field("widget", &|o| o.widget as i64));
+    s.push_str(&field("src", &|o| o.src_table as i64));
+    s.push_str(&field("srcfilt", &|o| o.src_filter as i64));
+    s.push_str(&field("srccnt", &|o| o.src_count as i64));
     s.push_str(&field("maxvar", &|o| o.max_var.map(|v| v as i64).unwrap_or(0xFF)));
     s.push_str(&field("maxlo", &|o| (o.max & 0xFF) as i64));
     s.push_str(&field("maxhi", &|o| (o.max >> 8) as i64));

@@ -2166,6 +2166,7 @@ export default function App() {
       )}
       {uiMode && data && (
         <UiThemeModal
+          db={db}
           root={data.root}
           mode={uiMode}
           project={data.project}

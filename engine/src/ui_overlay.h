@@ -27,6 +27,9 @@ void overlay_show(u8 widget, u8 on);
    0 means the widget has no list primitive and the command is ignored. */
 u8 overlay_list_open(u8 widget);
 void overlay_list_cursor(u8 sel);
+/* What the chosen ROW means: itself for a plain list, the picked
+   entry's DATABASE NUMBER for a list sourced on a table. */
+u8 overlay_list_pick(u8 row);
 void overlay_list_close(u8 keep); /* releases the cursor; keep = 1 leaves
     the widget shown (multi-panel), 0 hides it again */
 

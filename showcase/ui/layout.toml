@@ -16,12 +16,19 @@ type = "list"
 pos = [1, 13]
 items = ["Attaque", "Eclair", "Soin", "Potion", "Fuite"]
 
-# menu d'inventaire — ouvert par Start (common event « inventaire »)
+# menu d'inventaire — ouvert par Start (common event « inventaire »).
+# Ses lignes SONT la table `items` : ajouter un objet dans la Database
+# l'ajoute au menu, sans toucher au layout. `source_filter` cache la
+# ligne tant que la variable de comptage vaut 0 (on ne voit que ce
+# qu'on possede), `source_count` affiche cette quantite a droite.
 [[node]]
 id = "menu_objets"
 type = "list"
-pos = [2, 2]
-items = ["Potion", "Etat", "Fermer"]
+pos = [2, 5]
+size = [14, 6]
+source = "items"
+source_filter = "count_var"
+source_count = "count_var"
 
 # PV du heros pendant le combat (cadre libelle + valeur)
 [[node]]

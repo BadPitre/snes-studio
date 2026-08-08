@@ -4,3 +4,17 @@ name = "Potion"
 price = 10
 heal = 25
 count_var = 17
+
+[[entry]]
+id = "elixir"
+name = "Elixir"
+price = 60
+heal = 120
+count_var = 23
+
+[[entry]]
+id = "herbe"
+name = "Herbe"
+price = 4
+heal = 8
+count_var = 24

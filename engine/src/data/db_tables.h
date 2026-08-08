@@ -37,4 +37,5 @@ extern const u8 db_items[];
 #define STATS_SLIME 1
 extern const u8 db_stats[];
 
+extern const char *const *const db_names[];
 #endif /* DB_TABLES_H */

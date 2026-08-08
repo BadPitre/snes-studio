@@ -36,6 +36,13 @@ export function setPicSizes(m: Record<string, [number, number]>) {
   picSizes = m;
 }
 
+/** Database tables a list can source its rows on, filled in by the UI
+ *  window — the canvas must show the rows the engine will draw. */
+let dbTables: Record<string, { cols: string[]; names: string[] }> = {};
+export function setDbTables(m: Record<string, { cols: string[]; names: string[] }>) {
+  dbTables = m;
+}
+
 export interface UiNode {
   id: string;
   parent?: string;
@@ -71,6 +78,15 @@ export interface UiNode {
   rows?: number;
   // list: icon from the ui.icons sheet used as the cursor instead of '>'
   cursor_icon?: number;
+  // list: the rows ARE the entries of this database TABLE (their names).
+  // `items` is then ignored and `size` is required — the table grows
+  // without the layout knowing.
+  source?: string;
+  // list + source: a u8 column holding a VARIABLE NUMBER; the row hides
+  // while that variable is 0 (an inventory shows what you own)
+  source_filter?: string;
+  // list + source: same, but the variable's VALUE is drawn right-aligned
+  source_count?: string;
 }
 
 // Dialogue box style (S1) — style 0 (the default) = theme + [message]
@@ -198,6 +214,11 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
     case "list": {
+      if (n.source) {
+        // sourced on a table: the row count is a RUNTIME thing
+        if (!n.size) errors?.push(`« ${n.id} » : size requis (liste sur une table)`);
+        return n.size ?? [12, 5];
+      }
       // AUTO size: 1 cursor column + the longest item (+ the frame);
       // `rows` below the item count = a SCROLLING list, one extra
       // column for the ^ / v indicators
@@ -385,6 +406,26 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         break;
       }
       case "list": {
+        if (n.source) {
+          const tbl = dbTables[n.source];
+          if (!tbl) errors.push(`« ${n.id} » : table « ${n.source} » inconnue`);
+          for (const [f, what] of [
+            [n.source_filter, "filtre"],
+            [n.source_count, "quantité"],
+          ] as [string | undefined, string][]) {
+            if (f && tbl && !tbl.cols.includes(f))
+              errors.push(`« ${n.id} » : colonne ${what} « ${f} » absente de ${n.source}`);
+          }
+          if (n.cursor_icon !== undefined) needIcon({ ...n, icon: n.cursor_icon }, 1);
+          emit({
+            x, y, w: size[0], h: size[1], kind: 7, frame: n.frame ?? true,
+            ...base, icon: n.cursor_icon ?? 0,
+            pad: n.cursor_icon !== undefined ? 1 : 0,
+            // the preview shows what the table holds today
+            text: (tbl?.names ?? []).join("\n"),
+          });
+          break;
+        }
         const items = n.items ?? [];
         if (items.length < 2 || items.length > 32)
           errors.push(`« ${n.id} » : la liste demande 2 à 32 items`);
@@ -517,7 +558,11 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.icon !== undefined) s += `icon = ${n.icon}\n`;
     if (n.dir === "v") s += `dir = "v"\n`;
     if (n.pad) s += `pad = ${n.pad}\n`;
-    if (n.items) s += `items = [${n.items.map((t) => JSON.stringify(t)).join(", ")}]\n`;
+    if (n.items && !n.source)
+      s += `items = [${n.items.map((t) => JSON.stringify(t)).join(", ")}]\n`;
+    if (n.source) s += `source = ${JSON.stringify(n.source)}\n`;
+    if (n.source_filter) s += `source_filter = ${JSON.stringify(n.source_filter)}\n`;
+    if (n.source_count) s += `source_count = ${JSON.stringify(n.source_count)}\n`;
     if (n.rows) s += `rows = ${n.rows}\n`;
     if (n.cursor_icon !== undefined) s += `cursor_icon = ${n.cursor_icon}\n`;
     if (n.align === "left") s += `align = "left"\n`;

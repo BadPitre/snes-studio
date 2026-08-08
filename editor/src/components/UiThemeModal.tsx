@@ -8,12 +8,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../types";
+import type { Database } from "../db";
 import { assetStem } from "../types";
 import type { DialogStyle, NodeKind, UiLayout2, UiNode } from "../uilayout";
 import {
   childrenOf,
   flatten,
   setPicSizes,
+  setDbTables,
   isContainer,
   layoutToToml,
   nodeFramed,
@@ -41,6 +43,9 @@ interface Props {
   fonts: string[]; // the project's fonts (S1) — the default (assets.font) first
   varNames: string[];
   switchNames: string[];
+  /** the project's database — a list widget can source its rows on a
+   *  table, and the canvas must show the rows the engine will draw */
+  db: Database | null;
   onRenameVars: (switches: string[], variables: string[]) => void;
   // the project's ui + widgets (roots) + dialogue styles — ui/layout.toml
   // is written BEFORE the call, the lists feed the event commands
@@ -149,6 +154,19 @@ export default function UiThemeModal(props: Props) {
       alive = false;
     };
   }, [props.project.pictures, props.root]);
+  // Tables a list can source its rows on (names + columns), for the
+  // inspector's pickers and the faithful preview.
+  const dbTables = useMemo(() => {
+    const out: Record<string, { cols: string[]; names: string[] }> = {};
+    for (const sc of props.db?.schemas ?? []) {
+      out[sc.name] = {
+        cols: sc.fields.map((f) => f.name),
+        names: (props.db?.entries[sc.name] ?? []).map((e) => String(e.name || e.id)),
+      };
+    }
+    return out;
+  }, [props.db]);
+  useEffect(() => setDbTables(dbTables), [dbTables]);
   useEffect(() => {
     const sizes: Record<string, [number, number]> = {};
     for (const [name, bmp] of Object.entries(pics))
@@ -196,7 +214,10 @@ export default function UiThemeModal(props: Props) {
   }, [widgetFontKey, props.root]);
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
-  const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount, pics]);
+  const flat = useMemo(
+    () => (lay ? flatten(lay, iconCount) : null),
+    [lay, iconCount, pics, dbTables]
+  );
 
   // ids under the edited widget — with a scope the canvas draws (and
   // hit-tests) ONLY those nodes; null = whole-screen view
@@ -1180,7 +1201,68 @@ export default function UiThemeModal(props: Props) {
                         dans une variable, B = 255 (annulé).
                       </span>
                     </label>
-                    {num("Lignes visibles (vide = toutes)", sel.rows ?? "", (v) =>
+                    <label>Contenu
+                      <select
+                        value={sel.source ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v)
+                            patchNode(sel.id, {
+                              source: undefined,
+                              source_filter: undefined,
+                              source_count: undefined,
+                            });
+                          else
+                            patchNode(sel.id, { source: v, size: sel.size ?? [12, 5] });
+                        }}
+                      >
+                        <option value="">Items écrits ici</option>
+                        {Object.keys(dbTables).map((t) => (
+                          <option key={t} value={t}>Fiches de la table « {t} »</option>
+                        ))}
+                      </select>
+                      <span className="hint">
+                        Branchée sur une table, la liste EST cette table :
+                        ajouter une fiche dans la Database l'ajoute au menu.
+                        « Choix dans une liste » rend alors le NUMÉRO DE
+                        FICHE, prêt pour « Lire la database ».
+                      </span>
+                    </label>
+                    {sel.source && (
+                      <>
+                        <label>Filtre (colonne portant un n° de variable)
+                          <select
+                            value={sel.source_filter ?? ""}
+                            onChange={(e) =>
+                              patchNode(sel.id, { source_filter: e.target.value || undefined })
+                            }
+                          >
+                            <option value="">(toutes les fiches)</option>
+                            {(dbTables[sel.source]?.cols ?? []).map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                          <span className="hint">
+                            La ligne est cachée tant que cette variable vaut 0
+                            — un inventaire ne montre que ce qu'on possède.
+                          </span>
+                        </label>
+                        <label>Quantité affichée (même genre de colonne)
+                          <select
+                            value={sel.source_count ?? ""}
+                            onChange={(e) =>
+                              patchNode(sel.id, { source_count: e.target.value || undefined })
+                            }
+                          >
+                            <option value="">(aucune)</option>
+                            {(dbTables[sel.source]?.cols ?? []).map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                    {!sel.source && num("Lignes visibles (vide = toutes)", sel.rows ?? "", (v) =>
                       patchNode(sel.id, { rows: v && v >= 1 ? v : undefined }),
                       { min: 1, max: 26, empty: true })}
                     {(sel.rows ?? 0) >= 1 && (sel.rows ?? 0) < (sel.items ?? []).length && (

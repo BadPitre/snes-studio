@@ -119,8 +119,9 @@ fn main() -> Result<()> {
             (stem, p)
         })
         .collect();
-    let (ui_layout, mut ui_prims, ui_widgets, ui_pics) =
-        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal)?;
+    let (ui_layout, mut ui_prims, ui_widgets, ui_pics, ui_list_tables) =
+        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal,
+                 database.as_ref())?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
@@ -1384,7 +1385,7 @@ fn main() -> Result<()> {
                 musics: &music_names,
                 charsets: &project.charsets,
             })?;
-            for (name, content) in db::emit_files(d) {
+            for (name, content) in db::emit_files(d, &ui_list_tables)? {
                 write_out(&out_dir, &name, content)?;
             }
             for (ti, sc) in d.schemas.iter().enumerate() {

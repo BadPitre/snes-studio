@@ -138,6 +138,22 @@
      "c": "switch",
      "n": 22,
      "on": true
+    },
+    {
+     "c": "rem",
+     "text": "Sac de depart — le menu Objets ne montre que ce qu'on possede."
+    },
+    {
+     "c": "var",
+     "n": 23,
+     "op": "=",
+     "value": 1
+    },
+    {
+     "c": "var",
+     "n": 24,
+     "op": "=",
+     "value": 5
     }
    ]
   },
@@ -298,6 +314,14 @@
      "sound": "curseur"
     },
     {
+     "c": "rem",
+     "text": "Le menu EST la table items : lignes, quantites et filtre"
+    },
+    {
+     "c": "rem",
+     "text": "viennent d'elle. A rend le NUMERO DE FICHE dans v22."
+    },
+    {
      "c": "list_select",
      "widget": "menu_objets",
      "var": 22,
@@ -306,89 +330,178 @@
     {
      "c": "if_var",
      "n": 22,
-     "op": "==",
-     "value": 0,
+     "op": "!=",
+     "value": 255,
+     "left": {
+      "from": "var",
+      "value": 22
+     },
+     "right": {
+      "value": 255
+     },
      "then": [
       {
+       "c": "rem",
+       "text": "Le soin vient de la fiche choisie — aucun objet code en dur."
+      },
+      {
+       "c": "db_read",
+       "table": "items",
+       "from": "var",
+       "entry": 22,
+       "field": "heal",
+       "dst": 44
+      },
+      {
+       "c": "var",
+       "n": 10,
+       "op": "+",
+       "from": "var",
+       "value": 44
+      },
+      {
+       "c": "rem",
+       "text": "cap aux PV max : v45 = PV - max, wrap = sous le max"
+      },
+      {
+       "c": "var",
+       "n": 45,
+       "op": "=",
+       "from": "var",
+       "value": 10
+      },
+      {
+       "c": "var",
+       "n": 45,
+       "op": "-",
+       "from": "var",
+       "value": 11
+      },
+      {
        "c": "if_var",
-       "n": 17,
+       "n": 45,
+       "op": ">=",
+       "value": 32768,
+       "left": {
+        "from": "var",
+        "value": 45
+       },
+       "right": {
+        "value": 32768
+       },
+       "then": [],
+       "else": [
+        {
+         "c": "var",
+         "n": 10,
+         "op": "=",
+         "from": "var",
+         "value": 11
+        }
+       ]
+      },
+      {
+       "c": "rem",
+       "text": "Depenser l'exemplaire : une ligne par objet, faute"
+      },
+      {
+       "c": "rem",
+       "text": "d'ecriture indirecte de variable dans le moteur."
+      },
+      {
+       "c": "db_entry",
+       "table": "items",
+       "entry": "potion",
+       "dst": 46
+      },
+      {
+       "c": "if_var",
+       "n": 22,
        "op": "==",
        "value": 0,
+       "left": {
+        "from": "var",
+        "value": 22
+       },
+       "right": {
+        "from": "var",
+        "value": 46
+       },
        "then": [
-        {
-         "c": "msg",
-         "text": "Aucune potion ! Le marchand du village en vend."
-        }
-       ],
-       "else": [
         {
          "c": "var",
          "n": 17,
          "op": "-",
          "value": 1
-        },
-        {
-         "c": "var",
-         "n": 10,
-         "op": "+",
-         "value": 25
-        },
-        {
-         "c": "rem",
-         "text": "cap aux PV max : v44 = PV - max, wrap = sous le max"
-        },
-        {
-         "c": "var",
-         "n": 44,
-         "op": "=",
-         "from": "var",
-         "value": 10
-        },
-        {
-         "c": "var",
-         "n": 44,
-         "op": "-",
-         "from": "var",
-         "value": 11
-        },
-        {
-         "c": "if_var",
-         "n": 44,
-         "op": ">=",
-         "value": 32768,
-         "then": [],
-         "else": [
-          {
-           "c": "var",
-           "n": 10,
-           "op": "=",
-           "from": "var",
-           "value": 11
-          }
-         ]
-        },
-        {
-         "c": "sfx",
-         "sound": "curseur"
-        },
-        {
-         "c": "msg",
-         "text": "Glou glou... PV \\v[10]/\\v[11]. (Potions : \\v[17])"
         }
-       ]
-      }
-     ],
-     "else": []
-    },
-    {
-     "c": "if_var",
-     "n": 22,
-     "op": "==",
-     "value": 1,
-     "then": [
+       ],
+       "else": []
+      },
+      {
+       "c": "db_entry",
+       "table": "items",
+       "entry": "elixir",
+       "dst": 46
+      },
+      {
+       "c": "if_var",
+       "n": 22,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 22
+       },
+       "right": {
+        "from": "var",
+        "value": 46
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 23,
+         "op": "-",
+         "value": 1
+        }
+       ],
+       "else": []
+      },
+      {
+       "c": "db_entry",
+       "table": "items",
+       "entry": "herbe",
+       "dst": 46
+      },
+      {
+       "c": "if_var",
+       "n": 22,
+       "op": "==",
+       "value": 0,
+       "left": {
+        "from": "var",
+        "value": 22
+       },
+       "right": {
+        "from": "var",
+        "value": 46
+       },
+       "then": [
+        {
+         "c": "var",
+         "n": 24,
+         "op": "-",
+         "value": 1
+        }
+       ],
+       "else": []
+      },
+      {
+       "c": "sfx",
+       "sound": "curseur"
+      },
       {
        "c": "msg",
-       "text": "Niv \\v[14]  PV \\v[10]/\\v[11]  ATK \\v[12]  DEF \\v[13] XP \\v[15]/\\v[16]  Or \\v[18]  Potions \\v[17]"
+       "text": "Glou glou... PV \\v[10]/\\v[11]."
       }
      ],
      "else": []
@@ -3971,9 +4084,9 @@
   "",
   "Choix menu combat",
   "",
-  "",
-  "",
-  "",
+  "Menu: fiche objet choisie",
+  "Elixirs",
+  "Herbes",
   "",
   "",
   "",
@@ -3995,7 +4108,7 @@
   "",
   "Calcul degats",
   "",
-  "",
+  "Menu: fiche comparee",
   "",
   "",
   "",

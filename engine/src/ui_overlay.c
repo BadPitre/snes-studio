@@ -18,7 +18,15 @@
  *                        ui_ov_icon says which) — driven by the LISTSEL
  *                        opcode. More items than content rows = the
  *                        window SCROLLS (ls_top) with ^ / v indicators
- *                        in the last column
+ *                        in the last column.
+ *                        When ui_ov_src is a table id, the rows ARE that
+ *                        DATABASE table's entries (their names): the
+ *                        inventory case. ui_ov_srcfilt names a column
+ *                        holding a VARIABLE NUMBER — the row is skipped
+ *                        while that variable is 0; ui_ov_srccnt names
+ *                        one whose value is drawn right-aligned (the
+ *                        quantity). LISTSEL then returns the chosen
+ *                        ENTRY's number, ready for "read the database".
  *   8 image (picture)  — a project PICTURE laid into the UI layer:
  *                        datagen converts it to 2bpp chars brought back
  *                        to the font's 4 colours (no free palette: the
@@ -39,6 +47,7 @@
 #include "ui_overlay.h"
 #include "ui_screen.h"
 #include "data/ui_cfg.h"
+#include "data/db_tables.h"
 
 #if UI_OV_COUNT
 
@@ -57,6 +66,9 @@ extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
 extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
     (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
 extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
+extern const u8 ui_ov_src[];     /* list: source table id (0xFF none) */
+extern const u8 ui_ov_srcfilt[]; /* list: filter column offset (0xFF none) */
+extern const u8 ui_ov_srccnt[];  /* list: quantity column offset (0xFF) */
 extern const u8 ui_ov_maxvar[]; /* 0xFF = constant max (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
 extern const u8 ui_ov_maxhi[];
@@ -89,8 +101,14 @@ static char ov_num[5];
 /* the ACTIVE cursor list (B6) — only one at a time, driven by the VM
    (LISTSEL). Explicit init: tcc-816 does not clear the BSS. */
 static u8 ls_prim = 0xFF; /* type 7 primitive in progress (0xFF = none) */
-static u8 ls_sel = 0;     /* ITEM under the cursor (absolute index) */
-static u8 ls_top = 0;     /* first visible item (scrolling list) */
+static u8 ls_sel = 0;     /* ROW under the cursor (absolute index) */
+static u8 ls_top = 0;     /* first visible row (scrolling list) */
+/* A list sourced on a database table: the rows that PASSED the filter,
+   as entry numbers, frozen when the menu opens — the cursor must not
+   move under the player because a quantity changed mid-menu. */
+#define LS_ROWS_MAX 32
+static u8 ls_row[LS_ROWS_MAX];
+static u8 ls_rows = 0; /* 0 = the list is not sourced */
 
 /* a widget's current maximum: compiled constant or variable */
 static u16 ov_max(u8 i)
@@ -98,6 +116,32 @@ static u16 ov_max(u8 i)
   if (ui_ov_maxvar[i] != 0xFF)
     return vm.vars16[ui_ov_maxvar[i]];
   return (u16)ui_ov_maxlo[i] | ((u16)ui_ov_maxhi[i] << 8);
+}
+
+/* A sourced list's column byte for one entry: the table's raw ROM. */
+static u8 ov_src_col(u8 i, u8 entry, u8 ofs)
+{
+  u8 t = ui_ov_src[i];
+
+  return db_tables[t][(u16)entry * db_table_sizes[t] + ofs];
+}
+
+/* Builds the visible rows of a sourced list: every entry of the table,
+   minus those the filter column hides (its byte is a VARIABLE NUMBER,
+   the row shows while that variable is non-zero). */
+static u8 ov_src_rows(u8 i)
+{
+  u8 t = ui_ov_src[i];
+  u8 filt = ui_ov_srcfilt[i];
+  u8 e, n = 0;
+
+  for (e = 0; e < db_table_counts[t] && n < LS_ROWS_MAX; e++)
+  {
+    if (filt != 0xFF && vm.vars16[ov_src_col(i, e, filt)] == 0)
+      continue;
+    ls_row[n++] = e;
+  }
+  return n;
 }
 
 /* Erases a primitive's rect (hidden widget) — transparent */
@@ -123,8 +167,13 @@ static void ov_draw(u8 i)
   u8 f = ui_ov_frame[i];
   u8 fb = ui_ov_font[i]; /* font base for the prim's text (S2) */
   u8 cx, cy, sy, d, cells, k, fill;
+  /* nrow/top/r/nm serve the sourced list. Declared HERE, not inside the
+     case: tcc-816 miscompiles a declaration inside a switch case (the
+     bug that once corrupted the HUD's row of hearts). */
+  u8 nrow, top, r;
   u16 base, v, units, ch;
   const char *l;
+  const char *nm;
 
   if (f)
   {
@@ -224,6 +273,48 @@ static void ov_draw(u8 i)
              or an icon when ui_ov_pad is set). The active list scrolls
              when the items outnumber the rows: ls_top items are
              skipped and the last column carries the ^ / v hints. */
+    if (ui_ov_src[i] != 0xFF)
+    {
+      /* rows from a DATABASE table: the entry names, and the quantity
+         column when there is one. Only the ACTIVE list has a row map;
+         a sourced list drawn while closed shows the table as it
+         stands, which is what the designer's preview promises. */
+      nrow = (i == ls_prim && ls_rows) ? ls_rows : ov_src_rows(i);
+      top = (i == ls_prim) ? ls_top : 0;
+      for (cy = 0; cy < h; cy++)
+      {
+        r = (u8)(cy + top);
+        if (r >= nrow)
+          break;
+        if (i == ls_prim && r == ls_sel)
+          ui_map[base + (u16)cy * 32 + x] =
+              ui_ov_pad[i] ? OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i])
+                           : OV_ENTRY(OV_FCHAR('>'));
+        nm = db_names[ui_ov_src[i]][ls_row[r]];
+        cx = (u8)(x + 1);
+        while (*nm && cx < (u8)(x + w - 1))
+          ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*nm++));
+        if (ui_ov_srccnt[i] != 0xFF)
+        {
+          /* quantity, right-aligned on the row */
+          v = vm.vars16[ov_src_col(i, ls_row[r], ui_ov_srccnt[i])];
+          d = 0;
+          do
+          {
+            ov_num[d++] = '0' + (v % 10);
+            v /= 10;
+          } while (v && d < 5);
+          cx = (u8)(x + w - d);
+          while (d)
+            ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
+        }
+      }
+      if (i == ls_prim && ls_top)
+        ui_map[base + x + w - 1] = OV_ENTRY(OV_FCHAR('^'));
+      if ((u16)top + h < nrow)
+        ui_map[base + (u16)(h - 1) * 32 + x + w - 1] = OV_ENTRY(OV_FCHAR('v'));
+      break;
+    }
     l = ui_ov_label[i];
     k = (i == ls_prim) ? ls_top : 0;
     while (k && *l) /* skip the items scrolled out above */
@@ -374,14 +465,17 @@ void overlay_show(u8 widget, u8 on)
 
 /* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
 
-/* number of items in the label (separated by '\n') — the FULL count:
-   when it exceeds the widget's content rows the list scrolls (ls_top),
-   so the cursor still never lands on an empty row */
+/* number of rows — the FULL count: when it exceeds the widget's content
+   rows the list scrolls (ls_top), so the cursor never lands on an empty
+   row. A sourced list counts the entries that passed the filter. */
 static u8 ov_list_count(u8 i)
 {
-  const char *l = ui_ov_label[i];
+  const char *l;
   u8 n = 1;
 
+  if (ui_ov_src[i] != 0xFF)
+    return ls_rows;
+  l = ui_ov_label[i];
   if (!*l)
     return 0;
   while (*l)
@@ -401,6 +495,15 @@ u8 overlay_list_open(u8 widget)
       ls_prim = i;
       ls_sel = 0;
       ls_top = 0;
+      /* a sourced list freezes its rows here: what the table holds and
+         the filter allows AT THIS MOMENT (an empty inventory returns 0,
+         and the command is ignored — the script sees var untouched) */
+      ls_rows = (ui_ov_src[i] != 0xFF) ? ov_src_rows(i) : 0;
+      if (ui_ov_src[i] != 0xFF && ls_rows == 0)
+      {
+        ls_prim = 0xFF;
+        return 0;
+      }
       overlay_show(widget, 1); /* redraws — the cursor starts at the top */
       return ov_list_count(i);
     }
@@ -424,6 +527,16 @@ void overlay_list_cursor(u8 sel)
   ov_draw(ls_prim); /* small rect: a full redraw is simpler */
 }
 
+/* Row -> what LISTSEL writes: the ROW NUMBER for a plain list, the
+   chosen entry's DATABASE NUMBER for a sourced one (so "read the
+   database" reads it straight away). */
+u8 overlay_list_pick(u8 row)
+{
+  if (ls_prim != 0xFF && ui_ov_src[ls_prim] != 0xFF)
+    return row < ls_rows ? ls_row[row] : 0;
+  return row;
+}
+
 void overlay_list_close(u8 keep)
 {
   u8 w, p;
@@ -433,6 +546,7 @@ void overlay_list_close(u8 keep)
   w = ui_ov_widget[ls_prim];
   p = ls_prim;
   ls_prim = 0xFF;
+  ls_rows = 0;
   if (keep)
     ov_draw(p); /* multi-panel: the list stays, without the cursor */
   else
@@ -463,6 +577,11 @@ u8 overlay_list_open(u8 widget)
 {
   (void)widget;
   return 0;
+}
+
+u8 overlay_list_pick(u8 row)
+{
+  return row;
 }
 
 void overlay_list_cursor(u8 sel)

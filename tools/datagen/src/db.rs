@@ -104,6 +104,9 @@ pub struct Db {
     pub schemas: Vec<Schema>,
     /// Per table: symbolic ids in index order.
     pub ids: Vec<Vec<String>>,
+    /// Per table: the entries' DISPLAY names (the `name` key, the id
+    /// when absent) — what a list widget sourced on the table draws.
+    pub names: Vec<Vec<String>>,
     /// Per table: the raw entries. `encode` turns them into bytes, and
     /// needs the FINAL text bank — closed after the events — to resolve
     /// text_id. The encoded bytes go here too.
@@ -260,6 +263,7 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
     // tables, then encode.
     let mut entries: Vec<Vec<toml::Table>> = Vec::new();
     let mut ids: Vec<Vec<String>> = Vec::new();
+    let mut names: Vec<Vec<String>> = Vec::new();
     for sc in &schemas {
         let p = proj_dir.join("data").join(format!("{}.toml", sc.name));
         let list = if p.is_file() {
@@ -292,11 +296,26 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
             }
             tids.push(id.to_string());
         }
+        // Display names, as the Database window holds them. They are
+        // editor metadata until a list widget sources the table — the
+        // ASCII rule is checked THERE (emit_files), so a name only a
+        // human reads may keep its accents.
+        let mut tnames: Vec<String> = Vec::new();
+        for (i, e) in list.iter().enumerate() {
+            tnames.push(
+                e.get("name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&tids[i])
+                    .to_string(),
+            );
+        }
+        names.push(tnames);
         ids.push(tids);
         entries.push(list);
     }
 
-    Ok(Some(Db { schemas, ids, entries, blobs: Vec::new() }))
+    Ok(Some(Db { schemas, ids, names, entries, blobs: Vec::new() }))
 }
 
 /// Byte-packed encoding, field by field in schema order. Call once the
@@ -311,7 +330,7 @@ pub struct ResNames<'a> {
 }
 
 pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> Result<()> {
-    let Db { schemas, ids, entries, blobs } = db;
+    let Db { schemas, ids, names: _, entries, blobs } = db;
     let table_idx: HashMap<String, usize> = schemas
         .iter()
         .enumerate()
@@ -469,7 +488,10 @@ pub fn emit_empty() -> Vec<(String, String)> {
 
 /// Emits db_<table>.c (one per table), db_index.c (the DBREAD registry)
 /// and db_tables.h, as (name, contents).
-pub fn emit_files(db: &Db) -> Vec<(String, String)> {
+/// `named` lists the tables whose entry NAMES must reach ROM: the
+/// tables a "list" widget draws its rows from. Names are editor
+/// metadata everywhere else, so nothing else pays for them.
+pub fn emit_files(db: &Db, named: &[String]) -> Result<Vec<(String, String)>> {
     let mut files = Vec::new();
     let mut h = String::from(emit::HEADER);
     h.push_str("#ifndef DB_TABLES_H\n#define DB_TABLES_H\n\n");
@@ -503,6 +525,50 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
         }
         files.push((format!("db_{}.c", sc.name), c));
     }
+    // Entry NAMES of the sourced tables (a list widget's rows), plus a
+    // registry parallel to db_tables so the engine can index by table.
+    {
+        let mut c = String::from(emit::HEADER);
+        c.push_str("#include <snes.h>\n\n");
+        for (ti, sc) in db.schemas.iter().enumerate() {
+            if !named.contains(&sc.name) {
+                continue;
+            }
+            for (i, nm) in db.names[ti].iter().enumerate() {
+                // On screen now: the font has no accents.
+                if !nm.chars().all(|c| (' '..='~').contains(&c)) {
+                    bail!(
+                        "table {} : la fiche « {} » s'affiche dans un menu \
+                         (un widget liste est branché sur cette table) — son \
+                         nom doit être ASCII, sans accents",
+                        sc.name, nm
+                    );
+                }
+                let _ = write!(c, "static const char dbn_{}_{}[] = {:?};\n", sc.name, i, nm);
+            }
+            let n = db.names[ti].len().max(1);
+            let _ = write!(c, "const char *const db_names_{}[{}] = {{ ", sc.name, n);
+            for i in 0..n {
+                if i < db.names[ti].len() {
+                    let _ = write!(c, "dbn_{}_{}, ", sc.name, i);
+                } else {
+                    c.push_str("0, ");
+                }
+            }
+            c.push_str("};\n");
+        }
+        c.push_str("\nconst char *const *const db_names[] = {\n");
+        for sc in &db.schemas {
+            if named.contains(&sc.name) {
+                let _ = write!(c, "  db_names_{},\n", sc.name);
+            } else {
+                c.push_str("  0,\n");
+            }
+        }
+        c.push_str("};\n");
+        files.push(("db_names.c".to_string(), c));
+    }
+    h.push_str("extern const char *const *const db_names[];\n");
     h.push_str("#endif /* DB_TABLES_H */\n");
     files.push(("db_tables.h".to_string(), h));
 
@@ -524,5 +590,5 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     }
     c.push_str("\n};\n");
     files.push(("db_index.c".to_string(), c));
-    files
+    Ok(files)
 }

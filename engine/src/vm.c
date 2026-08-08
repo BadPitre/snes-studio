@@ -1243,8 +1243,10 @@ void vm_update(void)
     }
     else if (down & KEY_A)
     {
-      /* 16-bit variable (0-255), like KEYIN — the if_var circuit */
-      vm.vars16[vm.choice_var] = vm.choice_sel;
+      /* 16-bit variable (0-255), like KEYIN — the if_var circuit. A
+         list sourced on a database table answers the chosen ENTRY's
+         number instead of the row, so "read the database" reads it. */
+      vm.vars16[vm.choice_var] = overlay_list_pick(vm.choice_sel);
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
