@@ -53,14 +53,53 @@ welcome — this one is not load-bearing.
 
 ## 3. The design
 
-**A figure resource** is a strip of 32x32 frames — the SAME format and
-the same importer as a vignette sheet, so nothing new to learn and
-nothing new to convert.
+### 3.1 Where the frames come from — the sprite sheet FIRST
 
-**Its states are declared in the resource**, each with:
+The author asked whether the sprites already in the project could serve.
+They can, and that is the better default.
+
+A charset block is **12 frames of 16x24**, laid out as
+`block*12 + direction*3 + step`: for each of the four directions, a
+standing frame and two walking ones. Every character on a map already
+has one, and today's posed battler is nothing but frame `block*12 + 6`
+of it — the left-facing standing frame, centred in a 32x32 cell.
+
+So a figure declares its source, and there are two:
+
+- **A charset block** — the sprites already in the project. No new art,
+  no new import, and the twelve frames are already sorted into something
+  usable: standing and walking, per direction. This is the whole answer
+  for a shopkeeper who turns around, a character who walks onto a
+  composed screen, a visual-novel speaker who faces left or right.
+- **A figure strip** — 32x32 frames, the vignette format and the
+  vignette importer. For a character that needs to be BIGGER than 16x24,
+  or that needs poses a walk sheet cannot contain.
+
+A third possibility sits between them and costs nothing to allow:
+**further blocks of the same sprite sheet**. Nothing stops an author from
+using block 3 as "Arven's combat poses" — twelve more 16x24 frames,
+attack and recoil and whatever else — and declaring states that span
+them. The sheet is already a flat strip of frames; blocks are only a
+counting convention.
+
+The engine does not care which source: it uploads one 32x32 cell either
+way, a 16x24 frame being centred exactly as the battler is today.
+
+**What the sprite sheet cannot give.** A walk sheet has no attack frame
+and no recoil frame. Those images have to be drawn somewhere; the only
+question this design answers is WHERE they may live (extra blocks, or a
+strip) — not whether they can be conjured. And two walking frames make a
+STEP, not a breath: a character who breathes in place is art the author
+draws, not a state the engine invents. Reusing the sprites buys the
+directions and the walk for free, and nothing more.
+
+### 3.2 States
+
+**States are declared per figure**, each with:
 
 - a name (the author's word: `idle`, `attaque`, `touche`, `sourire`…),
-- the first frame and the frame count,
+- the first frame and the frame count, counted in the SOURCE (a charset
+  block's twelve, or the strip's), so a state can span blocks,
 - a speed in frames per image,
 - what follows: loop itself, hold the last image, or **fall through to
   another state by name**.
@@ -95,6 +134,10 @@ because a state is a range, not a timeline.
 
 ## 4. The honest costs
 
+0. **A charset-sourced figure costs no new art and no new resource** —
+   but it also cannot show a pose nobody drew. The cheap path and the
+   expressive path are different paths, and the doc does not pretend
+   otherwise.
 1. **DMA is the real limit.** A frame change is 512 bytes in one VBlank.
    Four figures animating at 8 frames per image is about 4 changes per
    second each — comfortable. Four figures at 2 frames per image is
@@ -127,10 +170,14 @@ scene to prove the system is not a battle system.
 
 ## 6. Milestones
 
-- **F1 — the resource and the runtime.** Figure resource (strip +
-  states) in datagen, the char/palette plan, the frame player on the
-  four slots, both commands, the VBlank budget wired. The showcase gets
-  one animated figure, verified in the emulator.
+- **F1 — the runtime, on the sprites already there.** A figure sourced
+  on a CHARSET BLOCK with named states, the frame player on the four
+  slots, both commands, the VBlank budget wired. Nothing new to import:
+  the showcase's heroes animate from the sheet they already use on the
+  map, verified in the emulator. This is the cheapest thing that proves
+  the whole design.
+- **F1b — the figure strip.** The 32x32 source, for poses and sizes a
+  charset cannot hold. Same states, same commands, another source.
 - **F2 — the editor.** Figures window (import, frames, named states,
   speed, `next`, preview), the two command forms, the database column
   type so a party stays data-driven.
