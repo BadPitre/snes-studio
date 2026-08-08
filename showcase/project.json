@@ -1084,7 +1084,8 @@
        "c": "list_select",
        "widget": "menu_combat",
        "var": 92,
-       "cancel": false
+       "cancel": false,
+       "keep": true
       },
       {
        "c": "if_sw",
@@ -1750,16 +1751,45 @@
        },
        "then": [
         {
+         "c": "rem",
+         "text": "3 Objets — un SOUS-MENU : la liste des objets (table items),"
+        },
+        {
+         "c": "rem",
+         "text": "filtree par ce qu'on possede. B revient au menu de combat :"
+        },
+        {
+         "c": "rem",
+         "text": "la boucle recommence, donc rien de plus a ecrire."
+        },
+        {
+         "c": "list_select",
+         "widget": "menu_objets",
+         "var": 22,
+         "cancel": true
+        },
+        {
+         "c": "if_sw",
+         "n": 500,
+         "on": true,
+         "then": [
+          {
+           "c": "break"
+          }
+         ],
+         "else": []
+        },
+        {
          "c": "if_var",
-         "n": 17,
+         "n": 22,
          "op": "!=",
-         "value": 0,
+         "value": 255,
          "left": {
           "from": "var",
-          "value": 17
+          "value": 22
          },
          "right": {
-          "value": 0
+          "value": 255
          },
          "then": [
           {
@@ -1782,22 +1812,119 @@
            },
            "then": [
             {
-             "c": "var",
-             "n": 17,
-             "op": "-",
-             "value": 1
+             "c": "rem",
+             "text": "Le soin vient de la FICHE choisie — aucun objet code ici."
             },
             {
              "c": "db_read",
              "table": "items",
-             "from": "const",
-             "entry": "potion",
+             "from": "var",
+             "entry": 22,
              "field": "heal",
              "dst": 93
             },
             {
+             "c": "rem",
+             "text": "Depenser l'exemplaire : une ligne par objet (pas"
+            },
+            {
+             "c": "rem",
+             "text": "d'ecriture indirecte de variable dans le moteur)."
+            },
+            {
+             "c": "db_entry",
+             "table": "items",
+             "entry": "potion",
+             "dst": 46
+            },
+            {
+             "c": "if_var",
+             "n": 22,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 22
+             },
+             "right": {
+              "from": "var",
+              "value": 46
+             },
+             "then": [
+              {
+               "c": "var",
+               "n": 17,
+               "op": "-",
+               "value": 1
+              }
+             ],
+             "else": []
+            },
+            {
+             "c": "db_entry",
+             "table": "items",
+             "entry": "elixir",
+             "dst": 46
+            },
+            {
+             "c": "if_var",
+             "n": 22,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 22
+             },
+             "right": {
+              "from": "var",
+              "value": 46
+             },
+             "then": [
+              {
+               "c": "var",
+               "n": 23,
+               "op": "-",
+               "value": 1
+              }
+             ],
+             "else": []
+            },
+            {
+             "c": "db_entry",
+             "table": "items",
+             "entry": "herbe",
+             "dst": 46
+            },
+            {
+             "c": "if_var",
+             "n": 22,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 22
+             },
+             "right": {
+              "from": "var",
+              "value": 46
+             },
+             "then": [
+              {
+               "c": "var",
+               "n": 24,
+               "op": "-",
+               "value": 1
+              }
+             ],
+             "else": []
+            },
+            {
              "c": "call",
              "n": 11
+            },
+            {
+             "c": "rem",
+             "text": "Un objet purge le poison de la cible (comme avant)."
             },
             {
              "c": "if_var",
@@ -1897,6 +2024,19 @@
        "else": []
       }
      ]
+    },
+    {
+     "c": "rem",
+     "text": "Le menu de combat restait affiche pendant les sous-menus"
+    },
+    {
+     "c": "rem",
+     "text": "(drapeau « le panneau reste »). L'action est prise : on le ferme."
+    },
+    {
+     "c": "ui_show",
+     "widget": "menu_combat",
+     "on": false
     },
     {
      "c": "rem",

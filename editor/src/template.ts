@@ -344,7 +344,7 @@ const UI_LAYOUT = `# Layout UI du projet — le menu de combat et la fenetre de 
 id = "menu_combat"
 type = "list"
 pos = [1, 14]
-items = ["Attaque", "Potion", "Fuir"]
+items = ["Attaque", "Objets", "Fuir"]
 
 [[node]]
 id = "combat_pv1"
@@ -353,6 +353,19 @@ pos = [21, 16]
 size = [9, 3]
 var = 240
 label = "PV"
+
+# Menu des objets — ses lignes SONT la table \`items\` : ajouter un objet
+# dans la Database l'ajoute au menu. \`source_filter\` cache la ligne tant
+# que la variable de comptage vaut 0, \`source_count\` affiche la quantite.
+# Un seul widget, deux appelants : le menu de jeu et le menu de combat.
+[[node]]
+id = "menu_objets"
+type = "list"
+pos = [2, 8]
+size = [14, 6]
+source = "items"
+source_filter = "count_var"
+source_count = "count_var"
 
 [[node]]
 id = "menu_principal"

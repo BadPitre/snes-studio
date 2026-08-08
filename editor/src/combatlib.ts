@@ -447,7 +447,8 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       "c": "list_select",
       "widget": "menu_combat",
       "var": 92,
-      "cancel": false
+      "cancel": false,
+      "keep": true
      },
      {
       "c": "if_sw",
@@ -626,35 +627,73 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       },
       "then": [
        {
+        "c": "rem",
+        "text": "1 Objets — un SOUS-MENU : la liste des objets (table items),"
+       },
+       {
+        "c": "rem",
+        "text": "filtree par ce qu'on possede. B revient au menu de combat."
+       },
+       {
+        "c": "list_select",
+        "widget": "menu_objets",
+        "var": 74,
+        "cancel": true
+       },
+       {
+        "c": "if_sw",
+        "n": 500,
+        "on": true,
+        "then": [
+         {
+          "c": "break"
+         }
+        ],
+        "else": []
+       },
+       {
         "c": "if_var",
-        "n": 17,
+        "n": 74,
         "op": "!=",
-        "value": 0,
+        "value": 255,
         "left": {
          "from": "var",
-         "value": 17
+         "value": 74
         },
         "right": {
-         "value": 0
+         "value": 255
         },
         "then": [
          {
-          "c": "target_sel",
-          "var": 91,
-          "ally": true,
-          "cancel": true
+          "c": "rem",
+          "text": "Le soin vient de la FICHE choisie, pas d'un objet code ici."
+         },
+         {
+          "c": "db_read",
+          "table": "items",
+          "from": "var",
+          "entry": 74,
+          "field": "heal",
+          "dst": 93
+         },
+         {
+          "c": "db_entry",
+          "table": "items",
+          "entry": "potion",
+          "dst": 75
          },
          {
           "c": "if_var",
-          "n": 91,
-          "op": "!=",
-          "value": 255,
+          "n": 74,
+          "op": "==",
+          "value": 0,
           "left": {
            "from": "var",
-           "value": 91
+           "value": 74
           },
           "right": {
-           "value": 255
+           "from": "var",
+           "value": 75
           },
           "then": [
            {
@@ -662,24 +701,54 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
             "n": 17,
             "op": "-",
             "value": 1
-           },
-           {
-            "c": "db_read",
-            "table": "items",
-            "from": "const",
-            "entry": "potion",
-            "field": "heal",
-            "dst": 93
-           },
-           {
-            "c": "call",
-            "n": 4
-           },
-           {
-            "c": "break"
            }
           ],
           "else": []
+         },
+         {
+          "c": "var",
+          "n": 240,
+          "op": "+",
+          "from": "var",
+          "value": 93
+         },
+         {
+          "c": "rem",
+          "text": "cap aux PV max (v241)"
+         },
+         {
+          "c": "if_var",
+          "n": 240,
+          "op": ">=",
+          "value": 0,
+          "left": {
+           "from": "var",
+           "value": 240
+          },
+          "right": {
+           "from": "var",
+           "value": 241
+          },
+          "then": [
+           {
+            "c": "var",
+            "n": 240,
+            "op": "=",
+            "from": "var",
+            "value": 241
+           }
+          ],
+          "else": []
+         },
+         {
+          "c": "popup",
+          "value": 0,
+          "value_var": 93,
+          "x": 200,
+          "y": 40
+         },
+         {
+          "c": "break"
          }
         ],
         "else": []
@@ -744,6 +813,15 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       "else": []
      }
     ]
+   },
+   {
+    "c": "rem",
+    "text": "L'action est prise : on ferme le menu reste affiche."
+   },
+   {
+    "c": "ui_show",
+    "widget": "menu_combat",
+    "on": false
    },
    {
     "c": "if_var",

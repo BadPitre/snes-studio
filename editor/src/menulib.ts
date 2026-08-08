@@ -86,7 +86,8 @@ export const MENU_COMMON_EVENTS: CommonEvent[] = [
       "c": "list_select",
       "widget": "menu_principal",
       "var": 71,
-      "cancel": true
+      "cancel": true,
+      "keep": true
      },
      {
       "c": "if_var",
@@ -121,8 +122,46 @@ export const MENU_COMMON_EVENTS: CommonEvent[] = [
       },
       "then": [
        {
-        "c": "msg",
-        "text": "Potions : \\v[17]"
+        "c": "rem",
+        "text": "SOUS-MENU : la liste des objets (table items). B revient"
+       },
+       {
+        "c": "rem",
+        "text": "au menu principal — la boucle recommence, rien de plus."
+       },
+       {
+        "c": "list_select",
+        "widget": "menu_objets",
+        "var": 74,
+        "cancel": true
+       },
+       {
+        "c": "if_var",
+        "n": 74,
+        "op": "!=",
+        "value": 255,
+        "left": {
+         "from": "var",
+         "value": 74
+        },
+        "right": {
+         "value": 255
+        },
+        "then": [
+         {
+          "c": "db_read",
+          "table": "items",
+          "from": "var",
+          "entry": 74,
+          "field": "heal",
+          "dst": 75
+         },
+         {
+          "c": "msg",
+          "text": "Cet objet rend \\\\v[75] PV. (Utilise-le en combat.)"
+         }
+        ],
+        "else": []
        }
       ],
       "else": []
@@ -187,6 +226,11 @@ export const MENU_COMMON_EVENTS: CommonEvent[] = [
       "else": []
      }
     ]
+   },
+   {
+    "c": "ui_show",
+    "widget": "menu_principal",
+    "on": false
    }
   ]
  },

@@ -14,7 +14,7 @@ size = [32, 8]
 id = "menu_combat"
 type = "list"
 pos = [1, 13]
-items = ["Attaque", "Eclair", "Soin", "Potion", "Fuite"]
+items = ["Attaque", "Eclair", "Soin", "Objets", "Fuite"]
 
 # menu d'inventaire — ouvert par Start (common event « inventaire »).
 # Ses lignes SONT la table `items` : ajouter un objet dans la Database
