@@ -200,6 +200,9 @@ export default function TilePalette(props: Props) {
         </button>
       </div>
       <div className="palette-title">Tiles</div>
+      {/* Only the GRID scrolls: the drawing tools stay under the hand,
+          and the wheel never escapes to the rest of the editor. */}
+      <div className="palette-tiles">
       <canvas
         ref={ref}
         width={COLS * CELL}
@@ -229,6 +232,7 @@ export default function TilePalette(props: Props) {
           onTool({ kind: "tile", tiles: rectTiles(r) });
         }}
       />
+      </div>
     </div>
   );
 }

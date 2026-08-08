@@ -84,14 +84,18 @@ body {
 
 .left-col { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--face); min-height: 0; border-right: 1px solid var(--shadow); }
 .palette-box { flex-shrink: 0; overflow: hidden; display: flex; }
-.palette { width: 100%; padding: 8px; overflow-y: auto; }
+/* The palette's HEAD (drawing tools, titles) is fixed; only the tile
+   grid below scrolls, and `overscroll-behavior` keeps the wheel there
+   instead of chaining to the map once the grid hits an end. */
+.palette { width: 100%; padding: 8px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.palette-tiles { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .v-split {
   height: 6px; flex-shrink: 0; cursor: ns-resize;
   background: var(--face);
   border-top: 1px solid var(--shadow); border-bottom: 1px solid var(--shadow);
   touch-action: none;
 }
-.scene-tree { flex: 1; overflow-y: auto; padding: 4px 6px; min-height: 60px; background: #fff; box-shadow: var(--bev-field); margin: 4px; }
+.scene-tree { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 6px; min-height: 60px; background: #fff; box-shadow: var(--bev-field); margin: 4px; }
 .tree-head { display: flex; gap: 4px; padding: 2px 2px 6px; }
 .tree-head button { padding: 2px 9px; font-size: 11px; }
 .tree-row {
