@@ -687,3 +687,27 @@ impl IndexedImage {
         p
     }
 }
+
+/// A 2bpp character filled with ONE palette index — what the "image"
+/// widget draws in solid-colour mode. The UI layer only has the font's
+/// four colours, so `index` is 0-3 and 0 is transparency.
+///
+/// `cut` keeps only part of the tile, the half-step of a FILLED image:
+/// 0 the whole tile, 1 its left half, 2 its bottom half — the same
+/// convention as IndexedImage::to_ui_image_bg.
+pub fn solid_char(index: u8, cut: u8) -> Vec<u8> {
+    let mut out = vec![0u8; 16];
+    for y in 0..8 {
+        if cut == 2 && y < 4 {
+            continue; /* fills upwards: the top half stays empty */
+        }
+        let row = if cut == 1 { 0xF0u8 } else { 0xFFu8 };
+        if index & 1 != 0 {
+            out[y * 2] = row;
+        }
+        if index & 2 != 0 {
+            out[y * 2 + 1] = row;
+        }
+    }
+    out
+}

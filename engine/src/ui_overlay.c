@@ -46,6 +46,14 @@
  *                        w columns, 0x80|(w+1) = zero-padded). Redrawn
  *                        like a value: ui_ov_var is the first variable
  *                        it reads, ui_ov_maxvar the second (0xFF none).
+ *  12 image (colour)   — one SOLID character over the whole rect: what a
+ *                        fresh image widget is, before any artwork.
+ *  13 image (colour, filled) — the same, revealed to var/max; ui_ov_icon
+ *                        is the full character and ui_ov_icon + 1 the
+ *                        half one.
+ * A FILLED object (1, 2, 10, 13) reads ui_ov_pad: 0 means var against
+ * max, anything else is 1 + a percentage the author set by hand — a
+ * fill needs no variable at all.
  * ui_ov_frame: 9-slice/box frame, or a bare widget over the game.
  * Icons: chars UI_ICON_BASE+n (the ui.icons sheet, after the windowskin);
  * gauge/icon_row: icon, icon+1, icon+2 = full, half, empty.
@@ -58,6 +66,11 @@
  * ov_repaint, which clears a rect and replays — in emission order, which
  * IS the z-order — every visible primitive that meets it. The author's
  * widget order decides who is on top; a later widget wins.
+ *
+ * A widget may also overlap a DIALOGUE window (U2), and there the box
+ * wins: while ui_band_up is set, nothing paints or clears the band's
+ * rows. tb_clear_band drops the flag and refreshes, so the widget comes
+ * back the moment the message closes.
  *
  * Composes into the shared ui_map buffer (M1) — the transfer is
  * centralised in ui_screen_vblank.
@@ -130,6 +143,30 @@ static u8 ls_top = 0;     /* first visible row (scrolling list) */
 static u8 ls_row[LS_ROWS_MAX];
 static u8 ls_rows = 0; /* 0 = the list is not sourced */
 
+/* How full a FILLED object is, in half-tile units out of `units`.
+   ui_ov_pad carries 1 + a percentage when the author set the amount by
+   hand (no variable); 0 means the usual var-against-max reading. */
+static u8 ov_fill(u8 i, u16 units)
+{
+  u16 v, m;
+
+  if (ui_ov_pad[i])
+  {
+    v = (u16)(ui_ov_pad[i] - 1);
+    m = 100;
+  }
+  else
+  {
+    v = ov_last[i];
+    m = ov_lastm[i];
+  }
+  if (m == 0 || v == 0)
+    return 0;
+  if (v >= m)
+    return (u8)units;
+  return (u8)(((u32)v * units) / m);
+}
+
 /* a widget's current maximum: compiled constant or variable */
 static u16 ov_max(u8 i)
 {
@@ -164,8 +201,14 @@ static u8 ov_src_rows(u8 i)
   return n;
 }
 
-/* Is widget i on screen right now? */
-#define OV_VIS(i) (ov_vis[ui_ov_widget[i]])
+/* Is widget i on screen right now? A primitive laid over the DIALOGUE
+   band counts as absent while a box is up: the textbox is not a
+   primitive, so nothing could repaint it if we drew over it. It comes
+   straight back — tb_clear_band drops the flag, then refreshes. */
+#define OV_BAND(i) \
+  (ui_band_up && ui_ov_y[i] < (u8)(UI_SHADOW_ROW + UI_SHADOW_H) && \
+   (u8)(ui_ov_y[i] + ui_ov_h[i]) > UI_SHADOW_ROW)
+#define OV_VIS(i) (ov_vis[ui_ov_widget[i]] && !OV_BAND(i))
 
 /* Does primitive i meet the rect? */
 static u8 ov_hits(u8 i, u8 rx, u8 ry, u8 rw, u8 rh)
@@ -226,6 +269,10 @@ static void ov_repaint(u8 rx, u8 ry, u8 rw, u8 rh)
 
   for (cy = 0; cy < rh; cy++)
   {
+    /* the dialogue band belongs to the box while one is up */
+    if (ui_band_up && (u8)(ry + cy) >= UI_SHADOW_ROW &&
+        (u8)(ry + cy) < (u8)(UI_SHADOW_ROW + UI_SHADOW_H))
+      continue;
     base = (u16)(ry + cy) * 32 + rx;
     for (cx = 0; cx < rw; cx++)
       ui_map[base + cx] = 0;
@@ -316,16 +363,7 @@ static void ov_paint(u8 i)
   case 2: /* icon_row (hearts): same filling, always horizontal */
     cells = ui_ov_dir[i] ? h : w;
     units = (u16)cells << 1;
-    {
-      u16 m = ov_lastm[i];
-
-      if (m == 0 || v == 0)
-        fill = 0;
-      else if (v >= m)
-        fill = (u8)units;
-      else
-        fill = (u8)(((u32)v * units) / m);
-    }
+    fill = ov_fill(i, units);
     for (k = 0; k < cells; k++)
     {
       /* 2=full 1=half 0=empty -> chars icon+0 / +1 / +2 */
@@ -408,16 +446,7 @@ static void ov_paint(u8 i)
     ch = ui_ov_icon[i];
     cells = ui_ov_dir[i] ? h : w;
     units = (u16)cells << 1;
-    {
-      u16 m = ov_lastm[i];
-
-      if (m == 0 || v == 0)
-        fill = 0;
-      else if (v >= m)
-        fill = (u8)units;
-      else
-        fill = (u8)(((u32)v * units) / m);
-    }
+    fill = ov_fill(i, units);
     for (k = 0; k < cells; k++)
     {
       d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
@@ -436,6 +465,39 @@ static void ov_paint(u8 i)
         for (cy = 0; cy < h; cy++)
           ui_map[base + (u16)cy * 32 + x + k] =
               OV_ENTRY(ch + (d == 1 ? (u16)w * h : 0) + (u16)cy * w + k);
+    }
+    break;
+
+  case 12: /* image: a SOLID COLOUR — one character over the whole rect.
+              What a fresh image widget is, before any artwork. */
+    ch = ui_ov_icon[i];
+    for (cy = 0; cy < h; cy++)
+      for (k = 0; k < w; k++)
+        ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch);
+    break;
+
+  case 13: /* image: a solid colour FILLED — ch is the full character,
+              ch + 1 the half one (datagen lays them side by side) */
+    ch = ui_ov_icon[i];
+    cells = ui_ov_dir[i] ? h : w;
+    units = (u16)cells << 1;
+    fill = ov_fill(i, units);
+    for (k = 0; k < cells; k++)
+    {
+      d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
+      if (d > 2)
+        d = 2;
+      if (d == 0)
+        continue;
+      if (ui_ov_dir[i]) /* vertical: filled from the BOTTOM up */
+      {
+        cy = (u8)(h - 1 - k);
+        for (r = 0; r < w; r++)
+          ui_map[base + (u16)cy * 32 + x + r] = OV_ENTRY(ch + (d == 1));
+      }
+      else
+        for (cy = 0; cy < h; cy++)
+          ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch + (d == 1));
     }
     break;
 
@@ -594,10 +656,13 @@ void overlay_update(void)
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     t = ui_ov_type[i];
-    /* panel / static label / icons / picture / sliced: refresh only.
-       A filled image (10) and an interpolating label (11) track their
-       variables like a value does. */
-    if (t >= 4 && t != 10 && t != 11)
+    /* panel / static label / icons / picture / sliced / solid: refresh
+       only. A filled image (10, 13) and an interpolating label (11)
+       track their variables like a value does — unless the author set
+       the amount by hand, which ui_ov_pad marks. */
+    if (t >= 4 && t != 10 && t != 11 && t != 13)
+      continue;
+    if (ui_ov_pad[i] && (t == 1 || t == 2 || t == 10 || t == 13))
       continue;
     v = vm.vars16[ui_ov_var[i]];
     m = ov_max(i);
@@ -613,8 +678,28 @@ void overlay_update(void)
 
 void overlay_refresh(void)
 {
-  u8 i;
+  u8 i, cy, cx;
+  u16 base;
 
+  /* A widget that STRADDLES the dialogue band gives the whole of itself
+     up while a box is down — a canvas showing only the one row poking
+     out above the box reads as a bug, not as a feature. Clear those
+     rows first; the pass below brings back whatever was underneath. */
+  for (i = 0; i < UI_OV_COUNT; i++)
+  {
+    if (!ov_vis[ui_ov_widget[i]] || !OV_BAND(i))
+      continue;
+    for (cy = 0; cy < ui_ov_h[i]; cy++)
+    {
+      if ((u8)(ui_ov_y[i] + cy) >= UI_SHADOW_ROW &&
+          (u8)(ui_ov_y[i] + cy) < (u8)(UI_SHADOW_ROW + UI_SHADOW_H))
+        continue; /* the band itself belongs to the box */
+      base = (u16)(ui_ov_y[i] + cy) * 32 + ui_ov_x[i];
+      for (cx = 0; cx < ui_ov_w[i]; cx++)
+        ui_map[base + cx] = 0;
+    }
+    ui_mark(ui_ov_y[i], ui_ov_h[i]);
+  }
   /* unconditional redraw: after the dialogue band is cleared
      (tb_clear_band), the widgets sharing its rows must reappear —
      except those hidden by SHOWUI. Straight through in emission order:

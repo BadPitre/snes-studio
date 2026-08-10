@@ -19,20 +19,24 @@
 //!                       how a label shows a number. At most TWO
 //!                       variables per label (the engine watches two);
 //!                       past that, split it across an hbox.
-//!     type = "image"    a run of icons from the sheet (icon, width), or
-//!                       a project picture (pic = "name"), whose size
-//!                       comes from the image, mapped to the UI layer's
-//!                       4 colours at compile time. mode picks what is
-//!                       done with it, Unity style:
+//!     type = "image"    a SOLID COLOUR (color = 0-3, the UI layer's four
+//!                       — what a fresh image widget is), a run of icons
+//!                       from the sheet (icon, width), or a project
+//!                       picture (pic = "name"), whose size comes from
+//!                       the image, mapped to the UI layer's 4 colours at
+//!                       compile time. mode picks what is done with it,
+//!                       Unity style:
 //!                         "normal" (default) draws it as it is
 //!                         "sliced"  stretches a 3x3 picture over `size`
 //!                                   (the windowskin recipe, any image)
-//!                         "fill"    reveals it in proportion to
-//!                                   var/max (or max_var), left to right
-//!                                   or bottom up (dir = "v"), two units
-//!                                   per tile. On the ICON sheet it is
-//!                                   the classic 3-icon bar: full, half,
-//!                                   empty.
+//!                         "fill"    reveals it left to right or bottom
+//!                                   up (dir = "v"), two units per tile.
+//!                                   How full: `fill` from 0.0 to 1.0,
+//!                                   set once here — or var against max
+//!                                   / max_var to drive it in game. A
+//!                                   VARIABLE IS OPTIONAL. On the ICON
+//!                                   sheet it is the classic 3-icon bar:
+//!                                   full, half, empty.
 //!     type = "gauge" / "icon_row" / "icon_value" / "variable_display"
 //!                       the OLD HUD widgets. Still compiled so no
 //!                       project breaks, but gone from the palette: a
@@ -56,11 +60,18 @@
 //!                       value right-aligned (the quantity)
 //!     parent = "id"     attaches to a container; no parent means a ROOT,
 //!                       which then requires pos = [x, y]
-//!     anchor = "tl"     ROOTS: which point of the 32x28 screen pos is
-//!                       counted from, Unity style — t/m/b then l/c/r,
-//!                       default "tl". The same corner of the widget is
-//!                       pinned to it, so an "br" widget keeps its
-//!                       bottom-right corner put as it grows.
+//!     anchor = "tl"     which point of the box the object lives in — the
+//!                       32x28 screen for a root, the parent CANVAS'
+//!                       inside for a child — pos is counted from, Unity
+//!                       style: t/m/b then l/c/r, default "tl". The same
+//!                       corner of the object is pinned to it, so a "br"
+//!                       one keeps its bottom-right corner put as it
+//!                       grows. A canvas child with no pos STACKS with
+//!                       its siblings, as before; one WITH pos is placed
+//!                       freely. A vbox/hbox always stacks.
+//!     size = [w, h]     accepted on EVERY object, not only those that
+//!                       require it: an explicit size overrides the one
+//!                       the content computes.
 //!
 //!   [[overlay]] — the older flat format is still accepted: each entry
 //!   becomes a leaf root, migrated transparently.
@@ -75,14 +86,17 @@
 //!   9 image (sliced: a 3x3 picture stretched over the rect)
 //!  10 image (filled: the picture, then its CUT copy right after)
 //!  11 label (dynamic: \v[n] escapes encoded as 0x01, n+1, format)
+//!  12 image (a solid colour over the rect)  13 the same, filled
+//! A filled object (1, 2, 10, 13) reads `pad`: 0 = var against max,
+//! otherwise 1 + the percentage the author set by hand.
 //! Types 4-9 are STATIC: never redrawn when a variable changes, only on
 //! a refresh.
 //!
 //! Compile-time validation (§9.3): unique ids, existing parents, bounded
 //! depth, non-empty containers, everything on screen, at most 32
-//! primitives, no widget over a dialogue window, icons within the sheet,
-//! ASCII text. Widgets MAY overlap each other: the engine repaints by
-//! z-order, and the later widget wins.
+//! primitives, icons within the sheet, ASCII text. Widgets MAY overlap
+//! each other — the engine repaints by z-order, the later widget wins —
+//! AND the dialogue windows, where the box wins for as long as it is up.
 
 use anyhow::{bail, Context, Result};
 
@@ -211,6 +225,15 @@ pub struct Node {
     /// image: "normal" (default), "sliced" or "fill" — see the module docs.
     #[serde(default)]
     pub mode: Option<String>,
+    /// image: a SOLID COLOUR instead of a picture or icons — the index in
+    /// the UI layer's four-colour palette (the font's), 0 transparent.
+    /// This is what a fresh image widget is.
+    #[serde(default)]
+    pub color: Option<u8>,
+    /// image + fill: how full it is, 0.0 to 1.0, when no `var` drives it.
+    /// A fill needs neither a variable nor a maximum.
+    #[serde(default)]
+    pub fill: Option<f64>,
     #[serde(default)]
     pub dir: Option<String>,
     #[serde(default)]
@@ -301,10 +324,6 @@ fn c_string(s: &str) -> String {
     out
 }
 
-fn overlaps(a: (i64, i64, i64, i64), b: (i64, i64, i64, i64)) -> bool {
-    !(a.0 + a.2 <= b.0 || b.0 + b.2 <= a.0 || a.1 + a.3 <= b.1 || b.1 + b.3 <= a.1)
-}
-
 impl Node {
     fn framed(&self) -> bool {
         // A CANVAS is bare unless asked otherwise; "window", the old name,
@@ -330,10 +349,11 @@ fn is_canvas(kind: &str) -> bool {
     kind == "canvas" || kind == "window"
 }
 
-/// Where a root's `pos` is counted from: the anchor point of the 32x28
-/// screen, minus the SAME corner of the widget, Unity style. "tl" (the
-/// default) gives back plain absolute coordinates.
-fn anchor_origin(anchor: Option<&str>, size: [i64; 2]) -> Result<(i64, i64)> {
+/// Where `pos` is counted from: the anchor point of the box the object
+/// lives in — the 32x28 screen for a root, the parent canvas' inside for
+/// a child — minus the SAME corner of the object, Unity style. "tl" (the
+/// default) gives back plain coordinates from the top-left corner.
+fn anchor_origin(anchor: Option<&str>, size: [i64; 2], area: [i64; 2]) -> Result<(i64, i64)> {
     let a = anchor.unwrap_or("tl");
     let b = a.as_bytes();
     if b.len() != 2 {
@@ -341,18 +361,20 @@ fn anchor_origin(anchor: Option<&str>, size: [i64; 2]) -> Result<(i64, i64)> {
     }
     let y = match b[0] {
         b't' => 0,
-        b'm' => SCREEN_H / 2 - size[1] / 2,
-        b'b' => SCREEN_H - size[1],
+        b'm' => area[1] / 2 - size[1] / 2,
+        b'b' => area[1] - size[1],
         _ => bail!("ui : ancre « {} » : première lettre t (haut), m (milieu) ou b (bas)", a),
     };
     let x = match b[1] {
         b'l' => 0,
-        b'c' => SCREEN_W / 2 - size[0] / 2,
-        b'r' => SCREEN_W - size[0],
+        b'c' => area[0] / 2 - size[0] / 2,
+        b'r' => area[0] - size[0],
         _ => bail!("ui : ancre « {} » : deuxième lettre l (gauche), c (centre) ou r (droite)", a),
     };
     Ok((x, y))
 }
+
+const SCREEN: [i64; 2] = [SCREEN_W, SCREEN_H];
 
 /// One piece of a label: literal text, or a variable to interpolate.
 enum LabelPart {
@@ -463,6 +485,8 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         max_var: ov.max_var,
         pic: None, /* l'ancien format plat n'a pas d'image de widget */
         mode: None,
+        color: None,
+        fill: None,
         icon: ov.icon,
         dir: ov.dir.clone(),
         pad: ov.pad,
@@ -582,12 +606,50 @@ impl<'a> Flattener<'a> {
     }
 }
 
+impl<'a> Flattener<'a> {
+    /// A SOLID COLOUR image: one character filled with a palette index,
+    /// registered as a 1x1 "picture" so it rides the same VRAM plan.
+    /// Four colours at most (0 is transparency), so four chars. A FILLED
+    /// one adds its cut copy right after, exactly as a picture does.
+    fn need_solid(&mut self, n: &Node, color: u8, fill: Option<bool>) -> Result<u8> {
+        if color > 3 {
+            bail!(
+                "nœud « {} » : couleur {} — la couche UI n'en a que 4 \
+                 (celles de la fonte), 0 = transparent",
+                n.id, color
+            );
+        }
+        let name = format!("(couleur {})", color);
+        let (whole, cut) = match fill {
+            None => (VAR_SOLID, None),
+            Some(false) => (VAR_FILL_H, Some((VAR_CUT_H, 1u8))),
+            Some(true) => (VAR_FILL_V, Some((VAR_CUT_V, 2u8))),
+        };
+        if let Some(k) = self.find_variant(&name, false, whole) {
+            return Ok(k as u8);
+        }
+        let idx = self.push_solid(&name, color, whole, 0);
+        if let Some((v, c)) = cut {
+            self.push_solid(&name, color, v, c);
+        }
+        Ok(idx)
+    }
+
+    fn push_solid(&mut self, name: &str, color: u8, variant: u8, cut: u8) -> u8 {
+        self.pics
+            .push((name.to_string(), crate::gfx::solid_char(color, cut), 1, 1));
+        self.pic_bg.push((false, variant));
+        (self.pics.len() - 1) as u8
+    }
+}
+
 /// `pic_bg` variant codes — see Flattener::need_fill_pic.
 const VAR_WHOLE: u8 = 0;
 const VAR_FILL_H: u8 = 1;
 const VAR_CUT_H: u8 = 2;
 const VAR_FILL_V: u8 = 3;
 const VAR_CUT_V: u8 = 4;
+const VAR_SOLID: u8 = 5;
 
 impl<'a> Flattener<'a> {
     /// A node's intrinsic size, recursive for containers.
@@ -602,6 +664,15 @@ impl<'a> Flattener<'a> {
                 format!("nœud « {} » ({}) : size = [w, h] requis", n.id, what)
             })
         };
+        // An explicit size WINS over the intrinsic one, on every object —
+        // a label, a box or a list can be given the rectangle it must
+        // occupy instead of the one its content computes.
+        if let Some(s) = n.size {
+            if s[0] < 1 || s[1] < 1 {
+                bail!("nœud « {} » : size [{}, {}] invalide", n.id, s[0], s[1]);
+            }
+            return Ok(s);
+        }
         Ok(match n.kind.as_str() {
             k if is_canvas(k) => need_size("canvas")?,
             "gauge" | "icon_row" | "variable_display" => need_size(&n.kind)?,
@@ -720,21 +791,42 @@ impl<'a> Flattener<'a> {
                     kind: 4, frame: f, var: 0, icon: 0, vertical: false,
                     pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
-                // children stack vertically inside; a bare canvas has no
-                // frame to keep clear of, so its margin starts at zero
+                // Children with no pos STACK vertically, as they always
+                // have. One that carries pos is placed FREELY inside the
+                // canvas, anchored like a root is to the screen — that is
+                // what a canvas is for.
                 let m = n.margin.unwrap_or(if f { [1, 1] } else { [0, 0] });
+                let inner = [size[0] - 2 * m[0], size[1] - 2 * m[1]];
                 let mut cy = y + m[1];
                 for &c in &kids {
                     let cs = self.size_of(c, depth + 1)?;
-                    if cy + cs[1] > y + size[1] - m[1] || m[0] + cs[0] > size[0] - m[0] {
+                    let (cx, cyy) = match self.nodes[c].pos {
+                        Some(p) => {
+                            let (ax, ay) =
+                                anchor_origin(self.nodes[c].anchor.as_deref(), cs, inner)
+                                    .with_context(|| {
+                                        format!("ui : nœud « {} »", self.nodes[c].id)
+                                    })?;
+                            (x + m[0] + ax + p[0], y + m[1] + ay + p[1])
+                        }
+                        None => {
+                            let at = (x + m[0], cy);
+                            cy += cs[1];
+                            at
+                        }
+                    };
+                    if cyy + cs[1] > y + size[1] - m[1]
+                        || cx + cs[0] > x + size[0] - m[0]
+                        || cx < x + m[0]
+                        || cyy < y + m[1]
+                    {
                         bail!(
                             "ui : l'enfant « {} » ({}x{}) déborde du canvas « {} » ({}x{}, marge [{},{}])",
                             self.nodes[c].id, cs[0], cs[1], n.id, size[0], size[1], m[0], m[1]
                         );
                     }
                     // only a FRAMED canvas gives its children a background
-                    self.place(c, x + m[0], cy, depth + 1, in_window || f)?;
-                    cy += cs[1];
+                    self.place(c, cx, cyy, depth + 1, in_window || f)?;
                 }
             }
             "vbox" => {
@@ -772,7 +864,7 @@ impl<'a> Flattener<'a> {
                     );
                 }
                 self.emit(Prim {
-                    x, y, w: size[0], h: 1,
+                    x, y, w: size[0], h: size[1],
                     kind: if vars.is_empty() { 5 } else { 11 },
                     frame: false, var: vars.first().copied().unwrap_or(0),
                     icon: 0, vertical: false,
@@ -801,19 +893,53 @@ impl<'a> Flattener<'a> {
                         n.id, mode
                     );
                 }
-                // A filled image reads a variable against a maximum, the
-                // gauge's contract — kept generic, any artwork.
-                let fill_range = |n: &Node| -> Result<(u16, Option<u8>)> {
-                    match (n.max, n.max_var) {
-                        (Some(m), None) if m > 0 => Ok((m, None)),
-                        (None, Some(v)) => Ok((0, Some(v))),
-                        _ => bail!(
-                            "nœud « {} » : une image en mode fill demande max = n (> 0) \
-                             OU max_var = n",
-                            n.id
-                        ),
+                // How full it is. A variable is OPTIONAL: with none, the
+                // amount is the author's `fill` (0.0-1.0), baked into the
+                // `pad` field as 1 + percent, which the engine reads as
+                // "constant, out of 100". With one, it is the gauge's old
+                // contract: var against max or max_var.
+                let fill_how = |n: &Node| -> Result<(u8, u16, Option<u8>, u8)> {
+                    match n.var {
+                        None => {
+                            let f = n.fill.unwrap_or(1.0);
+                            if !(0.0..=1.0).contains(&f) {
+                                bail!(
+                                    "nœud « {} » : remplissage {} — de 0.0 à 1.0 \
+                                     (ou donner var = n pour le piloter en jeu)",
+                                    n.id, f
+                                );
+                            }
+                            Ok((0, 100, None, 1 + (f * 100.0).round() as u8))
+                        }
+                        Some(v) => match (n.max, n.max_var) {
+                            (Some(m), None) if m > 0 => Ok((v, m, None, 0)),
+                            (None, Some(mv)) => Ok((v, 0, Some(mv), 0)),
+                            _ => bail!(
+                                "nœud « {} » : une image fill pilotée par var demande \
+                                 max = n (> 0) OU max_var = n",
+                                n.id
+                            ),
+                        },
                     }
                 };
+                // A solid COLOUR beats everything: it is what a fresh
+                // image widget is, before any artwork exists.
+                if let Some(c) = n.color {
+                    if mode != "normal" && mode != "fill" {
+                        bail!("nœud « {} » : une couleur unie ne se découpe pas (sliced)", n.id);
+                    }
+                    let filled = mode == "fill";
+                    let idx = self.need_solid(n, c, filled.then(|| n.vertical()))?;
+                    let (var, max, max_var, pad) =
+                        if filled { fill_how(n)? } else { (0, 0, None, 0) };
+                    self.emit(Prim {
+                        x, y, w: size[0], h: size[1],
+                        kind: if mode == "fill" { 13 } else { 12 },
+                        frame: false, var, icon: idx, vertical: n.vertical(),
+                        pad, max, max_var, bg: in_window, widget: 0, text: String::new(), src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF, font: None,
+                    })?;
+                    return Ok(());
+                }
                 match (n.pic.clone(), mode) {
                     (Some(name), "sliced") => {
                         let (idx, pw, ph) = self.need_pic(n, &name, in_window)?;
@@ -834,15 +960,12 @@ impl<'a> Flattener<'a> {
                         })?;
                     }
                     (Some(name), "fill") => {
-                        let var = n.var.with_context(|| {
-                            format!("nœud « {} » : une image en mode fill demande var = n", n.id)
-                        })?;
-                        let (max, max_var) = fill_range(n)?;
+                        let (var, max, max_var, pad) = fill_how(n)?;
                         let (idx, w, h) = self.need_fill_pic(n, &name, in_window, n.vertical())?;
                         self.emit(Prim {
                             x, y, w, h,
                             kind: 10, frame: false, var, icon: idx, vertical: n.vertical(),
-                            pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (Some(name), _) => {
@@ -863,21 +986,18 @@ impl<'a> Flattener<'a> {
                     (None, "fill") => {
                         // On the icon sheet, a filled image IS the classic
                         // three-icon bar: full, half, empty.
-                        let var = n.var.with_context(|| {
-                            format!("nœud « {} » : une image en mode fill demande var = n", n.id)
-                        })?;
-                        let (max, max_var) = fill_range(n)?;
+                        let (var, max, max_var, pad) = fill_how(n)?;
                         let icon = self.need_icon(n, 3, "une image en mode fill")?;
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 1, frame: false, var, icon, vertical: n.vertical(),
-                            pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (None, _) => {
                         let icon = self.need_icon(n, size[0], "image")?;
                         self.emit(Prim {
-                            x, y, w: size[0], h: 1,
+                            x, y, w: size[0], h: size[1],
                             kind: 6, frame: false, var: 0, icon, vertical: false,
                             pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
@@ -1135,10 +1255,8 @@ pub fn load(
         }
     }
 
-    // Every dialogue window (default plus styles): the shadow band covers
-    // them, so no widget may overlap ANY of them.
-    let mut all_wins: Vec<(String, Win)> =
-        vec![("message".into(), msg.clone()), ("choice".into(), chc.clone())];
+    // Every extra style's windows must still fit the screen; a WIDGET
+    // overlapping one of them is no longer an error (U2).
     for st in &lay.dialog_style {
         let m = st.message.clone().unwrap_or_else(|| msg.clone());
         let c = st.choice.clone().unwrap_or_else(|| m.clone());
@@ -1152,8 +1270,6 @@ pub fn load(
                 );
             }
         }
-        all_wins.push((format!("message du style « {} »", st.id), m));
-        all_wins.push((format!("choice du style « {} »", st.id), c));
     }
 
     // The tree is [[node]] plus the [[overlay]] entries turned into leaf roots.
@@ -1228,21 +1344,14 @@ pub fn load(
         })?;
         let size = fl.size_of(r, 0)?;
         // pos counts from the ANCHOR, not from the top-left corner
-        let (ax, ay) = anchor_origin(n.anchor.as_deref(), size)
+        let (ax, ay) = anchor_origin(n.anchor.as_deref(), size, SCREEN)
             .with_context(|| format!("ui : racine « {} »", n.id))?;
         let (x, y) = (ax + pos[0], ay + pos[1]);
-        // Widgets MAY overlap each other — the engine repaints by z-order.
-        // A dialogue window is a different matter: the textbox writes into
-        // the same tilemap and is NOT a primitive, so nothing can bring a
-        // widget back under it.
-        for (name, w) in &all_wins {
-            if overlaps((x, y, size[0], size[1]), (w.pos[0], w.pos[1], w.size[0], w.size[1])) {
-                bail!(
-                    "ui : « {} » chevauche la fenetre {} — les dialogues l'ecraseraient",
-                    n.id, name
-                );
-            }
-        }
+        // Widgets may overlap each other AND the dialogue windows. The
+        // dialogue has the last word while it is up — the engine stops
+        // redrawing a widget that shares the band's rows — and everything
+        // is repainted when the band closes. An overlap costs a hidden
+        // widget for the length of a message, never a corrupted screen.
         fl.widget = widgets.len();
         fl.font = n.font.clone();
         widgets.push((n.id.clone(), n.visible.unwrap_or(false)));
@@ -1500,7 +1609,7 @@ pub fn plan(
     for p in prims.iter_mut() {
         // 8 plain, 9 sliced, 10 filled: all three carry an image INDEX
         // until the plan turns it into a base char
-        if p.kind == 8 || p.kind == 9 || p.kind == 10 {
+        if p.kind == 8 || p.kind == 9 || p.kind == 10 || p.kind == 12 || p.kind == 13 {
             p.icon = (pic_base + offsets[p.icon as usize]) as u8;
         }
     }

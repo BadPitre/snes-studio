@@ -236,6 +236,31 @@ export async function loadAssetPng(root: string, rel: string): Promise<ImageBitm
   return loadPngBitmap(`${root}/${rel}`);
 }
 
+/** The PLTE palette of an indexed PNG, as CSS colours, in PALETTE ORDER
+ *  — the order datagen reads too, since a pixel's index IS its SNES
+ *  colour index. The UI layer's four colours come from the font this
+ *  way, which is what the image widget's colour picker offers. Empty
+ *  when the file is not indexed. */
+export async function loadAssetPalette(root: string, rel: string): Promise<string[]> {
+  const bytes = await readFile(`${root}/${rel}`);
+  let o = 8;
+  while (o + 8 <= bytes.length) {
+    const len =
+      (bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3];
+    const type = String.fromCharCode(bytes[o + 4], bytes[o + 5], bytes[o + 6], bytes[o + 7]);
+    if (type === "PLTE") {
+      const out: string[] = [];
+      for (let i = 0; i + 2 < len; i += 3) {
+        const [r, g, b] = [bytes[o + 8 + i], bytes[o + 9 + i], bytes[o + 10 + i]];
+        out.push(`rgb(${r},${g},${b})`);
+      }
+      return out;
+    }
+    o += 12 + len;
+  }
+  return [];
+}
+
 // PNG from an absolute path (import previews) — the same transparency key
 // as the project assets (the first colour of the PLTE palette)
 export async function loadPngBitmap(path: string): Promise<ImageBitmap> {

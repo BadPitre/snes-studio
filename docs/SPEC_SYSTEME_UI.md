@@ -427,6 +427,42 @@ are plain TOML files — the community will be able to share them.
      bare canvas also gives its children no background and starts its
      margin at zero. The old `window` keeps framing by default, so
      nothing changes look.
+- **Shipped (U2) — the five follow-ups to U1.**
+  1. **A widget may also overlap a DIALOGUE window.** U1 kept that as an
+     error because the textbox is not a primitive and no repaint can
+     bring a widget back from under it. True, but it blocked layouts for
+     nothing: the answer is simply to say who wins. `ui_band_up` (set by
+     `tb_box_at`, cleared by `textbox_close`, both BEFORE the band is
+     cleared) marks the dialogue's rows as the box's; while it is up,
+     ui_overlay paints, clears and repaints nothing that touches them,
+     and `overlay_refresh` blanks the rows a straddling widget owns
+     OUTSIDE the band too — a canvas showing only the one row poking
+     above the box reads as a bug, not a feature. The whole widget comes
+     back the moment the message closes. The designer says so as a NOTE,
+     not an error: OK is no longer blocked.
+  2. **An image is a SOLID COLOUR by default** (`color = 0-3`), with a
+     picker limited to the four colours the UI layer actually has — the
+     font's, read from its PNG palette in palette order, which is the
+     order the compiler indexes them by. Colour 0 is transparency.
+     datagen registers each used colour as a one-character "picture", so
+     it rides the same VRAM plan; the cost is one char per colour.
+  3. **The image source is picked directly**: Couleur unie / Image du
+     projet / Icônes de la planche, the project's pictures one click
+     away instead of behind an icon-sheet default.
+  4. **A fill needs no variable.** `fill = 0.0 … 1.0` sets the amount
+     once, in the inspector, on a slider; ticking "piloté par une
+     variable" switches to the old var/max contract. datagen bakes the
+     constant into the primitive's `pad` field as 1 + a percentage, and
+     the engine reads `pad != 0` as "constant, out of 100" — so a
+     hand-set fill costs no variable, and `overlay_update` skips it.
+  5. **Size and anchor on EVERY object**, not just the canvas. An
+     explicit `size` overrides the one the content computes (with an
+     "auto" button to give it back where the compiler does not insist on
+     one), and a canvas child that carries `pos` is placed FREELY inside
+     its parent, anchored to the parent's inside exactly as a root is to
+     the screen. A child with no `pos` keeps stacking, so nothing
+     changes for existing layouts; a vbox/hbox always stacks — that is
+     what they are for.
 - **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
   declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
   the list object will become NAVIGABLE, the designer already lays it

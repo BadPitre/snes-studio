@@ -25,12 +25,12 @@ import {
   layoutToToml,
   nodeFramed,
   parseLayoutToml,
-  rootAncestor,
   rootsOf,
   sizeOf,
 } from "../uilayout";
 import {
   ensureProjectDir,
+  loadAssetPalette,
   loadAssetPng,
   readProjectText,
   writeProjectText,
@@ -90,13 +90,29 @@ function newNode(kind: NodeKind): Partial<UiNode> {
     case "vbox": case "hbox": return {};
     case "label": return { text: "Texte" };
     case "value": return { var: 0, width: 3 };
-    case "image": return { icon: 0, width: 1 };
+    // a fresh image is a SOLID COLOUR rectangle: something you can see
+    // and place before any artwork exists
+    case "image": return { color: 1, size: [4, 2] };
     case "gauge": return { var: 0, max: 10, icon: 0, size: [6, 1], frame: false };
     case "icon_row": return { var: 0, max: 12, icon: 0, size: [6, 1], frame: false };
     case "icon_value": return { var: 0, icon: 0, width: 5, frame: false };
     case "variable_display": return { var: 0, label: "Compteur", size: [12, 3] };
     case "list": return { items: ["Attaque", "Magie", "Objet", "Fuite"] };
   }
+}
+
+// Objects whose size the compiler INSISTS on: no "auto" to go back to.
+function SIZE_REQUIRED(n: UiNode): boolean {
+  return (
+    isCanvas(n.type) ||
+    n.type === "gauge" ||
+    n.type === "icon_row" ||
+    n.type === "variable_display" ||
+    (n.type === "list" && !!n.source) ||
+    (n.type === "image" &&
+      (n.color !== undefined || imageMode(n) === "sliced" ||
+        (imageMode(n) === "fill" && n.pic === undefined)))
+  );
 }
 
 const ANCHOR_TITLES: Record<string, string> = {
@@ -119,6 +135,10 @@ export default function UiThemeModal(props: Props) {
   const [font, setFont] = useState<ImageBitmap | null>(null);
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
+  // The UI layer's four colours — the font's palette, in palette order,
+  // which is the order the compiler indexes them by. What the image
+  // widget's colour picker offers.
+  const [uiPal, setUiPal] = useState<string[]>([]);
   // the project's pictures (the "Image" widget in picture mode): bitmap
   // by NAME (the stem, as in the event commands)
   const [pics, setPics] = useState<Record<string, ImageBitmap>>({});
@@ -153,6 +173,9 @@ export default function UiThemeModal(props: Props) {
   useEffect(() => {
     void loadUiLayout2(props.root).then(setLay);
     void loadAssetPng(props.root, props.project.assets.font).then(setFont).catch(() => {});
+    void loadAssetPalette(props.root, props.project.assets.font)
+      .then((p) => setUiPal(p.slice(0, 4)))
+      .catch(() => setUiPal([]));
   }, [props.root]);
   useEffect(() => {
     if (ui.windowskin)
@@ -346,7 +369,7 @@ export default function UiThemeModal(props: Props) {
         case 1:
         case 2: {
           const cells = p.vertical ? ch : cw;
-          const fill = Math.floor(cells * 2 * 0.58);
+          const fill = Math.floor(cells * 2 * (p.pad ? (p.pad - 1) / 100 : 0.58));
           for (let k = 0; k < cells; k++) {
             const d = Math.max(0, Math.min(2, fill - k * 2));
             const n = p.icon + 2 - d;
@@ -378,6 +401,25 @@ export default function UiThemeModal(props: Props) {
           if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
           break;
         }
+        case 12:
+        case 13: {
+          // a solid colour; filled shows the same 58 % as a gauge does
+          ctx.fillStyle = uiPal[p.icon] ?? "#c8c8c8";
+          if (p.kind === 12) ctx.fillRect(x0 * 8, y0 * 8, cw * 8, ch * 8);
+          else {
+            const cells = p.vertical ? ch : cw;
+            const amount = p.pad ? (p.pad - 1) / 100 : 0.58;
+            const fill = Math.floor(cells * 2 * amount);
+            for (let k = 0; k < cells; k++) {
+              const d = Math.max(0, Math.min(2, fill - k * 2));
+              if (d === 0) continue;
+              if (p.vertical)
+                ctx.fillRect(x0 * 8, (y0 + ch - 1 - k) * 8 + (d === 1 ? 4 : 0), cw * 8, d === 1 ? 4 : 8);
+              else ctx.fillRect((x0 + k) * 8, y0 * 8, d === 1 ? 4 : 8, ch * 8);
+            }
+          }
+          break;
+        }
         case 9: {
           // sliced: the 3x3 picture stretched over the widget, exactly as
           // the engine will lay its nine chars out
@@ -397,7 +439,7 @@ export default function UiThemeModal(props: Props) {
           const bmp = p.pic ? pics[p.pic] : undefined;
           if (!bmp) break;
           const cells = p.vertical ? ch : cw;
-          const fill = Math.floor(cells * 2 * 0.58);
+          const fill = Math.floor(cells * 2 * (p.pad ? (p.pad - 1) / 100 : 0.58));
           for (let k = 0; k < cells; k++) {
             const d = Math.max(0, Math.min(2, fill - k * 2));
             if (d === 0) continue;
@@ -601,12 +643,16 @@ export default function UiThemeModal(props: Props) {
     const hit = nodeAt(tx, ty);
     setSelId(hit);
     if (hit) {
-      const root = rootAncestor(lay.nodes, hit);
-      const rr = root ? flat.rects[root.id] : undefined;
-      // grab point relative to where the widget actually IS on screen —
+      // what actually moves: the object under the mouse if it is placed
+      // freely (a root, or a canvas child that opted in), otherwise the
+      // nearest ancestor that is
+      let n = lay.nodes.find((k) => k.id === hit);
+      while (n && !n.pos) n = n.parent ? lay.nodes.find((k) => k.id === n!.parent) : undefined;
+      const rr = n ? flat.rects[n.id] : undefined;
+      // grab point relative to where the object actually IS on screen —
       // `pos` is an offset from its anchor, not a screen position
-      if (root?.pos && rr) {
-        dragRef.current = { mode: "move", id: root.id, offX: tx - rr.x, offY: ty - rr.y };
+      if (n && rr) {
+        dragRef.current = { mode: "move", id: n.id, offX: tx - rr.x, offY: ty - rr.y };
       }
     }
   };
@@ -619,10 +665,12 @@ export default function UiThemeModal(props: Props) {
       if (!n) return;
       const s = sizeOf(lay.nodes, n);
       // the canvas works in absolute tiles; `pos` is an OFFSET from the
-      // widget's anchor, so take the anchor back out before storing
-      const [ax, ay] = anchorOrigin(n.anchor, s);
-      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX)) - ax;
-      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY)) - ay;
+      // object's anchor inside its box, so take both back out
+      const area = areaOf(n) ?? [32, 28];
+      const [ox, oy] = originOf(n);
+      const [ax, ay] = anchorOrigin(n.anchor, s, area);
+      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX)) - ax - ox;
+      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY)) - ay - oy;
       if (n.pos?.[0] !== nx || n.pos?.[1] !== ny)
         patchNode(d.id, { pos: [nx, ny] }, `move:${d.id}`);
     } else {
@@ -829,6 +877,29 @@ export default function UiThemeModal(props: Props) {
       e.preventDefault();
       deleteSel();
     }
+  };
+
+  // The box an object is positioned inside: the screen for a root, the
+  // parent canvas' content rect for a child. Anchors and free placement
+  // only make sense in a CANVAS — a vbox/hbox stacks, that is its job.
+  // Absolute top-left of that same box, so a drag can turn a screen
+  // position back into an offset.
+  const originOf = (n: UiNode): [number, number] => {
+    if (!n.parent) return [0, 0];
+    const p = lay.nodes.find((k) => k.id === n.parent);
+    const pr = p ? flat.rects[p.id] : undefined;
+    if (!p || !pr) return [0, 0];
+    const m = p.margin ?? [nodeFramed(p) ? 1 : 0, nodeFramed(p) ? 1 : 0];
+    return [pr.x + m[0], pr.y + m[1]];
+  };
+
+  const areaOf = (n: UiNode): [number, number] | null => {
+    if (!n.parent) return [32, 28];
+    const p = lay.nodes.find((k) => k.id === n.parent);
+    if (!p || !isCanvas(p.type)) return null;
+    const ps = sizeOf(lay.nodes, p);
+    const m = p.margin ?? [nodeFramed(p) ? 1 : 0, nodeFramed(p) ? 1 : 0];
+    return [ps[0] - 2 * m[0], ps[1] - 2 * m[1]];
   };
 
   // ---- tree ------------------------------------------------------------
@@ -1095,6 +1166,13 @@ export default function UiThemeModal(props: Props) {
                   ))}
                 </div>
               )}
+              {flat.notes.length > 0 && (
+                <div className="hint uitheme-notes">
+                  {flat.notes.map((e, i) => (
+                    <div key={i}>ℹ {e}</div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1313,6 +1391,13 @@ export default function UiThemeModal(props: Props) {
                 ))}
               </div>
             )}
+            {flat.notes.length > 0 && (
+              <div className="hint uitheme-notes">
+                {flat.notes.map((e, i) => (
+                  <div key={i}>ℹ {e}</div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* inspector */}
@@ -1331,7 +1416,7 @@ export default function UiThemeModal(props: Props) {
                   <label>id
                     <input value={sel.id} onChange={(e) => renameSel(e.target.value)} />
                   </label>
-                  {!sel.parent && (
+                  {areaOf(sel) && (sel.pos || !sel.parent) && (
                     <div className="row uitheme-anchorrow">
                       <div className="anchorgrid" title="Ancre : le point de l'écran d'où partent x et y">
                         {ANCHORS.map((a) => (
@@ -1340,11 +1425,12 @@ export default function UiThemeModal(props: Props) {
                             className={(sel.anchor ?? "tl") === a ? "sel" : undefined}
                             title={ANCHOR_TITLES[a]}
                             onClick={() => {
-                              // keep the widget WHERE IT IS: recompute the
+                              // keep the object WHERE IT IS: recompute the
                               // offset against the new anchor
                               const s = sizeOf(lay.nodes, sel);
-                              const [ox, oy] = anchorOrigin(sel.anchor, s);
-                              const [nx, ny] = anchorOrigin(a, s);
+                              const ar = areaOf(sel)!;
+                              const [ox, oy] = anchorOrigin(sel.anchor, s, ar);
+                              const [nx, ny] = anchorOrigin(a, s, ar);
                               patchNode(sel.id, {
                                 anchor: a === "tl" ? undefined : a,
                                 pos: [
@@ -1369,10 +1455,23 @@ export default function UiThemeModal(props: Props) {
                         </div>
                         <span className="hint">
                           Comptés depuis l'ancre ({ANCHOR_TITLES[sel.anchor ?? "tl"]}
-                          ) — le même coin du widget y reste collé quand il grandit.
+                          ) {sel.parent ? "du canvas parent" : "de l'écran"} — le même
+                          coin y reste collé quand l'objet grandit.
                         </span>
                       </div>
                     </div>
+                  )}
+                  {sel.parent && areaOf(sel) && (
+                    <label className="checkline">
+                      <input type="checkbox" checked={!!sel.pos}
+                        onChange={(e) =>
+                          patchNode(sel.id, {
+                            pos: e.target.checked ? [0, 0] : undefined,
+                            anchor: e.target.checked ? sel.anchor : undefined,
+                          })
+                        } />
+                      Placement libre dans le canvas (sinon : empilé avec ses frères)
+                    </label>
                   )}
                   {!sel.parent && (
                     <label className="checkline">
@@ -1404,15 +1503,28 @@ export default function UiThemeModal(props: Props) {
                       </span>
                     </label>
                   )}
-                  {sel.size && (
-                    <div className="row">
-                      {num("largeur", sel.size[0], (v) =>
-                        patchNode(sel.id, { size: [v ?? 1, sel.size![1]] })
-                      )}
-                      {num("hauteur", sel.size[1], (v) =>
-                        patchNode(sel.id, { size: [sel.size![0], v ?? 1] })
-                      )}
-                    </div>
+                  <div className="row" style={{ alignItems: "flex-end" }}>
+                    {num("largeur", (sel.size ?? sizeOf(lay.nodes, sel))[0], (v) =>
+                      patchNode(sel.id, {
+                        size: [v ?? 1, (sel.size ?? sizeOf(lay.nodes, sel))[1]],
+                      })
+                    )}
+                    {num("hauteur", (sel.size ?? sizeOf(lay.nodes, sel))[1], (v) =>
+                      patchNode(sel.id, {
+                        size: [(sel.size ?? sizeOf(lay.nodes, sel))[0], v ?? 1],
+                      })
+                    )}
+                    {sel.size && !SIZE_REQUIRED(sel) && (
+                      <button title="Revenir à la taille calculée par le contenu"
+                        onClick={() => patchNode(sel.id, { size: undefined })}>
+                        auto
+                      </button>
+                    )}
+                  </div>
+                  {!sel.size && (
+                    <span className="hint">
+                      Taille calculée par le contenu — saisir une valeur la fige.
+                    </span>
                   )}
                   {(sel.type === "vbox" || sel.type === "hbox") &&
                     num("Espacement (gap)", sel.gap ?? 0, (v) => patchNode(sel.id, { gap: v || undefined }))}
@@ -1553,7 +1665,8 @@ export default function UiThemeModal(props: Props) {
                     </>
                   )}
                   {(sel.type === "value" ||
-                    (sel.type === "image" && sel.pic === undefined && imageMode(sel) === "normal") ||
+                    (sel.type === "image" && sel.pic === undefined && sel.color === undefined &&
+                      imageMode(sel) === "normal") ||
                     sel.type === "icon_value") &&
                     num(
                       sel.type === "value" ? "Chiffres (1-5)" : sel.type === "image" ? "Icônes (largeur)" : "Largeur",
@@ -1565,7 +1678,6 @@ export default function UiThemeModal(props: Props) {
                     sel.type === "gauge" ||
                     sel.type === "icon_row" ||
                     sel.type === "icon_value" ||
-                    (sel.type === "image" && imageMode(sel) === "fill") ||
                     sel.type === "variable_display") && (
                     <label>Variable
                       <div className="row" style={{ gap: 4 }}>
@@ -1581,8 +1693,7 @@ export default function UiThemeModal(props: Props) {
                       <span className="hint">{props.varNames[sel.var ?? 0] || ""}</span>
                     </label>
                   )}
-                  {(sel.type === "gauge" || sel.type === "icon_row" ||
-                    (sel.type === "image" && imageMode(sel) === "fill")) && (
+                  {(sel.type === "gauge" || sel.type === "icon_row") && (
                     <>
                       {num(`Max${sel.max_var !== undefined ? " (ignoré)" : ""}`, sel.max ?? 1, (v) =>
                         patchNode(sel.id, { max: v }), { min: 1 })}
@@ -1637,26 +1748,50 @@ export default function UiThemeModal(props: Props) {
                       <label>
                         Source
                         <select
-                          value={sel.pic !== undefined ? "pic" : "icon"}
-                          onChange={(e) =>
-                            patchNode(sel.id, {
-                              pic:
-                                e.target.value === "pic"
-                                  ? Object.keys(pics)[0] ?? ""
-                                  : undefined,
-                              // sliced needs a picture; back on the sheet
-                              // it falls back to a plain run of icons
-                              mode:
-                                e.target.value === "icon" && imageMode(sel) === "sliced"
-                                  ? undefined
-                                  : sel.mode,
-                            })
+                          value={
+                            sel.color !== undefined ? "color" : sel.pic !== undefined ? "pic" : "icon"
                           }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            patchNode(sel.id, {
+                              color: v === "color" ? sel.color ?? 1 : undefined,
+                              pic: v === "pic" ? Object.keys(pics)[0] ?? "" : undefined,
+                              // sliced needs a picture; anywhere else it
+                              // falls back to the plain type
+                              mode: v !== "pic" && imageMode(sel) === "sliced" ? undefined : sel.mode,
+                              // a colour and a run of icons are sized by
+                              // the author, an image by itself
+                              size: v === "pic" ? undefined : sel.size ?? [4, 2],
+                            });
+                          }}
                         >
+                          <option value="color">Couleur unie</option>
+                          <option value="pic" disabled={Object.keys(pics).length === 0}>
+                            Image du projet{Object.keys(pics).length === 0 ? " (aucune)" : ""}
+                          </option>
                           <option value="icon">Icônes de la planche</option>
-                          <option value="pic">Image du projet</option>
                         </select>
                       </label>
+                      {sel.color !== undefined && (
+                        <label>
+                          Couleur
+                          <div className="colorpick">
+                            {(uiPal.length ? uiPal : ["", "", "", ""]).slice(0, 4).map((c, i) => (
+                              <button key={i}
+                                className={i === sel.color ? "sel" : undefined}
+                                title={i === 0 ? "Transparent (le jeu passe au travers)" : `Couleur ${i} de la fonte`}
+                                style={i === 0 ? undefined : { background: c || "#888" }}
+                                onClick={() => patchNode(sel.id, { color: i })}>
+                                {i === 0 ? "∅" : ""}
+                              </button>
+                            ))}
+                          </div>
+                          <span className="hint">
+                            La couche UI n'a que ces 4 couleurs — celles de la
+                            fonte du projet. La 0 est la transparence.
+                          </span>
+                        </label>
+                      )}
                       <label>
                         Type
                         <select
@@ -1680,18 +1815,88 @@ export default function UiThemeModal(props: Props) {
                           <option value="sliced" disabled={sel.pic === undefined}>
                             Sliced (9 tranches étirables{sel.pic === undefined ? " — image requise" : ""})
                           </option>
-                          <option value="fill">Fill (remplie par une variable)</option>
+                          <option value="fill">Fill (remplissage réglable)</option>
                         </select>
                         <span className="hint">
                           {imageMode(sel) === "sliced"
                             ? "L'image fait 3x3 tuiles (24x24 px) et s'étire sur la taille du widget — la recette du windowskin, avec n'importe quel dessin."
                             : imageMode(sel) === "fill"
-                              ? sel.pic === undefined
-                                ? "Barre d'icônes : icône pleine, +1 demie, +2 vide — jauge ou rangée de cœurs, deux crans par tuile."
-                                : "L'image se dévoile au prorata de var / max, deux crans par tuile. Le fond ne se dessine pas : pose l'image « vide » DERRIÈRE, les widgets ont le droit de se chevaucher."
+                              ? sel.color !== undefined
+                                ? "Rectangle de couleur dévoilé progressivement, deux crans par tuile."
+                                : sel.pic === undefined
+                                  ? "Barre d'icônes : icône pleine, +1 demie, +2 vide — jauge ou rangée de cœurs, deux crans par tuile."
+                                  : "L'image se dévoile progressivement, deux crans par tuile. Le fond ne se dessine pas : pose l'image « vide » DERRIÈRE, les widgets ont le droit de se chevaucher."
                               : ""}
                         </span>
                       </label>
+                      {imageMode(sel) === "fill" && (
+                        <>
+                          <label className="checkline">
+                            <input type="checkbox" checked={sel.var !== undefined}
+                              onChange={(e) =>
+                                patchNode(sel.id, {
+                                  var: e.target.checked ? sel.var ?? 0 : undefined,
+                                  max: e.target.checked ? sel.max ?? 100 : undefined,
+                                  max_var: e.target.checked ? sel.max_var : undefined,
+                                  fill: e.target.checked ? undefined : sel.fill ?? 1,
+                                })
+                              } />
+                            Piloté par une variable en jeu
+                          </label>
+                          {sel.var === undefined ? (
+                            <label>
+                              Remplissage : {Math.round((sel.fill ?? 1) * 100)} %
+                              <input type="range" min={0} max={100}
+                                value={Math.round((sel.fill ?? 1) * 100)}
+                                onChange={(e) =>
+                                  patchNode(sel.id, { fill: Number(e.target.value) / 100 },
+                                    `fill:${sel.id}`)
+                                } />
+                              <span className="hint">
+                                Valeur fixe, réglée ici — aucune variable n'est
+                                nécessaire. Deux crans par tuile.
+                              </span>
+                            </label>
+                          ) : (
+                            <>
+                              <label>Variable
+                                <div className="row" style={{ gap: 4 }}>
+                                  <input type="number" min={0} max={255} value={sel.var}
+                                    onChange={(e) => patchNode(sel.id, { var: Number(e.target.value) })} />
+                                  <button className="browse" title="Choisir dans la liste des variables"
+                                    onClick={() =>
+                                      setVarPick({ current: sel.var ?? 0, cb: (n) => patchNode(sel.id, { var: n }) })
+                                    }>
+                                    …
+                                  </button>
+                                </div>
+                                <span className="hint">{props.varNames[sel.var] || ""}</span>
+                              </label>
+                              {num(`Max${sel.max_var !== undefined ? " (ignoré)" : ""}`,
+                                sel.max ?? 100, (v) => patchNode(sel.id, { max: v }), { min: 1 })}
+                              <label>Max depuis var (vide = constante)
+                                <div className="row" style={{ gap: 4 }}>
+                                  <input type="number" min={0} max={255} value={sel.max_var ?? ""}
+                                    onChange={(e) =>
+                                      patchNode(sel.id, {
+                                        max_var: e.target.value === "" ? undefined : Number(e.target.value),
+                                      })
+                                    } />
+                                  <button className="browse"
+                                    onClick={() =>
+                                      setVarPick({
+                                        current: sel.max_var ?? 0,
+                                        cb: (n) => patchNode(sel.id, { max_var: n }),
+                                      })
+                                    }>
+                                    …
+                                  </button>
+                                </div>
+                              </label>
+                            </>
+                          )}
+                        </>
+                      )}
                       {sel.pic !== undefined && (
                         <>
                           <label>
@@ -1723,7 +1928,7 @@ export default function UiThemeModal(props: Props) {
                     </>
                   )}
                   {(sel.type === "gauge" || sel.type === "icon_row" || sel.type === "icon_value" ||
-                    (sel.type === "image" && sel.pic === undefined)) && (
+                    (sel.type === "image" && sel.pic === undefined && sel.color === undefined)) && (
                     <>
                       <span className="hint">
                         Icône : {sel.icon ?? 0}

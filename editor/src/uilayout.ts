@@ -74,6 +74,12 @@ export interface UiNode {
   /** image: "normal" (default) | "sliced" (a 3x3 picture stretched over
    *  `size`) | "fill" (revealed in proportion to var/max) */
   mode?: string;
+  /** image: a SOLID COLOUR instead of a picture or icons — the index in
+   *  the UI layer's four-colour palette (the font's), 0 transparent.
+   *  This is what a fresh image widget is. */
+  color?: number;
+  /** image + fill: how full it is, 0 to 1, when no `var` drives it. */
+  fill?: number;
   var?: number;
   label?: string; // variable_display
   frame?: boolean;
@@ -149,6 +155,10 @@ export interface Flat {
   // absolute rect of EVERY node (canvas selection/hit-test)
   rects: Record<string, { x: number; y: number; w: number; h: number }>;
   errors: string[];
+  /** Things worth saying that do NOT block the build — a widget laid
+   *  over a dialogue window, for instance: legal since U2, and simply
+   *  hidden while a message is up. */
+  notes: string[];
 }
 
 export function nodeFramed(n: UiNode): boolean {
@@ -172,13 +182,18 @@ export function imageMode(n: UiNode): string {
 /** The nine anchors, in the order the inspector's 3x3 grid draws them. */
 export const ANCHORS = ["tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br"] as const;
 
-/** Where a root's `pos` is counted from: the anchor point of the screen,
- *  minus the SAME corner of the widget (Unity). "tl" gives back plain
- *  absolute coordinates. */
-export function anchorOrigin(anchor: string | undefined, size: [number, number]): [number, number] {
+/** Where `pos` is counted from: the anchor point of the box the object
+ *  lives in — the screen for a root, the parent canvas' inside for a
+ *  child — minus the SAME corner of the object (Unity). "tl" gives back
+ *  plain coordinates from the top-left corner. */
+export function anchorOrigin(
+  anchor: string | undefined,
+  size: [number, number],
+  area: [number, number] = [SCREEN_W, SCREEN_H]
+): [number, number] {
   const a = anchor && anchor.length === 2 ? anchor : "tl";
-  const y = a[0] === "m" ? (SCREEN_H >> 1) - (size[1] >> 1) : a[0] === "b" ? SCREEN_H - size[1] : 0;
-  const x = a[1] === "c" ? (SCREEN_W >> 1) - (size[0] >> 1) : a[1] === "r" ? SCREEN_W - size[0] : 0;
+  const y = a[0] === "m" ? (area[1] >> 1) - (size[1] >> 1) : a[0] === "b" ? area[1] - size[1] : 0;
+  const x = a[1] === "c" ? (area[0] >> 1) - (size[0] >> 1) : a[1] === "r" ? area[0] - size[0] : 0;
   return [x, y];
 }
 
@@ -273,6 +288,12 @@ export function rootAncestor(nodes: UiNode[], id: string): UiNode | undefined {
 // tolerant: missing sizes fall back to a default, the error is reported
 export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, number] {
   const kids = childrenOf(nodes, n.id);
+  // An explicit size WINS over the intrinsic one, on every object — the
+  // mirror of size_of in tools/datagen/src/ui.rs.
+  if (n.size) {
+    if (n.size[0] < 1 || n.size[1] < 1) errors?.push(`« ${n.id} » : size invalide`);
+    return n.size;
+  }
   switch (n.type) {
     case "canvas":
     case "window":
@@ -363,6 +384,7 @@ function rectsOverlap(
 // Flattens the tree — the same rules as place() on the Rust side
 export function flatten(lay: UiLayout2, iconCount: number): Flat {
   const errors: string[] = [];
+  const notes: string[] = [];
   const prims: Prim[] = [];
   const rects: Flat["rects"] = {};
   const nodes = lay.nodes;
@@ -438,14 +460,32 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
           errors.push(`« ${n.id} » : un canvas encadré fait au moins 3x3`);
         emit({ x, y, w: size[0], h: size[1], kind: 4, frame: f, ...base, var: 0 });
         // a bare canvas has no frame to keep clear of
-        const m = n.margin ?? (f ? [1, 1] : [0, 0]);
+        const m = n.margin ?? [f ? 1 : 0, f ? 1 : 0];
+        const inner: [number, number] = [size[0] - 2 * m[0], size[1] - 2 * m[1]];
         let cy = y + m[1];
         for (const c of kids) {
           const cs = sizeOf(nodes, c, undefined);
-          if (cy + cs[1] > y + size[1] - m[1] || m[0] + cs[0] > size[0] - m[0])
+          // a child with no pos STACKS; one that carries pos is placed
+          // freely inside the canvas, anchored like a root to the screen
+          let cx: number;
+          let cyy: number;
+          if (c.pos) {
+            const [ax, ay] = anchorOrigin(c.anchor, cs, inner);
+            cx = x + m[0] + ax + c.pos[0];
+            cyy = y + m[1] + ay + c.pos[1];
+          } else {
+            cx = x + m[0];
+            cyy = cy;
+            cy += cs[1];
+          }
+          if (
+            cyy + cs[1] > y + size[1] - m[1] ||
+            cx + cs[0] > x + size[0] - m[0] ||
+            cx < x + m[0] ||
+            cyy < y + m[1]
+          )
             errors.push(`« ${c.id} » déborde du canvas « ${n.id} »`);
-          place(c, x + m[0], cy, inWindow || f, depth + 1);
-          cy += cs[1];
+          place(c, cx, cyy, inWindow || f, depth + 1);
         }
         break;
       }
@@ -479,7 +519,7 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
             `« ${n.id} » : ${vars.length} variables dans un label (2 au maximum) — couper en deux labels dans une hbox`
           );
         emit({
-          x, y, w: size[0], h: 1,
+          x, y, w: size[0], h: size[1],
           kind: vars.length ? 11 : 5, frame: false, ...base,
           var: vars[0] ?? 0, maxVar: vars[1],
           text: labelPreview(parts),
@@ -493,11 +533,36 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         break;
       case "image": {
         const mode = imageMode(n);
-        const needFill = () => {
-          if (n.var === undefined) errors.push(`« ${n.id} » : variable requise (mode fill)`);
+        // A variable is OPTIONAL on a fill: without one the amount is
+        // the author's `fill` (0-1), which the engine reads as a
+        // percentage out of 100.
+        // returns the `pad` the compiler bakes: 0 = driven by a
+        // variable, otherwise 1 + the percentage the author set
+        const needFill = (): number => {
+          if (n.var === undefined) {
+            const f = n.fill ?? 1;
+            if (!(f >= 0 && f <= 1)) {
+              errors.push(`« ${n.id} » : remplissage ${f} — de 0 à 1`);
+              return 1;
+            }
+            return 1 + Math.round(f * 100);
+          }
           if (n.max_var === undefined && !(n.max && n.max > 0))
-            errors.push(`« ${n.id} » : max (> 0) ou variable max requis (mode fill)`);
+            errors.push(`« ${n.id} » : max (> 0) ou variable max requis (piloté par var)`);
+          return 0;
         };
+        if (n.color !== undefined) {
+          // a SOLID COLOUR beats everything: that is what a fresh image is
+          if (n.color > 3) errors.push(`« ${n.id} » : la couche UI n'a que 4 couleurs`);
+          if (mode === "sliced")
+            errors.push(`« ${n.id} » : une couleur unie ne se découpe pas (sliced)`);
+          emit({
+            x, y, w: size[0], h: size[1],
+            kind: mode === "fill" ? 13 : 12, frame: false, ...base,
+            icon: n.color, pad: mode === "fill" ? needFill() : 0,
+          });
+          break;
+        }
         if (mode === "sliced") {
           if (!n.pic) errors.push(`« ${n.id} » : le mode sliced demande une image du projet`);
           else {
@@ -510,19 +575,21 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
           if (size[0] < 3 || size[1] < 3) errors.push(`« ${n.id} » : une image sliced fait au moins 3x3`);
           emit({ x, y, w: size[0], h: size[1], kind: 9, frame: false, ...base, pic: n.pic });
         } else if (mode === "fill" && n.pic) {
-          needFill();
-          emit({ x, y, w: size[0], h: size[1], kind: 10, frame: false, ...base, pic: n.pic });
+          emit({
+            x, y, w: size[0], h: size[1], kind: 10, frame: false, ...base,
+            pad: needFill(), pic: n.pic,
+          });
         } else if (mode === "fill") {
           // on the icon sheet, a filled image IS the classic 3-icon bar
-          needFill();
+          const pad = needFill();
           needIcon(n, 3);
-          emit({ x, y, w: size[0], h: size[1], kind: 1, frame: false, ...base });
+          emit({ x, y, w: size[0], h: size[1], kind: 1, frame: false, ...base, pad });
         } else if (n.pic) {
           // picture mode: the widget takes the image's size
           emit({ x, y, w: size[0], h: size[1], kind: 8, frame: false, ...base, pic: n.pic });
         } else {
           needIcon(n, size[0]);
-          emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
+          emit({ x, y, w: size[0], h: size[1], kind: 6, frame: false, ...base });
         }
         break;
       }
@@ -617,10 +684,9 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
     // pos counts from the ANCHOR, not from the top-left corner
     const [ax, ay] = anchorOrigin(r.anchor, size);
     const rect = { id: r.id, x: ax + r.pos[0], y: ay + r.pos[1], w: size[0], h: size[1] };
-    // Widgets MAY overlap each other — the engine repaints by z-order.
-    // A dialogue window is a different matter: the textbox writes into
-    // the same tilemap and is not a primitive, so nothing brings a
-    // widget back from under it.
+    // Widgets may overlap each other AND the dialogue windows: the box
+    // wins while it is up, the widget comes back when it closes. Kept as
+    // a NOTE, not an error — it blocked layouts for nothing.
     const allWins: [string, UiWin][] = [
       ["message", lay.message],
       ["choice", lay.choice],
@@ -632,14 +698,16 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
     }
     for (const [name, w] of allWins) {
       if (rectsOverlap(rect, { x: w.pos[0], y: w.pos[1], w: w.size[0], h: w.size[1] }))
-        errors.push(`« ${r.id} » : chevauche la fenêtre ${name} (les dialogues l'écraseraient)`);
+        notes.push(
+          `« ${r.id} » : sur la fenêtre ${name} — caché tant qu'un dialogue est affiché, il revient à la fermeture`
+        );
     }
     curFont = r.font;
     place(r, rect.x, rect.y, false, 0);
   }
   if (prims.length > PRIM_MAX)
     errors.push(`${prims.length} primitives (max ${PRIM_MAX}) — simplifier le layout`);
-  return { prims, rects, errors };
+  return { prims, rects, errors, notes };
 }
 
 // ---- reading / writing ui/layout.toml -------------------------------------

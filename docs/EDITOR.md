@@ -466,10 +466,12 @@ Not yet: autotile animation (water), gfx editing.
   horizontale (which stack their children, with adjustable spacing),
   **Label** (text, where `\v[3]` shows variable 3, `\v[3,4]` right-aligned
   on 4 columns and `\v[3,04]` zero-padded — two variables per label at
-  most), **Image** (icons from the sheet or a project picture, in one of
-  Unity's three types: *normal*, *sliced* — a 3x3 picture stretched over
-  the widget, the windowskin recipe with any drawing — and *fill*,
-  revealed in proportion to a variable, which is the gauge and the row of
+  most), **Image** (a SOLID COLOUR by default — a picker over the four
+  colours the UI layer has, the font's — or a project picture, or icons
+  from the sheet, in one of Unity's three types: *normal*, *sliced* — a
+  3x3 picture stretched over the widget, the windowskin recipe with any
+  drawing — and *fill*, whose amount is a slider from 0 to 100 % unless
+  you tick "piloté par une variable"; that is the gauge and the row of
   hearts), and **Liste
   (curseur)** (B6: a navigable menu — the items are edited one per line in
   the inspector, framed by default, auto-sized; in game the **"Choix dans
@@ -497,17 +499,23 @@ Not yet: autotile animation (water), gfx editing.
   An **inspector** on the right: the selection's properties (↑↓ to
   reorder, 🗑 to delete with its children, id, the variable with the named
   "…" list, clickable icon thumbnails, the frame, a constant or variable
-  max, the fill direction…); on a ROOT: the **anchor** (a 3x3 grid, Unity
-  style — x and y count from that point of the screen and the same corner
-  of the widget stays pinned to it as it grows), visibility at start-up
+  max, the fill direction…), the **size** of ANY object (an explicit one
+  overrides what its content computes, with an "auto" button to give it
+  back) and its **anchor** (a 3x3 grid, Unity style — x and y count from
+  that point and the same corner stays pinned to it as the object grows).
+  A root anchors to the screen; a canvas child that ticks "placement
+  libre" anchors to its parent's inside instead of stacking with its
+  siblings. On a ROOT: visibility at start-up
   and
   **"Fonte du widget"** (S2 — a FontSet for all the widget's text, shown
   live on the canvas). A Chrono Trigger style panel is Canvas > Liste
   verticale > Boîtes horizontales > labels/images. Two widgets MAY overlap
   (U1): the later one is drawn on top, which is how you put a "full" bar
-  over its "empty" artwork. The errors (the
-  same rules as the compiler — overflows, overlaps with the dialogue
-  windows, missing icons) show under the canvas and block OK. **"Dialogues
+  over its "empty" artwork. A widget may also sit ON a dialogue window
+  (U2) — the box wins while it is up and the widget comes back whole when
+  the message closes, which the designer says as a NOTE, not an error.
+  The errors (the same rules as the compiler — overflows, missing icons)
+  show under the canvas and block OK. **"Dialogues
   et choix"** (S1) opens on the **"Boîtes de dialogue"** list: the
   **(défaut) ★** box (always there — the theme's windowskin plus the text
   speed plus the message/choice geometry) and up to 3 **named styles** (✧

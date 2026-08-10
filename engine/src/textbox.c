@@ -140,9 +140,12 @@ static char tb_opts[4][28];
 
 /* Clears the dialogue BAND (the union of the message and choice rows)
    in the shared buffer, then redraws what may share those rows: the
-   HUD widgets (freely placed since W1 — never UNDER the dialogue
-   windows, uigen guarantees that, but possibly beside them) and the
-   timer. */
+   HUD widgets (freely placed since W1, and since U2 allowed to sit
+   right over the band) and the timer.
+
+   The CALLER owns ui_band_up: a box about to go down raises it first, so
+   a widget straddling the band does not paint a stray row above the box;
+   textbox_close drops it first, so the widget comes back whole. */
 static void tb_clear_band(void)
 {
   u16 i;
@@ -165,6 +168,8 @@ static void tb_box_at(u8 col, u8 row, u8 w, u8 h)
   u8 x, y, sy;
   u16 base, mid, fill;
 
+  /* the band belongs to the box from here on (U2) */
+  ui_band_up = 1;
   tb_clear_band();
   if (tb_skin) /* 9-slice of the current style — the test is OUTSIDE
                   the loops: opening a message must fit in its frame (the
@@ -571,5 +576,6 @@ void textbox_close(void)
   tw_waitkey = 0;
   tw_pause = 0;
   tb_autoclose = 0;
+  ui_band_up = 0; /* the widgets laid over the band come back (U2) */
   tb_clear_band();
 }
