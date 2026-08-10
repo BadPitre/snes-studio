@@ -519,7 +519,14 @@ Not yet: autotile animation (water), gfx editing.
   (U2) — the box wins while it is up and the widget comes back whole when
   the message closes, which the designer says as a NOTE, not an error.
   The errors (the same rules as the compiler — overflows, missing icons)
-  show under the canvas and block OK. **"Dialogues
+  show under the canvas and block OK. On a ROOT the inspector also
+  carries an **Événements** section (U3-b): `on_show` / `on_hide` on any
+  widget, plus `on_move` / `on_confirm` / `on_cancel` on a list, each a
+  **+** opening the ordinary event-command editor on a block stored in
+  `ui/hooks.json` — the reaction is written where the widget is. A list
+  names the variable its chosen row (or database entry number) is handed
+  over in. A hook may not block: datagen refuses a message, a wait, a
+  choice, a list or a warp inside one, naming the widget. **"Dialogues
   et choix"** (S1) opens on the **"Boîtes de dialogue"** list: the
   **(défaut) ★** box (always there — the theme's windowskin plus the text
   speed plus the message/choice geometry) and up to 3 **named styles** (✧
