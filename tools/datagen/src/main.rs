@@ -123,6 +123,46 @@ fn main() -> Result<()> {
         ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal,
                  database.as_ref())?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
+    // U3-b — WIDGET HOOKS: each command list written on a widget becomes
+    // a synthetic COMMON EVENT, so compilation, banking, text extraction
+    // and the CALL machinery all apply unchanged. The engine reaches the
+    // body through the CETAB's "b" entries.
+    let ui_hooks_src = ui::load_hooks(&proj_dir)?;
+    for id in ui_hooks_src.keys() {
+        if !ui_widget_ids.contains(id) {
+            anyhow::bail!(
+                "ui/hooks.json : widget « {} » inconnu (widgets : {})",
+                id,
+                if ui_widget_ids.is_empty() { "aucun".into() } else { ui_widget_ids.join(", ") }
+            );
+        }
+    }
+    let mut commons_all = project.common_events.clone();
+    let mut ui_hook_idx: Vec<[u8; 5]> = vec![[0xFF; 5]; ui_widgets.len()];
+    let mut ui_hook_rowvar: Vec<u8> = vec![0xFF; ui_widgets.len()];
+    let mut ui_hook_ces: Vec<usize> = Vec::new();
+    for (w, id) in ui_widget_ids.iter().enumerate() {
+        let Some(h) = ui_hooks_src.get(id) else { continue };
+        ui_hook_rowvar[w] = h.row_var.unwrap_or(0xFF);
+        for k in 0..ui::HOOK_NAMES.len() {
+            let cmds = h.list(k);
+            if cmds.is_empty() {
+                continue;
+            }
+            if commons_all.len() >= 255 {
+                anyhow::bail!("ui/hooks.json : trop de scripts (255 common events au total)");
+            }
+            ui_hook_idx[w][k] = commons_all.len() as u8;
+            ui_hook_ces.push(commons_all.len());
+            commons_all.push(project::CommonEvent {
+                name: format!("{} / {}", id, ui::HOOK_NAMES[k]),
+                trigger: "none".to_string(),
+                switch: None,
+                commands: cmds.to_vec(),
+                ..Default::default()
+            });
+        }
+    }
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
 
@@ -311,10 +351,11 @@ fn main() -> Result<()> {
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
-                &project.common_events,
+                &commons_all,
                 &project.functions,
                 database.as_ref(),
                 &ui_widget_ids,
+                &ui_hook_ces,
                 &ui_style_ids,
                 &pic_names,
                 &pic_dims,
@@ -1358,7 +1399,8 @@ fn main() -> Result<()> {
         write_out(
             &out_dir,
             "ui_overlays.c",
-            ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases),
+            ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases)
+                + &ui::emit_hooks(&ui_widgets, &ui_hook_idx, &ui_hook_rowvar),
         )?;
         write_out(&out_dir, "ui_styles.c", ui::emit_styles(&ui_style_rows))?;
         if !prims.is_empty() {

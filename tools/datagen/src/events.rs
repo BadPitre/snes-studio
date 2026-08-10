@@ -578,6 +578,9 @@ impl<'a> EventCompiler<'a> {
         functions: &[FunctionDef],
         db: Option<&'a Db>,
         ui_widgets: &[String],
+        // U3-b: the common events that are WIDGET HOOKS — always
+        // emitted, and reachable through a CETAB "b" entry.
+        ui_hook_ces: &[usize],
         ui_styles: &[String],
         pictures: &[String],
         pic_dims: &[(usize, usize)],
@@ -830,7 +833,24 @@ impl<'a> EventCompiler<'a> {
         let mut cetab = "CETAB".to_string();
         for (k, ce) in commons.iter().enumerate() {
             match ce.trigger.as_str() {
-                "none" => {}
+                "none" => {
+                    // A WIDGET HOOK (U3-b) is callable only, like any
+                    // "none" common event, but the engine reaches it by
+                    // INDEX rather than through a CALL opcode — hence a
+                    // CETAB entry of type "b", and a body always emitted.
+                    if ui_hook_ces.contains(&k) {
+                        Self::check_no_ui(commons, functions, k).with_context(|| {
+                            format!(
+                                "script du widget « {} » : un hook ne peut pas bloquer \
+                                 (message, attente, choix, liste, warp) — la liste \
+                                 mangerait sa propre entree",
+                                ce.name
+                            )
+                        })?;
+                        self.used_commons[k] = true;
+                        cetab.push_str(&format!(" b {} __ce{}_{}", k, k, scene_name));
+                    }
+                }
                 "auto" | "parallel" => {
                     // The switch is optional (box unchecked means always
                     // active, as in RM2003). An autorun with no switch

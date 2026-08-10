@@ -1813,3 +1813,89 @@ pub fn plan(
         theme_skin,
     })
 }
+
+// ---------------------------------------------------------------------
+// U3-b — WIDGET HOOKS: the script written ON the widget.
+//
+// `ui/hooks.json` holds, per widget id, an ordinary event command list
+// per hook plus the variable the row is handed over in:
+//
+//   { "menu_objets": { "row_var": 12,
+//                      "on_move":    [ {...}, ... ],
+//                      "on_confirm": [ ... ],
+//                      "on_cancel":  [ ... ],
+//                      "on_show":    [ ... ], "on_hide": [ ... ] } }
+//
+// A hook is NOT a new kind of script: datagen turns each list into a
+// synthetic COMMON EVENT (trigger "none"), so compilation, banking,
+// text extraction and the CALL machinery all apply unchanged. The
+// engine finds the body through the CETAB's "b" entries, the same
+// lookup the battle hooks used.
+// ---------------------------------------------------------------------
+
+/// The five hooks, in the order the emitted tables use.
+pub const HOOK_NAMES: [&str; 5] = ["on_move", "on_confirm", "on_cancel", "on_show", "on_hide"];
+
+#[derive(serde::Deserialize, Default, Clone)]
+pub struct WidgetHooks {
+    /// Where the engine writes the row (or the database entry number of
+    /// a sourced list) before running on_move / on_confirm.
+    #[serde(default)]
+    pub row_var: Option<u8>,
+    #[serde(default)]
+    pub on_move: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub on_confirm: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub on_cancel: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub on_show: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub on_hide: Vec<serde_json::Value>,
+}
+
+impl WidgetHooks {
+    pub fn list(&self, k: usize) -> &[serde_json::Value] {
+        match k {
+            0 => &self.on_move,
+            1 => &self.on_confirm,
+            2 => &self.on_cancel,
+            3 => &self.on_show,
+            _ => &self.on_hide,
+        }
+    }
+}
+
+/// Reads ui/hooks.json. An absent file is the normal case.
+pub fn load_hooks(proj_dir: &Path) -> Result<HashMap<String, WidgetHooks>> {
+    let p = proj_dir.join("ui").join("hooks.json");
+    if !p.is_file() {
+        return Ok(HashMap::new());
+    }
+    let src = std::fs::read_to_string(&p)
+        .with_context(|| format!("lecture de {}", p.display()))?;
+    serde_json::from_str(&src).with_context(|| "ui/hooks.json".to_string())
+}
+
+/// ui_hook_*.c tables: per WIDGET, the common-event index of each hook
+/// (0xFF = none), plus the variable the row goes into.
+pub fn emit_hooks(widgets: &[(String, bool, u8)], idx: &[[u8; 5]], rowvar: &[u8]) -> String {
+    let mut s = String::new();
+    let n = widgets.len().max(1);
+    for (k, name) in HOOK_NAMES.iter().enumerate() {
+        let short = name.trim_start_matches("on_");
+        let mut a = format!("const u8 ui_hook_{}[{}] = {{ ", short, n);
+        for i in 0..n {
+            let _ = write!(a, "{}, ", idx.get(i).map(|h| h[k]).unwrap_or(0xFF));
+        }
+        a.push_str("};\n");
+        s.push_str(&a);
+    }
+    let mut a = format!("const u8 ui_hook_rowvar[{}] = {{ ", n);
+    for i in 0..n {
+        let _ = write!(a, "{}, ", rowvar.get(i).copied().unwrap_or(0xFF));
+    }
+    a.push_str("};\n");
+    s.push_str(&a);
+    s
+}

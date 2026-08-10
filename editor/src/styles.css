@@ -341,6 +341,9 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .iconpick button.sel { background: var(--sel); }
 .iconpick button.sel2 { background: #7c94c4; }
 .iconpick img { width: 24px; height: 24px; image-rendering: pixelated; display: block; }
+/* Événements d'un widget (U3-b) : la section « + » façon Unreal */
+.uitheme-events { margin: 4px 0; }
+.uitheme-events .row { margin: 1px 0; }
 /* Liaison ⛓ d'une propriété (U3-a, geste d'Unreal) : soit une valeur
    fixe, soit « suit la variable N » — le moteur observe, rien n'écrit
    en retour. */

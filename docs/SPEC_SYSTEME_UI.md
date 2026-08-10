@@ -486,6 +486,31 @@ are plain TOML files — the community will be able to share them.
   refused for a structural reason: the primitive tables are `const` in
   ROM, so a setter needs a WRAM shadow per property, where a binding
   needs one byte.
+- **Shipped (U3-b) — the script written ON the widget.** The point of
+  Unreal's `+` is that the reaction lives where the widget is, so a hook
+  is NOT a dropdown pointing at a global function: it is an ordinary
+  event command block, edited with the same `CommandListEditor` the
+  Écrans window uses, stored in **`ui/hooks.json`** keyed by widget id.
+  - Five hooks: `on_show` / `on_hide` on any widget, `on_move` /
+    `on_confirm` / `on_cancel` on a list. Each hands the row over in the
+    variable the author names (`row_var`) — the chosen **entry number**
+    for a list sourced on a table, as "Choix dans une liste" does.
+  - **No new bytecode host.** datagen turns each block into a synthetic
+    COMMON EVENT, so compilation, banking, text extraction and CALL all
+    apply unchanged; the engine reaches the body through the CETAB's
+    `b` entries, the lookup `vm_common_hook` already provided. Per
+    widget, `ui_hook_move/confirm/cancel/show/hide` hold the common
+    event's index (0xFF none) and `ui_hook_rowvar` the variable.
+  - **A hook may not BLOCK** — no message, wait, choice, list or warp.
+    That is a compile-time refusal naming the widget, not a convention,
+    because it is what lets `vm_ui_hook` run the block SYNCHRONOUSLY:
+    the caller's execution state is saved and put back, there is no
+    third VM context for a scene change to unwind, and the menu cannot
+    eat its own input. A guard bounds a loop left without an exit, and
+    a hook never re-enters.
+  - Still open, and deliberately out of U3-b: a NON-modal list (`LISTSEL`
+    still parks the main context in `VM_WAIT_LIST`) and the question of
+    who owns the pad while one is live. That is U3-c.
 - **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
   declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
   the list object will become NAVIGABLE, the designer already lays it

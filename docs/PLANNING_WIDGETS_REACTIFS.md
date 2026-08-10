@@ -228,4 +228,7 @@ library reads the database.
   "who owns the pad". This is the milestone that deserves its own doc
   section before it is written.
 
-*U3 ends here. U3-a starts on the author's go.*
+*U3-a and U3-b are SHIPPED — see the "Implementation status" section of
+`SPEC_SYSTEME_UI.md`. U3-c (the UI context and the live list) starts on
+the author's go, and its "who owns the pad" question wants an answer
+before a line is written.*

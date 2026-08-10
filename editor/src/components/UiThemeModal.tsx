@@ -36,6 +36,34 @@ import {
   writeProjectText,
 } from "../io";
 import VarListModal from "./VarListModal";
+import { CommandListEditor } from "./EventEditorModal";
+import type { Scene, TextEntry, TintPreset } from "../types";
+
+/** U3-b — the command blocks written ON a widget (ui/hooks.json). */
+export const HOOKS = [
+  ["on_move", "Au déplacement du curseur", "liste"],
+  ["on_confirm", "À la validation (A)", "liste"],
+  ["on_cancel", "À l'annulation (B)", "liste"],
+  ["on_show", "À l'affichage", "tous"],
+  ["on_hide", "Au masquage", "tous"],
+] as const;
+
+export interface WidgetHooks {
+  row_var?: number;
+  on_move?: unknown[];
+  on_confirm?: unknown[];
+  on_cancel?: unknown[];
+  on_show?: unknown[];
+  on_hide?: unknown[];
+}
+
+export async function loadUiHooks(root: string): Promise<Record<string, WidgetHooks>> {
+  try {
+    return JSON.parse(await readProjectText(root, "ui/hooks.json"));
+  } catch {
+    return {};
+  }
+}
 
 interface Props {
   root: string;
@@ -51,6 +79,21 @@ interface Props {
   /** the project's database — a list widget can source its rows on a
    *  table, and the canvas must show the rows the engine will draw */
   db: Database | null;
+  // U3-b — everything the ordinary event-command editor needs, so a
+  // widget's hook is written with the SAME tool as any other script
+  sceneNames: string[];
+  scenes: Record<string, Scene>;
+  charsetNames: string[];
+  texts: TextEntry[];
+  pictures: string[];
+  mode7Images: string[];
+  tintPresets: TintPreset[];
+  soundNames: string[];
+  musicNames: string[];
+  vigNames: string[];
+  animNames: string[];
+  screenNames: string[];
+  onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   // the project's ui + widgets (roots) + dialogue styles — ui/layout.toml
   // is written BEFORE the call, the lists feed the event commands
@@ -208,6 +251,9 @@ export default function UiThemeModal(props: Props) {
   const coalesceRef = useRef<string | null>(null);
   // Ctrl+C / Ctrl+V in the tree: the copied node and its descendants
   const [clip, setClip] = useState<UiNode[] | null>(null);
+  // U3-b — the hook blocks, keyed by widget id, and the one being edited
+  const [hooks, setHooks] = useState<Record<string, WidgetHooks>>({});
+  const [hookEdit, setHookEdit] = useState<{ id: string; k: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // drag in progress: moving a root or resizing
   const dragRef = useRef<
@@ -218,6 +264,7 @@ export default function UiThemeModal(props: Props) {
 
   useEffect(() => {
     void loadUiLayout2(props.root).then(setLay);
+    void loadUiHooks(props.root).then(setHooks);
     void loadAssetPng(props.root, props.project.assets.font).then(setFont).catch(() => {});
     void loadAssetPalette(props.root, props.project.assets.font)
       .then((p) => setUiPal(p.slice(0, 4)))
@@ -1471,6 +1518,75 @@ export default function UiThemeModal(props: Props) {
                   <label>id
                     <input value={sel.id} onChange={(e) => renameSel(e.target.value)} />
                   </label>
+                  {!sel.parent && (
+                    <fieldset className="evedit-box uitheme-events">
+                      <legend>Événements</legend>
+                      {HOOKS.filter(([, , scope]) =>
+                        scope === "tous" || sel.type === "list"
+                      ).map(([k, label]) => {
+                        const h = hooks[sel.id] ?? {};
+                        const n = (h[k] as unknown[] | undefined)?.length ?? 0;
+                        return (
+                          <div className="row" key={k} style={{ alignItems: "center", gap: 4 }}>
+                            <span className="hint" style={{ flex: 1 }}>{label}</span>
+                            {n > 0 && <span className="hint">{n} cmd</span>}
+                            <button
+                              title={n ? "Modifier le script" : "Écrire le script de cet événement"}
+                              onClick={() => {
+                                // the block must exist before the editor
+                                // mutates it in place
+                                if (!(hooks[sel.id]?.[k] as unknown[] | undefined))
+                                  setHooks({
+                                    ...hooks,
+                                    [sel.id]: { ...hooks[sel.id], [k]: [] },
+                                  });
+                                setHookEdit({ id: sel.id, k: HOOKS.findIndex((x) => x[0] === k) });
+                              }}
+                            >
+                              {n ? "✎" : "+"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {sel.type === "list" && (
+                        <label>La ligne choisie va dans
+                          <div className="row" style={{ gap: 4 }}>
+                            <input type="number" min={0} max={255}
+                              value={hooks[sel.id]?.row_var ?? ""}
+                              placeholder="(aucune)"
+                              onChange={(e) =>
+                                setHooks({
+                                  ...hooks,
+                                  [sel.id]: {
+                                    ...hooks[sel.id],
+                                    row_var: e.target.value === "" ? undefined : Number(e.target.value),
+                                  },
+                                })
+                              } />
+                            <button className="browse"
+                              onClick={() =>
+                                setVarPick({
+                                  current: hooks[sel.id]?.row_var ?? 0,
+                                  cb: (nv) =>
+                                    setHooks({
+                                      ...hooks,
+                                      [sel.id]: { ...hooks[sel.id], row_var: nv },
+                                    }),
+                                })
+                              }>
+                              …
+                            </button>
+                          </div>
+                          <span className="hint">
+                            Le moteur y écrit la ligne — ou le NUMÉRO DE FICHE
+                            pour une liste branchée sur une table — juste avant
+                            de jouer le script. Un hook ne peut rien bloquer
+                            (message, attente, choix) : datagen le refuse.
+                          </span>
+                        </label>
+                      )}
+                    </fieldset>
+                  )}
                   {areaOf(sel) && (sel.pos || !sel.parent) && (
                     <div className="row uitheme-anchorrow">
                       <div className="anchorgrid" title="Ancre : le point de l'écran d'où partent x et y">
@@ -2097,6 +2213,20 @@ export default function UiThemeModal(props: Props) {
                 // the write/reload race has bitten once already
                 await ensureProjectDir(props.root, "ui");
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
+                // U3-b: drop the blocks of widgets that no longer exist,
+                // so hooks.json can never name one datagen will refuse
+                const ids = new Set(rootsOf(lay.nodes).map((n) => n.id));
+                const keep = Object.fromEntries(
+                  Object.entries(hooks).filter(
+                    ([id, h]) =>
+                      ids.has(id) &&
+                      (h.row_var !== undefined ||
+                        HOOKS.some(([k]) => (h[k] as unknown[] | undefined)?.length))
+                  )
+                );
+                await writeProjectText(
+                  props.root, "ui/hooks.json", JSON.stringify(keep, null, 1) + "\n"
+                );
                 props.onOk(
                   ui.windowskin || ui.text_speed || ui.icons ? ui : undefined,
                   rootsOf(lay.nodes).map((n) => n.id),
@@ -2109,6 +2239,47 @@ export default function UiThemeModal(props: Props) {
           </button>
           <button onClick={props.onClose}>Annuler</button>
         </div>
+        {hookEdit && hooks[hookEdit.id]?.[HOOKS[hookEdit.k][0]] && (
+          <div className="modal-backdrop" onClick={(e) => e.stopPropagation()}>
+            <div className="modal evedit">
+              <div className="palette-title">
+                {HOOKS[hookEdit.k][1]} — « {hookEdit.id} »
+                <button className="modal-x" title="Fermer" onClick={() => setHookEdit(null)}>✕</button>
+              </div>
+              <div className="evedit-cmds" style={{ minHeight: 320, maxHeight: 460, overflowY: "auto" }}>
+                <CommandListEditor
+                  key={`${hookEdit.id}-${hookEdit.k}`}
+                  cmds={hooks[hookEdit.id]![HOOKS[hookEdit.k][0]] as never}
+                  commit={() => setHooks({ ...hooks })}
+                  sceneNames={props.sceneNames}
+                  scenes={props.scenes}
+                  switchNames={props.switchNames}
+                  varNames={props.varNames}
+                  entryNames={[]}
+                  charsetNames={props.charsetNames}
+                  commonNames={[]}
+                  db={props.db}
+                  uiWidgets={rootsOf(lay.nodes).map((n) => n.id)}
+                  uiStyles={lay.styles.map((st) => st.id)}
+                  texts={props.texts}
+                  pictures={props.pictures}
+                  mode7Images={props.mode7Images}
+                  tintPresets={props.tintPresets}
+                  soundNames={props.soundNames}
+                  musicNames={props.musicNames}
+                  vigNames={props.vigNames}
+                  animNames={props.animNames}
+                  screenNames={props.screenNames}
+                  onTintPresets={props.onTintPresets}
+                  onRenameVars={props.onRenameVars}
+                />
+              </div>
+              <div className="row">
+                <button onClick={() => setHookEdit(null)}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        )}
         {varPick && (
           <VarListModal
             kind="var"

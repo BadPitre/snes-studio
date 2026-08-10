@@ -46,6 +46,8 @@ typedef struct
                       target of a ROUTE aimed at "this event" */
   u16 call_stack[8]; /* CALL return addresses */
   u8 call_sp;
+  u8 list_widget; /* U3-b: the widget the open list belongs to, so its
+      hooks can be found (0xFF = none) */
   u8 call_fb[8];   /* frame base saved per call */
   u16 frame[VM_FRAME_SLOTS]; /* parameters of the functions in progress */
   u8 frame_base;   /* first slot of the current function */
@@ -91,6 +93,15 @@ u16 vm_common_auto(void);
 /* Battle hook (C4): offset of common event `ce`'s body in the current
    scene's block (a type-2 CETAB entry), or SCRIPT_NONE. */
 u16 vm_common_hook(u8 ce);
+
+/* U3-b — runs a WIDGET HOOK to completion, right now. `ce` is the
+   common event datagen synthesised from the command block written on
+   the widget; 0xFF does nothing. A hook may not block (datagen refuses
+   a blocking command in one), so it runs SYNCHRONOUSLY inside the
+   caller — no third context to unwind on a scene change — and it never
+   re-enters. The execution state of whoever was running is saved and
+   put back. */
+void vm_ui_hook(u8 ce);
 
 /* PARALLEL common events (type 1): one step of the background context,
    every frame outside the System menu. Does not freeze the player, is

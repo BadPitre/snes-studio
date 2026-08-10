@@ -33,4 +33,12 @@ u8 overlay_list_pick(u8 row);
 void overlay_list_close(u8 keep); /* releases the cursor; keep = 1 leaves
     the widget shown (multi-panel), 0 hides it again */
 
+
+/* U3-b — the WIDGET HOOKS written on a widget in the designer. Returns
+   the common event datagen synthesised for hook `which` (0 move,
+   1 confirm, 2 cancel, 3 show, 4 hide), 0xFF when there is none, and
+   the variable the row is handed over in. */
+u8 overlay_hook(u8 widget, u8 which);
+u8 overlay_hook_rowvar(u8 widget);
+
 #endif /* UI_OVERLAY_H */

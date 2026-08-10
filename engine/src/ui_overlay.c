@@ -99,6 +99,13 @@ extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
 extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
     (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
 extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
+extern const u8 ui_hook_move[]; /* U3-b: per WIDGET, the common event of
+    each hook (0xFF none), and where the row is handed over */
+extern const u8 ui_hook_confirm[];
+extern const u8 ui_hook_cancel[];
+extern const u8 ui_hook_show[];
+extern const u8 ui_hook_hide[];
+extern const u8 ui_hook_rowvar[];
 extern const u8 ui_widget_visvar[]; /* U3-a: widget shown while this
     variable is non-zero (0xFF = SHOWUI alone decides) */
 extern const u8 ui_ov_picvar[]; /* U3-a: image BOUND to a variable —
@@ -782,6 +789,30 @@ void overlay_show(u8 widget, u8 on)
     else
       ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
   }
+  /* U3-b: the widget's own on_show / on_hide block, AFTER the screen is
+     right — a hook must find the widget in the state it announces */
+  vm_ui_hook(overlay_hook(widget, on ? 3 : 4));
+}
+
+u8 overlay_hook(u8 widget, u8 which)
+{
+  if (!UI_WIDGET_COUNT || widget >= UI_WIDGET_COUNT)
+    return 0xFF;
+  switch (which)
+  {
+  case 0: return ui_hook_move[widget];
+  case 1: return ui_hook_confirm[widget];
+  case 2: return ui_hook_cancel[widget];
+  case 3: return ui_hook_show[widget];
+  default: return ui_hook_hide[widget];
+  }
+}
+
+u8 overlay_hook_rowvar(u8 widget)
+{
+  if (!UI_WIDGET_COUNT || widget >= UI_WIDGET_COUNT)
+    return 0xFF;
+  return ui_hook_rowvar[widget];
 }
 
 /* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
@@ -903,6 +934,19 @@ u8 overlay_list_open(u8 widget)
 u8 overlay_list_pick(u8 row)
 {
   return row;
+}
+
+u8 overlay_hook(u8 widget, u8 which)
+{
+  (void)widget;
+  (void)which;
+  return 0xFF;
+}
+
+u8 overlay_hook_rowvar(u8 widget)
+{
+  (void)widget;
+  return 0xFF;
 }
 
 void overlay_list_cursor(u8 sel)

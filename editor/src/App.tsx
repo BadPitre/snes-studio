@@ -2170,6 +2170,23 @@ export default function App() {
           root={data.root}
           mode={uiMode}
           project={data.project}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          texts={data.texts}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
+          tintPresets={data.project.tint_presets ?? []}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          musicNames={(data.project.musics ?? []).map(musicStem)}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          animNames={(data.project.animations ?? []).map((a) => a.name)}
+          screenNames={data.project.screens ?? []}
+          onTintPresets={(list) =>
+            mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+          }
           windowskins={projectWindowskins(data.project)}
           iconsets={projectIconsets(data.project)}
           fonts={projectFonts(data.project)}

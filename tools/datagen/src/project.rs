@@ -224,7 +224,7 @@ pub struct UiConfig {
     pub icons: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Default)]
 pub struct CommonEvent {
     #[serde(default)]
     pub name: String,

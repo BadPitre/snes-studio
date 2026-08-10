@@ -161,6 +161,8 @@ u16 vm_common_auto(void)
 /* Battle hook (C4): the CETAB's type-2 entries map a COMMON EVENT index
    (carried by the switch field) to the body's offset in THIS scene's
    block. SCRIPT_NONE when the scene compiled without it. */
+static void vm_step(void);
+
 u16 vm_common_hook(u8 ce)
 {
   u8 n, i;
@@ -180,6 +182,64 @@ u16 vm_common_hook(u8 ce)
     p += 5;
   }
   return SCRIPT_NONE;
+}
+
+/* U3-b — hands the row over in the variable the author chose, then runs
+   the open list's hook `which` (0 move, 1 confirm, 2 cancel). */
+static void vm_list_hook(u8 which)
+{
+  u8 rv;
+
+  if (vm.list_widget == 0xFF)
+    return;
+  rv = overlay_hook_rowvar(vm.list_widget);
+  if (rv != 0xFF)
+    vm.vars16[rv] = overlay_list_pick(vm.choice_sel);
+  vm_ui_hook(overlay_hook(vm.list_widget, which));
+}
+
+/* U3-b — a WIDGET HOOK, run to completion right here. See vm.h: a hook
+   may not block, which is what lets it be synchronous — nothing new to
+   unwind when a scene unloads, and the menu never eats its own input.
+   The guard bounds a LOOP an author left without an exit. */
+static u8 hook_busy = 0; /* EXPLICIT init (tcc statics) */
+
+void vm_ui_hook(u8 ce)
+{
+  u16 ofs, s_pc;
+  u8 s_active, s_wait, s_sp, s_actor, s_fb, s_fsp, guard;
+
+  if (ce == 0xFF || hook_busy)
+    return;
+  ofs = vm_common_hook(ce);
+  if (ofs == SCRIPT_NONE)
+    return;
+  hook_busy = 1;
+  s_active = vm.active;
+  s_wait = vm.wait_mode;
+  s_pc = vm.pc;
+  s_sp = vm.call_sp;
+  s_actor = vm.script_actor;
+  s_fb = vm.frame_base;
+  s_fsp = vm.frame_sp;
+
+  vm.active = 1;
+  vm.wait_mode = VM_WAIT_NONE;
+  vm.pc = ofs;
+  vm.call_sp = 0;
+  vm.script_actor = 0xFF;
+  /* vm_step spends at most VM_OPS_PER_FRAME opcodes per call */
+  for (guard = 0; guard < 8 && vm.active && vm.wait_mode == VM_WAIT_NONE; guard++)
+    vm_step();
+
+  vm.active = s_active;
+  vm.wait_mode = s_wait;
+  vm.pc = s_pc;
+  vm.call_sp = s_sp;
+  vm.script_actor = s_actor;
+  vm.frame_base = s_fb;
+  vm.frame_sp = s_fsp;
+  hook_busy = 0;
 }
 
 /* --- PARALLEL context (v0.16) — a "Parallel process" common event runs
@@ -858,6 +918,7 @@ static void vm_step(void)
       val = overlay_list_open(var);
       if (!val)
         break; /* no list on that widget: command ignored */
+      vm.list_widget = var; /* U3-b: whose hooks to run */
       vm.choice_count = val;
       vm.choice_sel = 0;
       vm.list_flags = op;
@@ -1234,12 +1295,14 @@ void vm_update(void)
       vm.choice_sel = vm.choice_sel ? (u8)(vm.choice_sel - 1)
                                     : (u8)(vm.choice_count - 1);
       overlay_list_cursor(vm.choice_sel);
+      vm_list_hook(0); /* U3-b: on_move */
     }
     else if (down & KEY_DOWN)
     {
       vm.choice_sel = (u8)(vm.choice_sel + 1) >= vm.choice_count
                           ? 0 : (u8)(vm.choice_sel + 1);
       overlay_list_cursor(vm.choice_sel);
+      vm_list_hook(0);
     }
     else if (down & KEY_A)
     {
@@ -1247,12 +1310,15 @@ void vm_update(void)
          list sourced on a database table answers the chosen ENTRY's
          number instead of the row, so "read the database" reads it. */
       vm.vars16[vm.choice_var] = overlay_list_pick(vm.choice_sel);
+      vm_list_hook(1); /* on_confirm — BEFORE the list closes, so the
+                          block still sees which row it was */
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
     else if ((down & KEY_B) && (vm.list_flags & 1))
     {
       vm.vars16[vm.choice_var] = 255;
+      vm_list_hook(2); /* on_cancel */
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
