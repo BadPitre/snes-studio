@@ -37,63 +37,101 @@ coupling, and it is why the gauge worked on the day it shipped.
 Point 3 is the request's real content. Points 1 and 2 are what make it
 worth having.
 
-## 3. The design
+## 3. The design — Unreal's gesture, this engine's mechanism
 
-### 3.1 Properties stay BOUND, they are not assigned
+The author's second directive: *"il faudrait que la philosophie de script
+se rapproche d'Unreal ou de Unity dans la façon dont on se branche à un
+widget, tout en restant dans le système de script d'event."*
 
-The tempting move is a command: *Modifier un widget → propriété →
-valeur*. It is the wrong one here, for a reason that is structural
-rather than aesthetic: **the primitive tables are `const` in ROM.** An
-imperative setter needs a WRAM shadow for every property it can touch —
-four more arrays for a position and a size, one per prim. A BINDING
-needs one byte, and for the values already tracked (`ov_last`) it needs
-zero.
+That is the right frame, and it splits cleanly. Unreal's UMG binds to a
+widget in exactly two ways, and this engine already has an honest
+counterpart for each — but only one of them can be copied literally.
 
-So: **which image is shown becomes a `pic_var`** — the widget draws
-picture number N of a short declared list, N read from a variable. The
-script writes the variable, as it already does for the fill. Same
-gesture, same mental model, one new field.
+| UMG / uGUI | Here | Why not literal |
+|---|---|---|
+| A property's **Bind** dropdown → a function evaluated EVERY FRAME | The property is bound to a **VARIABLE**; the engine compares it each frame and redraws when it moves | A script per property per frame is out of reach at 3.58 MHz. The compare is what `overlay_update` already does — one u16 compare per primitive, and only a change costs a redraw. |
+| **Events** panel: `OnClicked` `+` drops a node into the widget's graph | An **event-command block embedded in the widget**, edited in the ordinary event editor | Nothing. This one ports straight across — a composed SCREEN already carries named scripts (B6bis), and `CommandListEditor` is already an exported, reusable component. |
+| The event node's **pins** (which item, which value) | A field on the hook: *"écrire la ligne dans la variable X"*, which the block then reads | Script blocks have no parameters. And "Choix dans une liste" already answers into a variable the author picks, so this is the existing idiom rather than a new one. |
+| Unity's **list of persistent listeners**, several per event | ONE block per hook; sequencing lives inside it | Several listeners with no visible order is precisely what becomes unreadable in a Unity project. A block you can read top to bottom is worth more than fan-out. |
 
-This is not a new invention either: `pic_show` has had "image by
-variable" since S7, on the BG1 layer.
+### 3.1 Binding a property: the gesture moves to the property itself
 
-**The cost, plainly:** every candidate image is resident in BG3 VRAM at
-once, out of the layer's 256 characters (font 97, plus 9 per windowskin,
-2 per icon, 96 per extra font). Four frames of a 2x2 image cost 16
-characters — comfortable. Four frames of an 8x8 image cost 256 — the
-budget error will say so, at compile time, with the arithmetic.
+The mechanism does not change — a widget WATCHES a variable, a script
+writes it, one direction, no coupling. What changes is where the author
+meets it. Today "piloté par une variable en jeu" is a checkbox some way
+down the inspector; it IS a bind toggle, just not named or placed like
+one.
 
-### 3.2 A hook is a call to a FUNCTION that already exists
+So every bindable property grows the same affordance, right next to the
+field: a **⛓ button** that turns a fixed value into "suit la variable
+[…]", with the variable picker the rest of the editor already uses.
+Bindable in U3:
 
-The second temptation is to invent a place to write widget scripts. The
-project already has two, and one of them fits exactly: **user functions**
-(F1/F2b) take parameters, return a value, have local variables, and get
-their own window (F1-c). A composed SCREEN already carries named scripts
-(B6bis), which is the precedent for "a data object owning script".
+- **Remplissage** (already bindable — it only gets the new affordance)
+- **Image affichée**: a short declared list of candidate pictures, the
+  shown one from a variable. New; see §3.2.
+- **Visible**: SHOWUI already does this imperatively; a binding makes it
+  declarative, which is what a HUD wants.
 
-So a widget's hook is not a new kind of script. It is a **dropdown in
-the inspector: "appeler la fonction X"**, and the engine calls that
-function with the row number as its parameter. No new authoring surface,
-no new bytecode host, and the existing CALLF/RETF frame machinery is
-already tested.
+The reason a setter command ("Modifier un widget → propriété → valeur")
+is still refused, and it is structural rather than aesthetic: **the
+primitive tables are `const` in ROM.** An imperative setter needs a WRAM
+shadow for every property it can touch. A binding needs one byte — and
+for values already tracked in `ov_last`, none.
+
+### 3.2 The image by variable
+
+The widget draws picture number N of a short declared list, N read from a
+variable. Not a new invention: `pic_show` has had "image by variable"
+since S7, on the BG1 layer.
+
+**The cost, plainly:** every candidate is resident in BG3 VRAM at once,
+out of the layer's 256 characters (font 97, plus 9 per windowskin, 2 per
+icon, 96 per extra font). Four frames of a 2x2 image cost 16 characters —
+comfortable. Four frames of an 8x8 image cost 256 — and the budget error
+will say so at compile time, with the arithmetic.
+
+### 3.3 Hooks: the script lives ON the widget
+
+Not a dropdown pointing at a global function — the point of Unreal's `+`
+is that the reaction is written where the widget is, and stays visible
+next to it. So the inspector grows an **Événements** section:
+
+```
+Événements
+  ▸ Au déplacement du curseur   ligne -> var [12]   [+ / ✎ 3 cmd]
+  ▸ À la validation (A)         ligne -> var [12]   [✎ 5 cmd]
+  ▸ À l'annulation (B)          —                   [+]
+  ▸ À l'affichage / au masquage —                   [+] [+]
+```
+
+`+` opens the ordinary event-command editor on that block — the same
+`CommandListEditor` the Écrans window embeds. datagen compiles each block
+into a script label exactly as `screens.rs` unrolls a screen's named
+scripts. **No new bytecode host, no new authoring surface, no function
+indirection.**
 
 Hooks, kept deliberately few and free of meaning:
 
-| Hook | Fires | Parameter |
+| Hook | Fires | Hands over |
 |---|---|---|
 | `on_show` / `on_hide` | SHOWUI on this widget | — |
-| `on_move` | the cursor changed row (lists) | the row |
-| `on_confirm` | A pressed (lists) | the row |
+| `on_move` | the cursor changed row (lists) | the row, in the chosen variable |
+| `on_confirm` | A pressed (lists) | the row, in the chosen variable |
 | `on_cancel` | B pressed (lists) | — |
 
-`on_confirm` overlaps what "Choix dans une liste" already returns. That
-is fine: the point is that with hooks a list works **without** the
-blocking command, which is §3.3.
+For a list sourced on a database table, the variable receives the chosen
+**entry's number**, as "Choix dans une liste" already does — so the block
+can go straight to "Lire la database" without knowing what a row is.
 
-### 3.3 The open question: where does a hook RUN?
+`on_confirm` overlaps what the blocking command already returns. That is
+fine: the point is that with hooks a list works **without** it, which is
+§3.4.
+
+### 3.4 The open question: where does a hook RUN?
 
 This is the decision the doc exists to take, and it is the only genuinely
-hard part.
+hard part. It is unchanged by the authoring model above.
 
 The VM has two contexts: the main one, and one parallel slot already
 owned by parallel common events (`vm_parallel_update`, `common_lookup(1)`).
@@ -101,8 +139,8 @@ A hook needs somewhere to execute.
 
 **Option A — in the main context, around the existing wait.** While a
 modal list is up, the main context is parked in `VM_WAIT_LIST` and
-executes nothing. A hook can borrow it: save the wait, CALLF, restore on
-RETF. Cheap — a handful of lines, no new WRAM, no new concept. Buys
+executes nothing. A hook can borrow it: save the wait, run the block,
+restore when it returns. Cheap — no new WRAM, no new concept. Buys
 `on_move` / `on_confirm` / `on_cancel` on the list as it exists today.
 Buys nothing for a non-modal list, because there is no wait to borrow.
 
@@ -115,28 +153,27 @@ mid-script when a scene unloads, when a warp fires, when a save happens.
 Every one of those paths has to know about it.
 
 **Recommendation: A first, then B.** Option A answers the request as
-written ("savoir quel élément a été sélectionné", reacting to it) at
-almost no risk, and shipping it teaches us what authors actually attach
-to a hook before the expensive context exists.
+written at almost no risk, and shipping it teaches us what authors
+actually attach to a hook before the expensive context exists.
 
-### 3.4 The rule that keeps it from rotting: a hook may not BLOCK
+### 3.5 The rule that keeps it from rotting: a hook may not BLOCK
 
 No message, no wait, no second list, no warp inside a hook. Not a
-convention — a **compile-time check**: datagen already walks a function's
-body, and it refuses one that contains a blocking command when that
-function is used as a hook. The error names the command and the widget.
+convention — a **compile-time check**: datagen already walks a command
+list, and it refuses one used as a hook that contains a blocking
+command. The error names the command and the widget.
 
 Without it, the first author who opens a dialogue from `on_move` gets a
 menu that eats its own input, and the bug looks like an engine bug.
 
-### 3.5 The four prohibitions
+### 3.6 The four prohibitions
 
 1. **No widget knows what it means.** A hook says "row 3 confirmed",
    never "the player chose Attack". The library decides.
 2. **No hook the engine invents.** No `on_hp_low`, no `on_empty`. The
    engine fires what the player did, never what a number did.
-3. **No widget-to-widget wiring in the data.** A hook is a function
-   call; composition lives in events, where the author can read it.
+3. **No widget-to-widget wiring in the data.** A hook is a command
+   list; composition lives in events, where the author can read it.
 4. **No property the engine assigns behind the author's back.** A bound
    property is watched, never written by the widget.
 
@@ -175,14 +212,17 @@ library reads the database.
 
 ## 6. Milestones
 
-- **U3-a — the image by variable.** `pic_var` on the image widget: a
-  short list of candidate pictures, the shown one from a variable, the
-  VRAM budget checked at compile time. No hooks, no new context, and it
-  answers the first half of the request literally.
-- **U3-b — hooks on the modal list (option A).** `on_move`,
-  `on_confirm`, `on_cancel` as a function call with the row as its
-  parameter, borrowing the main context's wait. The datagen check that a
-  hook does not block. The inspector's three dropdowns.
+- **U3-a — binding, with Unreal's gesture.** The ⛓ affordance next to
+  every bindable property (remplissage, visible), and the new one:
+  **image by variable**, with the BG3 budget checked at compile time. No
+  hooks, no new context — and it answers the first half of the request
+  literally.
+- **U3-b — hooks on the modal list (option A).** An **Événements**
+  section in the inspector, each hook an embedded command block edited
+  with the existing `CommandListEditor` and compiled the way `screens.rs`
+  compiles a screen's scripts; the "ligne -> variable" field; the datagen
+  check that a hook does not block. The reaction is written on the
+  widget, which is the whole point.
 - **U3-c — the UI context (option B) and the LIVE list.** A widget that
   navigates while the game runs, `on_show` / `on_hide`, and the answer to
   "who owns the pad". This is the milestone that deserves its own doc
