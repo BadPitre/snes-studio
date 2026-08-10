@@ -115,6 +115,52 @@ function SIZE_REQUIRED(n: UiNode): boolean {
   );
 }
 
+/** The ⛓ affordance, Unreal's "Bind" on a property: a fixed value on the
+ *  left, or "suit la variable […]" on the right. The mechanism is the
+ *  engine's own — the widget WATCHES the variable, nothing writes back. */
+function BindRow(props: {
+  label: string;
+  bound: boolean;
+  onBind: (on: boolean) => void;
+  varNum?: number;
+  onVar?: (n: number) => void;
+  pick?: (cur: number, cb: (n: number) => void) => void;
+  varName?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bindrow">
+      <div className="row" style={{ alignItems: "center", gap: 4 }}>
+        <span className="hint" style={{ flex: 1 }}>{props.label}</span>
+        <button
+          className={"bindbtn" + (props.bound ? " on" : "")}
+          title={props.bound
+            ? "Valeur pilotée par une variable — cliquer pour la refixer"
+            : "Lier cette propriété à une variable de jeu"}
+          onClick={() => props.onBind(!props.bound)}
+        >
+          ⛓
+        </button>
+      </div>
+      {props.bound ? (
+        <>
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={props.varNum ?? 0}
+              onChange={(e) => props.onVar?.(Number(e.target.value))} />
+            <button className="browse" title="Choisir dans la liste des variables"
+              onClick={() => props.pick?.(props.varNum ?? 0, (n) => props.onVar?.(n))}>
+              …
+            </button>
+          </div>
+          <span className="hint">suit la variable {props.varName || props.varNum}</span>
+        </>
+      ) : (
+        props.children
+      )}
+    </div>
+  );
+}
+
 const ANCHOR_TITLES: Record<string, string> = {
   tl: "Haut gauche", tc: "Haut centre", tr: "Haut droite",
   ml: "Milieu gauche", mc: "Centre", mr: "Milieu droite",
@@ -399,6 +445,15 @@ export default function UiThemeModal(props: Props) {
           // simulate the colour reduction.
           const bmp = p.pic ? pics[p.pic] : undefined;
           if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
+          // bound to a variable: the canvas can only show candidate 0,
+          // so it says so rather than pretend
+          if (p.picVar !== undefined) {
+            ctx.fillStyle = "rgba(10,36,106,0.85)";
+            ctx.fillRect(x0 * 8, y0 * 8, 8, 8);
+            ctx.fillStyle = "#fff";
+            ctx.font = "7px monospace";
+            ctx.fillText("v", x0 * 8 + 2, y0 * 8 + 6);
+          }
           break;
         }
         case 12:
@@ -1474,11 +1529,23 @@ export default function UiThemeModal(props: Props) {
                     </label>
                   )}
                   {!sel.parent && (
-                    <label className="checkline">
-                      <input type="checkbox" checked={!!sel.visible}
-                        onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
-                      Visible au démarrage (sinon : commande « Afficher un widget UI »)
-                    </label>
+                    <BindRow
+                      label="Visible"
+                      bound={sel.vis_var !== undefined}
+                      onBind={(on) =>
+                        patchNode(sel.id, { vis_var: on ? sel.vis_var ?? 0 : undefined })
+                      }
+                      varNum={sel.vis_var}
+                      onVar={(n) => patchNode(sel.id, { vis_var: n })}
+                      pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                      varName={props.varNames[sel.vis_var ?? 0]}
+                    >
+                      <label className="checkline">
+                        <input type="checkbox" checked={!!sel.visible}
+                          onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
+                        Visible au démarrage (sinon : commande « Afficher un widget UI »)
+                      </label>
+                    </BindRow>
                   )}
                   {!sel.parent && (
                     <label>Fonte du widget
@@ -1831,21 +1898,24 @@ export default function UiThemeModal(props: Props) {
                       </label>
                       {imageMode(sel) === "fill" && (
                         <>
-                          <label className="checkline">
-                            <input type="checkbox" checked={sel.var !== undefined}
-                              onChange={(e) =>
-                                patchNode(sel.id, {
-                                  var: e.target.checked ? sel.var ?? 0 : undefined,
-                                  max: e.target.checked ? sel.max ?? 100 : undefined,
-                                  max_var: e.target.checked ? sel.max_var : undefined,
-                                  fill: e.target.checked ? undefined : sel.fill ?? 1,
-                                })
-                              } />
-                            Piloté par une variable en jeu
-                          </label>
-                          {sel.var === undefined ? (
+                          <BindRow
+                            label="Remplissage"
+                            bound={sel.var !== undefined}
+                            onBind={(on) =>
+                              patchNode(sel.id, {
+                                var: on ? sel.var ?? 0 : undefined,
+                                max: on ? sel.max ?? 100 : undefined,
+                                max_var: on ? sel.max_var : undefined,
+                                fill: on ? undefined : sel.fill ?? 1,
+                              })
+                            }
+                            varNum={sel.var}
+                            onVar={(n) => patchNode(sel.id, { var: n })}
+                            pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                            varName={props.varNames[sel.var ?? 0]}
+                          >
                             <label>
-                              Remplissage : {Math.round((sel.fill ?? 1) * 100)} %
+                              {Math.round((sel.fill ?? 1) * 100)} %
                               <input type="range" min={0} max={100}
                                 value={Math.round((sel.fill ?? 1) * 100)}
                                 onChange={(e) =>
@@ -1857,21 +1927,9 @@ export default function UiThemeModal(props: Props) {
                                 nécessaire. Deux crans par tuile.
                               </span>
                             </label>
-                          ) : (
+                          </BindRow>
+                          {sel.var !== undefined && (
                             <>
-                              <label>Variable
-                                <div className="row" style={{ gap: 4 }}>
-                                  <input type="number" min={0} max={255} value={sel.var}
-                                    onChange={(e) => patchNode(sel.id, { var: Number(e.target.value) })} />
-                                  <button className="browse" title="Choisir dans la liste des variables"
-                                    onClick={() =>
-                                      setVarPick({ current: sel.var ?? 0, cb: (n) => patchNode(sel.id, { var: n }) })
-                                    }>
-                                    …
-                                  </button>
-                                </div>
-                                <span className="hint">{props.varNames[sel.var] || ""}</span>
-                              </label>
                               {num(`Max${sel.max_var !== undefined ? " (ignoré)" : ""}`,
                                 sel.max ?? 100, (v) => patchNode(sel.id, { max: v }), { min: 1 })}
                               <label>Max depuis var (vide = constante)
@@ -1899,8 +1957,26 @@ export default function UiThemeModal(props: Props) {
                       )}
                       {sel.pic !== undefined && (
                         <>
-                          <label>
-                            Image
+                          <BindRow
+                            label="Image"
+                            bound={sel.pic_var !== undefined}
+                            onBind={(on) =>
+                              patchNode(sel.id, {
+                                pic_var: on ? sel.pic_var ?? 0 : undefined,
+                                // a bound image needs at least two
+                                // candidates; seed with the current one
+                                pics: on
+                                  ? sel.pics?.length
+                                    ? sel.pics
+                                    : [sel.pic!, Object.keys(pics)[1] ?? sel.pic!]
+                                  : undefined,
+                              })
+                            }
+                            varNum={sel.pic_var}
+                            onVar={(n) => patchNode(sel.id, { pic_var: n })}
+                            pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                            varName={props.varNames[sel.pic_var ?? 0]}
+                          >
                             <select
                               value={sel.pic}
                               onChange={(e) => patchNode(sel.id, { pic: e.target.value })}
@@ -1912,7 +1988,53 @@ export default function UiThemeModal(props: Props) {
                                 <option key={n} value={n}>{n}</option>
                               ))}
                             </select>
-                          </label>
+                          </BindRow>
+                          {sel.pic_var !== undefined && (
+                            <div className="picset">
+                              <span className="hint">
+                                Images candidates — la variable donne le numéro
+                                (0 = la première). Toutes doivent faire la même
+                                taille, et toutes vivent en VRAM à la fois.
+                              </span>
+                              {(sel.pics ?? []).map((nm, i) => (
+                                <div className="row" key={i} style={{ gap: 4 }}>
+                                  <span className="hint" style={{ width: 16 }}>{i}</span>
+                                  <select value={nm} style={{ flex: 1 }}
+                                    onChange={(e) =>
+                                      patchNode(sel.id, {
+                                        pics: (sel.pics ?? []).map((o, k) =>
+                                          k === i ? e.target.value : o
+                                        ),
+                                      })
+                                    }>
+                                    {Object.keys(pics).map((n) => (
+                                      <option key={n} value={n}>{n}</option>
+                                    ))}
+                                  </select>
+                                  <button className="danger"
+                                    disabled={(sel.pics ?? []).length <= 2}
+                                    title={(sel.pics ?? []).length <= 2
+                                      ? "Au moins deux candidates" : "Retirer"}
+                                    onClick={() =>
+                                      patchNode(sel.id, {
+                                        pics: (sel.pics ?? []).filter((_, k) => k !== i),
+                                      })
+                                    }>
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                disabled={(sel.pics ?? []).length >= 16}
+                                onClick={() =>
+                                  patchNode(sel.id, {
+                                    pics: [...(sel.pics ?? []), Object.keys(pics)[0] ?? ""],
+                                  })
+                                }>
+                                ✧ Ajouter une candidate
+                              </button>
+                            </div>
+                          )}
                           <span className="hint">
                             {pics[sel.pic]
                               ? `${pics[sel.pic].width}x${pics[sel.pic].height} px = ${Math.ceil(

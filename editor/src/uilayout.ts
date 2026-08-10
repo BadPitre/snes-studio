@@ -80,6 +80,12 @@ export interface UiNode {
   color?: number;
   /** image + fill: how full it is, 0 to 1, when no `var` drives it. */
   fill?: number;
+  /** image BOUND to a variable (U3-a): the candidate pictures, all the
+   *  same size in tiles, and the variable saying which one shows. */
+  pics?: string[];
+  pic_var?: number;
+  /** roots: visibility BOUND to a variable — shown while it is non-zero */
+  vis_var?: number;
   var?: number;
   label?: string; // variable_display
   frame?: boolean;
@@ -144,6 +150,9 @@ export interface Prim {
   maxVar?: number;
   /** kind 8: name of the picture shown (designer preview) */
   pic?: string;
+  /** U3-a: the widget's image follows a variable — the preview shows
+   *  the FIRST candidate and says so */
+  picVar?: number;
   bg: boolean;
   text: string;
   nodeId: string;
@@ -340,6 +349,22 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
       return [Math.min(Math.max(n.width ?? 3, 1), 5), 1];
     case "image": {
       const mode = imageMode(n);
+      if (n.pic_var !== undefined && n.pics?.length) {
+        const sizes = n.pics.map((p) => picSizes[p]);
+        const first = sizes[0];
+        if (!first) errors?.push(`« ${n.id} » : image « ${n.pics[0]} » introuvable`);
+        else
+          for (let k = 1; k < sizes.length; k++)
+            if (sizes[k] && (sizes[k][0] !== first[0] || sizes[k][1] !== first[1]))
+              errors?.push(
+                `« ${n.id} » : « ${n.pics[k]} » fait ${sizes[k][0]}x${sizes[k][1]} tuiles, « ${n.pics[0]} » ${first[0]}x${first[1]} — les candidates doivent avoir la MÊME taille`
+              );
+        if (mode === "sliced") {
+          if (!n.size) errors?.push(`« ${n.id} » : size requis (image sliced)`);
+          return n.size ?? [6, 3];
+        }
+        return first ?? [1, 1];
+      }
       // sliced stretches over the author's rect; a filled ICON bar takes
       // its length from the author too, like the old gauge
       if (mode === "sliced" || (mode === "fill" && !n.pic)) {
@@ -551,6 +576,18 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
             errors.push(`« ${n.id} » : max (> 0) ou variable max requis (piloté par var)`);
           return 0;
         };
+        if (n.pic_var !== undefined && n.pics?.length) {
+          if (n.pics.length < 2 || n.pics.length > 16)
+            errors.push(`« ${n.id} » : 2 à 16 images candidates (${n.pics.length})`);
+          emit({
+            x, y, w: size[0], h: size[1],
+            kind: mode === "sliced" ? 9 : mode === "fill" ? 10 : 8,
+            frame: false, ...base,
+            pad: mode === "fill" ? needFill() : 0,
+            pic: n.pics[0], picVar: n.pic_var,
+          });
+          break;
+        }
         if (n.color !== undefined) {
           // a SOLID COLOUR beats everything: that is what a fresh image is
           if (n.color > 3) errors.push(`« ${n.id} » : la couche UI n'a que 4 couleurs`);
@@ -787,6 +824,9 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.width !== undefined && !n.pic) s += `width = ${n.width}\n`;
     if (n.pic) s += `pic = ${JSON.stringify(n.pic)}\n`;
     if (n.mode && n.mode !== "normal") s += `mode = ${JSON.stringify(n.mode)}\n`;
+    if (n.pics?.length) s += `pics = [${n.pics.map((p) => JSON.stringify(p)).join(", ")}]\n`;
+    if (n.pic_var !== undefined) s += `pic_var = ${n.pic_var}\n`;
+    if (n.vis_var !== undefined) s += `vis_var = ${n.vis_var}\n`;
     if (n.var !== undefined) s += `var = ${n.var}\n`;
     if (n.label) s += `label = ${JSON.stringify(n.label)}\n`;
     if (

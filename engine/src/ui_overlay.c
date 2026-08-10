@@ -99,6 +99,13 @@ extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
 extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
     (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
 extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
+extern const u8 ui_widget_visvar[]; /* U3-a: widget shown while this
+    variable is non-zero (0xFF = SHOWUI alone decides) */
+extern const u8 ui_ov_picvar[]; /* U3-a: image BOUND to a variable —
+    which one shows, among ui_ov_picn candidates laid ui_ov_picstr
+    characters apart (0xFF = a fixed image) */
+extern const u8 ui_ov_picn[];
+extern const u8 ui_ov_picstr[];
 extern const u8 ui_ov_src[];     /* list: source table id (0xFF none) */
 extern const u8 ui_ov_srcfilt[]; /* list: filter column offset (0xFF none) */
 extern const u8 ui_ov_srccnt[];  /* list: quantity column offset (0xFF) */
@@ -128,6 +135,7 @@ extern const char *const ui_ov_label[];
 
 static u16 ov_last[UI_OV_COUNT];  /* last value drawn */
 static u16 ov_lastm[UI_OV_COUNT]; /* last maximum (max_var) */
+static u8 ov_lastpic[UI_OV_COUNT]; /* last candidate drawn (U3-a) */
 static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibility
     runtime visibility per widget: hidden by default, driven by SHOWUI */
 static char ov_num[5];
@@ -165,6 +173,21 @@ static u8 ov_fill(u8 i, u16 units)
   if (v >= m)
     return (u8)units;
   return (u8)(((u32)v * units) / m);
+}
+
+/* Base character of an image primitive: the fixed one, or candidate N
+   of a bound set (U3-a). Out of range clamps rather than reading the
+   characters of whatever sits next in VRAM. */
+static u16 ov_pic_base(u8 i)
+{
+  u8 k;
+
+  if (ui_ov_picvar[i] == 0xFF)
+    return ui_ov_icon[i];
+  k = (u8)vm.vars16[ui_ov_picvar[i]];
+  if (k >= ui_ov_picn[i])
+    k = (u8)(ui_ov_picn[i] - 1);
+  return (u16)ui_ov_icon[i] + (u16)k * ui_ov_picstr[i];
 }
 
 /* a widget's current maximum: compiled constant or variable */
@@ -420,7 +443,7 @@ static void ov_paint(u8 i)
              by datagen (4 colours, the font's palette). The chars are
              consecutive, row by row — here ui_ov_icon carries the
              absolute BASE char, not an index into the icon sheet. */
-    ch = ui_ov_icon[i];
+    ch = ov_pic_base(i);
     for (cy = 0; cy < h; cy++)
       for (k = 0; k < w; k++)
         ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
@@ -428,7 +451,7 @@ static void ov_paint(u8 i)
 
   case 9: /* image: a 3x3 picture SLICED over the widget's rect — the
              windowskin recipe, opened to any image */
-    ch = ui_ov_icon[i];
+    ch = ov_pic_base(i);
     for (cy = 0; cy < h; cy++)
     {
       sy = cy == 0 ? 0 : (cy == (u8)(h - 1) ? 2 : 1);
@@ -443,7 +466,7 @@ static void ov_paint(u8 i)
               after (chars ch .. ch + w*h - 1, then w*h more). The
               unfilled part keeps the background, so an "empty" image
               placed UNDER this one draws the rest of the bar. */
-    ch = ui_ov_icon[i];
+    ch = ov_pic_base(i);
     cells = ui_ov_dir[i] ? h : w;
     units = (u16)cells << 1;
     fill = ov_fill(i, units);
@@ -632,13 +655,19 @@ void overlay_init(void)
   u8 i;
 
   for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
-    ov_vis[i] = UI_WIDGET_COUNT ? ui_widget_vis[i] : 0;
+    ov_vis[i] = !UI_WIDGET_COUNT
+                    ? 0
+                    : (ui_widget_visvar[i] != 0xFF
+                           ? (vm.vars16[ui_widget_visvar[i]] ? 1 : 0)
+                           : ui_widget_vis[i]);
   /* ui_map has already been cleared by ui_screen_init (called first), so
      painting straight through in emission order gives the right z-order */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     ov_last[i] = vm.vars16[ui_ov_var[i]];
     ov_lastm[i] = ov_max(i);
+    ov_lastpic[i] =
+        ui_ov_picvar[i] == 0xFF ? 0 : (u8)vm.vars16[ui_ov_picvar[i]];
   }
   for (i = 0; i < UI_OV_COUNT; i++)
     if (OV_VIS(i))
@@ -650,11 +679,33 @@ void overlay_init(void)
 
 void overlay_update(void)
 {
-  u8 i, t;
+  u8 i, t, p;
   u16 v, m;
 
+  /* Visibility BOUND to a variable (U3-a): the declarative twin of
+     SHOWUI — the widget follows the variable, on or off. */
+  for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
+  {
+    if (!UI_WIDGET_COUNT || ui_widget_visvar[i] == 0xFF)
+      continue;
+    t = vm.vars16[ui_widget_visvar[i]] ? 1 : 0;
+    if (t != ov_vis[i])
+      overlay_show(i, t);
+  }
   for (i = 0; i < UI_OV_COUNT; i++)
   {
+    /* an image bound to a variable redraws when it changes, whatever
+       its kind says about being static */
+    if (ui_ov_picvar[i] != 0xFF)
+    {
+      p = (u8)vm.vars16[ui_ov_picvar[i]];
+      if (p != ov_lastpic[i])
+      {
+        ov_lastpic[i] = p;
+        if (OV_VIS(i))
+          ov_draw(i);
+      }
+    }
     t = ui_ov_type[i];
     /* panel / static label / icons / picture / sliced / solid: refresh
        only. A filled image (10, 13) and an interpolating label (11)

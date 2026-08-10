@@ -69,6 +69,14 @@
 //!                       grows. A canvas child with no pos STACKS with
 //!                       its siblings, as before; one WITH pos is placed
 //!                       freely. A vbox/hbox always stacks.
+//!     pics / pic_var    image BOUND to a variable (U3-a): the candidate
+//!                       pictures, all the same size, and the variable
+//!                       saying which one shows. They live in VRAM at
+//!                       once and CONTIGUOUSLY — the engine reads
+//!                       base + N * stride.
+//!     vis_var           ROOTS: the widget is on screen while this
+//!                       variable is non-zero — the declarative twin of
+//!                       the "Afficher un widget UI" command.
 //!     size = [w, h]     accepted on EVERY object, not only those that
 //!                       require it: an explicit size overrides the one
 //!                       the content computes.
@@ -234,6 +242,17 @@ pub struct Node {
     /// A fill needs neither a variable nor a maximum.
     #[serde(default)]
     pub fill: Option<f64>,
+    /// image BOUND to a variable (U3-a): the candidate pictures, all the
+    /// same size in tiles, and the variable saying which one shows.
+    /// `pic` is ignored when both are present.
+    #[serde(default)]
+    pub pics: Option<Vec<String>>,
+    #[serde(default)]
+    pub pic_var: Option<u8>,
+    /// ROOTS: visibility BOUND to a variable — the widget is on screen
+    /// while it is non-zero. Declarative twin of "Afficher un widget UI".
+    #[serde(default)]
+    pub vis_var: Option<u8>,
     #[serde(default)]
     pub dir: Option<String>,
     #[serde(default)]
@@ -294,6 +313,12 @@ pub struct Prim {
     pub widget: usize, // index de la RACINE (visibilité par widget)
     pub text: String, // label des types 0 et 5
     pub font: Option<String>, // fonte de la racine (S2) — None = fonte 0
+    /// image bound to a variable (U3-a): which variable picks the
+    /// picture (0xFF none), how many candidates, and the char distance
+    /// between two of them.
+    pub pic_var: u8,
+    pub pic_n: u8,
+    pub pic_stride: u8,
     /// list sourced on a database table: table id, and the byte offsets
     /// of the filter / quantity columns (0xFF = none).
     pub src_table: u8,
@@ -487,6 +512,9 @@ fn overlay_to_node(ov: &Overlay, i: usize) -> Node {
         mode: None,
         color: None,
         fill: None,
+        pics: None,
+        pic_var: None,
+        vis_var: None,
         icon: ov.icon,
         dir: ov.dir.clone(),
         pad: ov.pad,
@@ -560,6 +588,100 @@ impl<'a> Flattener<'a> {
         let (idx, w, h) = self.need_variant(n, name, bg, full)?;
         self.need_variant(n, name, bg, half)?;
         Ok((idx, w, h))
+    }
+
+    /// An image BOUND to a variable: every candidate must be resident at
+    /// once AND contiguous, because the engine finds candidate N at
+    /// base + N * stride. They are pushed as a block under a synthetic
+    /// key (the joined names), so a picture used elsewhere on its own
+    /// never breaks the run.
+    /// Returns (index of candidate 0, w, h, count, stride in chars).
+    fn need_pic_set(
+        &mut self,
+        n: &Node,
+        names: &[String],
+        bg: bool,
+        fill: Option<bool>,
+        sliced: bool,
+    ) -> Result<(u8, i64, i64, u8, i64)> {
+        if names.len() < 2 || names.len() > 16 {
+            bail!(
+                "nœud « {} » : une image pilotée par une variable demande 2 à 16                  images candidates ({} donnée(s))",
+                n.id, names.len()
+            );
+        }
+        let key = format!("(jeu {})", names.join("|"));
+        if let Some(k) = self.find_variant(&key, bg, VAR_SET) {
+            let (_, chars, w, h) = &self.pics[k];
+            let stride = (chars.len() / 16) as i64 * if fill.is_some() { 2 } else { 1 };
+            return Ok((k as u8, *w as i64, *h as i64, names.len() as u8, stride));
+        }
+        let mut first = 0u8;
+        let mut size = (0i64, 0i64);
+        let mut stride = 0i64;
+        for (k, name) in names.iter().enumerate() {
+            // the FIRST entry carries the synthetic key so the set can be
+            // found again; the others are unmatchable on purpose
+            let variant = if k == 0 { VAR_SET } else { VAR_SET_MORE };
+            let label = if k == 0 { key.clone() } else { format!("{}#{}", key, k) };
+            let (idx, w, h) = self.push_named(n, &label, name, bg, variant, 0)?;
+            if k == 0 {
+                first = idx;
+                size = (w, h);
+                stride = if sliced { 9 } else { w * h };
+                if fill.is_some() {
+                    stride *= 2;
+                }
+                if stride > 255 {
+                    bail!(
+                        "nœud « {} » : image de {}x{} tuiles trop grande pour être                          pilotée par une variable (pas de {} caracteres)",
+                        n.id, w, h, stride
+                    );
+                }
+            } else if (w, h) != size {
+                bail!(
+                    "nœud « {} » : « {} » fait {}x{} tuiles, « {} » en fait {}x{} —                      toutes les images candidates doivent avoir la MÊME taille",
+                    n.id, names[0], size.0, size.1, name, w, h
+                );
+            }
+            if let Some(vert) = fill {
+                // the cut copy sits right behind its own full one
+                self.push_named(n, &format!("{}#c{}", key, k), name, bg, VAR_SET_MORE,
+                                if vert { 2 } else { 1 })?;
+            }
+        }
+        Ok((first, size.0, size.1, names.len() as u8, stride))
+    }
+
+    /// Loads `file` but registers it under `label`, so the same picture
+    /// can appear several times in a deliberate order.
+    fn push_named(
+        &mut self,
+        n: &Node,
+        label: &str,
+        file: &str,
+        bg: bool,
+        variant: u8,
+        cut: u8,
+    ) -> Result<(u8, i64, i64)> {
+        let saved = self.pic_paths.get(file).cloned();
+        let path = saved.with_context(|| {
+            format!(
+                "nœud « {} » : image « {} » introuvable dans les pictures du projet",
+                n.id, file
+            )
+        })?;
+        let img = crate::gfx::load_indexed_png(&self.pic_dir.join(&path))
+            .with_context(|| format!("nœud « {} » : image « {} »", n.id, file))?;
+        let (chars, w, h) = img
+            .to_ui_image_bg(self.ui_pal, bg, cut)
+            .with_context(|| format!("nœud « {} » : image « {} »", n.id, file))?;
+        if self.pics.len() >= 255 {
+            bail!("ui : trop d'images de widgets");
+        }
+        self.pics.push((label.to_string(), chars, w, h));
+        self.pic_bg.push((bg, variant));
+        Ok(((self.pics.len() - 1) as u8, w as i64, h as i64))
     }
 
     fn find_variant(&self, name: &str, bg: bool, variant: u8) -> Option<usize> {
@@ -650,6 +772,8 @@ const VAR_CUT_H: u8 = 2;
 const VAR_FILL_V: u8 = 3;
 const VAR_CUT_V: u8 = 4;
 const VAR_SOLID: u8 = 5;
+const VAR_SET: u8 = 6;
+const VAR_SET_MORE: u8 = 7;
 
 impl<'a> Flattener<'a> {
     /// A node's intrinsic size, recursive for containers.
@@ -714,6 +838,14 @@ impl<'a> Flattener<'a> {
             "image" if n.mode() == "sliced" => need_size("image sliced")?,
             // filled icons: the bar's length is the author's, like a gauge
             "image" if n.mode() == "fill" && n.pic.is_none() => need_size("image fill")?,
+            "image" if n.pic_var.is_some() && n.pics.is_some() => {
+                // bound: every candidate is the same size, so the first
+                // one answers for all of them
+                match self.pic_size.get(&n.pics.as_ref().unwrap()[0]) {
+                    Some((w, h)) => [*w as i64, *h as i64],
+                    None => [1, 1], /* pré-passe pas encore passée */
+                }
+            }
             "image" => match &n.pic {
                 // picture mode: the size comes from the image itself
                 Some(p) => match self.pic_size.get(p) {
@@ -789,7 +921,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 4, frame: f, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
                 // Children with no pos STACK vertically, as they always
                 // have. One that carries pos is placed FREELY inside the
@@ -869,7 +1001,7 @@ impl<'a> Flattener<'a> {
                     frame: false, var: vars.first().copied().unwrap_or(0),
                     icon: 0, vertical: false,
                     pad: 0, max: 0, max_var: vars.get(1).copied(),
-                    bg: in_window, widget: 0, text: enc, font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    bg: in_window, widget: 0, text: enc, font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "value" => {
@@ -882,7 +1014,7 @@ impl<'a> Flattener<'a> {
                     // the "dir" flag, unused by type 0, carries the
                     // alignment: 1 pins the value LEFT
                     vertical: n.align.as_deref() == Some("left"),
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "image" => {
@@ -922,6 +1054,36 @@ impl<'a> Flattener<'a> {
                         },
                     }
                 };
+                // BOUND to a variable (U3-a): the candidates in a row,
+                // the engine picks with base + N * stride.
+                if let (Some(pv), Some(names)) = (n.pic_var, n.pics.clone()) {
+                    if mode == "sliced" && names.is_empty() {
+                        bail!("nœud « {} » : jeu d'images vide", n.id);
+                    }
+                    let filled = mode == "fill";
+                    let (idx, pw, ph, cnt, stride) = self.need_pic_set(
+                        n, &names, in_window, filled.then(|| n.vertical()), mode == "sliced",
+                    )?;
+                    if mode == "sliced" && (pw != 3 || ph != 3) {
+                        bail!(
+                            "nœud « {} » : une image sliced fait exactement 3x3 tuiles",
+                            n.id
+                        );
+                    }
+                    let (var, max, max_var, pad) =
+                        if filled { fill_how(n)? } else { (0, 0, None, 0) };
+                    let (w, h) = if mode == "sliced" { (size[0], size[1]) } else { (pw, ph) };
+                    self.emit(Prim {
+                        x, y, w, h,
+                        kind: match mode { "sliced" => 9, "fill" => 10, _ => 8 },
+                        frame: false, var, icon: idx, vertical: n.vertical(),
+                        pad, max, max_var, bg: in_window, widget: 0,
+                        text: String::new(), font: None,
+                        pic_var: pv, pic_n: cnt, pic_stride: stride as u8,
+                        src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    })?;
+                    return Ok(());
+                }
                 // A solid COLOUR beats everything: it is what a fresh
                 // image widget is, before any artwork exists.
                 if let Some(c) = n.color {
@@ -936,7 +1098,7 @@ impl<'a> Flattener<'a> {
                         x, y, w: size[0], h: size[1],
                         kind: if mode == "fill" { 13 } else { 12 },
                         frame: false, var, icon: idx, vertical: n.vertical(),
-                        pad, max, max_var, bg: in_window, widget: 0, text: String::new(), src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF, font: None,
+                        pad, max, max_var, bg: in_window, widget: 0, text: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF, font: None,
                     })?;
                     return Ok(());
                 }
@@ -956,7 +1118,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 9, frame: false, var: 0, icon: idx, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (Some(name), "fill") => {
@@ -965,7 +1127,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w, h,
                             kind: 10, frame: false, var, icon: idx, vertical: n.vertical(),
-                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (Some(name), _) => {
@@ -975,7 +1137,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w, h,
                             kind: 8, frame: false, var: 0, icon: idx, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (None, "sliced") => bail!(
@@ -991,7 +1153,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 1, frame: false, var, icon, vertical: n.vertical(),
-                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (None, _) => {
@@ -999,7 +1161,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 6, frame: false, var: 0, icon, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                 }
@@ -1024,7 +1186,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 0, frame: f, var, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "gauge" | "icon_row" => {
@@ -1052,7 +1214,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: if n.kind == "gauge" { 1 } else { 2 },
                     frame: f, var, icon, vertical: n.vertical(),
-                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "icon_value" => {
@@ -1074,7 +1236,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h,
                     kind: 3, frame: f, var, icon, vertical: false,
-                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "list" if n.source.is_some() => {
@@ -1129,7 +1291,7 @@ impl<'a> Flattener<'a> {
                     pad: if n.cursor_icon.is_some() { 1 } else { 0 },
                     max: 0, max_var: None, bg: in_window, widget: 0,
                     text: String::new(), font: None,
-                    src_table: ti as u8, src_filter: filt, src_count: cnt,
+                    pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: ti as u8, src_filter: filt, src_count: cnt,
                 })?;
             }
             "list" => {
@@ -1176,7 +1338,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: cur_icon,
                     vertical: false, pad: cur_flag, max: 0, max_var: None, bg: in_window,
-                    widget: 0, text: items.join("\n"), font: None, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    widget: 0, text: items.join("\n"), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
@@ -1212,7 +1374,7 @@ pub fn load(
 ) -> Result<(
     Layout,
     Vec<Prim>,
-    Vec<(String, bool)>,
+    Vec<(String, bool, u8)>,
     Vec<(String, Vec<u8>, u8, u8)>,
     Vec<String>,
 )> {
@@ -1325,18 +1487,24 @@ pub fn load(
     // what gives the node its size, and size_of cannot load files — it is
     // called recursively down the containers.
     for i in 0..fl.nodes.len() {
-        if fl.nodes[i].kind == "image" {
-            if let Some(name) = fl.nodes[i].pic.clone() {
-                let n = fl.nodes[i].clone();
-                if n.mode() == "fill" {
-                    fl.need_fill_pic(&n, &name, false, n.vertical())?;
-                } else {
-                    fl.need_pic(&n, &name, false)?;
-                }
+        if fl.nodes[i].kind != "image" {
+            continue;
+        }
+        let n = fl.nodes[i].clone();
+        if let (Some(_), Some(names)) = (n.pic_var, n.pics.clone()) {
+            // only to learn the size here; place() registers the real run
+            for name in &names {
+                fl.need_pic(&n, name, false)?;
+            }
+        } else if let Some(name) = n.pic.clone() {
+            if n.mode() == "fill" {
+                fl.need_fill_pic(&n, &name, false, n.vertical())?;
+            } else {
+                fl.need_pic(&n, &name, false)?;
             }
         }
     }
-    let mut widgets: Vec<(String, bool)> = Vec::new();
+    let mut widgets: Vec<(String, bool, u8)> = Vec::new();
     for &r in &roots {
         let n = &nodes[r];
         let pos = n.pos.with_context(|| {
@@ -1354,7 +1522,7 @@ pub fn load(
         // widget for the length of a message, never a corrupted screen.
         fl.widget = widgets.len();
         fl.font = n.font.clone();
-        widgets.push((n.id.clone(), n.visible.unwrap_or(false)));
+        widgets.push((n.id.clone(), n.visible.unwrap_or(false), n.vis_var.unwrap_or(0xFF)));
         fl.place(r, x, y, 0, false)?;
     }
     if widgets.len() > 16 {
@@ -1372,7 +1540,7 @@ pub fn load(
 }
 
 /// Defines for ui_cfg.h: the message/choice windows and the prim count.
-pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool)]) -> String {
+pub fn cfg_defines(lay: &Layout, prims: &[Prim], widgets: &[(String, bool, u8)]) -> String {
     let m = lay.message.as_ref().unwrap();
     let c = lay.choice.as_ref().unwrap();
     // Textbox shadow area: the UNION of the rows of ALL dialogue windows
@@ -1433,7 +1601,7 @@ pub fn emit_styles(rows: &[(Win, Win, usize, usize)]) -> String {
 /// by the VRAM plan in main.rs.
 pub fn emit_overlays(
     prims: &[Prim],
-    widgets: &[(String, bool)],
+    widgets: &[(String, bool, u8)],
     font_bases: &[usize],
 ) -> String {
     let mut s = String::from(crate::emit::HEADER);
@@ -1460,6 +1628,9 @@ pub fn emit_overlays(
     s.push_str(&field("pad", &|o| o.pad as i64));
     s.push_str(&field("bg", &|o| o.bg as i64));
     s.push_str(&field("widget", &|o| o.widget as i64));
+    s.push_str(&field("picvar", &|o| o.pic_var as i64));
+    s.push_str(&field("picn", &|o| o.pic_n as i64));
+    s.push_str(&field("picstr", &|o| o.pic_stride as i64));
     s.push_str(&field("src", &|o| o.src_table as i64));
     s.push_str(&field("srcfilt", &|o| o.src_filter as i64));
     s.push_str(&field("srccnt", &|o| o.src_count as i64));
@@ -1478,6 +1649,14 @@ pub fn emit_overlays(
     let mut a = format!("const u8 ui_widget_vis[{}] = {{ ", wn);
     for i in 0..wn {
         let _ = write!(a, "{}, ", widgets.get(i).map(|w| w.1 as u8).unwrap_or(0));
+    }
+    a.push_str("};\n");
+    s.push_str(&a);
+    // Visibility BOUND to a variable (U3-a): the widget is on screen
+    // while it is non-zero; 0xFF = driven by SHOWUI alone.
+    let mut a = format!("const u8 ui_widget_visvar[{}] = {{ ", wn);
+    for i in 0..wn {
+        let _ = write!(a, "{}, ", widgets.get(i).map(|w| w.2).unwrap_or(0xFF));
     }
     a.push_str("};\n");
     s.push_str(&a);

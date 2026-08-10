@@ -463,6 +463,29 @@ are plain TOML files — the community will be able to share them.
      the screen. A child with no `pos` keeps stacking, so nothing
      changes for existing layouts; a vbox/hbox always stacks — that is
      what they are for.
+- **Shipped (U3-a) — binding a property, with Unreal's gesture.** See
+  `PLANNING_WIDGETS_REACTIFS.md` for the whole design. UMG binds a
+  property to a function evaluated every frame; that is out of reach at
+  3.58 MHz, so a property binds to a **VARIABLE** and the engine compares
+  it — which is what `overlay_update` already did for a value. What
+  changes is where the author meets it: a **⛓ button next to the field**
+  turns a fixed value into "suit la variable […]".
+  - **Remplissage** was already bindable; it only gets the affordance.
+  - **Image affichée** is new: `pics = [...]` plus `pic_var`. The
+    candidates must all be the same size in tiles, they live in BG3 VRAM
+    at once and CONTIGUOUSLY — datagen pushes them as a block under a
+    synthetic key so a picture used elsewhere never breaks the run — and
+    the engine reads `base + N * stride` (`ui_ov_picvar/picn/picstr`,
+    with `ov_lastpic` as the redraw shadow). Out of range clamps rather
+    than reading whatever sits next in VRAM.
+  - **Visible** gains `vis_var` on a root: the widget follows the
+    variable, on or off, checked once per frame in `overlay_update`
+    against `ui_widget_visvar[]`. SHOWUI still works; this is its
+    declarative twin.
+  An imperative setter ("Modifier un widget → propriété → valeur") stays
+  refused for a structural reason: the primitive tables are `const` in
+  ROM, so a setter needs a WRAM shadow per property, where a binding
+  needs one byte.
 - **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
   declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
   the list object will become NAVIGABLE, the designer already lays it

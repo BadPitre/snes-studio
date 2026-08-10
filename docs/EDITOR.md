@@ -505,7 +505,11 @@ Not yet: autotile animation (water), gfx editing.
   that point and the same corner stays pinned to it as the object grows).
   A root anchors to the screen; a canvas child that ticks "placement
   libre" anchors to its parent's inside instead of stacking with its
-  siblings. On a ROOT: visibility at start-up
+  siblings. Several properties carry a **⛓ button** (U3-a, Unreal's Bind
+  gesture): remplissage, **image affichée** — a list of candidate
+  pictures, all the same size, the shown one from a variable — and
+  **visible**. Bound means the engine WATCHES that variable; nothing
+  writes back. On a ROOT: visibility at start-up
   and
   **"Fonte du widget"** (S2 — a FontSet for all the widget's text, shown
   live on the canvas). A Chrono Trigger style panel is Canvas > Liste
