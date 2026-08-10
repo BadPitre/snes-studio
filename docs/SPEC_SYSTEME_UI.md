@@ -508,6 +508,17 @@ are plain TOML files — the community will be able to share them.
     third VM context for a scene change to unwind, and the menu cannot
     eat its own input. A guard bounds a loop left without an exit, and
     a hook never re-enters.
+  - **(U3-d)** A hook belongs to a **COMPONENT**, not only to the
+    widget's root: `ui/hooks.json` is keyed by NODE id and the tables are
+    indexed by PRIMITIVE, which is what a real menu needs — a list is
+    usually a child inside a canvas, so the canvas carries `on_show` and
+    the list carries `on_move` / `on_confirm` / `on_cancel`. Each
+    primitive carries the node it came from (`Prim::node`), the list
+    hooks are found through the OPEN list's primitive
+    (`overlay_list_prim`), and SHOWUI offers every component of the
+    widget its `on_show` / `on_hide`. A vbox or an hbox draws nothing, so
+    it has no primitive to hang a hook on, and the inspector says so by
+    not offering the section.
   - Still open, and deliberately out of U3-b: a NON-modal list (`LISTSEL`
     still parks the main context in `VM_WAIT_LIST`) and the question of
     who owns the pad while one is live. That is U3-c.

@@ -99,8 +99,9 @@ extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
 extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
     (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
 extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
-extern const u8 ui_hook_move[]; /* U3-b: per WIDGET, the common event of
-    each hook (0xFF none), and where the row is handed over */
+extern const u8 ui_hook_move[]; /* U3-b/U3-d: per PRIMITIVE — a hook
+    belongs to a COMPONENT — the common event of each hook (0xFF none),
+    and where the row is handed over */
 extern const u8 ui_hook_confirm[];
 extern const u8 ui_hook_cancel[];
 extern const u8 ui_hook_show[];
@@ -789,30 +790,40 @@ void overlay_show(u8 widget, u8 on)
     else
       ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
   }
-  /* U3-b: the widget's own on_show / on_hide block, AFTER the screen is
-     right — a hook must find the widget in the state it announces */
-  vm_ui_hook(overlay_hook(widget, on ? 3 : 4));
+  /* U3-b/U3-d: the on_show / on_hide block of EVERY component of the
+     widget, AFTER the screen is right — a hook must find the widget in
+     the state it announces. */
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (ui_ov_widget[i] == widget)
+      vm_ui_hook(overlay_hook(i, on ? 3 : 4));
 }
 
-u8 overlay_hook(u8 widget, u8 which)
+u8 overlay_hook(u8 prim, u8 which)
 {
-  if (!UI_WIDGET_COUNT || widget >= UI_WIDGET_COUNT)
+  if (prim >= UI_OV_COUNT)
     return 0xFF;
   switch (which)
   {
-  case 0: return ui_hook_move[widget];
-  case 1: return ui_hook_confirm[widget];
-  case 2: return ui_hook_cancel[widget];
-  case 3: return ui_hook_show[widget];
-  default: return ui_hook_hide[widget];
+  case 0: return ui_hook_move[prim];
+  case 1: return ui_hook_confirm[prim];
+  case 2: return ui_hook_cancel[prim];
+  case 3: return ui_hook_show[prim];
+  default: return ui_hook_hide[prim];
   }
 }
 
-u8 overlay_hook_rowvar(u8 widget)
+u8 overlay_hook_rowvar(u8 prim)
 {
-  if (!UI_WIDGET_COUNT || widget >= UI_WIDGET_COUNT)
+  if (prim >= UI_OV_COUNT)
     return 0xFF;
-  return ui_hook_rowvar[widget];
+  return ui_hook_rowvar[prim];
+}
+
+/* Which primitive the open cursor list is (0xFF none) — the VM needs it
+   to find the LIST's own hooks rather than its widget's. */
+u8 overlay_list_prim(void)
+{
+  return ls_prim;
 }
 
 /* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
@@ -936,16 +947,21 @@ u8 overlay_list_pick(u8 row)
   return row;
 }
 
-u8 overlay_hook(u8 widget, u8 which)
+u8 overlay_hook(u8 prim, u8 which)
 {
-  (void)widget;
+  (void)prim;
   (void)which;
   return 0xFF;
 }
 
-u8 overlay_hook_rowvar(u8 widget)
+u8 overlay_hook_rowvar(u8 prim)
 {
-  (void)widget;
+  (void)prim;
+  return 0xFF;
+}
+
+u8 overlay_list_prim(void)
+{
   return 0xFF;
 }
 

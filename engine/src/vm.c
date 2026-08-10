@@ -188,14 +188,17 @@ u16 vm_common_hook(u8 ce)
    the open list's hook `which` (0 move, 1 confirm, 2 cancel). */
 static void vm_list_hook(u8 which)
 {
-  u8 rv;
+  u8 p, rv;
 
-  if (vm.list_widget == 0xFF)
+  /* U3-d: the hooks belong to the LIST COMPONENT, not to the widget
+     that contains it — a menu is usually a list inside a canvas. */
+  p = overlay_list_prim();
+  if (p == 0xFF)
     return;
-  rv = overlay_hook_rowvar(vm.list_widget);
+  rv = overlay_hook_rowvar(p);
   if (rv != 0xFF)
     vm.vars16[rv] = overlay_list_pick(vm.choice_sel);
-  vm_ui_hook(overlay_hook(vm.list_widget, which));
+  vm_ui_hook(overlay_hook(p, which));
 }
 
 /* U3-b — a WIDGET HOOK, run to completion right here. See vm.h: a hook

@@ -1518,9 +1518,11 @@ export default function UiThemeModal(props: Props) {
                   <label>id
                     <input value={sel.id} onChange={(e) => renameSel(e.target.value)} />
                   </label>
-                  {!sel.parent && (
+                  {/* U3-d: hooks belong to the COMPONENT. A vbox/hbox
+                      draws nothing, so it has no primitive to hang one on. */}
+                  {(!isContainer(sel) || isCanvas(sel.type)) && (
                     <fieldset className="evedit-box uitheme-events">
-                      <legend>Événements</legend>
+                      <legend>Événements de « {sel.id} »</legend>
                       {HOOKS.filter(([, , scope]) =>
                         scope === "tous" || sel.type === "list"
                       ).map(([k, label]) => {
@@ -1548,6 +1550,12 @@ export default function UiThemeModal(props: Props) {
                           </div>
                         );
                       })}
+                      {sel.parent && (
+                        <span className="hint">
+                          « À l'affichage / au masquage » suit le WIDGET entier :
+                          c'est la racine qu'on montre ou qu'on cache.
+                        </span>
+                      )}
                       {sel.type === "list" && (
                         <label>La ligne choisie va dans
                           <div className="row" style={{ gap: 4 }}>
@@ -2215,7 +2223,9 @@ export default function UiThemeModal(props: Props) {
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
                 // U3-b: drop the blocks of widgets that no longer exist,
                 // so hooks.json can never name one datagen will refuse
-                const ids = new Set(rootsOf(lay.nodes).map((n) => n.id));
+                const ids = new Set(
+                  lay.nodes.filter((n) => !isContainer(n) || isCanvas(n.type)).map((n) => n.id)
+                );
                 const keep = Object.fromEntries(
                   Object.entries(hooks).filter(
                     ([id, h]) =>

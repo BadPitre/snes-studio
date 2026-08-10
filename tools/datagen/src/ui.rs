@@ -297,6 +297,9 @@ pub struct Node {
 
 /// A flattened primitive: what the engine actually draws.
 pub struct Prim {
+    /// U3-d: the NODE this primitive came from — a hook is attached to a
+    /// component, not only to the widget's root.
+    pub node: String,
     pub x: i64,
     pub y: i64,
     pub w: i64,
@@ -542,6 +545,7 @@ struct Flattener<'a> {
     list_tables: Vec<String>,
     icon_count: usize,
     widget: usize, // index de la racine en cours de placement
+    cur_node: String, // U3-d: le nœud dont on émet les primitives
     font: Option<String>, // fonte de la racine en cours (S2)
     prims: Vec<Prim>,
     /// Converted UI images (the "Image" widget in picture mode), in order
@@ -910,6 +914,7 @@ impl<'a> Flattener<'a> {
     /// Places a node at absolute (x, y) and emits its primitives.
     fn place(&mut self, i: usize, x: i64, y: i64, depth: usize, in_window: bool) -> Result<()> {
         let n = &self.nodes[i].clone();
+        self.cur_node = n.id.clone();
         let size = self.size_of(i, depth)?;
         let kids: Vec<usize> = self.children[i].clone();
         match n.kind.as_str() {
@@ -921,7 +926,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 4, frame: f, var: 0, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
                 // Children with no pos STACK vertically, as they always
                 // have. One that carries pos is placed FREELY inside the
@@ -1001,7 +1006,7 @@ impl<'a> Flattener<'a> {
                     frame: false, var: vars.first().copied().unwrap_or(0),
                     icon: 0, vertical: false,
                     pad: 0, max: 0, max_var: vars.get(1).copied(),
-                    bg: in_window, widget: 0, text: enc, font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    bg: in_window, widget: 0, text: enc, font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "value" => {
@@ -1014,7 +1019,7 @@ impl<'a> Flattener<'a> {
                     // the "dir" flag, unused by type 0, carries the
                     // alignment: 1 pins the value LEFT
                     vertical: n.align.as_deref() == Some("left"),
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "image" => {
@@ -1078,7 +1083,7 @@ impl<'a> Flattener<'a> {
                         kind: match mode { "sliced" => 9, "fill" => 10, _ => 8 },
                         frame: false, var, icon: idx, vertical: n.vertical(),
                         pad, max, max_var, bg: in_window, widget: 0,
-                        text: String::new(), font: None,
+                        text: String::new(), font: None, node: String::new(),
                         pic_var: pv, pic_n: cnt, pic_stride: stride as u8,
                         src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                     })?;
@@ -1098,7 +1103,7 @@ impl<'a> Flattener<'a> {
                         x, y, w: size[0], h: size[1],
                         kind: if mode == "fill" { 13 } else { 12 },
                         frame: false, var, icon: idx, vertical: n.vertical(),
-                        pad, max, max_var, bg: in_window, widget: 0, text: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF, font: None,
+                        pad, max, max_var, bg: in_window, widget: 0, text: String::new(), node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF, font: None,
                     })?;
                     return Ok(());
                 }
@@ -1118,7 +1123,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 9, frame: false, var: 0, icon: idx, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (Some(name), "fill") => {
@@ -1127,7 +1132,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w, h,
                             kind: 10, frame: false, var, icon: idx, vertical: n.vertical(),
-                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (Some(name), _) => {
@@ -1137,7 +1142,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w, h,
                             kind: 8, frame: false, var: 0, icon: idx, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (None, "sliced") => bail!(
@@ -1153,7 +1158,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 1, frame: false, var, icon, vertical: n.vertical(),
-                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                     (None, _) => {
@@ -1161,7 +1166,7 @@ impl<'a> Flattener<'a> {
                         self.emit(Prim {
                             x, y, w: size[0], h: size[1],
                             kind: 6, frame: false, var: 0, icon, vertical: false,
-                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                            pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                         })?;
                     }
                 }
@@ -1186,7 +1191,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h: size[1],
                     kind: 0, frame: f, var, icon: 0, vertical: false,
-                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max: 0, max_var: None, bg: in_window, widget: 0, text: label, font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "gauge" | "icon_row" => {
@@ -1214,7 +1219,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: if n.kind == "gauge" { 1 } else { 2 },
                     frame: f, var, icon, vertical: n.vertical(),
-                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: 0, max, max_var, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "icon_value" => {
@@ -1236,7 +1241,7 @@ impl<'a> Flattener<'a> {
                 self.emit(Prim {
                     x, y, w: size[0], h,
                     kind: 3, frame: f, var, icon, vertical: false,
-                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    pad: pad as u8, max: 0, max_var: None, bg: in_window, widget: 0, text: String::new(), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             "list" if n.source.is_some() => {
@@ -1291,7 +1296,7 @@ impl<'a> Flattener<'a> {
                     pad: if n.cursor_icon.is_some() { 1 } else { 0 },
                     max: 0, max_var: None, bg: in_window, widget: 0,
                     text: String::new(), font: None,
-                    pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: ti as u8, src_filter: filt, src_count: cnt,
+                    node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: ti as u8, src_filter: filt, src_count: cnt,
                 })?;
             }
             "list" => {
@@ -1338,7 +1343,7 @@ impl<'a> Flattener<'a> {
                     x, y, w: size[0], h: size[1],
                     kind: 7, frame: n.frame.unwrap_or(true), var: 0, icon: cur_icon,
                     vertical: false, pad: cur_flag, max: 0, max_var: None, bg: in_window,
-                    widget: 0, text: items.join("\n"), font: None, pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
+                    widget: 0, text: items.join("\n"), font: None, node: String::new(), pic_var: 0xFF, pic_n: 0, pic_stride: 0, src_table: 0xFF, src_filter: 0xFF, src_count: 0xFF,
                 })?;
             }
             other => bail!("ui : nœud « {} » : type inconnu « {} »", n.id, other),
@@ -1355,6 +1360,7 @@ impl<'a> Flattener<'a> {
         }
         let mut p = p;
         p.widget = self.widget;
+        p.node = self.cur_node.clone();
         p.font = self.font.clone();
         self.prims.push(p);
         if self.prims.len() > PRIM_MAX {
@@ -1479,7 +1485,7 @@ pub fn load(
 
     let mut fl = Flattener {
         children, nodes: &nodes, db, list_tables: Vec::new(),
-        icon_count, widget: 0, font: None, prims: Vec::new(),
+        icon_count, widget: 0, cur_node: String::new(), font: None, prims: Vec::new(),
         pics: Vec::new(), pic_bg: Vec::new(), pic_size: HashMap::new(),
         pic_dir: proj_dir, pic_paths, ui_pal,
     };
@@ -1877,11 +1883,12 @@ pub fn load_hooks(proj_dir: &Path) -> Result<HashMap<String, WidgetHooks>> {
     serde_json::from_str(&src).with_context(|| "ui/hooks.json".to_string())
 }
 
-/// ui_hook_*.c tables: per WIDGET, the common-event index of each hook
-/// (0xFF = none), plus the variable the row goes into.
-pub fn emit_hooks(widgets: &[(String, bool, u8)], idx: &[[u8; 5]], rowvar: &[u8]) -> String {
+/// ui_hook_*.c tables: per PRIMITIVE (U3-d — a hook belongs to a
+/// COMPONENT), the common-event index of each hook (0xFF = none), plus
+/// the variable the row goes into.
+pub fn emit_hooks(prims: &[Prim], idx: &[[u8; 5]], rowvar: &[u8]) -> String {
     let mut s = String::new();
-    let n = widgets.len().max(1);
+    let n = prims.len().max(1);
     for (k, name) in HOOK_NAMES.iter().enumerate() {
         let short = name.trim_start_matches("on_");
         let mut a = format!("const u8 ui_hook_{}[{}] = {{ ", short, n);

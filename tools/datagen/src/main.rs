@@ -128,20 +128,24 @@ fn main() -> Result<()> {
     // and the CALL machinery all apply unchanged. The engine reaches the
     // body through the CETAB's "b" entries.
     let ui_hooks_src = ui::load_hooks(&proj_dir)?;
+    // U3-d: a hook belongs to a COMPONENT, so it is keyed by NODE id and
+    // lands on that node's PRIMITIVE.
+    let ui_prim_nodes: Vec<String> = ui_prims.iter().map(|p| p.node.clone()).collect();
     for id in ui_hooks_src.keys() {
-        if !ui_widget_ids.contains(id) {
+        if !ui_prim_nodes.contains(id) {
             anyhow::bail!(
-                "ui/hooks.json : widget « {} » inconnu (widgets : {})",
+                "ui/hooks.json : objet « {} » inconnu, ou sans rien à l'écran \
+                 (objets : {})",
                 id,
-                if ui_widget_ids.is_empty() { "aucun".into() } else { ui_widget_ids.join(", ") }
+                if ui_prim_nodes.is_empty() { "aucun".into() } else { ui_prim_nodes.join(", ") }
             );
         }
     }
     let mut commons_all = project.common_events.clone();
-    let mut ui_hook_idx: Vec<[u8; 5]> = vec![[0xFF; 5]; ui_widgets.len()];
-    let mut ui_hook_rowvar: Vec<u8> = vec![0xFF; ui_widgets.len()];
+    let mut ui_hook_idx: Vec<[u8; 5]> = vec![[0xFF; 5]; ui_prims.len()];
+    let mut ui_hook_rowvar: Vec<u8> = vec![0xFF; ui_prims.len()];
     let mut ui_hook_ces: Vec<usize> = Vec::new();
-    for (w, id) in ui_widget_ids.iter().enumerate() {
+    for (w, id) in ui_prim_nodes.iter().enumerate() {
         let Some(h) = ui_hooks_src.get(id) else { continue };
         ui_hook_rowvar[w] = h.row_var.unwrap_or(0xFF);
         for k in 0..ui::HOOK_NAMES.len() {
@@ -1400,7 +1404,7 @@ fn main() -> Result<()> {
             &out_dir,
             "ui_overlays.c",
             ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases)
-                + &ui::emit_hooks(&ui_widgets, &ui_hook_idx, &ui_hook_rowvar),
+                + &ui::emit_hooks(prims, &ui_hook_idx, &ui_hook_rowvar),
         )?;
         write_out(&out_dir, "ui_styles.c", ui::emit_styles(&ui_style_rows))?;
         if !prims.is_empty() {
