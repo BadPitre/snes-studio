@@ -9,7 +9,7 @@
  *                        (filled from the BOTTOM up, ALttP style)
  *   2 icon_row         — repeated icons, Zelda hearts style
  *   3 icon_value       — icon + counter (optional leading zeros)
- *   4 panel            — frame only (the designer's window) — STATIC
+ *   4 panel            — frame only (the designer's CANVAS) — STATIC
  *   5 label            — fixed text (ui_ov_label) — STATIC
  *   6 image            — a run of icons from the sheet — STATIC
  *   7 list             — cursor menu (B6): items in ui_ov_label
@@ -32,12 +32,32 @@
  *                        to the font's 4 colours (no free palette: the
  *                        tileset takes colours 0-127), and ui_ov_icon
  *                        carries the base char — STATIC
+ *   9 image (sliced)   — a 3x3 picture stretched over the widget's rect,
+ *                        the windowskin recipe applied to any image —
+ *                        STATIC
+ *  10 image (fill)     — a picture revealed proportionally to var/max,
+ *                        left to right or bottom up (ui_ov_dir). Half
+ *                        tiles come from the CUT copy of the image that
+ *                        datagen lays right after the full one, so a
+ *                        fill has the gauge's two units per tile.
+ *  11 label (dynamic)  — like 5, but the text carries \v[n] escapes:
+ *                        byte 1, then the variable number + 1, then a
+ *                        format byte (1 = plain, w+1 = right-aligned on
+ *                        w columns, 0x80|(w+1) = zero-padded). Redrawn
+ *                        like a value: ui_ov_var is the first variable
+ *                        it reads, ui_ov_maxvar the second (0xFF none).
  * ui_ov_frame: 9-slice/box frame, or a bare widget over the game.
  * Icons: chars UI_ICON_BASE+n (the ui.icons sheet, after the windowskin);
  * gauge/icon_row: icon, icon+1, icon+2 = full, half, empty.
  *
  * The tables come from the uigen layout (generated ui_overlays.c); a
  * redraw only fires when var (or max_var) changes.
+ *
+ * WIDGETS MAY OVERLAP. The layer is one shared tilemap, so a primitive
+ * can never be painted or erased on its own: everything goes through
+ * ov_repaint, which clears a rect and replays — in emission order, which
+ * IS the z-order — every visible primitive that meets it. The author's
+ * widget order decides who is on top; a later widget wins.
  *
  * Composes into the shared ui_map buffer (M1) — the transfer is
  * centralised in ui_screen_vblank.
@@ -144,22 +164,98 @@ static u8 ov_src_rows(u8 i)
   return n;
 }
 
-/* Erases a primitive's rect (hidden widget) — transparent */
-static void ov_erase(u8 i)
+/* Is widget i on screen right now? */
+#define OV_VIS(i) (ov_vis[ui_ov_widget[i]])
+
+/* Does primitive i meet the rect? */
+static u8 ov_hits(u8 i, u8 rx, u8 ry, u8 rw, u8 rh)
 {
-  u8 cx, cy;
+  if (ui_ov_x[i] + ui_ov_w[i] <= rx || rx + rw <= ui_ov_x[i])
+    return 0;
+  if (ui_ov_y[i] + ui_ov_h[i] <= ry || ry + rh <= ui_ov_y[i])
+    return 0;
+  return 1;
+}
+
+static void ov_paint(u8 i);
+
+/* Repaints a rect: clears it, then replays every VISIBLE primitive that
+   meets it, in emission order (= z-order). This is the only honest way
+   to let widgets overlap on a shared tilemap — a primitive drawn alone
+   would punch a hole in whoever sits under or over it.
+
+   The rect GROWS first: a primitive that only pokes into it paints its
+   whole rect, which may cover a third one that was outside. Growing
+   until nothing new is caught makes the repaint closed under that. */
+static void ov_repaint(u8 rx, u8 ry, u8 rw, u8 rh)
+{
+  u8 i, grew, cx, cy;
   u16 base;
 
-  for (cy = 0; cy < ui_ov_h[i]; cy++)
+  do
   {
-    base = (u16)(ui_ov_y[i] + cy) * 32 + ui_ov_x[i];
-    for (cx = 0; cx < ui_ov_w[i]; cx++)
+    grew = 0;
+    for (i = 0; i < UI_OV_COUNT; i++)
+    {
+      if (!OV_VIS(i) || !ov_hits(i, rx, ry, rw, rh))
+        continue;
+      if (ui_ov_x[i] < rx)
+      {
+        rw = (u8)(rw + rx - ui_ov_x[i]);
+        rx = ui_ov_x[i];
+        grew = 1;
+      }
+      if (ui_ov_y[i] < ry)
+      {
+        rh = (u8)(rh + ry - ui_ov_y[i]);
+        ry = ui_ov_y[i];
+        grew = 1;
+      }
+      if (ui_ov_x[i] + ui_ov_w[i] > rx + rw)
+      {
+        rw = (u8)(ui_ov_x[i] + ui_ov_w[i] - rx);
+        grew = 1;
+      }
+      if (ui_ov_y[i] + ui_ov_h[i] > ry + rh)
+      {
+        rh = (u8)(ui_ov_y[i] + ui_ov_h[i] - ry);
+        grew = 1;
+      }
+    }
+  } while (grew);
+
+  for (cy = 0; cy < rh; cy++)
+  {
+    base = (u16)(ry + cy) * 32 + rx;
+    for (cx = 0; cx < rw; cx++)
       ui_map[base + cx] = 0;
   }
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (OV_VIS(i) && ov_hits(i, rx, ry, rw, rh))
+      ov_paint(i);
+  ui_mark(ry, rh);
+}
+
+/* Redraws one primitive — through a repaint as soon as another visible
+   one shares its rect, which is the overlapping case. */
+static void ov_draw(u8 i)
+{
+  u8 k;
+
+  for (k = 0; k < UI_OV_COUNT; k++)
+    if (k != i && OV_VIS(k) &&
+        ov_hits(k, ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]))
+    {
+      ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
+      return;
+    }
+  ov_paint(i);
   ui_mark(ui_ov_y[i], ui_ov_h[i]);
 }
 
-static void ov_draw(u8 i)
+/* Paints one primitive into the buffer. Never called on its own from
+   outside — see ov_draw / ov_repaint. */
+static void ov_paint(u8 i)
 {
   u8 x = ui_ov_x[i];
   u8 w = ui_ov_w[i];
@@ -247,11 +343,34 @@ static void ov_draw(u8 i)
   case 4: /* panel: frame only (drawn above) */
     break;
 
-  case 5: /* label: static text */
+  case 5:  /* label: static text */
+  case 11: /* label: text carrying \v[n] escapes (see the header) */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w))
-      ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
+    {
+      if (*l != 1)
+      {
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
+        continue;
+      }
+      /* \v[n]: variable number + 1, then the format byte */
+      v = vm.vars16[(u8)(l[1] - 1)];
+      d = (u8)l[2];
+      l += 3;
+      k = 0;
+      do
+      {
+        ov_num[k++] = '0' + (v % 10);
+        v /= 10;
+      } while (v && k < 5);
+      /* pad to the requested column count — with zeros or with spaces
+         (the digits sit reversed, so padding appended comes out LEFT) */
+      while (k < (u8)((d & 0x7F) - 1) && k < 5)
+        ov_num[k++] = (d & 0x80) ? '0' : ' ';
+      while (k && cx < (u8)(x + w))
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--k]));
+    }
     break;
 
   case 6: /* image: consecutive icons from the sheet */
@@ -267,6 +386,57 @@ static void ov_draw(u8 i)
     for (cy = 0; cy < h; cy++)
       for (k = 0; k < w; k++)
         ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
+    break;
+
+  case 9: /* image: a 3x3 picture SLICED over the widget's rect — the
+             windowskin recipe, opened to any image */
+    ch = ui_ov_icon[i];
+    for (cy = 0; cy < h; cy++)
+    {
+      sy = cy == 0 ? 0 : (cy == (u8)(h - 1) ? 2 : 1);
+      for (k = 0; k < w; k++)
+        ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(
+            ch + sy * 3 + (k == 0 ? 0 : (k == (u8)(w - 1) ? 2 : 1)));
+    }
+    break;
+
+  case 10: /* image: FILLED to var/max. Two units per tile — the full
+              image, then its CUT copy, which datagen lays immediately
+              after (chars ch .. ch + w*h - 1, then w*h more). The
+              unfilled part keeps the background, so an "empty" image
+              placed UNDER this one draws the rest of the bar. */
+    ch = ui_ov_icon[i];
+    cells = ui_ov_dir[i] ? h : w;
+    units = (u16)cells << 1;
+    {
+      u16 m = ov_lastm[i];
+
+      if (m == 0 || v == 0)
+        fill = 0;
+      else if (v >= m)
+        fill = (u8)units;
+      else
+        fill = (u8)(((u32)v * units) / m);
+    }
+    for (k = 0; k < cells; k++)
+    {
+      d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
+      if (d > 2)
+        d = 2;
+      if (d == 0)
+        continue; /* empty: the background stays */
+      if (ui_ov_dir[i]) /* vertical: filled from the BOTTOM up */
+      {
+        cy = (u8)(h - 1 - k);
+        for (r = 0; r < w; r++)
+          ui_map[base + (u16)cy * 32 + x + r] =
+              OV_ENTRY(ch + (d == 1 ? (u16)w * h : 0) + (u16)cy * w + r);
+      }
+      else
+        for (cy = 0; cy < h; cy++)
+          ui_map[base + (u16)cy * 32 + x + k] =
+              OV_ENTRY(ch + (d == 1 ? (u16)w * h : 0) + (u16)cy * w + k);
+    }
     break;
 
   case 7: /* list (B6): one item per row, column 0 = the cursor ('>'
@@ -393,7 +563,6 @@ static void ov_draw(u8 i)
     }
     break;
   }
-  ui_mark(ui_ov_y[i], ui_ov_h[i]);
 }
 
 void overlay_init(void)
@@ -402,32 +571,41 @@ void overlay_init(void)
 
   for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
     ov_vis[i] = UI_WIDGET_COUNT ? ui_widget_vis[i] : 0;
-  /* ui_map has already been cleared by ui_screen_init (called first) */
+  /* ui_map has already been cleared by ui_screen_init (called first), so
+     painting straight through in emission order gives the right z-order */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     ov_last[i] = vm.vars16[ui_ov_var[i]];
     ov_lastm[i] = ov_max(i);
-    if (ov_vis[ui_ov_widget[i]])
-      ov_draw(i);
   }
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (OV_VIS(i))
+    {
+      ov_paint(i);
+      ui_mark(ui_ov_y[i], ui_ov_h[i]);
+    }
 }
 
 void overlay_update(void)
 {
-  u8 i;
+  u8 i, t;
   u16 v, m;
 
   for (i = 0; i < UI_OV_COUNT; i++)
   {
-    if (ui_ov_type[i] >= 4)
-      continue; /* panel/label/image: static (refresh only) */
+    t = ui_ov_type[i];
+    /* panel / static label / icons / picture / sliced: refresh only.
+       A filled image (10) and an interpolating label (11) track their
+       variables like a value does. */
+    if (t >= 4 && t != 10 && t != 11)
+      continue;
     v = vm.vars16[ui_ov_var[i]];
     m = ov_max(i);
     if (v != ov_last[i] || m != ov_lastm[i])
     {
       ov_last[i] = v;
       ov_lastm[i] = m;
-      if (ov_vis[ui_ov_widget[i]])
+      if (OV_VIS(i))
         ov_draw(i);
     }
   }
@@ -439,10 +617,14 @@ void overlay_refresh(void)
 
   /* unconditional redraw: after the dialogue band is cleared
      (tb_clear_band), the widgets sharing its rows must reappear —
-     except those hidden by SHOWUI */
+     except those hidden by SHOWUI. Straight through in emission order:
+     that IS the z-order, so overlapping widgets land right. */
   for (i = 0; i < UI_OV_COUNT; i++)
-    if (ov_vis[ui_ov_widget[i]])
-      ov_draw(i);
+    if (OV_VIS(i))
+    {
+      ov_paint(i);
+      ui_mark(ui_ov_y[i], ui_ov_h[i]);
+    }
 }
 
 void overlay_show(u8 widget, u8 on)
@@ -452,6 +634,9 @@ void overlay_show(u8 widget, u8 on)
   if (widget >= (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1))
     return;
   ov_vis[widget] = on;
+  /* Hiding: the rect goes back to whoever is underneath — ov_vis is
+     already down, so the repaint leaves us out. Showing: ov_draw sorts
+     the z-order out on its own as soon as anything overlaps. */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     if (ui_ov_widget[i] != widget)
@@ -459,7 +644,7 @@ void overlay_show(u8 widget, u8 on)
     if (on)
       ov_draw(i); /* values are up to date: ov_last tracked even when hidden */
     else
-      ov_erase(i);
+      ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
   }
 }
 

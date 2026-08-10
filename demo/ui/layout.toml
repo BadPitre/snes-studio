@@ -10,61 +10,79 @@ size = [32, 8]
 pos = [0, 20]
 size = [32, 8]
 
-# ---- Widgets PERMANENTS (8 max, placement libre — jamais sous les ----
-# fenêtres message/choice). La planche d'icônes du projet
-# (assets/icons.png, Gestionnaire de ressources → IconSet) fournit :
-#   0-2 cœur plein/demi/vide   3-5 jauge pleine/demie/vide
-#   6 rubis                    7 bombe
-# Décommenter un bloc, choisir la variable, Générer, jouer.
-# visible = true : affiché dès le boot — sans lui, un widget est CACHÉ
-# jusqu'à la commande d'event « Afficher un widget UI ».
+# ---- Widgets PERMANENTS (16 max, placement libre) --------------------
+# Un widget peut en CHEVAUCHER un autre (le dernier passe devant) mais
+# JAMAIS les fenetres message/choice : les dialogues l'ecraseraient.
+# La planche d'icones du projet (assets/iconsets/icons.png, Gestionnaire
+# de ressources -> IconSet) fournit :
+#   0-2 coeur plein/demi/vide   3-5 jauge pleine/demie/vide
+#   6 rubis                     7 bombe
+# visible = true : affiche des le boot — sans lui, un widget est CACHE
+# jusqu'a la commande d'event « Afficher un widget UI ».
+# Decommenter un bloc, choisir la variable, Generer, jouer.
 
-# Points de vie façon Zelda : var 6 sur un max de 12 (2 PV par cœur)
-# [[overlay]]
+# Points de vie facon Zelda : une IMAGE en mode fill sur la planche
+# d'icones — icone pleine, +1 demie, +2 vide, deux crans par tuile.
+# [[node]]
 # id = "vie"
+# type = "image"
+# mode = "fill"
 # visible = true
 # pos = [1, 0]
 # size = [6, 1]
-# content = "icon_row"
 # var = 6
 # max = 12
 # icon = 0
-# frame = false
 
-# Jauge de magie verticale (remplie par le bas, façon ALttP)
-# [[overlay]]
+# Jauge de magie verticale (remplie par le bas, facon ALttP) : la meme
+# chose, dir = "v".
+# [[node]]
 # id = "magie"
+# type = "image"
+# mode = "fill"
+# dir = "v"
 # visible = true
 # pos = [1, 2]
 # size = [1, 6]
-# content = "gauge"
 # var = 7
 # max = 100
 # icon = 3
-# dir = "v"
-# frame = false
 
-# Compteur de rubis avec zéros de tête (072)
-# [[overlay]]
+# Compteur de rubis : une hbox = l'icone, puis un LABEL qui interpole la
+# variable 8 sur 3 chiffres avec des zeros de tete (072).
+# [[node]]
 # id = "rubis"
+# type = "hbox"
 # visible = true
 # pos = [26, 0]
-# size = [5, 1]
-# content = "icon_value"
-# var = 8
+#
+# [[node]]
+# id = "rubis_icone"
+# parent = "rubis"
+# type = "image"
 # icon = 6
-# pad = 3
-# frame = false
+#
+# [[node]]
+# id = "rubis_nb"
+# parent = "rubis"
+# type = "label"
+# text = "\\v[8,03]"
 
-# Fenêtre cadrée « libellé + valeur » (style RM2003)
-# [[overlay]]
+# Fenetre cadree « libelle + valeur » (style RM2003) : un CANVAS avec
+# cadre, et un label qui dit le reste.
+# [[node]]
 # id = "quete"
+# type = "canvas"
 # visible = true
 # pos = [8, 0]
 # size = [12, 3]
-# content = "variable_display"
-# var = 5
-# label = "Fleurs"
+# frame = true
+#
+# [[node]]
+# id = "quete_txt"
+# parent = "quete"
+# type = "label"
+# text = "Fleurs\\v[5,3]"
 
 # Menus de combat (B6) : listes à curseur — CACHÉES au boot, ouvertes par
 # la commande d'event « Choix dans une liste » (index -> variable, B = 255).

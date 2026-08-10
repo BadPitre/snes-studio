@@ -592,7 +592,12 @@ impl IndexedImage {
     /// the tile grid — take the frame's BACKGROUND colour instead of
     /// showing the game through. SNES compositing is per tile, so this is
     /// resolved at compile time, as for the icons (to_icons_bg).
-    pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool) -> Result<(Vec<u8>, u8, u8)> {
+    ///
+    /// `cut` keeps only part of EVERY tile, which is what gives a FILLED
+    /// image (the "fill" mode of the image widget) its half-step: 0 the
+    /// whole tile, 1 its left half — a bar filling left to right — and 2
+    /// its bottom half, one filling upwards. The rest goes to `void`.
+    pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool, cut: u8) -> Result<(Vec<u8>, u8, u8)> {
         if self.width == 0 || self.height == 0 {
             bail!("image UI : image vide");
         }
@@ -638,6 +643,17 @@ impl IndexedImage {
             for x in 0..self.width {
                 let src = self.pixels[y * self.width + x] as usize;
                 padded.pixels[y * padded.width + x] = *map.get(src).unwrap_or(&void);
+            }
+        }
+        // half tile: blank the part the bar has not reached yet
+        if cut != 0 {
+            for y in 0..padded.height {
+                for x in 0..padded.width {
+                    let drop = if cut == 1 { x % 8 >= 4 } else { y % 8 < 4 };
+                    if drop {
+                        padded.pixels[y * padded.width + x] = void;
+                    }
+                }
             }
         }
         let mut out = Vec::new();

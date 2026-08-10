@@ -12,10 +12,15 @@ import type { Database } from "../db";
 import { assetStem } from "../types";
 import type { DialogStyle, NodeKind, UiLayout2, UiNode } from "../uilayout";
 import {
+  ANCHORS,
+  NODE_KINDS,
+  anchorOrigin,
   childrenOf,
   flatten,
   setPicSizes,
   setDbTables,
+  imageMode,
+  isCanvas,
   isContainer,
   layoutToToml,
   nodeFramed,
@@ -54,23 +59,34 @@ interface Props {
 }
 
 const KIND_LABELS: Record<NodeKind, string> = {
-  window: "🗔 Fenêtre",
+  canvas: "🗔 Canvas",
   vbox: "☰ Liste verticale",
   hbox: "⋯ Boîte horizontale",
   label: "🄰 Label",
   image: "🖼 Image",
-  value: "№ Valeur",
-  gauge: "▮ Jauge",
-  icon_row: "♥ Cœurs",
-  icon_value: "♦ Icône + compteur",
-  variable_display: "🗇 Libellé + valeur",
   list: "▤ Liste (curseur)",
+  // out of the palette, still edited when a project holds one
+  window: "🗔 Fenêtre (ancien)",
+  value: "№ Valeur (ancien)",
+  gauge: "▮ Jauge (ancien)",
+  icon_row: "♥ Cœurs (ancien)",
+  icon_value: "♦ Icône + compteur (ancien)",
+  variable_display: "🗇 Libellé + valeur (ancien)",
+};
+
+// What each palette button says it is for — the five widgets that left
+// the palette are all doable with these six.
+const KIND_HELP: Partial<Record<NodeKind, string>> = {
+  canvas: "Rectangle de placement. Coche « Cadre » pour l'habiller du windowskin.",
+  label: "Texte. \\v[3] y affiche la variable 3, \\v[3,4] calée sur 4 colonnes, \\v[3,04] avec des zéros.",
+  image: "Icônes ou image du projet. Mode sliced = cadre étirable, fill = jauge / cœurs.",
+  list: "Menu navigable, ouvert par la commande « Choix dans une liste ».",
 };
 
 // a fresh node per type (the designer fills in id/pos/parent)
 function newNode(kind: NodeKind): Partial<UiNode> {
   switch (kind) {
-    case "window": return { size: [10, 4] };
+    case "canvas": case "window": return { size: [10, 4] };
     case "vbox": case "hbox": return {};
     case "label": return { text: "Texte" };
     case "value": return { var: 0, width: 3 };
@@ -82,6 +98,12 @@ function newNode(kind: NodeKind): Partial<UiNode> {
     case "list": return { items: ["Attaque", "Magie", "Objet", "Fuite"] };
   }
 }
+
+const ANCHOR_TITLES: Record<string, string> = {
+  tl: "Haut gauche", tc: "Haut centre", tr: "Haut droite",
+  ml: "Milieu gauche", mc: "Centre", mr: "Milieu droite",
+  bl: "Bas gauche", bc: "Bas centre", br: "Bas droite",
+};
 
 export async function loadUiLayout2(root: string): Promise<UiLayout2> {
   try {
@@ -112,6 +134,14 @@ export default function UiThemeModal(props: Props) {
   // two pages: the widget list -> the designer
   const [view, setView] = useState<"list" | "design">("list");
   const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
+  // undo / redo: snapshots of the whole layout. A drag COALESCES — it
+  // would otherwise push one entry per mouse move and undo would crawl
+  // back pixel by pixel.
+  const [past, setPast] = useState<UiLayout2[]>([]);
+  const [future, setFuture] = useState<UiLayout2[]>([]);
+  const coalesceRef = useRef<string | null>(null);
+  // Ctrl+C / Ctrl+V in the tree: the copied node and its descendants
+  const [clip, setClip] = useState<UiNode[] | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // drag in progress: moving a root or resizing
   const dragRef = useRef<
@@ -332,6 +362,8 @@ export default function UiThemeModal(props: Props) {
           break;
         }
         case 5:
+        case 11: // dynamic label: the flattener already substituted a
+          // plausible value for each \v[n]
           text(p.text, x0, y0, cw, pf);
           break;
         case 6:
@@ -344,6 +376,43 @@ export default function UiThemeModal(props: Props) {
           // simulate the colour reduction.
           const bmp = p.pic ? pics[p.pic] : undefined;
           if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
+          break;
+        }
+        case 9: {
+          // sliced: the 3x3 picture stretched over the widget, exactly as
+          // the engine will lay its nine chars out
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (!bmp) break;
+          for (let ty = 0; ty < ch; ty++)
+            for (let tx = 0; tx < cw; tx++) {
+              const sx = tx === 0 ? 0 : tx === cw - 1 ? 2 : 1;
+              const sy = ty === 0 ? 0 : ty === ch - 1 ? 2 : 1;
+              ctx.drawImage(bmp, sx * 8, sy * 8, 8, 8, (x0 + tx) * 8, (y0 + ty) * 8, 8, 8);
+            }
+          break;
+        }
+        case 10: {
+          // fill: the preview shows the same 58 % as the gauge, so the
+          // two read alike side by side
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (!bmp) break;
+          const cells = p.vertical ? ch : cw;
+          const fill = Math.floor(cells * 2 * 0.58);
+          for (let k = 0; k < cells; k++) {
+            const d = Math.max(0, Math.min(2, fill - k * 2));
+            if (d === 0) continue;
+            const half = d === 1;
+            if (p.vertical) {
+              const ty = ch - 1 - k;
+              for (let tx = 0; tx < cw; tx++)
+                ctx.drawImage(bmp, tx * 8, ty * 8 + (half ? 4 : 0), 8, half ? 4 : 8,
+                  (x0 + tx) * 8, (y0 + ty) * 8 + (half ? 4 : 0), 8, half ? 4 : 8);
+            } else {
+              for (let ty = 0; ty < ch; ty++)
+                ctx.drawImage(bmp, k * 8, ty * 8, half ? 4 : 8, 8,
+                  (x0 + k) * 8, (y0 + ty) * 8, half ? 4 : 8, 8);
+            }
+          }
           break;
         }
         case 0: {
@@ -403,25 +472,61 @@ export default function UiThemeModal(props: Props) {
     }
   }, [lay, flat, font, skin, icons, iconCount, selId, scopeIds, styleIdx, stSkin, stFont, fontMap, props.mode]);
 
+  // keyboard shortcuts of the structure tree — installed once, routed
+  // through a ref so the handler always sees the current layout
+  const kbdRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => kbdRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
 
-  const patchNode = (id: string, patch: Partial<UiNode>) => {
-    setLay({
-      ...lay,
-      nodes: lay.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-    });
+  // Every change to the layout goes through commit: that is what makes
+  // undo possible. `coalesce` folds a whole drag into one entry.
+  const HISTORY_MAX = 64;
+  const commit = (next: UiLayout2, coalesce?: string) => {
+    const keep = coalesce !== undefined && coalesceRef.current === coalesce;
+    coalesceRef.current = coalesce ?? null;
+    if (!keep) setPast((p) => [...p, lay].slice(-HISTORY_MAX));
+    setFuture([]);
+    setLay(next);
+  };
+  const undo = () => {
+    if (!past.length) return;
+    setFuture([lay, ...future]);
+    setLay(past[past.length - 1]);
+    setPast(past.slice(0, -1));
+    coalesceRef.current = null;
+    setSelId(null);
+  };
+  const redo = () => {
+    if (!future.length) return;
+    setPast([...past, lay]);
+    setLay(future[0]);
+    setFuture(future.slice(1));
+    coalesceRef.current = null;
+    setSelId(null);
+  };
+
+  const patchNode = (id: string, patch: Partial<UiNode>, coalesce?: string) => {
+    commit(
+      { ...lay, nodes: lay.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) },
+      coalesce
+    );
   };
   const patchWin = (key: "message" | "choice", i: number, axis: "pos" | "size", v: number) => {
     const w = { ...lay[key], [axis]: [...lay[key][axis]] as [number, number] };
     w[axis][i] = v;
-    setLay({ ...lay, [key]: w });
+    commit({ ...lay, [key]: w });
   };
 
   // ---- dialogue styles (S1, "dialogs" mode) ----------------------------
   const patchStyle = (patch: Partial<DialogStyle>) => {
     if (styleIdx === 0) return;
-    setLay({
+    commit({
       ...lay,
       styles: lay.styles.map((s, i) => (i === styleIdx - 1 ? { ...s, ...patch } : s)),
     });
@@ -442,7 +547,7 @@ export default function UiThemeModal(props: Props) {
       id: `style${i}`,
       message: { pos: [...lay.message.pos] as [number, number], size: [...lay.message.size] as [number, number] },
     };
-    setLay({ ...lay, styles: [...lay.styles, st] });
+    commit({ ...lay, styles: [...lay.styles, st] });
     setStyleIdx(lay.styles.length + 1);
   };
 
@@ -497,13 +602,11 @@ export default function UiThemeModal(props: Props) {
     setSelId(hit);
     if (hit) {
       const root = rootAncestor(lay.nodes, hit);
-      if (root?.pos) {
-        dragRef.current = {
-          mode: "move",
-          id: root.id,
-          offX: tx - root.pos[0],
-          offY: ty - root.pos[1],
-        };
+      const rr = root ? flat.rects[root.id] : undefined;
+      // grab point relative to where the widget actually IS on screen —
+      // `pos` is an offset from its anchor, not a screen position
+      if (root?.pos && rr) {
+        dragRef.current = { mode: "move", id: root.id, offX: tx - rr.x, offY: ty - rr.y };
       }
     }
   };
@@ -515,20 +618,26 @@ export default function UiThemeModal(props: Props) {
       const n = lay.nodes.find((k) => k.id === d.id);
       if (!n) return;
       const s = sizeOf(lay.nodes, n);
-      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX));
-      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY));
-      if (n.pos?.[0] !== nx || n.pos?.[1] !== ny) patchNode(d.id, { pos: [nx, ny] });
+      // the canvas works in absolute tiles; `pos` is an OFFSET from the
+      // widget's anchor, so take the anchor back out before storing
+      const [ax, ay] = anchorOrigin(n.anchor, s);
+      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX)) - ax;
+      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY)) - ay;
+      if (n.pos?.[0] !== nx || n.pos?.[1] !== ny)
+        patchNode(d.id, { pos: [nx, ny] }, `move:${d.id}`);
     } else {
       const r = flat.rects[d.id];
       const n = lay.nodes.find((k) => k.id === d.id);
       if (!r || !n) return;
       const w = Math.max(1, tx - r.x + 1);
       const h = Math.max(1, ty - r.y + 1);
-      if (n.size?.[0] !== w || n.size?.[1] !== h) patchNode(d.id, { size: [w, h] });
+      if (n.size?.[0] !== w || n.size?.[1] !== h)
+        patchNode(d.id, { size: [w, h] }, `resize:${d.id}`);
     }
   };
   const onCanvasUp = () => {
     dragRef.current = null;
+    coalesceRef.current = null; // the drag is over: next change is its own undo step
   };
 
   // first FREE position for a new root widget — avoids the existing
@@ -574,7 +683,7 @@ export default function UiThemeModal(props: Props) {
       ];
       node.pos = freeSpot(s[0], s[1]);
     }
-    setLay({ ...lay, nodes: [...lay.nodes, node] });
+    commit({ ...lay, nodes: [...lay.nodes, node] });
     setSelId(node.id);
     if (!target) {
       setScope(node.id); // a new widget: the designer opens onto it
@@ -582,21 +691,84 @@ export default function UiThemeModal(props: Props) {
     }
   };
 
-  const deleteSel = () => {
-    if (!sel) return;
-    const doomed = new Set<string>([sel.id]);
+  // a node plus everything under it
+  const subtreeOf = (id: string): Set<string> => {
+    const ids = new Set<string>([id]);
     let grew = true;
     while (grew) {
       grew = false;
       for (const n of lay.nodes)
-        if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) {
-          doomed.add(n.id);
+        if (n.parent && ids.has(n.parent) && !ids.has(n.id)) {
+          ids.add(n.id);
           grew = true;
         }
     }
-    setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
+    return ids;
+  };
+
+  const deleteSel = () => {
+    if (!sel) return;
+    const doomed = subtreeOf(sel.id);
+    commit({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
     setSelId(null);
-    if (scope && doomed.has(scope)) setScope(null);
+    // Deleting the widget's ROOT deletes the widget: there is nothing
+    // left to design, so go back to the list instead of falling into the
+    // whole-screen view — which used to show every OTHER widget and read
+    // as a bug.
+    if (scope && doomed.has(scope)) {
+      setScope(null);
+      setView("list");
+    }
+  };
+
+  // ---- copy / paste in the tree ---------------------------------------
+  const copySel = () => {
+    if (!sel) return;
+    const ids = subtreeOf(sel.id);
+    setClip(lay.nodes.filter((n) => ids.has(n.id)).map((n) => ({ ...n })));
+  };
+
+  const pasteClip = () => {
+    if (!clip || !clip.length) return;
+    const taken = new Set(lay.nodes.map((n) => n.id));
+    // fresh ids, and the copies keep pointing at each OTHER
+    const ren: Record<string, string> = {};
+    for (const n of clip) {
+      const stem = n.id.replace(/\d+$/, "") || n.type;
+      let i = 1;
+      while (taken.has(`${stem}${i}`)) i++;
+      ren[n.id] = `${stem}${i}`;
+      taken.add(`${stem}${i}`);
+    }
+    const rootId = clip[0].id;
+    // where it lands: in the selected container, else next to the
+    // selection, else a new widget of its own on a free spot
+    const scopeNode = scope ? lay.nodes.find((n) => n.id === scope) : undefined;
+    const target =
+      sel && isContainer(sel)
+        ? sel.id
+        : sel?.parent
+          ? sel.parent
+          : scopeNode && isContainer(scopeNode)
+            ? scopeNode.id
+            : undefined;
+    const copies = clip.map((n) => {
+      const c: UiNode = { ...n, id: ren[n.id] };
+      if (n.id === rootId) {
+        if (target) {
+          c.parent = target;
+          delete c.pos;
+          delete c.anchor;
+        } else {
+          delete c.parent;
+          const s = sizeOf(clip, n);
+          c.pos = freeSpot(s[0], s[1]);
+        }
+      } else c.parent = ren[n.parent!];
+      return c;
+    });
+    commit({ ...lay, nodes: [...lay.nodes, ...copies] });
+    setSelId(copies[0].id);
   };
 
   const moveSel = (delta: -1 | 1) => {
@@ -609,12 +781,12 @@ export default function UiThemeModal(props: Props) {
     const b = lay.nodes.indexOf(other);
     const nodes = [...lay.nodes];
     [nodes[a], nodes[b]] = [nodes[b], nodes[a]];
-    setLay({ ...lay, nodes });
+    commit({ ...lay, nodes });
   };
 
   const renameSel = (newId: string) => {
     if (!sel || !newId || lay.nodes.some((n) => n.id === newId && n.id !== sel.id)) return;
-    setLay({
+    commit({
       ...lay,
       nodes: lay.nodes.map((n) =>
         n.id === sel.id
@@ -626,6 +798,37 @@ export default function UiThemeModal(props: Props) {
     });
     if (scope === sel.id) setScope(newId);
     setSelId(newId);
+  };
+
+  // Keyboard shortcuts, as on the event layer of the map: copy, paste,
+  // delete, undo, redo. Skipped while a field has the focus — Ctrl+C in
+  // a text box must stay Ctrl+C.
+  kbdRef.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    if (props.mode !== "widgets" || view !== "design") return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if (ctrl && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+      e.preventDefault();
+      redo();
+    } else if (ctrl && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      copySel();
+    } else if (ctrl && e.key.toLowerCase() === "x") {
+      e.preventDefault();
+      copySel();
+      deleteSel();
+    } else if (ctrl && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      pasteClip();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      if (!sel) return;
+      e.preventDefault();
+      deleteSel();
+    }
   };
 
   // ---- tree ------------------------------------------------------------
@@ -706,7 +909,7 @@ export default function UiThemeModal(props: Props) {
                             alert(`Le style « ${newId} » existe déjà.`);
                             return;
                           }
-                          setLay({
+                          commit({
                             ...lay,
                             styles: lay.styles.map((s) => (s.id === st.id ? { ...s, id: newId } : s)),
                           });
@@ -717,7 +920,7 @@ export default function UiThemeModal(props: Props) {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!confirm(`Supprimer le style « ${st.id} » ? Les messages qui l'utilisent devront être corrigés.`)) return;
-                          setLay({ ...lay, styles: lay.styles.filter((s) => s.id !== st.id) });
+                          commit({ ...lay, styles: lay.styles.filter((s) => s.id !== st.id) });
                           setStyleIdx(0);
                         }}>
                         🗑
@@ -918,7 +1121,7 @@ export default function UiThemeModal(props: Props) {
             </div>
             <fieldset className="evedit-box uitheme-widgetlist">
               <legend>Widgets du projet ({rootsOf(lay.nodes).length})</legend>
-              <button onClick={() => addNode("window", true)}>✧ Nouveau widget</button>
+              <button onClick={() => addNode("canvas", true)}>✧ Nouveau widget</button>
               <div className="uitheme-treelist">
                 {rootsOf(lay.nodes).map((r) => (
                   <div key={r.id} className="tree-row uitheme-widgetrow"
@@ -954,7 +1157,7 @@ export default function UiThemeModal(props: Props) {
                           alert(`Le nom « ${newId} » est déjà pris.`);
                           return;
                         }
-                        setLay({
+                        commit({
                           ...lay,
                           nodes: lay.nodes.map((n) =>
                             n.id === r.id
@@ -984,7 +1187,7 @@ export default function UiThemeModal(props: Props) {
                               grew = true;
                             }
                         }
-                        setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
+                        commit({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
                         setSelId(null);
                         setScope(null);
                       }}>
@@ -1019,18 +1222,24 @@ export default function UiThemeModal(props: Props) {
             <fieldset className="evedit-box">
               <legend>Palette (clic = ajouter)</legend>
               <div className="uitheme-palette">
-                {(Object.keys(KIND_LABELS) as NodeKind[]).map((k) => (
+                {NODE_KINDS.map((k) => (
                   <button key={k} onClick={() => addNode(k)} title={
-                    sel && isContainer(sel)
+                    (KIND_HELP[k] ? KIND_HELP[k] + "\n\n" : "") +
+                    (sel && isContainer(sel)
                       ? `Ajouter dans « ${sel.id} »`
                       : sel?.parent
                         ? `Ajouter à côté de « ${sel.id} »`
-                        : "Ajouter sur le canvas (nouveau widget)"
+                        : "Ajouter sur le canvas (nouveau widget)")
                   }>
                     {KIND_LABELS[k]}
                   </button>
                 ))}
               </div>
+              <span className="hint">
+                Une valeur, une jauge, des cœurs, un compteur : un LABEL
+                avec \v[n] et une IMAGE en mode fill les font tous, sans
+                composant dédié.
+              </span>
             </fieldset>
             <fieldset className="evedit-box uitheme-tree">
               <legend>
@@ -1047,6 +1256,17 @@ export default function UiThemeModal(props: Props) {
                   <span className="hint">Vide — ✧ Nouveau widget, ou un objet de la palette.</span>
                 )}
               </div>
+              <div className="row">
+                <button onClick={undo} disabled={!past.length} title="Annuler (Ctrl+Z)">↶</button>
+                <button onClick={redo} disabled={!future.length} title="Rétablir (Ctrl+Y)">↷</button>
+                <button onClick={copySel} disabled={!sel} title="Copier (Ctrl+C)">⧉</button>
+                <button onClick={pasteClip} disabled={!clip} title="Coller (Ctrl+V)">📋</button>
+                <button className="danger" onClick={deleteSel} disabled={!sel} title="Supprimer (Suppr)">🗑</button>
+              </div>
+              <span className="hint">
+                Ctrl+C copier, Ctrl+X couper, Ctrl+V coller, Suppr
+                supprimer, Ctrl+Z annuler, Ctrl+Y rétablir.
+              </span>
             </fieldset>
           </div>
 
@@ -1112,13 +1332,46 @@ export default function UiThemeModal(props: Props) {
                     <input value={sel.id} onChange={(e) => renameSel(e.target.value)} />
                   </label>
                   {!sel.parent && (
-                    <div className="row">
-                      {num("x", sel.pos?.[0] ?? 0, (v) =>
-                        patchNode(sel.id, { pos: [v ?? 0, sel.pos?.[1] ?? 0] })
-                      )}
-                      {num("y", sel.pos?.[1] ?? 0, (v) =>
-                        patchNode(sel.id, { pos: [sel.pos?.[0] ?? 0, v ?? 0] })
-                      )}
+                    <div className="row uitheme-anchorrow">
+                      <div className="anchorgrid" title="Ancre : le point de l'écran d'où partent x et y">
+                        {ANCHORS.map((a) => (
+                          <button
+                            key={a}
+                            className={(sel.anchor ?? "tl") === a ? "sel" : undefined}
+                            title={ANCHOR_TITLES[a]}
+                            onClick={() => {
+                              // keep the widget WHERE IT IS: recompute the
+                              // offset against the new anchor
+                              const s = sizeOf(lay.nodes, sel);
+                              const [ox, oy] = anchorOrigin(sel.anchor, s);
+                              const [nx, ny] = anchorOrigin(a, s);
+                              patchNode(sel.id, {
+                                anchor: a === "tl" ? undefined : a,
+                                pos: [
+                                  ox + (sel.pos?.[0] ?? 0) - nx,
+                                  oy + (sel.pos?.[1] ?? 0) - ny,
+                                ],
+                              });
+                            }}
+                          >
+                            <span />
+                          </button>
+                        ))}
+                      </div>
+                      <div>
+                        <div className="row">
+                          {num("x", sel.pos?.[0] ?? 0, (v) =>
+                            patchNode(sel.id, { pos: [v ?? 0, sel.pos?.[1] ?? 0] })
+                          )}
+                          {num("y", sel.pos?.[1] ?? 0, (v) =>
+                            patchNode(sel.id, { pos: [sel.pos?.[0] ?? 0, v ?? 0] })
+                          )}
+                        </div>
+                        <span className="hint">
+                          Comptés depuis l'ancre ({ANCHOR_TITLES[sel.anchor ?? "tl"]}
+                          ) — le même coin du widget y reste collé quand il grandit.
+                        </span>
+                      </div>
                     </div>
                   )}
                   {!sel.parent && (
@@ -1299,7 +1552,9 @@ export default function UiThemeModal(props: Props) {
                     )}
                     </>
                   )}
-                  {(sel.type === "value" || (sel.type === "image" && !sel.pic) || sel.type === "icon_value") &&
+                  {(sel.type === "value" ||
+                    (sel.type === "image" && sel.pic === undefined && imageMode(sel) === "normal") ||
+                    sel.type === "icon_value") &&
                     num(
                       sel.type === "value" ? "Chiffres (1-5)" : sel.type === "image" ? "Icônes (largeur)" : "Largeur",
                       sel.width ?? (sel.type === "value" ? 3 : sel.type === "image" ? 1 : 4),
@@ -1310,6 +1565,7 @@ export default function UiThemeModal(props: Props) {
                     sel.type === "gauge" ||
                     sel.type === "icon_row" ||
                     sel.type === "icon_value" ||
+                    (sel.type === "image" && imageMode(sel) === "fill") ||
                     sel.type === "variable_display") && (
                     <label>Variable
                       <div className="row" style={{ gap: 4 }}>
@@ -1325,7 +1581,8 @@ export default function UiThemeModal(props: Props) {
                       <span className="hint">{props.varNames[sel.var ?? 0] || ""}</span>
                     </label>
                   )}
-                  {(sel.type === "gauge" || sel.type === "icon_row") && (
+                  {(sel.type === "gauge" || sel.type === "icon_row" ||
+                    (sel.type === "image" && imageMode(sel) === "fill")) && (
                     <>
                       {num(`Max${sel.max_var !== undefined ? " (ignoré)" : ""}`, sel.max ?? 1, (v) =>
                         patchNode(sel.id, { max: v }), { min: 1 })}
@@ -1350,18 +1607,20 @@ export default function UiThemeModal(props: Props) {
                       </label>
                     </>
                   )}
-                  {sel.type === "gauge" && (
-                    <label>Direction
+                  {(sel.type === "gauge" ||
+                    (sel.type === "image" && imageMode(sel) === "fill")) && (
+                    <label>Direction du remplissage
                       <select value={sel.dir ?? "h"}
                         onChange={(e) => patchNode(sel.id, { dir: e.target.value === "v" ? "v" : undefined })}>
-                        <option value="h">Horizontale</option>
+                        <option value="h">Horizontale (de la gauche)</option>
                         <option value="v">Verticale (remplie du bas)</option>
                       </select>
                     </label>
                   )}
                   {sel.type === "icon_value" &&
                     num("Zéros de tête (pad)", sel.pad ?? 0, (v) => patchNode(sel.id, { pad: v || undefined }), { min: 0, max: 5 })}
-                  {(sel.type === "gauge" ||
+                  {(isCanvas(sel.type) ||
+                    sel.type === "gauge" ||
                     sel.type === "icon_row" ||
                     sel.type === "icon_value" ||
                     sel.type === "variable_display" ||
@@ -1370,7 +1629,7 @@ export default function UiThemeModal(props: Props) {
                       <input type="checkbox"
                         checked={sel.type === "list" ? sel.frame ?? true : nodeFramed(sel)}
                         onChange={(e) => patchNode(sel.id, { frame: e.target.checked })} />
-                      Cadre
+                      Cadre {isCanvas(sel.type) && "(sinon : simple boîte de placement, rien à l'écran)"}
                     </label>
                   )}
                   {sel.type === "image" && (
@@ -1378,19 +1637,60 @@ export default function UiThemeModal(props: Props) {
                       <label>
                         Source
                         <select
-                          value={sel.pic ? "pic" : "icon"}
+                          value={sel.pic !== undefined ? "pic" : "icon"}
                           onChange={(e) =>
                             patchNode(sel.id, {
                               pic:
                                 e.target.value === "pic"
                                   ? Object.keys(pics)[0] ?? ""
                                   : undefined,
+                              // sliced needs a picture; back on the sheet
+                              // it falls back to a plain run of icons
+                              mode:
+                                e.target.value === "icon" && imageMode(sel) === "sliced"
+                                  ? undefined
+                                  : sel.mode,
                             })
                           }
                         >
                           <option value="icon">Icônes de la planche</option>
                           <option value="pic">Image du projet</option>
                         </select>
+                      </label>
+                      <label>
+                        Type
+                        <select
+                          value={imageMode(sel)}
+                          onChange={(e) => {
+                            const m = e.target.value;
+                            patchNode(sel.id, {
+                              mode: m === "normal" ? undefined : m,
+                              // sliced and a filled icon bar are sized by
+                              // the author, not by the artwork
+                              size:
+                                m === "sliced" || (m === "fill" && sel.pic === undefined)
+                                  ? sel.size ?? [8, m === "sliced" ? 3 : 1]
+                                  : sel.size,
+                              max: m === "fill" ? sel.max ?? 100 : sel.max,
+                              var: m === "fill" ? sel.var ?? 0 : sel.var,
+                            });
+                          }}
+                        >
+                          <option value="normal">Normal (telle quelle)</option>
+                          <option value="sliced" disabled={sel.pic === undefined}>
+                            Sliced (9 tranches étirables{sel.pic === undefined ? " — image requise" : ""})
+                          </option>
+                          <option value="fill">Fill (remplie par une variable)</option>
+                        </select>
+                        <span className="hint">
+                          {imageMode(sel) === "sliced"
+                            ? "L'image fait 3x3 tuiles (24x24 px) et s'étire sur la taille du widget — la recette du windowskin, avec n'importe quel dessin."
+                            : imageMode(sel) === "fill"
+                              ? sel.pic === undefined
+                                ? "Barre d'icônes : icône pleine, +1 demie, +2 vide — jauge ou rangée de cœurs, deux crans par tuile."
+                                : "L'image se dévoile au prorata de var / max, deux crans par tuile. Le fond ne se dessine pas : pose l'image « vide » DERRIÈRE, les widgets ont le droit de se chevaucher."
+                              : ""}
+                        </span>
                       </label>
                       {sel.pic !== undefined && (
                         <>
@@ -1427,14 +1727,19 @@ export default function UiThemeModal(props: Props) {
                     <>
                       <span className="hint">
                         Icône : {sel.icon ?? 0}
-                        {(sel.type === "gauge" || sel.type === "icon_row") &&
+                        {(sel.type === "gauge" || sel.type === "icon_row" ||
+                          (sel.type === "image" && imageMode(sel) === "fill")) &&
                           ` (+ ${(sel.icon ?? 0) + 1} demie, ${(sel.icon ?? 0) + 2} vide)`}
                         {iconCount === 0 && " — choisis une planche (Thème)."}
                       </span>
                       {iconCount > 0 && (
                         <div className="iconpick">
                           {iconUrls.map((u, i) => {
-                            const span = sel.type === "gauge" || sel.type === "icon_row" ? 3 : 1;
+                            const span =
+                              sel.type === "gauge" || sel.type === "icon_row" ||
+                              (sel.type === "image" && imageMode(sel) === "fill")
+                                ? 3
+                                : 1;
                             const s0 = sel.icon ?? 0;
                             return (
                               <button key={i}

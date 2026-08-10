@@ -369,6 +369,64 @@ are plain TOML files — the community will be able to share them.
   projects with no widget font. Editor: a "Fonte du widget" select in the
   inspector (roots only), a canvas preview using each widget's font;
   renaming and deleting a FontSet account for widgets as well as styles.
+- **Shipped (U1) — the designer moves closer to Unity.** Eight changes,
+  asked for together because they hold each other up:
+  1. **Widgets MAY OVERLAP.** The rule "two widgets may not overlap" was
+     never a design choice: it was the shape of a bug. The UI layer is a
+     single shared tilemap, and a primitive used to paint (or erase) its
+     rect on its own, so whoever shared that rect got a hole punched
+     through it. `ui_overlay.c` now repaints by RECT: `ov_repaint` clears
+     an area and replays, in emission order — which IS the z-order —
+     every visible primitive that meets it, growing the rect until it is
+     closed under that. `ov_draw` takes that path as soon as anything
+     overlaps and keeps the cheap direct paint otherwise, so the common
+     case costs nothing. The later widget wins. **A widget still may not
+     overlap a dialogue window**: the textbox writes into the same
+     tilemap and is not a primitive, so no repaint can bring the widget
+     back — that check stays an error in uigen and in the designer.
+  2. **Anchors, Unity style.** A root carries `anchor` (t/m/b then
+     l/c/r, default `"tl"`) and its `pos` is an OFFSET from that point;
+     the same corner of the widget is pinned to it, so a `"br"` widget
+     keeps its bottom-right corner put as it grows. The inspector shows
+     the 3x3 grid next to x/y, and switching anchor keeps the widget
+     where it is by recomputing the offset.
+  3. **Keyboard in the tree**: Ctrl+C / Ctrl+X / Ctrl+V (a subtree, with
+     fresh ids that keep pointing at each other), Suppr, Ctrl+Z, Ctrl+Y
+     — as on the map's event layer. A drag is ONE undo step.
+  4. **The image widget gains Unity's types**: `mode = "normal"`
+     (default), `"sliced"` (a 3x3 picture stretched over `size` — the
+     windowskin recipe opened to any image, prim 9) and `"fill"` (the
+     image revealed in proportion to `var`/`max`, `dir = "v"` filling
+     upwards, prim 10). A fill has TWO units per tile: datagen lays a
+     CUT copy of the picture right after the whole one (`gfx.rs`, half
+     the pixels of each tile blanked) and the engine picks between them.
+     The unfilled part keeps the background — put the "empty" artwork
+     BEHIND, which point 1 has just made legal. On the ICON sheet, fill
+     is the classic three-icon bar (full, half, empty) — prim 1, the old
+     gauge, reused as is.
+  5. **Deleting a widget's root** no longer drops the designer into the
+     whole-screen view, which showed every OTHER widget and read as a
+     bug: it goes back to the widget list.
+  6. **Five components leave the palette**: Valeur, Jauge, Cœurs, Icône +
+     compteur, Libellé + valeur. Each was a specific answer to something
+     the generic parts now do — a **label may interpolate variables**
+     (`\v[n]`, `\v[n,w]` right-aligned on w columns, `\v[n,0w]`
+     zero-padded; at most TWO per label, which is what the engine
+     watches — beyond that, split across an hbox) and an **image in fill
+     mode** is the gauge and the hearts. The five types are still read,
+     drawn and compiled, so no existing project breaks; they simply
+     cannot be created any more. Encoding: datagen turns each escape
+     into the three bytes `0x01`, variable + 1, format (prim 11), and
+     emits labels as C strings with OCTAL escapes — `\x` in C is greedy
+     and would swallow the next letter. In TOML, write `"PV \\v[10,3]"`
+     or `'PV \v[10,3]'`: `\v` is not a legal escape in a basic string.
+  7. **`window` is renamed `canvas`** — read under both names, migrated
+     on load by the editor.
+  8. **A canvas has NO frame by default.** It is a placement box that
+     draws nothing; `frame = true` dresses it with the windowskin. A
+     bare canvas also gives its children no background and starts its
+     margin at zero. The old `window` keeps framing by default, so
+     nothing changes look.
 - **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
   declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
   the list object will become NAVIGABLE, the designer already lays it

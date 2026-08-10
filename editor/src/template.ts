@@ -346,13 +346,22 @@ type = "list"
 pos = [1, 14]
 items = ["Attaque", "Objets", "Fuir"]
 
+# Les PV du heros : un CANVAS avec cadre, et un LABEL qui interpole la
+# variable 240 sur 3 colonnes. Aucun composant special — n'importe quel
+# texte melange a n'importe quelle variable (\\\\v[n], \\\\v[n,largeur],
+# \\\\v[n,0largeur] pour des zeros de tete).
 [[node]]
 id = "combat_pv1"
-type = "variable_display"
+type = "canvas"
 pos = [21, 16]
 size = [9, 3]
-var = 240
-label = "PV"
+frame = true
+
+[[node]]
+id = "combat_pv1_txt"
+parent = "combat_pv1"
+type = "label"
+text = "PV\\\\v[240,3]"
 
 # Menu des objets — ses lignes SONT la table \`items\` : ajouter un objet
 # dans la Database l'ajoute au menu. \`source_filter\` cache la ligne tant

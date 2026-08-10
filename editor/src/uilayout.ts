@@ -13,20 +13,30 @@ import type { UiWin } from "./types";
 export const SCREEN_W = 32;
 export const SCREEN_H = 28;
 export const PRIM_MAX = 32;
+/** The palette, in palette order: the six GENERIC objects everything is
+ *  built from. */
 export const NODE_KINDS = [
-  "window",
+  "canvas",
   "vbox",
   "hbox",
   "label",
-  "value",
   "image",
+  "list",
+] as const;
+/** The old HUD widgets. Gone from the palette — a filled image replaces
+ *  the gauge and the hearts, a label with \v[n] the counters — but still
+ *  loaded, drawn and compiled, so no existing project breaks. "window" is
+ *  the canvas' old name and is migrated on load. */
+export const LEGACY_KINDS = [
+  "window",
+  "value",
   "gauge",
   "icon_row",
   "icon_value",
   "variable_display",
-  "list",
 ] as const;
-export type NodeKind = (typeof NODE_KINDS)[number];
+export const ALL_KINDS = [...NODE_KINDS, ...LEGACY_KINDS] as const;
+export type NodeKind = (typeof ALL_KINDS)[number];
 
 /** Sizes IN TILES of the project's pictures, filled in by the UI window
  *  (it alone can load the images) — the size computation of an "image"
@@ -47,9 +57,13 @@ export interface UiNode {
   id: string;
   parent?: string;
   type: NodeKind;
-  pos?: [number, number]; // roots
-  size?: [number, number]; // window/gauge/icon_row/variable_display
-  margin?: [number, number]; // window (default [1,1])
+  pos?: [number, number]; // roots — OFFSET from the anchor
+  /** roots: which point of the 32x28 screen `pos` counts from, Unity
+   *  style — "tl" (default) / "tc" / "tr" / "ml" / "mc" / "mr" / "bl" /
+   *  "bc" / "br". The same corner of the widget is pinned to it. */
+  anchor?: string;
+  size?: [number, number]; // canvas/gauge/icon_row/variable_display
+  margin?: [number, number]; // canvas framed (default [1,1])
   gap?: number; // vbox/hbox
   text?: string; // label
   width?: number; // value (1-5) / image (icons) / icon_value
@@ -57,6 +71,9 @@ export interface UiNode {
   // size then comes from the image (brought back to the UI layer's 4
   // colours at compile time, like the icons — see gfx::to_ui_image).
   pic?: string;
+  /** image: "normal" (default) | "sliced" (a 3x3 picture stretched over
+   *  `size`) | "fill" (revealed in proportion to var/max) */
+  mode?: string;
   var?: number;
   label?: string; // variable_display
   frame?: boolean;
@@ -135,11 +152,106 @@ export interface Flat {
 }
 
 export function nodeFramed(n: UiNode): boolean {
-  return n.frame ?? n.type === "variable_display";
+  // A canvas is BARE unless asked otherwise; "window", the old name,
+  // keeps framing by default so no existing layout changes look.
+  return n.frame ?? (n.type === "variable_display" || n.type === "window");
+}
+
+export function isCanvas(t: NodeKind): boolean {
+  return t === "canvas" || t === "window";
 }
 
 export function isContainer(n: UiNode): boolean {
-  return n.type === "window" || n.type === "vbox" || n.type === "hbox";
+  return isCanvas(n.type) || n.type === "vbox" || n.type === "hbox";
+}
+
+export function imageMode(n: UiNode): string {
+  return n.mode && n.mode !== "" ? n.mode : "normal";
+}
+
+/** The nine anchors, in the order the inspector's 3x3 grid draws them. */
+export const ANCHORS = ["tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br"] as const;
+
+/** Where a root's `pos` is counted from: the anchor point of the screen,
+ *  minus the SAME corner of the widget (Unity). "tl" gives back plain
+ *  absolute coordinates. */
+export function anchorOrigin(anchor: string | undefined, size: [number, number]): [number, number] {
+  const a = anchor && anchor.length === 2 ? anchor : "tl";
+  const y = a[0] === "m" ? (SCREEN_H >> 1) - (size[1] >> 1) : a[0] === "b" ? SCREEN_H - size[1] : 0;
+  const x = a[1] === "c" ? (SCREEN_W >> 1) - (size[0] >> 1) : a[1] === "r" ? SCREEN_W - size[0] : 0;
+  return [x, y];
+}
+
+/** One piece of a label: literal text, or a variable to interpolate. */
+export type LabelPart =
+  | { text: string }
+  | { var: number; width: number; zeros: boolean };
+
+/** Splits a label on its \v[n] / \v[n,w] / \v[n,0w] escapes. Anything
+ *  that is not one of those stays literal — the mirror of parse_label in
+ *  tools/datagen/src/ui.rs. */
+export function parseLabel(text: string, errors?: string[], id = ""): LabelPart[] {
+  const out: LabelPart[] = [];
+  let lit = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "\\" || text.slice(i + 1, i + 3) !== "v[") {
+      lit += text[i++];
+      continue;
+    }
+    const close = text.indexOf("]", i + 3);
+    if (close < 0) {
+      errors?.push(`« ${id} » : \\v[ sans ]`);
+      lit += text[i++];
+      continue;
+    }
+    const body = text.slice(i + 3, close);
+    const [numS, fmtS] = body.includes(",") ? body.split(",", 2) : [body, ""];
+    const v = Number(numS.trim());
+    const zeros = /^0\d/.test(fmtS.trim());
+    const width = fmtS.trim() === "" ? 0 : Number(fmtS.trim());
+    if (!Number.isInteger(v) || v < 0 || v > 254)
+      errors?.push(`« ${id} » : \\v[${numS}] — variables 0 à 254 dans un label`);
+    else if (fmtS !== "" && (!Number.isInteger(width) || width < 1 || width > 5))
+      errors?.push(`« ${id} » : \\v[${numS},${fmtS}] — largeur de 1 à 5 chiffres`);
+    if (lit) {
+      out.push({ text: lit });
+      lit = "";
+    }
+    out.push({ var: v, width, zeros });
+    i = close + 1;
+  }
+  if (lit) out.push({ text: lit });
+  return out;
+}
+
+/** Columns a label takes (a plain \v[n] reserves the worst case, five
+ *  digits) and the variables it reads, in order. */
+export function labelMetrics(parts: LabelPart[]): { w: number; vars: number[] } {
+  let w = 0;
+  const vars: number[] = [];
+  for (const p of parts) {
+    if ("text" in p) w += p.text.length;
+    else {
+      w += p.width || 5;
+      if (!vars.includes(p.var)) vars.push(p.var);
+    }
+  }
+  return { w: Math.max(w, 1), vars };
+}
+
+/** What a label shows in the designer — the canvas cannot know a
+ *  variable's value in game, so it draws a plausible number. */
+export function labelPreview(parts: LabelPart[]): string {
+  let s = "";
+  for (const p of parts) {
+    if ("text" in p) s += p.text;
+    else {
+      const d = "42";
+      s += p.width ? d.padStart(p.width, p.zeros ? "0" : " ") : d;
+    }
+  }
+  return s;
 }
 
 export function childrenOf(nodes: UiNode[], id: string): UiNode[] {
@@ -162,6 +274,7 @@ export function rootAncestor(nodes: UiNode[], id: string): UiNode | undefined {
 export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, number] {
   const kids = childrenOf(nodes, n.id);
   switch (n.type) {
+    case "canvas":
     case "window":
       if (!n.size) errors?.push(`« ${n.id} » : size requis`);
       return n.size ?? [5, 3];
@@ -201,16 +314,24 @@ export function sizeOf(nodes: UiNode[], n: UiNode, errors?: string[]): [number, 
       return [w, h];
     }
     case "label":
-      return [Math.max((n.text ?? "").length, 1), 1];
+      return [labelMetrics(parseLabel(n.text ?? "", errors, n.id)).w, 1];
     case "value":
       return [Math.min(Math.max(n.width ?? 3, 1), 5), 1];
-    case "image":
+    case "image": {
+      const mode = imageMode(n);
+      // sliced stretches over the author's rect; a filled ICON bar takes
+      // its length from the author too, like the old gauge
+      if (mode === "sliced" || (mode === "fill" && !n.pic)) {
+        if (!n.size) errors?.push(`« ${n.id} » : size requis (image ${mode})`);
+        return n.size ?? [6, 1];
+      }
       if (n.pic) {
         const s = picSizes[n.pic];
         if (!s) errors?.push(`« ${n.id} » : image « ${n.pic} » introuvable`);
         return s ?? [1, 1];
       }
       return [Math.max(n.width ?? 1, 1), 1];
+    }
     case "icon_value":
       return [Math.max(n.width ?? 4, 2), 1];
     case "list": {
@@ -310,16 +431,20 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       nodeId: n.id,
     };
     switch (n.type) {
+      case "canvas":
       case "window": {
-        if (size[0] < 3 || size[1] < 3) errors.push(`« ${n.id} » : une window fait au moins 3x3`);
-        emit({ x, y, w: size[0], h: size[1], kind: 4, frame: true, ...base, var: 0 });
-        const m = n.margin ?? [1, 1];
+        const f = nodeFramed(n);
+        if (f && (size[0] < 3 || size[1] < 3))
+          errors.push(`« ${n.id} » : un canvas encadré fait au moins 3x3`);
+        emit({ x, y, w: size[0], h: size[1], kind: 4, frame: f, ...base, var: 0 });
+        // a bare canvas has no frame to keep clear of
+        const m = n.margin ?? (f ? [1, 1] : [0, 0]);
         let cy = y + m[1];
         for (const c of kids) {
           const cs = sizeOf(nodes, c, undefined);
           if (cy + cs[1] > y + size[1] - m[1] || m[0] + cs[0] > size[0] - m[0])
-            errors.push(`« ${c.id} » déborde de la window « ${n.id} »`);
-          place(c, x + m[0], cy, true, depth + 1);
+            errors.push(`« ${c.id} » déborde du canvas « ${n.id} »`);
+          place(c, x + m[0], cy, inWindow || f, depth + 1);
           cy += cs[1];
         }
         break;
@@ -345,7 +470,20 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       case "label": {
         const t = n.text ?? "";
         if (!/^[ -~]*$/.test(t)) errors.push(`« ${n.id} » : texte non-ASCII`);
-        emit({ x, y, w: size[0], h: 1, kind: 5, frame: false, ...base, text: t });
+        // \v[n] escapes make the label DYNAMIC: it then watches its
+        // variables, and the engine only tracks two of them
+        const parts = parseLabel(t, errors, n.id);
+        const { vars } = labelMetrics(parts);
+        if (vars.length > 2)
+          errors.push(
+            `« ${n.id} » : ${vars.length} variables dans un label (2 au maximum) — couper en deux labels dans une hbox`
+          );
+        emit({
+          x, y, w: size[0], h: 1,
+          kind: vars.length ? 11 : 5, frame: false, ...base,
+          var: vars[0] ?? 0, maxVar: vars[1],
+          text: labelPreview(parts),
+        });
         break;
       }
       case "value":
@@ -353,8 +491,33 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
         // the type 0 vertical flag carries left alignment (uigen likewise)
         emit({ x, y, w: size[0], h: 1, kind: 0, frame: false, ...base, vertical: n.align === "left" });
         break;
-      case "image":
-        if (n.pic) {
+      case "image": {
+        const mode = imageMode(n);
+        const needFill = () => {
+          if (n.var === undefined) errors.push(`« ${n.id} » : variable requise (mode fill)`);
+          if (n.max_var === undefined && !(n.max && n.max > 0))
+            errors.push(`« ${n.id} » : max (> 0) ou variable max requis (mode fill)`);
+        };
+        if (mode === "sliced") {
+          if (!n.pic) errors.push(`« ${n.id} » : le mode sliced demande une image du projet`);
+          else {
+            const s = picSizes[n.pic];
+            if (s && (s[0] !== 3 || s[1] !== 3))
+              errors.push(
+                `« ${n.id} » : une image sliced fait exactement 3x3 tuiles (24x24 px) — « ${n.pic} » en fait ${s[0]}x${s[1]}`
+              );
+          }
+          if (size[0] < 3 || size[1] < 3) errors.push(`« ${n.id} » : une image sliced fait au moins 3x3`);
+          emit({ x, y, w: size[0], h: size[1], kind: 9, frame: false, ...base, pic: n.pic });
+        } else if (mode === "fill" && n.pic) {
+          needFill();
+          emit({ x, y, w: size[0], h: size[1], kind: 10, frame: false, ...base, pic: n.pic });
+        } else if (mode === "fill") {
+          // on the icon sheet, a filled image IS the classic 3-icon bar
+          needFill();
+          needIcon(n, 3);
+          emit({ x, y, w: size[0], h: size[1], kind: 1, frame: false, ...base });
+        } else if (n.pic) {
           // picture mode: the widget takes the image's size
           emit({ x, y, w: size[0], h: size[1], kind: 8, frame: false, ...base, pic: n.pic });
         } else {
@@ -362,6 +525,7 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
           emit({ x, y, w: size[0], h: 1, kind: 6, frame: false, ...base });
         }
         break;
+      }
       case "variable_display": {
         if (n.var === undefined) errors.push(`« ${n.id} » : variable requise`);
         const f = nodeFramed(n);
@@ -444,16 +608,19 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
     }
   };
 
-  const rootRects: { id: string; x: number; y: number; w: number; h: number }[] = [];
   for (const r of rootsOf(nodes)) {
     if (!r.pos) {
       errors.push(`racine « ${r.id} » : position requise`);
       continue;
     }
     const size = sizeOf(nodes, r, errors);
-    const rect = { id: r.id, x: r.pos[0], y: r.pos[1], w: size[0], h: size[1] };
-    for (const prev of rootRects)
-      if (rectsOverlap(rect, prev)) errors.push(`« ${prev.id} » et « ${r.id} » se chevauchent`);
+    // pos counts from the ANCHOR, not from the top-left corner
+    const [ax, ay] = anchorOrigin(r.anchor, size);
+    const rect = { id: r.id, x: ax + r.pos[0], y: ay + r.pos[1], w: size[0], h: size[1] };
+    // Widgets MAY overlap each other — the engine repaints by z-order.
+    // A dialogue window is a different matter: the textbox writes into
+    // the same tilemap and is not a primitive, so nothing brings a
+    // widget back from under it.
     const allWins: [string, UiWin][] = [
       ["message", lay.message],
       ["choice", lay.choice],
@@ -467,9 +634,8 @@ export function flatten(lay: UiLayout2, iconCount: number): Flat {
       if (rectsOverlap(rect, { x: w.pos[0], y: w.pos[1], w: w.size[0], h: w.size[1] }))
         errors.push(`« ${r.id} » : chevauche la fenêtre ${name} (les dialogues l'écraseraient)`);
     }
-    rootRects.push(rect);
     curFont = r.font;
-    place(r, r.pos[0], r.pos[1], false, 0);
+    place(r, rect.x, rect.y, false, 0);
   }
   if (prims.length > PRIM_MAX)
     errors.push(`${prims.length} primitives (max ${PRIM_MAX}) — simplifier le layout`);
@@ -503,7 +669,12 @@ export function parseLayoutToml(src: string): UiLayout2 {
   };
   const message = raw.message ?? { pos: [0, 20], size: [32, 8] };
   const choice = raw.choice ?? message;
-  const nodes: UiNode[] = [...(raw.node ?? [])];
+  // migration: "window" is the canvas' old name, and it framed by
+  // default. Renaming it here keeps the look — the frame becomes
+  // explicit — and moves every project onto the new vocabulary.
+  const nodes: UiNode[] = (raw.node ?? []).map((n) =>
+    n.type === "window" ? { ...n, type: "canvas" as NodeKind, frame: n.frame ?? true } : n
+  );
   // migration: the flat [[overlay]] entries (W1) become leaf roots
   (raw.overlay ?? []).forEach((ov, i) => {
     nodes.push({
@@ -540,12 +711,14 @@ export function layoutToToml(l: UiLayout2): string {
     if (n.parent) s += `parent = ${JSON.stringify(n.parent)}\n`;
     s += `type = ${JSON.stringify(n.type)}\n`;
     if (n.pos) s += `pos = [${n.pos}]\n`;
+    if (n.anchor && n.anchor !== "tl") s += `anchor = ${JSON.stringify(n.anchor)}\n`;
     if (n.size) s += `size = [${n.size}]\n`;
     if (n.margin) s += `margin = [${n.margin}]\n`;
     if (n.gap !== undefined && n.gap !== 0) s += `gap = ${n.gap}\n`;
     if (n.text !== undefined) s += `text = ${JSON.stringify(n.text)}\n`;
     if (n.width !== undefined && !n.pic) s += `width = ${n.width}\n`;
     if (n.pic) s += `pic = ${JSON.stringify(n.pic)}\n`;
+    if (n.mode && n.mode !== "normal") s += `mode = ${JSON.stringify(n.mode)}\n`;
     if (n.var !== undefined) s += `var = ${n.var}\n`;
     if (n.label) s += `label = ${JSON.stringify(n.label)}\n`;
     if (

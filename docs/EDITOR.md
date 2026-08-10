@@ -460,11 +460,17 @@ Not yet: autotile animation (water), gfx editing.
 - **"UI" windows** (Tools > UI > a **submenu**: "Widgets…" and "Dialogues
   et choix…", Phase 12, see `SPEC_SYSTEME_UI.md`): a canvas interface
   editor, on the UMG model.
-  A **palette** on the left (click to add): Fenêtre (a 9-slice frame, a
-  container), Liste verticale and Boîte horizontale (which stack their
-  children, with adjustable spacing), Label (fixed text), Image (icons
-  from the sheet), Valeur (a right-aligned variable), the Zelda widgets
-  (Jauge, Cœurs, Icône + compteur, Libellé + valeur) and **Liste
+  A **palette** on the left of SIX generic objects (click to add):
+  **Canvas** (a placement rectangle and a container — `frame` dresses it
+  with the windowskin; BARE by default, U1), Liste verticale and Boîte
+  horizontale (which stack their children, with adjustable spacing),
+  **Label** (text, where `\v[3]` shows variable 3, `\v[3,4]` right-aligned
+  on 4 columns and `\v[3,04]` zero-padded — two variables per label at
+  most), **Image** (icons from the sheet or a project picture, in one of
+  Unity's three types: *normal*, *sliced* — a 3x3 picture stretched over
+  the widget, the windowskin recipe with any drawing — and *fill*,
+  revealed in proportion to a variable, which is the gauge and the row of
+  hearts), and **Liste
   (curseur)** (B6: a navigable menu — the items are edited one per line in
   the inspector, framed by default, auto-sized; in game the **"Choix dans
   une liste"** command opens it, up/down navigate with wrap-around, A
@@ -477,17 +483,29 @@ Not yet: autotile animation (water), gfx editing.
   hops from one panel to the other; a full example is in the demo's
   combat_prairie composed screen, launched by the Duelliste on the plain).
   The object is added INSIDE the selected container (otherwise beside it,
-  otherwise on the canvas). A **tree**: the structure (window > lists >
-  rows > labels), selected by click. A **256x224 tile-faithful canvas**
+  otherwise on the canvas). The five old specific widgets (Valeur, Jauge,
+  Cœurs, Icône + compteur, Libellé + valeur) left the palette in U1 — a
+  label with `\v[n]` and an image in fill mode do all five — but a project
+  that holds one still opens, draws and compiles it, and the inspector
+  still edits it.
+  A **tree**: the structure (canvas > lists >
+  rows > labels), selected by click, with the map's keyboard shortcuts —
+  **Ctrl+C / Ctrl+X / Ctrl+V** (a subtree, renamed), **Suppr**, **Ctrl+Z /
+  Ctrl+Y** (a drag counts as one step). A **256x224 tile-faithful canvas**
   (2x, with the real font/windowskin/icons): a click selects the deepest
   object, dragging moves its root (8 px snap), the corner handle resizes.
   An **inspector** on the right: the selection's properties (↑↓ to
   reorder, 🗑 to delete with its children, id, the variable with the named
   "…" list, clickable icon thumbnails, the frame, a constant or variable
-  max, the gauge direction…); on a ROOT: visibility at start-up and
+  max, the fill direction…); on a ROOT: the **anchor** (a 3x3 grid, Unity
+  style — x and y count from that point of the screen and the same corner
+  of the widget stays pinned to it as it grows), visibility at start-up
+  and
   **"Fonte du widget"** (S2 — a FontSet for all the widget's text, shown
-  live on the canvas). A Chrono Trigger style panel is Fenêtre > Liste
-  verticale > Boîtes horizontales > labels/values/images. The errors (the
+  live on the canvas). A Chrono Trigger style panel is Canvas > Liste
+  verticale > Boîtes horizontales > labels/images. Two widgets MAY overlap
+  (U1): the later one is drawn on top, which is how you put a "full" bar
+  over its "empty" artwork. The errors (the
   same rules as the compiler — overflows, overlaps with the dialogue
   windows, missing icons) show under the canvas and block OK. **"Dialogues
   et choix"** (S1) opens on the **"Boîtes de dialogue"** list: the
