@@ -712,8 +712,11 @@ Two controls: how long to capture, and how fine the row grid is (15, 30
 or 60 rows per second). `transcribe.ts` then quantises events to rows,
 maps pitch to a note (12*log2(P/4096) semitones above C-5), and
 **downsamples the instruments until they fit the ARAM budget**, saying by
-how much. `itfile.ts` writes the module in IT sample mode, which is what
-the project's own modules use.
+how much. `itfile.ts` writes the module in IT **instrument mode** with **8-bit**
+samples — not a style choice: a sample-mode module is accepted by smconv,
+builds without a word, and plays absolute silence, because a pattern's
+instrument number resolves to nothing. Every module the engine plays is
+shaped that way; the transcription now matches them.
 
 What comes out is a PERFORMANCE, not a score: one long flat sequence,
 no pattern structure, no clean loop points, and a quantised tempo. It is

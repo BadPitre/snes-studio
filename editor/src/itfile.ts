@@ -4,10 +4,23 @@
 // snesmod, and snesmod is fed by smconv, which eats .it. So a transcribed
 // song has to come out as one.
 //
-// Deliberately in SAMPLE mode, not instrument mode: an SNES voice is a
-// sample plus a pitch, with no envelope layer above it worth modelling,
-// and the project's own modules are built the same way (smconv reports
-// "Instrument data: 0 bytes" on them).
+// Two things here are not preferences, they are what snesmod actually
+// plays. Both were found by writing a module smconv accepted and hearing
+// nothing at all, then diffing it against the project's own modules.
+//
+//   - INSTRUMENT MODE, not sample mode. "Instrument data: 0 bytes" in
+//     smconv's report means the instruments carry no envelope, not that
+//     there are none: pollen8, village and battle all set the
+//     useInstruments flag and declare one instrument per sample. Without
+//     it a pattern's instrument number resolves to nothing and every note
+//     is silent — no error anywhere, just silence.
+//   - 8-BIT samples. Every working module in the project is 8-bit, and
+//     smconv re-encodes to 4-bit BRR regardless, so the depth costs
+//     nothing real and halves the file.
+//
+// The instrument itself is as plain as IT allows: no envelope (Flg 0),
+// one sample, notes mapped straight through — copied from village.it,
+// which is the simplest module known to play.
 
 export interface ItSample {
   name: string;
@@ -83,17 +96,21 @@ function packPattern(p: ItPattern, channels: number): Uint8Array {
   return Uint8Array.from(out);
 }
 
+const INS_SIZE = 554; // IT instrument header, Cmwt >= 0x200
+
 export function writeIt(song: ItSong): Uint8Array {
   const ordNum = song.order.length + 1; // the list ends with 255
   const smpNum = song.samples.length;
+  const insNum = smpNum; // one instrument per sample
   const patNum = song.patterns.length;
 
-  const headerLen = 192 + ordNum + smpNum * 4 + patNum * 4;
+  const headerLen = 192 + ordNum + insNum * 4 + smpNum * 4 + patNum * 4;
   const packed = song.patterns.map((p) => packPattern(p, song.channels));
 
-  // Layout: header, then sample headers, then pattern blocks, then the
-  // sample data (pointed at from each sample header).
-  const smpHdrAt = headerLen;
+  // Layout: header, instrument headers, sample headers, pattern blocks,
+  // then the sample data (pointed at from each sample header).
+  const insHdrAt = headerLen;
+  const smpHdrAt = insHdrAt + insNum * INS_SIZE;
   const patAt = smpHdrAt + smpNum * 80;
   const patOffsets: number[] = [];
   let o = patAt;
@@ -104,7 +121,7 @@ export function writeIt(song: ItSong): Uint8Array {
   const smpDataOffsets: number[] = [];
   for (const s of song.samples) {
     smpDataOffsets.push(o);
-    o += s.pcm.length * 2;
+    o += s.pcm.length; // 8-bit
   }
 
   const out = new Uint8Array(o);
@@ -115,12 +132,12 @@ export function writeIt(song: ItSong): Uint8Array {
   out[30] = 4; // row highlight minor
   out[31] = 16; // row highlight major
   dv.setUint16(32, ordNum, true);
-  dv.setUint16(34, 0, true); // no instruments: sample mode
+  dv.setUint16(34, insNum, true); // instrument mode: one per sample
   dv.setUint16(36, smpNum, true);
   dv.setUint16(38, patNum, true);
   dv.setUint16(40, 0x0214, true); // Cwtv
   dv.setUint16(42, 0x0200, true); // Cmwt
-  dv.setUint16(44, 0x0009, true); // flags: stereo + linear slides
+  dv.setUint16(44, 0x000d, true); // stereo + useInstruments + linear slides
   dv.setUint16(46, 0, true); // special
   out[48] = 128; // global volume
   out[49] = 48; // mix volume
@@ -134,6 +151,10 @@ export function writeIt(song: ItSong): Uint8Array {
   let p = 192;
   for (const ord of song.order) out[p++] = ord;
   out[p++] = 255; // end of order list
+  for (let i = 0; i < insNum; i++) {
+    dv.setUint32(p, insHdrAt + i * INS_SIZE, true);
+    p += 4;
+  }
   for (let i = 0; i < smpNum; i++) {
     dv.setUint32(p, smpHdrAt + i * 80, true);
     p += 4;
@@ -143,13 +164,34 @@ export function writeIt(song: ItSong): Uint8Array {
     p += 4;
   }
 
+  // The plainest instrument IT allows: no envelope, one sample, every
+  // note mapped straight to it. Mirrors village.it.
+  song.samples.forEach((s, i) => {
+    const h = insHdrAt + i * INS_SIZE;
+    ascii(out, h, "IMPI", 4);
+    ascii(out, h + 4, s.name.slice(0, 12), 12);
+    dv.setUint16(h + 20, 128, true); // FadeOut
+    out[h + 23] = 60; // PPC: pitch-pan centre C-5
+    out[h + 24] = 128; // GbV
+    out[h + 25] = 160; // DfP, bit 7 set = do not use
+    dv.setUint16(h + 28, 0x0220, true); // TrkVers
+    out[h + 30] = 1; // NoS
+    ascii(out, h + 32, s.name, 26);
+    for (let n = 0; n < 120; n++) {
+      out[h + 64 + n * 2] = n;
+      out[h + 64 + n * 2 + 1] = i + 1;
+    }
+    // volume, pan and pitch envelopes all left with Flg = 0
+  });
+
   song.samples.forEach((s, i) => {
     const h = smpHdrAt + i * 80;
     ascii(out, h, "IMPS", 4);
     ascii(out, h + 4, s.name.slice(0, 12), 12);
     out[h + 17] = 64; // global volume
-    // bit0 associated with header, bit1 16-bit, bit4 use loop
-    out[h + 18] = 1 | 2 | (s.loopStart !== undefined ? 16 : 0);
+    // bit0 associated with header, bit4 use loop. NOT 16-bit: every
+    // module the engine plays is 8-bit, and smconv re-encodes to BRR.
+    out[h + 18] = 1 | (s.loopStart !== undefined ? 16 : 0);
     out[h + 19] = 64; // default volume
     ascii(out, h + 20, s.name, 26);
     out[h + 46] = 1; // Cvt: signed samples
@@ -170,7 +212,7 @@ export function writeIt(song: ItSong): Uint8Array {
 
   song.samples.forEach((s, i) => {
     let d = smpDataOffsets[i];
-    for (let k = 0; k < s.pcm.length; k++, d += 2) dv.setInt16(d, s.pcm[k], true);
+    for (let k = 0; k < s.pcm.length; k++, d++) dv.setInt8(d, s.pcm[k] >> 8);
   });
 
   return out;
