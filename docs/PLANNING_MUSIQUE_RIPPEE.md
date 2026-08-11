@@ -55,20 +55,28 @@ instruments are the part that cannot be recovered by ear in an evening.
 
 Both were read off the tools that will do the judging, not estimated.
 
-**ARAM.** snesmod loads one module at a time. The vendored `smconv`
-reports, for the demo's own modules, `649 bytes used / 57308 free` and
-`44137 used / 13820 free` — the same total each time: **57957 bytes** left
-for one module after the driver. Into that must fit the samples, the
-pattern data, *and* the echo region — and echo is not small: the demo's
-`pollen8` spends **28672 bytes** on it alone. A ripped song will need echo
-off, and may still not fit.
+**ARAM, per module: 58573 bytes.** That figure is smconv's own — refuse
+it a module and it answers "Module is too big. Maximum is 58573 bytes".
+(Its "bytes free" arithmetic on a module that fits suggests 57957; the
+gap is smconv's working margin, and the refusal message is what decides a
+build.) Into that must fit the samples, the pattern data, *and* the echo
+region — and echo is not small: the demo's `pollen8` spends **28672
+bytes** on it alone. A ripped song will need echo off, and may still not
+fit.
+
+**ROM, all modules together: 32 KB per bank.** A second ceiling, found
+the hard way when the author's build broke. The soundbank holds every
+module concatenated, and past 32768 bytes smconv splits it across ROM
+banks, naming the pieces `SOUNDBANK__0`, `SOUNDBANK__1`… instead of the
+single `SOUNDBANK__` that `audio.c` references. snesbuild now adds that
+symbol to the first bank, so the split is transparent.
 
 **Voices.** The SNES has 8, snesmod exposes 8, and our sound effects take
 from the same pool (`audio.c`, `spcAllocateSoundRegion`). A song that
 uses all eight leaves nothing for "Jouer un son".
 
 **This is why X5-a comes first.** Totalling a `.spc` directory's BRR and
-comparing it to 57957 costs twenty lines and answers "could this song ever
+comparing it to that budget costs twenty lines and answers "could this song ever
 be a module in my game?" *before* anyone writes an emulator. If the
 author's chosen songs blow the budget every time, X5-b and X5-c are
 pointless and we will have learned it cheaply. **X5-a is shipped.**
@@ -77,7 +85,7 @@ pointless and we will have learned it cheaply. **X5-a is shipped.**
 
 | Stage | What it is | Size |
 |---|---|---|
-| **X5-a — le verdict** | Sum the SPC directory's BRR, compare to the 57957-byte module budget, say plainly whether it fits and what echo will cost. **Done.** | ~20 lines |
+| **X5-a — le verdict** | Sum the SPC directory's BRR, compare to the module budget, say plainly whether it fits and what echo will cost. **Done.** | ~20 lines |
 | **X5-b — this document** | The decision the author is making, priced. **Done.** | — |
 | **X5-c — the emulator** | An SPC700 core (all 256 opcodes), its three timers, and enough DSP state that the driver believes playback happens — `ENDX` for sample ends, `ENVX` for envelopes, both polled by drivers. **Done**, `editor/src/spc700.ts`. | ~900 lines |
 | **X5-d — the transcription** | Event log → `.it`: voices to channels, `VxPITCH` to a note, volume to the volume column, samples quantised to rows, instruments auto-downsampled to fit ARAM. **Done**, `transcribe.ts` + `itfile.ts`. | ~450 lines |
@@ -117,7 +125,7 @@ the track is actually playing.
 sees it is an SPC and switches to the Sons tab by itself. Two things
 appear at once:
 
-- **the verdict**: the directory's BRR total against the 57957 bytes a
+- **the verdict**: the directory's BRR total against the bytes a
   module gets. Read it before doing anything else. "Ne tiendra pas" means
   stop here or plan to drop instruments.
 - **the instrument list**, read from the directory — exact boundaries,

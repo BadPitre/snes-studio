@@ -293,10 +293,13 @@ export function brrSizeAtBuild(sampleCount: number, rate: number): number {
 // Before anyone writes an SPC700 emulator to transcribe a song, there is
 // a cheaper question: would its instruments even fit? snesmod loads one
 // module at a time into ARAM, and what is left after its driver is the
-// hard ceiling. The number below is read off the vendored smconv itself
-// — it reports "649 bytes used, 57308 free" for the demo's smallest
-// module, and the same total from every other one.
-export const ARAM_MODULE_BUDGET = 57957;
+// hard ceiling.
+//
+// The number is smconv's own: refuse it a module and it answers "Module
+// is too big. Maximum is 58573 bytes". Its "bytes free" arithmetic on a
+// module that fits suggests 57957 — the gap is smconv's own working
+// margin, and the refusal message is the one that decides a build.
+export const ARAM_MODULE_BUDGET = 58573;
 
 export function samplesTotal(list: BrrSample[]): number {
   return list.reduce((n, s) => n + s.blocks * BRR_BLOCK, 0);

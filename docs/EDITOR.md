@@ -690,11 +690,15 @@ that would not — and the chain is BRR -> PCM -> resample to 8 kHz -> BRR
 again, so a ripped effect sounds duller than in the original game.
 
 **"Ce morceau tiendrait-il ?"** (X5-a) totals an SPC directory's BRR and
-compares it to the 57957 bytes of ARAM a module gets after the snesmod
-driver — a figure read off `smconv`, not estimated. It is an upper bound:
+compares it to the 58573 bytes of ARAM a module gets after the snesmod
+driver — smconv's own refusal figure, not an estimate. It is an upper
+bound:
 a directory may list samples the song never plays, and pattern data plus
 the echo region are charged on top (echo alone runs to 28 KB on the
-demo's `pollen8`).
+demo's `pollen8`). A second, separate ceiling lives in ROM: all the
+modules together are concatenated into a soundbank, and past 32 KB smconv
+splits it across banks — snesbuild handles that transparently now, but
+the ROM cost is real.
 
 **"Transcrire le morceau"** (X5-c/X5-d) turns an `.spc` into an `.it`.
 There is no sequence parser behind it and there could not be — every
