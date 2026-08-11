@@ -21,6 +21,8 @@ import {
   scanBrr,
   spcSamples,
 } from "../brr";
+import { Spc700 } from "../spc700";
+import { type TranscribeReport, transcribe } from "../transcribe";
 import { stopPreview } from "./AudioPreview";
 
 interface Props {
@@ -29,6 +31,7 @@ interface Props {
   spc: Spc | null;
   stem: string; // file stem, to name the extraction
   onSend: (name: string, wav: Uint8Array) => void;
+  onSendMusic: (name: string, it: Uint8Array) => void;
   setStatus: (s: string) => void;
 }
 
@@ -101,6 +104,38 @@ export default function RomAudioPanel(p: Props) {
     () => (p.spc && list && list.length ? aramVerdict(list) : null),
     [p.spc, list]
   );
+
+  // ---- transcription (X5-c/X5-d) --------------------------------------
+  // Run the game's own driver and write down what it asks the eight
+  // voices to do. Around 170x real time, so a 30-second capture costs
+  // under a fifth of a second — no need to leave the main thread.
+  const [capture, setCapture] = useState(30);
+  const [rowsPerSecond, setRowsPerSecond] = useState<15 | 30 | 60>(30);
+  const [report, setReport] = useState<TranscribeReport | null>(null);
+  const [it, setIt] = useState<Uint8Array | null>(null);
+
+  function runTranscribe() {
+    if (!p.spc || !list) return;
+    try {
+      const t0 = performance.now();
+      const cpu = new Spc700(p.spc.aram, p.spc.dsp, p.spc.regs);
+      const trace = cpu.run(capture);
+      const r = transcribe(trace, p.spc.aram, list, {
+        rowsPerSecond,
+        name: p.spc.title || p.stem,
+      });
+      setReport(r.report);
+      setIt(r.it);
+      p.setStatus(
+        `Transcription : ${r.report.notes} notes, ${r.report.samples} instrument(s), ` +
+          `${r.report.patterns} pattern(s) — ${Math.round(performance.now() - t0)} ms`
+      );
+    } catch (e) {
+      setReport(null);
+      setIt(null);
+      p.setStatus(`Transcription : ${e}`);
+    }
+  }
 
   function runScan() {
     const t0 = performance.now();
@@ -305,6 +340,67 @@ export default function RomAudioPanel(p: Props) {
         <button disabled={!pcm || tooBig} onClick={send}>
           ⬇ Envoyer vers Son
         </button>
+
+        {p.spc && (
+          <>
+            <div className="panel-title">Transcrire le morceau</div>
+            <div className="hint">
+              On fait tourner le driver du jeu et on note ce qu'il demande aux huit
+              voix. C'est une exécution, pas une partition : ni patterns, ni boucles
+              propres — à finir dans OpenMPT.
+            </div>
+            <label className="hint">
+              Durée capturée
+              <select value={capture} onChange={(e) => setCapture(+e.target.value)}>
+                {[10, 30, 60, 120].map((s) => (
+                  <option key={s} value={s}>
+                    {s} s
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="hint">
+              Précision
+              <select
+                value={rowsPerSecond}
+                onChange={(e) => setRowsPerSecond(+e.target.value as 15 | 30 | 60)}
+              >
+                <option value={15}>15 lignes/s (grossier)</option>
+                <option value={30}>30 lignes/s</option>
+                <option value={60}>60 lignes/s (fin, patterns longs)</option>
+              </select>
+            </label>
+            <button disabled={!list || !list.length} onClick={runTranscribe}>
+              🎼 Transcrire
+            </button>
+            {report && (
+              <>
+                <div className="hint">
+                  {report.notes} notes sur {report.rows} lignes, {report.patterns}{" "}
+                  pattern(s), {report.samples} instrument(s)
+                  <br />
+                  {report.brrBytes} o de BRR
+                  {report.downsampled > 1 ? ` (rééchantillonné 1/${report.downsampled})` : ""}
+                </div>
+                {report.warnings.map((w, i) => (
+                  <div key={i} className="hint romrip-why">
+                    {w}
+                  </div>
+                ))}
+                <button
+                  onClick={() =>
+                    p.onSendMusic(
+                      `${(p.spc!.title || p.stem).toLowerCase().replace(/[^a-z0-9_]/g, "_") || "rip"}.it`,
+                      it!
+                    )
+                  }
+                >
+                  ⬇ Envoyer vers Musique
+                </button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

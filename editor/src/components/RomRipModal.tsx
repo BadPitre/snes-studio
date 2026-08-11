@@ -107,6 +107,8 @@ interface Props {
   ) => void;
   // A ripped sample: already a WAV, which the sound register takes as is.
   onSendSound: (name: string, wav: Uint8Array) => void;
+  // A transcribed song: already an .it, which the music register takes.
+  onSendMusic: (name: string, it: Uint8Array) => void;
   setStatus: (s: string) => void;
   onClose: () => void;
 }
@@ -409,6 +411,7 @@ export default function RomRipModal(p: Props) {
             spc={spc}
             stem={name || "rip"}
             onSend={p.onSendSound}
+            onSendMusic={p.onSendMusic}
             setStatus={p.setStatus}
           />
         ) : (

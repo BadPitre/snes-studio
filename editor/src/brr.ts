@@ -212,6 +212,9 @@ export interface Spc {
   dsp: Uint8Array; // 128 registers
   title: string;
   game: string;
+  // Where the sound CPU was when the photograph was taken. Resuming from
+  // exactly here is what lets the game's own driver carry on playing.
+  regs: { pc: number; a: number; x: number; y: number; psw: number; sp: number };
 }
 
 const SPC_MAGIC = "SNES-SPC700 Sound File Data";
@@ -231,6 +234,14 @@ export function loadSpc(raw: Uint8Array): Spc | null {
     dsp: raw.subarray(0x10100, 0x10180),
     title: text(0x2e, 32),
     game: text(0x4e, 32),
+    regs: {
+      pc: raw[0x25] | (raw[0x26] << 8),
+      a: raw[0x27],
+      x: raw[0x28],
+      y: raw[0x29],
+      psw: raw[0x2a],
+      sp: raw[0x2b],
+    },
   };
 }
 

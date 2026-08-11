@@ -79,8 +79,12 @@ pointless and we will have learned it cheaply. **X5-a is shipped.**
 |---|---|---|
 | **X5-a — le verdict** | Sum the SPC directory's BRR, compare to the 57957-byte module budget, say plainly whether it fits and what echo will cost. **Done.** | ~20 lines |
 | **X5-b — this document** | The decision the author is making, priced. **Done.** | — |
-| **X5-c — the emulator** | An SPC700 core (256 opcodes, a small documented 8-bit CPU), its three timers (drivers clock their tempo off them), and enough DSP state that the driver believes playback happens — chiefly `ENDX`, which drivers poll. Runs the snapshot for N seconds and logs the register writes above. | ~1200-1800 lines |
-| **X5-d — the transcription** | Event log → `.it`: voices to channels, `VxPITCH` to note + finetune against the sample's assumed rate, volume to the volume column, cycles quantised to rows. Samples come from X3, already extracted. | medium |
+| **X5-c — the emulator** | An SPC700 core (all 256 opcodes), its three timers, and enough DSP state that the driver believes playback happens — `ENDX` for sample ends, `ENVX` for envelopes, both polled by drivers. **Done**, `editor/src/spc700.ts`. | ~900 lines |
+| **X5-d — the transcription** | Event log → `.it`: voices to channels, `VxPITCH` to a note, volume to the volume column, samples quantised to rows, instruments auto-downsampled to fit ARAM. **Done**, `transcribe.ts` + `itfile.ts`. | ~450 lines |
+
+**Measured once it ran: ~170x real time.** Thirty seconds of music
+transcribe in under 200 ms, so the whole thing stays on the main thread
+and the window never freezes. The fear of needing a worker was misplaced.
 
 X5-c is large but **bounded**, which is the whole difference with a
 per-driver parser: it is one finite piece of work whose scope is a

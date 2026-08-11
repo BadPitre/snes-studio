@@ -689,11 +689,34 @@ panel computes the size the build will produce and refuses to send one
 that would not — and the chain is BRR -> PCM -> resample to 8 kHz -> BRR
 again, so a ripped effect sounds duller than in the original game.
 
-**Music is not here, and will not be.** Each developer wrote their own
-SPC700 driver with its own sequence format, so there is no generic song
-to extract; `docs/PLANNING_EXTRACTION_ROM.md` §7 prices the three options.
-What this tab gives is the INSTRUMENTS — re-sequencing them into an `.it`
-in OpenMPT is the working path.
+**"Ce morceau tiendrait-il ?"** (X5-a) totals an SPC directory's BRR and
+compares it to the 57957 bytes of ARAM a module gets after the snesmod
+driver — a figure read off `smconv`, not estimated. It is an upper bound:
+a directory may list samples the song never plays, and pattern data plus
+the echo region are charged on top (echo alone runs to 28 KB on the
+demo's `pollen8`).
+
+**"Transcrire le morceau"** (X5-c/X5-d) turns an `.spc` into an `.it`.
+There is no sequence parser behind it and there could not be — every
+studio invented its own format. Instead `spc700.ts` EMULATES the sound
+CPU and lets the game's own driver play, watching what it writes to the
+eight voices: `KON` for note-ons, `VxSRCN` for the instrument,
+`VxPITCH` for the note, `VxVOL` for the volume. One implementation, any
+game. Roughly 170x real time, so a 30-second capture costs under 200 ms.
+
+Two controls: how long to capture, and how fine the row grid is (15, 30
+or 60 rows per second). `transcribe.ts` then quantises events to rows,
+maps pitch to a note (12*log2(P/4096) semitones above C-5), and
+**downsamples the instruments until they fit the ARAM budget**, saying by
+how much. `itfile.ts` writes the module in IT sample mode, which is what
+the project's own modules use.
+
+What comes out is a PERFORMANCE, not a score: one long flat sequence,
+no pattern structure, no clean loop points, and a quantised tempo. It is
+an `.it` to finish in OpenMPT, and the design doc
+(`docs/PLANNING_MUSIQUE_RIPPEE.md`) says so at length. For a game
+**VGMTrans** knows, its route is better — it recovers the composition.
+This one earns its keep on the games VGMTrans does not know.
 
 ## Running it
 

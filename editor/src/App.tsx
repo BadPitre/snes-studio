@@ -1908,6 +1908,10 @@ export default function App() {
             const ctx = resCtx();
             if (ctx) void runImport(ctx, RESOURCES.sound, { name: fileName, bytes: wav });
           }}
+          onSendMusic={(fileName, itBytes) => {
+            const ctx = resCtx();
+            if (ctx) void runImport(ctx, RESOURCES.music, { name: fileName, bytes: itBytes });
+          }}
           setStatus={setStatus}
           onClose={() => setRipOpen(false)}
         />
