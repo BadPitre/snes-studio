@@ -133,14 +133,27 @@ export function decodeBrr(b: Uint8Array, off: number, blocks: number): Int16Arra
 
 // Mono 16-bit PCM. datagen's wav_to_mono_8k takes any rate from 4000 to
 // 96000 Hz and resamples, so nothing here needs to match the engine.
-export function encodeWav(pcm: Int16Array, rate: number): Uint8Array {
-  const out = new Uint8Array(44 + pcm.length * 2);
+//
+// `loopStart`, when the SPC directory gave one, is written as a `smpl`
+// chunk. That is not for our build — datagen skips chunks it does not
+// know — but for OPENMPT, which reads it. Rebuilding a song means giving
+// a tracker the game's instruments, and an instrument that does not loop
+// is useless for anything sustained. The loop point is known; carrying it
+// costs a chunk.
+export function encodeWav(
+  pcm: Int16Array,
+  rate: number,
+  loopStart?: number
+): Uint8Array {
+  const hasLoop = loopStart !== undefined && loopStart >= 0 && loopStart < pcm.length - 1;
+  const smpl = hasLoop ? 8 + 60 : 0;
+  const out = new Uint8Array(44 + pcm.length * 2 + smpl);
   const dv = new DataView(out.buffer);
   const ascii = (o: number, s: string) => {
     for (let i = 0; i < s.length; i++) out[o + i] = s.charCodeAt(i);
   };
   ascii(0, "RIFF");
-  dv.setUint32(4, 36 + pcm.length * 2, true);
+  dv.setUint32(4, out.length - 8, true);
   ascii(8, "WAVEfmt ");
   dv.setUint32(16, 16, true); // fmt chunk size
   dv.setUint16(20, 1, true); // PCM
@@ -152,7 +165,37 @@ export function encodeWav(pcm: Int16Array, rate: number): Uint8Array {
   ascii(36, "data");
   dv.setUint32(40, pcm.length * 2, true);
   for (let i = 0; i < pcm.length; i++) dv.setInt16(44 + i * 2, pcm[i], true);
+  if (hasLoop) {
+    const o = 44 + pcm.length * 2;
+    ascii(o, "smpl");
+    dv.setUint32(o + 4, 60, true);
+    dv.setUint32(o + 8, 0, true); // manufacturer
+    dv.setUint32(o + 12, 0, true); // product
+    dv.setUint32(o + 16, Math.round(1e9 / rate), true); // sample period, ns
+    dv.setUint32(o + 20, 60, true); // MIDI unity note (C5)
+    dv.setUint32(o + 24, 0, true); // pitch fraction
+    dv.setUint32(o + 28, 0, true); // SMPTE format
+    dv.setUint32(o + 32, 0, true); // SMPTE offset
+    dv.setUint32(o + 36, 1, true); // one loop
+    dv.setUint32(o + 40, 0, true); // sampler data
+    dv.setUint32(o + 44, 0, true); // loop id
+    dv.setUint32(o + 48, 0, true); // type: forward
+    dv.setUint32(o + 52, loopStart!, true);
+    dv.setUint32(o + 56, pcm.length - 1, true);
+    dv.setUint32(o + 60, 0, true); // fraction
+    dv.setUint32(o + 64, 0, true); // play count: infinite
+  }
   return out;
+}
+
+// The loop point in SAMPLES, or undefined. An SPC directory gives it as
+// an ARAM address, and BRR blocks hold 16 samples each; a loop that is
+// not block-aligned did not come from a real directory entry.
+export function loopSample(s: BrrSample): number | undefined {
+  if (s.loopOffset === undefined || s.loopOffset < s.offset) return undefined;
+  const delta = s.loopOffset - s.offset;
+  if (delta % BRR_BLOCK !== 0) return undefined;
+  return (delta / BRR_BLOCK) * 16;
 }
 
 // ---- SPC input -------------------------------------------------------

@@ -97,7 +97,58 @@ formats.
   performance; pretending otherwise would set the author up for
   disappointment at the exact moment they open the file.
 
-## 6. The path that needs no code from me
+## 6. The recipe that works today, step by step
+
+No X5-c needed. This is the whole procedure.
+
+**1. Get an `.spc` of the track.** Two ways, and the lazy one is usually
+better: complete SPC sets exist for most SNES games, one file per track,
+already dumped by someone who knew where the loop was. Failing that,
+every emulator can dump one — reach the point where the music plays and
+use the emulator's "Save SPC" command (snes9x, Mesen-S and bsnes all have
+it). An SPC is a snapshot of the sound chip mid-song, so dump it while
+the track is actually playing.
+
+**2. Open it in Tools -> Ressources -> Extraire d'une ROM.** The window
+sees it is an SPC and switches to the Sons tab by itself. Two things
+appear at once:
+
+- **the verdict**: the directory's BRR total against the 57957 bytes a
+  module gets. Read it before doing anything else. "Ne tiendra pas" means
+  stop here or plan to drop instruments.
+- **the instrument list**, read from the directory — exact boundaries,
+  real loop points, no scan and no trimming.
+
+**3. Send the instruments you want to the project.** Each one leaves as a
+WAV carrying its loop point in a `smpl` chunk, which OpenMPT reads: a
+string or a pad will loop the way it did in the game, without hunting for
+the point by hand.
+
+**4. Get the score.** This is the part the editor does not do.
+
+- **VGMTrans** (external) reads the `.spc`, recognises a good many
+  drivers, and exports MIDI. When it knows the game, this recovers the
+  actual composition — better than anything X5-c would produce.
+- Otherwise: transcribe by ear in OpenMPT. Long, but the instruments —
+  the part that cannot be redone by ear — are already in hand.
+
+**5. Assemble in OpenMPT.** Import the WAVs as samples, import the MIDI,
+and respect four constraints:
+
+- **8 channels maximum**, and leave one or two free if the scene also
+  plays sound effects — they draw on the same eight voices.
+- **Echo off.** It is charged to the same ARAM and runs to 28 KB.
+- **Downsample the instruments** until the total fits. This is the main
+  lever: BRR size is proportional to the sample count, so halving a
+  sample's rate halves its cost. 16 kHz is usually plenty for a lead,
+  8 kHz for a bass.
+- Save as **`.it`**.
+
+**6. Import it.** Resource manager -> Musique -> Importer, then pick the
+track in the scene's Scène tab. `smconv` will report the module's real
+size at build; if it overflows, go back to step 5 and downsample further.
+
+## 7. The path that needs no code from me
 
 Available today, and worth saying out loud before committing to X5-c:
 X3 already extracts the instruments; **VGMTrans** does static per-driver

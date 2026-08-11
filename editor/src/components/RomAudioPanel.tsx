@@ -17,6 +17,7 @@ import {
   brrSizeAtBuild,
   decodeBrr,
   encodeWav,
+  loopSample,
   scanBrr,
   spcSamples,
 } from "../brr";
@@ -90,6 +91,10 @@ export default function RomAudioPanel(p: Props) {
     [p.bytes, cur]
   );
 
+  // Trimming blocks off the head shifts the loop point with them; trim
+  // past it and there is no loop left to carry.
+  const loop = cur ? loopSample(cur) : undefined;
+
   // Only meaningful for an SPC: a ROM scan collects samples from the whole
   // cart, so totalling them says nothing about any one song.
   const aram = useMemo(
@@ -112,7 +117,7 @@ export default function RomAudioPanel(p: Props) {
   function play() {
     if (!pcm) return;
     stopPreview(); // one sound at a time, resource manager included
-    const wav = encodeWav(pcm, rate);
+    const wav = encodeWav(pcm, rate, loop);
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     urlRef.current = URL.createObjectURL(new Blob([wav as BlobPart], { type: "audio/wav" }));
     audioRef.current?.pause();
@@ -126,7 +131,7 @@ export default function RomAudioPanel(p: Props) {
     const stem = (name || `${p.stem}_${cur.offset.toString(16)}`)
       .toLowerCase()
       .replace(/[^a-z0-9_]/g, "_");
-    p.onSend(`${stem}.wav`, encodeWav(pcm, rate));
+    p.onSend(`${stem}.wav`, encodeWav(pcm, rate, loop));
   }
 
   const seconds = pcm ? pcm.length / rate : 0;
