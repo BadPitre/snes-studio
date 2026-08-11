@@ -45,6 +45,11 @@ export interface ItSong {
   speed: number; // ticks per row
   tempo: number; // BPM; row = (2.5 / tempo) * speed seconds
   channels: number;
+  // 0..64, 32 = centre — the stereo image the driver painted
+  channelPan?: number[];
+  // Song message. smconv reads [[SNESMOD]] directives out of it (edl,
+  // efb, evol, eon, efir) — this is how a module carries its echo.
+  message?: string;
   samples: ItSample[];
   patterns: ItPattern[];
   order: number[];
@@ -99,17 +104,19 @@ function packPattern(p: ItPattern, channels: number): Uint8Array {
 const INS_SIZE = 554; // IT instrument header, Cmwt >= 0x200
 
 export function writeIt(song: ItSong): Uint8Array {
+  const msg = song.message ?? "";
   const ordNum = song.order.length + 1; // the list ends with 255
   const smpNum = song.samples.length;
   const insNum = smpNum; // one instrument per sample
   const patNum = song.patterns.length;
 
   const headerLen = 192 + ordNum + insNum * 4 + smpNum * 4 + patNum * 4;
+  const msgAt = headerLen;
   const packed = song.patterns.map((p) => packPattern(p, song.channels));
 
   // Layout: header, instrument headers, sample headers, pattern blocks,
   // then the sample data (pointed at from each sample header).
-  const insHdrAt = headerLen;
+  const insHdrAt = headerLen + msg.length;
   const smpHdrAt = insHdrAt + insNum * INS_SIZE;
   const patAt = smpHdrAt + smpNum * 80;
   const patOffsets: number[] = [];
@@ -138,14 +145,20 @@ export function writeIt(song: ItSong): Uint8Array {
   dv.setUint16(40, 0x0214, true); // Cwtv
   dv.setUint16(42, 0x0200, true); // Cmwt
   dv.setUint16(44, 0x000d, true); // stereo + useInstruments + linear slides
-  dv.setUint16(46, 0, true); // special
+  dv.setUint16(46, msg ? 1 : 0, true); // special: bit 0 = message
+  if (msg) {
+    dv.setUint16(54, msg.length, true);
+    dv.setUint32(56, msgAt, true);
+    for (let i = 0; i < msg.length; i++) out[msgAt + i] = msg.charCodeAt(i) & 0xff;
+  }
   out[48] = 128; // global volume
   out[49] = 48; // mix volume
   out[50] = song.speed;
   out[51] = song.tempo;
   out[52] = 128; // pan separation
   for (let c = 0; c < 64; c++) {
-    out[64 + c] = c < song.channels ? 32 : 32 | 0x80; // centre; unused muted
+    const pan = song.channelPan?.[c] ?? 32;
+    out[64 + c] = c < song.channels ? pan : 32 | 0x80; // unused muted
     out[128 + c] = 64;
   }
   let p = 192;
@@ -170,7 +183,10 @@ export function writeIt(song: ItSong): Uint8Array {
     const h = insHdrAt + i * INS_SIZE;
     ascii(out, h, "IMPI", 4);
     ascii(out, h + 4, s.name.slice(0, 12), 12);
-    dv.setUint16(h + 20, 128, true); // FadeOut
+    // FadeOut 256 with the sustain envelope below: a released note dies
+    // over ~2 s instead of being chopped — the SNES release the driver
+    // relied on, approximated.
+    dv.setUint16(h + 20, 256, true); // FadeOut
     out[h + 23] = 60; // PPC: pitch-pan centre C-5
     out[h + 24] = 128; // GbV
     out[h + 25] = 160; // DfP, bit 7 set = do not use
@@ -181,7 +197,17 @@ export function writeIt(song: ItSong): Uint8Array {
       out[h + 64 + n * 2] = n;
       out[h + 64 + n * 2 + 1] = i + 1;
     }
-    // volume, pan and pitch envelopes all left with Flg = 0
+    // Volume envelope: two flat nodes with SUSTAIN on the first. Its only
+    // job is to exist — in IT, note-off WITHOUT a volume envelope cuts
+    // the note dead ("les notes s'arrêtent très net"); with one, note-off
+    // releases the sustain and FadeOut takes over.
+    const env = h + 304;
+    out[env] = 1 | 4; // envelope on + sustain loop
+    out[env + 1] = 2; // two nodes
+    out[env + 4] = 0; // sustain loop begin
+    out[env + 5] = 0; // sustain loop end
+    out[env + 6] = 64; dv.setUint16(env + 7, 0, true); // node 0: vol 64 @ tick 0
+    out[env + 9] = 64; dv.setUint16(env + 10, 1, true); // node 1: vol 64 @ tick 1
   });
 
   song.samples.forEach((s, i) => {

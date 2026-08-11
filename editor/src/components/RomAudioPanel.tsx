@@ -120,9 +120,23 @@ export default function RomAudioPanel(p: Props) {
       const t0 = performance.now();
       const cpu = new Spc700(p.spc.aram, p.spc.dsp, p.spc.regs);
       const trace = cpu.run(capture);
+      // The echo the game had, read from the snapshot's DSP registers.
+      const d = p.spc.dsp;
+      const sb = (x: number) => (x << 24) >> 24;
+      const echoOn = !(d[0x6c] & 0x20) && (d[0x7d] & 15) > 0 && d[0x4d] !== 0;
       const r = transcribe(trace, p.spc.aram, list, {
         rowsPerSecond,
         name: p.spc.title || p.stem,
+        echo: echoOn
+          ? {
+              edl: d[0x7d] & 15,
+              efb: sb(d[0x0d]),
+              evolL: sb(d[0x2c]),
+              evolR: sb(d[0x3c]),
+              eon: d[0x4d],
+              fir: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => sb(d[0x0f + i * 16])),
+            }
+          : undefined,
       });
       setReport(r.report);
       setIt(r.it);
@@ -377,10 +391,14 @@ export default function RomAudioPanel(p: Props) {
               <>
                 <div className="hint">
                   {report.notes} notes sur {report.rows} lignes, {report.patterns}{" "}
-                  pattern(s), {report.samples} instrument(s)
+                  pattern(s), {report.samples} instrument(s), {report.volCells} nuance(s) de
+                  volume
                   <br />
                   {report.brrBytes} o de BRR
                   {report.downsampled > 1 ? ` (rééchantillonné 1/${report.downsampled})` : ""}
+                  {report.echoBytes > 0
+                    ? ` + écho d'origine (${report.echoBytes} o d'ARAM)`
+                    : " — pas d'écho dans l'instantané"}
                 </div>
                 {report.warnings.map((w, i) => (
                   <div key={i} className="hint romrip-why">

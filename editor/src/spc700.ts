@@ -23,6 +23,17 @@ export interface NoteOn {
   srcn: number; // sample directory entry
   pitch: number; // 14-bit pitch register
   vol: number; // 0-127, mean of |left| and |right|
+  volL: number; // signed, as the driver wrote them — the stereo image
+  volR: number;
+}
+
+// A volume change DURING a note. Drivers shape crescendos and fades by
+// rewriting VxVOL while the voice plays; ignoring those is what makes a
+// transcription sound flat.
+export interface VolChange {
+  t: number;
+  voice: number;
+  vol: number; // 0-127, same scale as NoteOn.vol
 }
 
 export interface NoteOff {
@@ -33,6 +44,7 @@ export interface NoteOff {
 export interface SpcTrace {
   ons: NoteOn[];
   offs: NoteOff[];
+  vols: VolChange[];
   samples: number; // length of the run, in DSP samples
   srcnUsed: Set<number>;
 }
@@ -111,6 +123,7 @@ export class Spc700 {
 
   ons: NoteOn[] = [];
   offs: NoteOff[] = [];
+  vols: VolChange[] = [];
 
   constructor(aram: Uint8Array, dsp: Uint8Array, regs: {
     pc: number; a: number; x: number; y: number; psw: number; sp: number;
@@ -252,7 +265,24 @@ export class Spc700 {
     this.dsp[r] = v;
     if (r === 0x4c) this.keyOn(v);
     else if (r === 0x5c) this.keyOff(v);
+    else if ((r & 0x0f) <= 1 && r < 0x80) {
+      // VxVOL rewritten mid-note: log it if the level really moved.
+      const voice = r >> 4;
+      const vc = this.voices[voice];
+      if (vc && vc.active && this.vols.length < 60000) {
+        const l = (this.dsp[voice * 16] << 24) >> 24;
+        const rr = (this.dsp[voice * 16 + 1] << 24) >> 24;
+        const vol = Math.min(127, (Math.abs(l) + Math.abs(rr)) >> 1);
+        const last = this.lastVol[voice];
+        if (Math.abs(vol - last) >= 4) {
+          this.lastVol[voice] = vol;
+          this.vols.push({ t: this.dspSamples, voice, vol });
+        }
+      }
+    }
   }
+
+  private lastVol = new Array(8).fill(0);
 
   private keyOn(mask: number) {
     for (let i = 0; i < 8; i++) {
@@ -272,12 +302,16 @@ export class Spc700 {
       this.dsp[0x7c] &= ~(1 << i); // key-on clears this voice's ENDX
       const l = (this.dsp[i * 16] << 24) >> 24;
       const r = (this.dsp[i * 16 + 1] << 24) >> 24;
+      const vol = Math.min(127, (Math.abs(l) + Math.abs(r)) >> 1);
+      this.lastVol[i] = vol;
       this.ons.push({
         t: this.dspSamples,
         voice: i,
         srcn,
         pitch: (this.dsp[i * 16 + 2] | (this.dsp[i * 16 + 3] << 8)) & 0x3fff,
-        vol: Math.min(127, (Math.abs(l) + Math.abs(r)) >> 1),
+        vol,
+        volL: l,
+        volR: r,
       });
     }
   }
@@ -962,6 +996,6 @@ export class Spc700 {
     while (this.cycles < target && guard++ < 200_000_000) this.step();
     const srcnUsed = new Set<number>();
     for (const o of this.ons) srcnUsed.add(o.srcn);
-    return { ons: this.ons, offs: this.offs, samples: this.dspSamples, srcnUsed };
+    return { ons: this.ons, offs: this.offs, vols: this.vols, samples: this.dspSamples, srcnUsed };
   }
 }
