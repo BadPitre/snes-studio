@@ -92,9 +92,15 @@ every French message the author already knows. It also means the ripper
 never touches `project.json` — the resource layer stays the only writer,
 the same separation the engine/data split rests on.
 
-**CharSet** and **ChipSet**, which are not path registers (a charset is
-an index into a sheet, a chipset drags a sidecar), keep their own
-callbacks and get an equivalent entry point.
+**CharSet and ChipSet were dropped while X2 was being built.** The plan
+said they would get an equivalent entry point; implementing it showed
+they should not. Both importers expect an RPG Maker 2003 *sheet layout* —
+288x256 or 72x128 for a charset, 480x256 for a chipset — and that layout
+is an authoring convention, not something a SNES ROM contains. A menu
+entry that answers "attendu 288x256" every single time is worse than no
+menu entry. A ripped decor goes to **Tileset** instead (a free PNG grid,
+16x16, which is exactly what a 4bpp rip in 16x16 blocks produces), and a
+ripped character to Picture or Vignette.
 
 ## 4. Graphics: the decode core
 
@@ -153,6 +159,24 @@ colours. Four sources, one panel:
    anyway.
 
 Greyscale is the default, so something is always visible while hunting.
+
+**The PNG is written by hand, indexed — this changed during X2.** The
+first draft of this doc said `canvas.toBlob("image/png")` would do, since
+datagen accepts truecolour. Reading `gfx.rs` closed that door: a
+truecolour PNG is re-indexed by *first-seen scan order*, and index order
+is load-bearing. `to_font` and `to_windowskin` read raw indices and mean
+"0 transparent, 1 background, 2 text, 3 accent" positionally, and
+`to_windowskin` refuses outright when any index exceeds 3. A ripped font
+would have come out renumbered by whatever pixel happened to be
+top-left.
+
+So `rom.ts` carries a small indexed-PNG encoder — CRC32, Adler32, and a
+zlib stream of STORED deflate blocks. No compressor is needed (the
+largest image the project accepts is 256×224) and `CompressionStream` is
+not dependable across the WebViews the editor ships on. `compactCut`
+renumbers a selection to 0..n-1 with the transparent colour first, which
+is what lets four colours picked out of a 16-entry palette become a legal
+windowskin.
 
 ## 6. Audio: the part that works best
 
@@ -254,7 +278,7 @@ in this document.
 | Stage | What it buys | Size |
 |---|---|---|
 | **X1 — voir** | `rom.ts` decode core, the modal, ROM load + header detection, 1/2/4/8bpp + Mode 7, width/offset/zoom/grid, palette by offset, greyscale default. Read-only. | the bulk |
-| **X2 — prendre** | Rectangle selection, **16×16 blocks** (sprites), the four palette sources, transparent index, the `runImport` seam, "Envoyer vers" with per-category reasons, CharSet/ChipSet entry points. **Fonts and sprites are done at the end of X2.** | medium |
+| **X2 — prendre** | Rectangle selection, **16×16 blocks** (sprites), the four palette sources, transparent index, the indexed-PNG encoder, the `runImport` seam, "Envoyer vers" with per-category reasons. **Fonts and sprites are done at the end of X2.** | medium |
 | **X3 — entendre** | BRR scanner, decoder, preview with a rate slider, `.spc` input reading the real sample directory, WAV out into the sound register. **SFX done. Music instruments done (§7 A).** | medium |
 | **X4 — contourner** | VRAM + CGRAM dump from the snes9x harness, opened like a ROM. The compression wall, gone. | medium, one unknown to check first |
 | **X5 — décompresser** *(optional)* | LC_LZ1/2/3 and common RLE as a filter before decoding, with a "try every filter here" probe. Largely superseded by X4. | open-ended |

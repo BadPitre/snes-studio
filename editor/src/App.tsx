@@ -41,6 +41,7 @@ import {
 } from "./io";
 import type { ResCtx, ResKind } from "./resources";
 import { RESOURCES, runDelete, runExport, runImport, runRename } from "./resources";
+import RomRipModal, { type RipTarget } from "./components/RomRipModal";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
@@ -179,6 +180,7 @@ export default function App() {
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
+  const [ripOpen, setRipOpen] = useState(false); // ROM ripper (X1/X2)
   // Mode 7 preview (world maps): the flat map says nothing about the pitch
   const [m7Preview, setM7Preview] = useState(false);
   const [m7Sky, setM7Sky] = useState<ImageBitmap | null>(null);
@@ -886,6 +888,41 @@ export default function App() {
     else void runDelete(ctx, res, rel!);
   }
 
+  // An extraction from the ROM ripper (X2). The register categories go
+  // through the shared import flow with bytes instead of a file, so a rip
+  // is validated and recorded exactly like a browsed PNG. A tileset is not
+  // a register in resources.ts, so it reuses importTileset's own path.
+  async function ripSend(
+    target: RipTarget,
+    fileName: string,
+    bytes: Uint8Array,
+    trans: boolean
+  ) {
+    if (!data) return;
+    if (target !== "tileset") {
+      const ctx = resCtx();
+      if (!ctx) return;
+      await runImport(ctx, RESOURCES[target], { name: fileName, bytes, trans });
+      return;
+    }
+    try {
+      const rel = `assets/tilesets/${fileName}`;
+      await ensureProjectDir(data.root, "assets/tilesets");
+      await writeBinaryFile(`${data.root}/${rel}`, bytes);
+      const stem = assetStem(rel);
+      const bmp = await loadAssetPng(data.root, rel);
+      setTilesets((t2) => ({ ...t2, [stem]: bmp }));
+      mutate((d) => {
+        const cur = projectTilesets(d.project);
+        if (cur.includes(rel)) return d;
+        return { ...d, project: { ...d.project, tilesets: [...cur, rel] } };
+      });
+      setStatus(`Tileset extrait : ${stem}`);
+    } catch (e) {
+      setStatus(`Extraction tileset : ${e}`);
+    }
+  }
+
   // Phase 2 of the picker imports (S4): the transparent colour is known
   // — transform it (alpha 0), validate, write, save
   async function finishTransPick(color: Rgb | null) {
@@ -895,7 +932,12 @@ export default function App() {
     try {
       const bytes = color ? await applyTransparency(t.bytes, color) : t.bytes;
       const name = t.file.split(/[\\/]/).pop()!;
-      const rel = `assets/${name}`;
+      // One folder per resource type, the same landing spot runImport uses
+      // — this branch used to drop the file in the assets/ root, where the
+      // registered path pointed at nothing datagen would find later.
+      const dir = t.kind === "iconset" ? RESOURCES.iconset.dir : RESOURCES.picture.dir;
+      const rel = `${dir}/${name}`;
+      if (t.kind !== "charset") await ensureProjectDir(data.root, dir);
       if (t.kind === "iconset") {
         const res = RESOURCES.iconset;
         await writeBinaryFile(`${data.root}/${rel}`, bytes);
@@ -1493,6 +1535,19 @@ export default function App() {
           ],
         },
         {
+          label: "Ressources",
+          tip: "D'où viennent les images et les sons du projet",
+          disabled: !data,
+          sub: [
+            {
+              label: "Extraire d'une ROM…",
+              tip: "Visualiseur de tuiles sur une ROM : repérer des graphismes bruts et les envoyer dans une catégorie de ressource du projet",
+              action: () => setRipOpen(true),
+              disabled: !data,
+            },
+          ],
+        },
+        {
           label: "Données",
           tip: "Les tables du projet : valeurs chiffrées et textes",
           disabled: !data,
@@ -1835,6 +1890,22 @@ export default function App() {
           config={playCfg}
           onSave={savePlayCfg}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {ripOpen && data && (
+        <RomRipModal
+          root={data.root}
+          assetPngs={[
+            ...projectPictures(data.project).map(picPath),
+            ...projectIconsets(data.project),
+            ...projectWindowskins(data.project),
+            ...projectTilesets(data.project),
+          ]}
+          onSend={(target, fileName, bytes, trans) =>
+            void ripSend(target, fileName, bytes, trans)
+          }
+          setStatus={setStatus}
+          onClose={() => setRipOpen(false)}
         />
       )}
       {transPick && data && (

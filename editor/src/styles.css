@@ -683,3 +683,42 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 }
 .m7preview-side input[type="range"] { width: 100%; }
 .m7preview-check { flex-direction: row; align-items: center; gap: 6px; }
+
+/* Extraction depuis une ROM (X1/X2) : trois colonnes — format et offset à
+   gauche, la vue au centre, palette et destination à droite. Le canevas
+   est en pixel art, jamais lissé. */
+.modal.romrip { width: 1180px; max-width: 96vw; max-height: 94vh; overflow-y: auto; }
+.romrip-head { align-items: center; flex-wrap: wrap; gap: 10px; }
+.romrip-head label { flex-direction: row; align-items: center; gap: 4px; }
+.romrip-empty { max-width: 640px; line-height: 1.5; padding: 12px 0; }
+.romrip-body { display: flex; gap: 10px; align-items: flex-start; }
+.romrip-col {
+  display: flex; flex-direction: column; gap: 6px;
+  width: 210px; flex: 0 0 210px;
+}
+.romrip-col .panel-title { margin: 6px 0 0; }
+.romrip-col label { flex-direction: column; }
+.romrip-view {
+  flex: 1 1 auto; overflow: auto; max-height: 70vh;
+  background: #000; box-shadow: var(--bev-field);
+}
+.romrip-view canvas { image-rendering: pixelated; display: block; }
+.romrip-off { font-family: monospace; font-size: 13px; }
+.romrip-nav { gap: 4px; align-items: center; }
+.romrip-nav button { flex: 0 0 auto; padding: 2px 6px; }
+.romrip-jump { width: 110px; font-family: monospace; }
+.romrip-swatches { display: flex; flex-wrap: wrap; gap: 2px; }
+.romrip-sw {
+  width: 18px; height: 18px; padding: 0; flex: 0 0 auto;
+  border: 1px solid #000;
+}
+.romrip-sw.sel { outline: 2px solid var(--accent, #0a246a); outline-offset: -4px; }
+/* L'index transparent : le damier des éditeurs d'images */
+.romrip-sw.trans {
+  background-image:
+    linear-gradient(45deg, #0006 25%, transparent 25%, transparent 75%, #0006 75%),
+    linear-gradient(45deg, #0006 25%, transparent 25%, transparent 75%, #0006 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+.romrip-why { color: #a33; }

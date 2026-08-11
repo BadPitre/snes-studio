@@ -597,6 +597,56 @@ Not yet: autotile animation (water), gfx editing.
   shown. The category is a `cat` field in texts.json — editor only,
   datagen ignores it (the text_ids follow the file's order).
 
+## Tools -> Ressources -> Extraire d'une ROM (X1/X2)
+
+A tile viewer over a byte range, whose selection lands in a project
+resource category already validated. Design doc:
+`docs/PLANNING_EXTRACTION_ROM.md`.
+
+**Opening a file.** Any file, not just a `.sfc` — the ROM is a SOURCE and
+is never copied into the project. A copier header (512 bytes glued in
+front of a dump whose real size is a whole number of kilobytes) is
+detected on load and can be forced on or off, because a mangled dump can
+lie about it. The current offset is also shown as its LoROM and HiROM
+`bank:address` equivalents, since that is the notation documentation
+sites quote; the jump field accepts either form (`1A8000`, or `C2:8000`
+with a colon).
+
+**Finding something.** Four controls do the work: the format (1/2/4/8bpp
+or Mode 7 linear), the width in tiles, the offset, and the **+-1 byte**
+nudge — a one-byte misalignment scrambles the whole image, so it has its
+own buttons. The wheel scrolls by a row. "Zone suivante" skips to the
+next non-uniform stretch, which matters more than it sounds: a ROM is
+mostly padding.
+
+**16x16 blocks** is not an advanced option. SNES sprites are stored as
+2x2 tile groups in sequence, so without it every character shows up
+quartered and interleaved.
+
+**Palette.** Greyscale by default, so something is always visible while
+hunting. Then: read 16 colours at the current offset (with a 2-byte
+nudge), scan the file for plausible palettes, borrow the palette of a PNG
+already in the project, or edit the swatches by hand. One index can be
+marked transparent — it becomes index 0 on export, which is the engine's
+convention for fonts and windowskins.
+
+**Sending it.** Drag a rectangle, pick a target, and the window says why
+a target would refuse before the import does — the size rules are read
+from the resource descriptors in `resources.ts`, so the two can never
+disagree. Targets: Picture, Tileset, IconSet, Vignette, Fonte,
+Windowskin, Mode 7. **CharSet and ChipSet are deliberately absent**: both
+expect an RPG Maker 2003 sheet layout (288x256, 480x256) that no SNES ROM
+stores, so offering them would only produce a size refusal every time.
+
+A font is the easy case, and worth knowing: our font format is a 768x8
+strip, i.e. **96 tiles on one row**. Set the width to 96, select one row,
+done.
+
+The extraction is written as an INDEXED PNG (`encodeIndexedPng` in
+`rom.ts`), not truecolour, so the palette order the author chose
+survives: `gfx.rs` reads raw indices, and a windowskin is refused
+outright when any index exceeds 3.
+
 ## Running it
 
 Prerequisites: Node.js, Rust (already needed for datagen). On Windows,

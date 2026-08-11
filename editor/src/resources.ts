@@ -23,6 +23,7 @@ import {
   projectWindowskins,
 } from "./types";
 import {
+  ensureProjectDir,
   pickFile,
   pickPngFile,
   pickSavePath,
@@ -100,10 +101,12 @@ export interface Resource {
   // grammar engine, and the messages differ in substance anyway (an image
   // warns about "Afficher une image", a music about the scenes using it).
   pickImport: () => Promise<string | null>;
-  badSize?: (bmp: ImageBitmap) => string | null;
+  // Widened from ImageBitmap to what it actually reads, so the ROM ripper
+  // can ask "would a 32x32 cut be accepted here?" before a PNG exists.
+  badSize?: (bmp: { width: number; height: number }) => string | null;
   // Only the registers that refuse a duplicate ever say so.
   exists?: (stem: string) => string;
-  imported: (stem: string, bmp: ImageBitmap | null, opts?: { trans?: boolean }) => string;
+  imported: (stem: string, bmp: { width: number; height: number } | null, opts?: { trans?: boolean }) => string;
   importFailed: (e: unknown) => string;
   pickExport: string;
   exported: (path: string) => string;
@@ -436,12 +439,31 @@ async function bitmapIfPng(res: Resource, bytes: Uint8Array): Promise<ImageBitma
   return await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
 }
 
-export async function runImport(ctx: ResCtx, res: Resource): Promise<void> {
+// `src` is the ROM ripper's seam (X2): bytes it built in memory instead of
+// a file the author browsed to. Everything after those first two lines —
+// size check, slug, duplicate refusal, register write, status line — is
+// the flow the eight resources already share, and the ripper inherits it
+// whole rather than reimplementing a single rule of it.
+//
+// One deliberate difference: a ripped image skips the transparency picker,
+// because the ripper already knows which palette index is transparent and
+// has punched it into the PNG. `src.trans` says whether it did.
+export interface ImportSrc {
+  name: string; // filename to register, extension included
+  bytes: Uint8Array;
+  trans?: boolean;
+}
+
+export async function runImport(
+  ctx: ResCtx,
+  res: Resource,
+  src?: ImportSrc
+): Promise<void> {
   const { data } = ctx;
   try {
-    const file = await res.pickImport();
+    const file = src ? src.name : await res.pickImport();
     if (!file) return;
-    const bytes = await readBinaryFile(file);
+    const bytes = src ? src.bytes : await readBinaryFile(file);
     const bmp = await bitmapIfPng(res, bytes);
     if (bmp && res.badSize) {
       const err = res.badSize(bmp);
@@ -459,15 +481,17 @@ export async function runImport(ctx: ResCtx, res: Resource): Promise<void> {
     }
     // The transparency picker owns the rest: the colour it returns decides
     // both the bytes written and what the register records.
-    if (res.transPick && bmp) {
+    if (res.transPick && bmp && !src) {
       ctx.beginTransPick({ kind: res.transPick, file, bytes, bmp });
       return;
     }
+    // A project that never used this resource has no folder for it yet.
+    await ensureProjectDir(data.root, res.dir);
     await writeBinaryFile(`${data.root}/${rel}`, bytes);
     if (!res.list(data.project).includes(rel)) {
-      ctx.mutate((d) => ({ ...d, project: res.add(d.project, rel) }));
+      ctx.mutate((d) => ({ ...d, project: res.add(d.project, rel, { trans: src?.trans }) }));
     }
-    ctx.setStatus(res.imported(assetStem(rel), bmp));
+    ctx.setStatus(res.imported(assetStem(rel), bmp, { trans: src?.trans }));
   } catch (e) {
     ctx.setStatus(res.importFailed(e));
   }
