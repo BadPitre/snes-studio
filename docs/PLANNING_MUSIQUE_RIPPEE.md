@@ -65,11 +65,20 @@ bytes** on it alone. A ripped song will need echo off, and may still not
 fit.
 
 **ROM, all modules together: 32 KB per bank.** A second ceiling, found
-the hard way when the author's build broke. The soundbank holds every
-module concatenated, and past 32768 bytes smconv splits it across ROM
-banks, naming the pieces `SOUNDBANK__0`, `SOUNDBANK__1`… instead of the
-single `SOUNDBANK__` that `audio.c` references. snesbuild now adds that
-symbol to the first bank, so the split is transparent.
+the hard way twice. The soundbank holds every module concatenated, and
+past 32768 bytes smconv splits it across ROM banks as `SOUNDBANK__0`,
+`SOUNDBANK__1`… First failure: the engine references `SOUNDBANK__`, so
+the link died — fixed with an alias label. Second failure, far worse
+because it was SILENT: wlalink runs with `-d`, which discards
+unreferenced sections, and nothing references the banks after the first —
+so they were dropped and the ROM shipped engine code where the tail of
+the soundbank belonged. snesmod streamed that code into ARAM as sample
+data: the author heard "thin metallic beeps" instead of music, on
+whichever modules crossed the boundary. Proven and fixed by measurement:
+the harness gained an AUDIO_DUMP, and the same track placed before vs
+after the 32 KB line correlated 0.72 before the fix and 1.000 after.
+The fix converts the soundbank sections to bare `.ORG` data, which `-d`
+cannot discard.
 
 **Voices.** The SNES has 8, snesmod exposes 8, and our sound effects take
 from the same pool (`audio.c`, `spcAllocateSoundRegion`). A song that

@@ -28,16 +28,21 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
 }
 static long long audio_abs = 0;
 static long audio_n = 0;
+/* AUDIO_DUMP=<file>: raw interleaved s16 stereo at the core's rate —
+   lets a test measure the ROM's PITCH, not just its level. */
+static FILE *audio_dump = NULL;
 static void audio_cb(int16_t l, int16_t r)
 {
     audio_abs += (l < 0 ? -l : l) + (r < 0 ? -r : r);
     audio_n += 2;
+    if (audio_dump) { fwrite(&l, 2, 1, audio_dump); fwrite(&r, 2, 1, audio_dump); }
 }
 static size_t audio_batch_cb(const int16_t *d, size_t frames)
 {
     for (size_t i = 0; i < frames * 2; i++)
         audio_abs += d[i] < 0 ? -d[i] : d[i];
     audio_n += frames * 2;
+    if (audio_dump) fwrite(d, 4, frames, audio_dump);
     return frames;
 }
 static void input_poll_cb(void) {}
@@ -92,6 +97,9 @@ int main(int argc, char **argv)
     void (*init)(void) = dlsym(h, "retro_init");
     bool (*load_game)(const struct retro_game_info *) = dlsym(h, "retro_load_game");
     void (*run)(void) = dlsym(h, "retro_run");
+
+    const char *ad = getenv("AUDIO_DUMP");
+    if (ad) audio_dump = fopen(ad, "wb");
 
     set_environment(env_cb);
     set_video(video_cb);
@@ -188,6 +196,7 @@ int main(int argc, char **argv)
             if (r + g + b > 24) nonblack++;
         }
     fclose(o);
+    if (audio_dump) fclose(audio_dump);
     printf("frames=%d taille=%ux%u lum_moy=%.1f pixels_non_noirs=%d (%.1f%%)\n",
            frames, fb_w, fb_h,
            fb_w * fb_h ? (double)lum / (fb_w * fb_h) : 0,

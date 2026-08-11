@@ -275,18 +275,46 @@ fn check_soundbank(output: &str, asm_path: &Path) -> Result<()> {
     }
     let asm = std::fs::read_to_string(asm_path)
         .with_context(|| format!("lecture de {}", asm_path.display()))?;
-    if asm.contains("\nSOUNDBANK__:") || !asm.contains("SOUNDBANK__0:") {
+    if asm.contains("\n.ORG 0") || !asm.contains("SOUNDBANK__0:") {
         return Ok(());
     }
     let banks = (0..)
         .take_while(|i| asm.contains(&format!("SOUNDBANK__{}:", i)))
         .count();
     println!(
-        "  soundbank sur {} banques ROM — symbole SOUNDBANK__ ajouté sur la première",
+        "  soundbank sur {} banques ROM — sections converties en .ORG",
         banks
     );
-    let patched = asm.replacen("SOUNDBANK__0:", "SOUNDBANK__:\nSOUNDBANK__0:", 1);
-    std::fs::write(asm_path, patched)
+    // Two problems hide in smconv's multi-bank output, and both have to be
+    // fixed here or the failure is silent until the game PLAYS the data.
+    //
+    // The engine references SOUNDBANK__; smconv names the pieces
+    // SOUNDBANK__0..N, so without an alias the link fails. Worse: wlalink
+    // runs with -d, which DISCARDS unreferenced sections — and nothing
+    // references SOUNDBANK__1..N, so every bank after the first was
+    // silently dropped and the ROM shipped engine code where the tail of
+    // the soundbank should be. snesmod then streamed that code into ARAM
+    // as sample data; it sounds like thin metallic beeps.
+    //
+    // The fix uses the linker's own rules: data OUTSIDE a section (.ORG)
+    // is written to the ROM unconditionally — -d only applies to
+    // sections. So the .SECTION/.ENDS pairs become .ORG 0, and the alias
+    // label rides on the first bank.
+    let mut out = String::with_capacity(asm.len());
+    for line in asm.lines() {
+        let t = line.trim_start();
+        if t.starts_with(".SECTION \"SOUNDBANK") {
+            out.push_str(".ORG 0\n");
+        } else if t.starts_with(".ENDS") {
+            // dropped: no section left to close
+        } else if t.starts_with("SOUNDBANK__0:") {
+            out.push_str("SOUNDBANK__:\nSOUNDBANK__0:\n");
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    std::fs::write(asm_path, out)
         .with_context(|| format!("écriture de {}", asm_path.display()))?;
     Ok(())
 }
