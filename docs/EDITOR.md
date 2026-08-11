@@ -647,6 +647,54 @@ The extraction is written as an INDEXED PNG (`encodeIndexedPng` in
 survives: `gfx.rs` reads raw indices, and a windowskin is refused
 outright when any index exceeds 3.
 
+### The "Sons" tab (X3)
+
+This is the part of the ripper that works BEST, and structurally rather
+than by luck. A BRR sample describes itself — 9-byte blocks, a range
+field that cannot legally exceed 12, one end flag at the end — so the
+scan asserts its way to a sample instead of guessing at one. Compression
+is not in the way either: BRR *is* the compressed form, and games store
+it as is. Decoding lives in `editor/src/brr.ts`, with the same filter
+coefficients as datagen's `brr_predict` (`tools/datagen/src/sfx.rs`) —
+that encoder and this decoder are two directions of one format.
+
+**From a ROM: scan.** "Blocs minimum" is the only knob; 16 blocks is
+about 8 ms. Every hit is listed with its offset, length, duration and
+loop flag; double-clicking plays it.
+
+**From an `.spc`: read.** An SPC is a snapshot of a *running* sound chip
+— 64 KB of ARAM plus the DSP registers — and register `$5D` holds the
+page of the SAMPLE DIRECTORY. From an SPC the tool does not scan at all:
+it reads the table, with exact boundaries, true loop points and the
+instrument numbers of one specific song. Any emulator dumps an SPC in one
+keypress, so this is the source to prefer. The file is accepted by the
+same "Ouvrir" button, and the window switches to the Sons tab by itself.
+
+**The rate is a guess, by construction.** BRR carries no sample rate:
+pitch came from the driver's per-voice register at play time. 32000 Hz
+is the DSP's output rate and the usual convention, and the selector is
+there because only the ear can settle it.
+
+**A scan pins the END of a sample exactly and its start only to within a
+block.** Whatever sits in front of a real sample has roughly a one-in-five
+chance of reading as a valid header, and the chain then carries one junk
+block at the front. The "◀ bloc / bloc ▶" trim answers that — the same
+idea as the +-1 byte nudge on the graphics side — instead of pretending
+the scan is exact. An SPC does not need it.
+
+**Two consequences of the engine's budget, stated before the author hears
+them.** Sound effects are 8 kHz, at most 8 KB of BRR each (~1.8 s), 16
+sounds, 24 KB total (`docs/TOOLS.md`). So only short samples fit — the
+panel computes the size the build will produce and refuses to send one
+that would not — and the chain is BRR -> PCM -> resample to 8 kHz -> BRR
+again, so a ripped effect sounds duller than in the original game.
+
+**Music is not here, and will not be.** Each developer wrote their own
+SPC700 driver with its own sequence format, so there is no generic song
+to extract; `docs/PLANNING_EXTRACTION_ROM.md` §7 prices the three options.
+What this tab gives is the INSTRUMENTS — re-sequencing them into an `.it`
+in OpenMPT is the working path.
+
 ## Running it
 
 Prerequisites: Node.js, Rust (already needed for datagen). On Windows,

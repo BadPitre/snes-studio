@@ -212,6 +212,16 @@ keypress, so this is cheap for the author and a large quality jump.
 32-bit, mono or stereo, any rate from 4000 to 96000 Hz, so a 32 kHz mono
 WAV written by the tool imports with no special case at all.
 
+**What a scan can and cannot promise — found while building X3.** The
+END of a sample is exact: the end flag is unambiguous. The START is only
+the earliest byte from which the chain still parses, and whatever sits in
+front of a real sample has about a one-in-five chance of reading as a
+valid header (range ≤ 12 is 81 % of bytes, filter 0 is one in four). The
+reported sample then carries one junk block at the front. No stricter
+scanner fixes this — the information is not in the data — so the panel
+gets a per-block trim instead, the audio twin of the ±1 byte nudge. An
+SPC directory has the answer and needs no trim.
+
 **Two consequences to state plainly.** The engine's SFX budget is 8 kHz,
 ≤8 KB of BRR per sound (~1.8 s), 16 sounds, 24 KB total
 (`docs/TOOLS.md`). So (a) only short samples fit, and (b) the chain is

@@ -37,6 +37,8 @@ import {
   usedColors,
   withHeader,
 } from "../rom";
+import { type Spc, loadSpc } from "../brr";
+import RomAudioPanel from "./RomAudioPanel";
 import { RESOURCES, type ResKind } from "../resources";
 import { loadAssetPalette, pickFile, readBinaryFile } from "../io";
 import { assetStem } from "../types";
@@ -47,6 +49,8 @@ import { assetStem } from "../types";
 // produce a size refusal every time. A ripped decor goes to Tileset, a
 // ripped character to Picture or Vignette.
 export type RipTarget = ResKind | "tileset";
+
+type Tab = "gfx" | "audio";
 
 interface TargetDef {
   id: RipTarget;
@@ -101,6 +105,8 @@ interface Props {
     bytes: Uint8Array,
     trans: boolean
   ) => void;
+  // A ripped sample: already a WAV, which the sound register takes as is.
+  onSendSound: (name: string, wav: Uint8Array) => void;
   setStatus: (s: string) => void;
   onClose: () => void;
 }
@@ -109,6 +115,8 @@ const ZOOMS = [1, 2, 3, 4, 6, 8];
 
 export default function RomRipModal(p: Props) {
   const [rom, setRom] = useState<Rom | null>(null);
+  const [spc, setSpc] = useState<Spc | null>(null);
+  const [tab, setTab] = useState<Tab>("gfx");
   const [offset, setOffset] = useState(0);
   const [bpp, setBpp] = useState<Bpp>("4bpp");
   const [widthTiles, setWidthTiles] = useState(16);
@@ -213,29 +221,37 @@ export default function RomRipModal(p: Props) {
   const move = (delta: number) =>
     setOffset((o) => Math.max(0, Math.min(maxOff, o + delta)));
 
+  // An .spc is accepted alongside a ROM: it is not a cart, but its 64 KB
+  // of ARAM is a byte range like any other — and the best audio source
+  // there is, because the DSP registers point at a real sample directory.
   async function openRom() {
     const file = await pickFile(
-      "Ouvrir une ROM (SFC / SMC / n'importe quel fichier)",
-      "ROM SNES",
-      ["sfc", "smc", "fig", "swc", "bin", "rom"]
+      "Ouvrir une ROM (SFC / SMC) ou un instantané SPC",
+      "ROM SNES / SPC",
+      ["sfc", "smc", "fig", "swc", "spc", "bin", "rom"]
     );
     if (!file) return;
     try {
       const bytes = await readBinaryFile(file);
       const base = file.split(/[\\/]/).pop() ?? "rom";
-      const r = loadRom(base, bytes);
+      const snap = loadSpc(bytes);
+      const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
       setRom(r);
+      setSpc(snap);
+      setTab(snap ? "audio" : "gfx");
       setOffset(0);
       setCut(null);
       setHits(null);
       setName(base.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_"));
       p.setStatus(
-        `ROM ouverte : ${base} — ${(bytes.length / 1024) | 0} Ko${
-          r.header ? ", en-tête copieur de 512 o détecté" : ""
-        }`
+        snap
+          ? `SPC ouvert : ${base} — 64 Ko d'ARAM${snap.game ? `, ${snap.game}` : ""}`
+          : `ROM ouverte : ${base} — ${(bytes.length / 1024) | 0} Ko${
+              r.header ? ", en-tête copieur de 512 o détecté" : ""
+            }`
       );
     } catch (e) {
-      p.setStatus(`Ouverture ROM : ${e}`);
+      p.setStatus(`Ouverture : ${e}`);
     }
   }
 
@@ -338,18 +354,36 @@ export default function RomRipModal(p: Props) {
           {rom ? (
             <>
               <span className="hint">
-                {rom.name} — {(rom.raw.length / 1024) | 0} Ko
+                {rom.name} — {(rom.raw.length / 1024) | 0} Ko{spc ? " d'ARAM" : ""}
               </span>
-              <label className="hint" title="512 octets collés devant certains dumps">
-                <input
-                  type="checkbox"
-                  checked={rom.header > 0}
-                  onChange={(e) => setRom(withHeader(rom, e.target.checked ? 512 : 0))}
-                />
-                en-tête copieur
-              </label>
-              <span className="hint">
-                LoROM {loRomAddr(offset)} · HiROM {hiRomAddr(offset)}
+              {!spc && (
+                <>
+                  <label className="hint" title="512 octets collés devant certains dumps">
+                    <input
+                      type="checkbox"
+                      checked={rom.header > 0}
+                      onChange={(e) => setRom(withHeader(rom, e.target.checked ? 512 : 0))}
+                    />
+                    en-tête copieur
+                  </label>
+                  <span className="hint">
+                    LoROM {loRomAddr(offset)} · HiROM {hiRomAddr(offset)}
+                  </span>
+                </>
+              )}
+              <span className="romrip-tabs">
+                <button
+                  className={tab === "gfx" ? "sel" : ""}
+                  onClick={() => setTab("gfx")}
+                >
+                  Graphismes
+                </button>
+                <button
+                  className={tab === "audio" ? "sel" : ""}
+                  onClick={() => setTab("audio")}
+                >
+                  Sons
+                </button>
               </span>
             </>
           ) : (
@@ -366,8 +400,17 @@ export default function RomRipModal(p: Props) {
             des pixels, on corrige le format, on donne une palette, puis on sélectionne
             au rectangle. La plupart des jeux commerciaux compressent leurs graphismes —
             ce qui reste brut, ce sont surtout les fontes, les cadres de menu, les jeux
-            de 1990-92 et les homebrews.
+            de 1990-92 et les homebrews. Les sons, eux, se trouvent presque à coup
+            sûr : un échantillon BRR se décrit lui-même.
           </div>
+        ) : tab === "audio" ? (
+          <RomAudioPanel
+            bytes={rom.bytes}
+            spc={spc}
+            stem={name || "rip"}
+            onSend={p.onSendSound}
+            setStatus={p.setStatus}
+          />
         ) : (
           <div className="romrip-body">
             {/* ---- format ------------------------------------------- */}

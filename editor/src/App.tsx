@@ -1904,6 +1904,10 @@ export default function App() {
           onSend={(target, fileName, bytes, trans) =>
             void ripSend(target, fileName, bytes, trans)
           }
+          onSendSound={(fileName, wav) => {
+            const ctx = resCtx();
+            if (ctx) void runImport(ctx, RESOURCES.sound, { name: fileName, bytes: wav });
+          }}
           setStatus={setStatus}
           onClose={() => setRipOpen(false)}
         />
