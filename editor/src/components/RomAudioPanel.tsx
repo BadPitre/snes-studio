@@ -13,6 +13,7 @@ import {
   type Spc,
   BRR_BLOCK,
   SFX_MAX_BRR,
+  aramVerdict,
   brrSizeAtBuild,
   decodeBrr,
   encodeWav,
@@ -89,6 +90,13 @@ export default function RomAudioPanel(p: Props) {
     [p.bytes, cur]
   );
 
+  // Only meaningful for an SPC: a ROM scan collects samples from the whole
+  // cart, so totalling them says nothing about any one song.
+  const aram = useMemo(
+    () => (p.spc && list && list.length ? aramVerdict(list) : null),
+    [p.spc, list]
+  );
+
   function runScan() {
     const t0 = performance.now();
     const s = scanBrr(p.bytes, minBlocks);
@@ -130,11 +138,24 @@ export default function RomAudioPanel(p: Props) {
       <div className="romrip-col">
         <div className="panel-title">Échantillons</div>
         {p.spc ? (
-          <div className="hint">
-            Répertoire du SPC{p.spc.game ? ` — ${p.spc.game}` : ""}
-            {p.spc.title ? ` / ${p.spc.title}` : ""}. Bornes et points de boucle exacts,
-            aucun scan nécessaire.
-          </div>
+          <>
+            <div className="hint">
+              Répertoire du SPC{p.spc.game ? ` — ${p.spc.game}` : ""}
+              {p.spc.title ? ` / ${p.spc.title}` : ""}. Bornes et points de boucle
+              exacts, aucun scan nécessaire.
+            </div>
+            {aram && (
+              <>
+                <div className="panel-title">Ce morceau tiendrait-il ?</div>
+                <div className={`hint${aram.fits ? "" : " romrip-why"}`}>{aram.verdict}</div>
+                <div className="hint">
+                  {aram.total} o de BRR pour {aram.budget} o d'ARAM laissés à un module
+                  par le driver snesmod. Le répertoire peut lister des échantillons que
+                  ce morceau n'utilise pas : c'est un majorant.
+                </div>
+              </>
+            )}
+          </>
         ) : (
           <>
             <label className="hint">

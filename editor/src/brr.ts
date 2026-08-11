@@ -233,3 +233,40 @@ export function brrSizeAtBuild(sampleCount: number, rate: number): number {
   const resampled = Math.round((sampleCount * SFX_RATE) / Math.max(1, rate));
   return Math.ceil(resampled / 16) * BRR_BLOCK;
 }
+
+// ---- could this song ever be a module? (X5-a) ------------------------
+//
+// Before anyone writes an SPC700 emulator to transcribe a song, there is
+// a cheaper question: would its instruments even fit? snesmod loads one
+// module at a time into ARAM, and what is left after its driver is the
+// hard ceiling. The number below is read off the vendored smconv itself
+// — it reports "649 bytes used, 57308 free" for the demo's smallest
+// module, and the same total from every other one.
+export const ARAM_MODULE_BUDGET = 57957;
+
+export function samplesTotal(list: BrrSample[]): number {
+  return list.reduce((n, s) => n + s.blocks * BRR_BLOCK, 0);
+}
+
+export interface AramVerdict {
+  total: number; // BRR bytes the directory advertises
+  budget: number;
+  fits: boolean;
+  // Samples are only the floor: pattern data and the echo region are
+  // charged on top, and echo alone runs to 28 KB on the demo's pollen8.
+  verdict: string;
+}
+
+export function aramVerdict(list: BrrSample[]): AramVerdict {
+  const total = samplesTotal(list);
+  const budget = ARAM_MODULE_BUDGET;
+  const pct = Math.round((total / budget) * 100);
+  let verdict: string;
+  if (total >= budget)
+    verdict = `Ne tiendra pas : les échantillons seuls font ${pct} % du budget (${total} o pour ${budget} o), avant même les patterns et l'écho.`;
+  else if (total > budget / 2)
+    verdict = `Serré : ${pct} % du budget rien qu'en échantillons. Les patterns s'ajoutent, et l'écho peut coûter jusqu'à 28 Ko — il faudra le couper et sans doute alléger le jeu d'instruments.`;
+  else
+    verdict = `Tient : ${pct} % du budget en échantillons, de la place pour les patterns. Garder l'écho à zéro.`;
+  return { total, budget, fits: total < budget, verdict };
+}
