@@ -12,3 +12,8 @@ default = 10
 name    = "heal"
 type    = "u8"
 default = 0
+
+[[fields]]
+name    = "count_var"
+type    = "u8"
+default = 0

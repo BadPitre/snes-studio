@@ -66,6 +66,19 @@ cargo run --release --manifest-path tools/Cargo.toml -p snesbuild -- \
   cart --engine engine
 ```
 
+It finds the toolchain through `--toolchain <PVSnesLib root>`, else
+`PVSNESLIB_HOME`. On **PowerShell** the `\` above is not a line
+continuation — it is passed as an argument — so keep the command on one
+line, or use a backtick:
+
+```powershell
+cargo run --release --manifest-path tools/Cargo.toml -p snesbuild -- cart --engine engine
+```
+
+`editor/src-tauri/vendor/` is NOT a valid `--toolchain` in a fresh
+clone: it is gitignored and staged by `npm run vendor` from a local
+PVSnesLib. Point at your own install instead.
+
 `engine/src/data/*.c` is **generated**. Editing it by hand is wasted work
 — the next `make data` overwrites it. Edit the JSON/PNG sources under
 `demo/` instead, or use the editor.
@@ -187,6 +200,7 @@ Then, depending on what you are touching:
 | Data formats or the VM | `docs/SPEC_FORMATS.md` |
 | datagen | `docs/TOOLS.md` |
 | The editor | `docs/EDITOR.md` |
+| The battle system | **open `combat_tour`** (Tools > Common events) — the battle IS a script, fought on a composed screen, with heroes in an ordinary database table; `docs/PLANNING_COMBAT_EN_EVENTS.md` then `docs/PLANNING_COMBAT_GENERIQUE.md` explain why |
 
 `ENGINE_CONSTRAINTS.md` is not optional reading for engine work. Most of
 what it lists is *silent*: legal C, a green build, and wrong output —

@@ -1,0 +1,25 @@
+# L'equipe du showcase. Une table comme une autre : la fenetre Database
+# l'edite, les events la lisent.
+[[entry]]
+id = "arven"
+name = "Arven"
+charset = "Heros"
+max_hp = 300
+max_mp = 40
+speed = 60
+attack = 12
+defense = 4
+magic = 6
+magic_def = 6
+
+[[entry]]
+id = "nadia"
+name = "Nadia"
+charset = "Villageois"
+max_hp = 240
+max_mp = 80
+speed = 72
+attack = 9
+defense = 3
+magic = 14
+magic_def = 4

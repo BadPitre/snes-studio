@@ -127,9 +127,19 @@ fn check_toolchain(cfg: &Cfg) -> Result<()> {
         ("wlalink", cfg.link()),
         ("816-opt", cfg.opt()),
         ("constify", cfg.constify()),
+        // The HEADERS, not only the binaries. A toolchain that compiles
+        // nothing because snes.h is absent used to surface forty lines
+        // later as a tcc include error, which names the symptom and not
+        // the cause — the classic half-staged vendor copy.
+        ("snes.h", cfg.toolchain.join("pvsneslib/include/snes.h")),
     ] {
         if !p.exists() {
-            bail!("{} not found at {} — wrong toolchain root?", what, p.display());
+            bail!(
+                "{} not found at {} — wrong toolchain root, or an \
+                 incomplete copy (re-run `npm run vendor` in editor/)",
+                what,
+                p.display()
+            );
         }
     }
     if !cfg.libdir().is_dir() {

@@ -31,7 +31,7 @@ interface Props {
   musicNames: string[]; // music stems (B1)
   vigNames: string[]; // vignette stems (B5)
   animNames: string[]; // names of the frame-by-frame animations (A1)
-  screenNames: string[]; // composed screens (B6bis)
+  screenNames: string[];
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   onOk: (commons: CommonEvent[]) => void;

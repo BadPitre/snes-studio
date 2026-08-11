@@ -25,6 +25,9 @@
                              Mode 7 zoom ramp */
 #define VM_WAIT_M7T 12    /* M7TURN "wait for the end": a world map's
                              animated rotation */
+/* 13 was VM_WAIT_BATTLE — freed in C4: BATTLE ends the script. */
+#define VM_WAIT_TARGET 13 /* TARGETSEL: the target cursor (V1) */
+#define VM_WAIT_BTLUP 14  /* BTLPOSE: a battler cell upload (V1) */
 
 /* VM state (WRAM) — spec §2. The C representation has no bank field:
    the scene's script block is already a far pointer (scene_ctx.scripts)
@@ -43,6 +46,8 @@ typedef struct
                       target of a ROUTE aimed at "this event" */
   u16 call_stack[8]; /* CALL return addresses */
   u8 call_sp;
+  u8 list_widget; /* U3-b: the widget the open list belongs to, so its
+      hooks can be found (0xFF = none) */
   u8 call_fb[8];   /* frame base saved per call */
   u16 frame[VM_FRAME_SLOTS]; /* parameters of the functions in progress */
   u8 frame_base;   /* first slot of the current function */
@@ -84,6 +89,19 @@ void vm_switch_set(u16 idx, u8 on);
    the switch stays ON — RM2003's model, where turning the switch off is
    the script's job. */
 u16 vm_common_auto(void);
+
+/* Battle hook (C4): offset of common event `ce`'s body in the current
+   scene's block (a type-2 CETAB entry), or SCRIPT_NONE. */
+u16 vm_common_hook(u8 ce);
+
+/* U3-b — runs a WIDGET HOOK to completion, right now. `ce` is the
+   common event datagen synthesised from the command block written on
+   the widget; 0xFF does nothing. A hook may not block (datagen refuses
+   a blocking command in one), so it runs SYNCHRONOUSLY inside the
+   caller — no third context to unwind on a scene change — and it never
+   re-enters. The execution state of whoever was running is saved and
+   put back. */
+void vm_ui_hook(u8 ce);
 
 /* PARALLEL common events (type 1): one step of the background context,
    every frame outside the System menu. Does not freeze the player, is

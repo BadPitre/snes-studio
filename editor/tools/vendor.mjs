@@ -125,6 +125,23 @@ if (missing.length) {
   process.exit(1);
 }
 
+// Verify what was actually STAGED, not just what the source held. This
+// script wipes the vendor folder before copying, so a run interrupted
+// midway leaves a tree that still has the binaries and no headers —
+// which passes every later check until the first #include fails.
+const staged = [
+  `devkitsnes/bin/816-tcc${exe}`,
+  "pvsneslib/include/snes.h",
+  "pvsneslib/lib/LoROM_SlowROM",
+];
+const absent = staged.filter((rel) => !existsSync(join(pvsDst, rel)));
+if (absent.length) {
+  console.error("vendor: the staged toolchain is incomplete:");
+  for (const m of absent) console.error(`  ${m}`);
+  console.error("An interrupted run? Delete src-tauri/vendor/ and try again.");
+  process.exit(1);
+}
+
 console.log(
   `vendor: engine ${(bytes(engineDst) / 1e6).toFixed(1)} MB, ` +
     `pvsneslib ${(bytes(pvsDst) / 1e6).toFixed(1)} MB -> ${VENDOR}`

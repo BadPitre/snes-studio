@@ -790,17 +790,15 @@ export function formKeyInput(cmd: Extract<Command, { c: "key_input" }>, x: FormC
 }
 
 export function formSysmenu(_cmd: Extract<Command, { c: "sysmenu" }>, _x: FormCtx): FormBody {
-  let body: JSX.Element | null = null;
-  let valid = true;
-  body = (
-    <span className="hint">
-      Ouvre le menu Système (sauvegarder/charger) quand le script se
-      termine. Le mapping START en dur a été retiré : mappe ta touche
-      avec « Touche pressée » + une condition, ou appelle cette
-      commande où tu veux.
+  const body = (
+    <span className="hint" style={{ color: "#ff9860" }}>
+      OBSOLÈTE (M2) : le menu Système est devenu une bibliothèque
+      d'events — remplacer par « Sauvegarder/Charger la partie », ou
+      par le menu du gabarit (common events menu_jeu / menu_sauvegarder).
+      Le build refuse cette commande.
     </span>
   );
-  return { body, valid };
+  return { body, valid: false };
 }
 
 export function formPicShow(cmd: Extract<Command, { c: "pic_show" }>, x: FormCtx): FormBody {
@@ -1470,6 +1468,7 @@ export function formScreen(cmd: Extract<Command, { c: "screen" }>, x: FormCtx): 
   );
   return { body, valid };
 }
+
 
 export function formScreenCall(cmd: Extract<Command, { c: "screen_call" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
@@ -2192,6 +2191,24 @@ export function formAnimPlay(cmd: Extract<Command, { c: "anim_play" }>, x: FormC
             </select>
           </label>
         )}
+        {cmd.anchor === "screen" && (
+          <>
+            <label>
+              X (px, centre 112)
+              <input
+                type="number" min={0} max={255} value={cmd.x ?? 112}
+                onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Y (px, centre 96)
+              <input
+                type="number" min={0} max={216} value={cmd.y ?? 96}
+                onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+              />
+            </label>
+          </>
+        )}
       </div>
       <label className="checkline">
         <input
@@ -2597,6 +2614,78 @@ export function formCall(cmd: Extract<Command, { c: "call" }>, x: FormCtx): Form
   return { body, valid };
 }
 
+export function formDbEntry(cmd: Extract<Command, { c: "db_entry" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const entries = x.p.db?.entries[cmd.table] ?? [];
+  const valid =
+    !!x.p.db?.schemas.some((s) => s.name === cmd.table) &&
+    entries.some((e) => e.id === cmd.entry) &&
+    cmd.dst >= 0 && cmd.dst < 256;
+  const body = !x.p.db ? (
+    <span className="hint" style={{ color: "#ff7070" }}>
+      Le projet n'a pas de database — créer une table via Tools → Database…
+    </span>
+  ) : (
+    <>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <label>
+          Table
+          <select
+            value={cmd.table}
+            autoFocus
+            onChange={(e) => {
+              const ns = e.target.value;
+              onChange({
+                ...cmd,
+                table: ns,
+                entry: x.p.db!.entries[ns]?.[0]?.id ?? "",
+              });
+            }}
+          >
+            {x.p.db.schemas.map((s) => (
+              <option key={s.name} value={s.name}>{s.title || s.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Fiche
+          <select
+            value={cmd.entry}
+            onChange={(e) => onChange({ ...cmd, entry: e.target.value })}
+          >
+            {entries.length === 0 && <option value="">(table vide)</option>}
+            {entries.map((en) => (
+              <option key={en.id} value={en.id}>{en.name || en.id}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Variable de destination
+        <div className="row" style={{ gap: 4 }}>
+          <input
+            type="number" min={0} max={255} value={cmd.dst}
+            onChange={(e) => onChange({ ...cmd, dst: Number(e.target.value) })}
+          />
+          <button className="browse" title="Choisir dans la liste des variables"
+            onClick={() =>
+              x.p.onPickVar("var", cmd.dst, (n) => onChange({ ...cmd, dst: n }))
+            }>
+            …
+          </button>
+        </div>
+        <span className="hint">
+          Écrit le NUMÉRO de la fiche dans la variable — de quoi la
+          désigner ensuite (« Lire la database » depuis une variable,
+          « Poser un combattant »…). Le numéro est résolu à la
+          génération : renommer ou déplacer la fiche ne casse rien.
+        </span>
+      </label>
+    </>
+  );
+  return { body, valid };
+}
+
 export function formDbRead(cmd: Extract<Command, { c: "db_read" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
   let valid = true;
@@ -2835,4 +2924,317 @@ export function formFace(cmd: Extract<Command, { c: "face" }>, x: FormCtx): Form
     </div>
   );
   return { body, valid };
+}
+
+// ---- The battle primitives (V1 — PLANNING_COMBAT_EN_EVENTS.md) ----
+
+export function formBtlPose(cmd: Extract<Command, { c: "btl_pose" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Emplacement
+          <select
+            value={cmd.slot}
+            onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+          >
+            {[0, 1, 2, 3].map((v) => (
+              <option key={v} value={v}>{v + 1}</option>
+            ))}
+          </select>
+        </label>
+        {cmd.show && (
+          <label>
+            Combattant (table heroes)
+            <select
+              value={cmd.entry_var !== undefined ? "@var" : String(cmd.entry ?? "")}
+              onChange={(e) => {
+                const v = e.target.value;
+                const { entry: _e, entry_var: _v, ...rest } = cmd;
+                if (v === "@var") onChange({ ...rest, entry_var: 0 });
+                else if (v === "") onChange(rest);
+                else onChange({ ...rest, entry: v });
+              }}
+            >
+              <option value="">(même numéro que l'emplacement)</option>
+              <option value="@var">Fiche désignée par une variable…</option>
+              {(x.p.db?.entries["heroes"] ?? []).map((en) => (
+                <option key={en.id} value={en.id}>{en.name || en.id}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label>
+          Action
+          <select
+            value={cmd.show ? 1 : 0}
+            onChange={(e) => onChange({ ...cmd, show: e.target.value === "1" })}
+          >
+            <option value={1}>Poser</option>
+            <option value={0}>Cacher (KO, fuite…)</option>
+          </select>
+        </label>
+      </div>
+      {cmd.show && cmd.entry_var !== undefined && (
+        <label>
+          Variable qui porte le n° de la fiche
+          <div className="row" style={{ gap: 4 }}>
+            <input
+              type="number" min={0} max={255} value={cmd.entry_var}
+              onChange={(e) => onChange({ ...cmd, entry_var: Number(e.target.value) })}
+            />
+            <button className="browse" title="Choisir dans la liste des variables"
+              onClick={() =>
+                x.p.onPickVar("var", cmd.entry_var ?? 0, (n) =>
+                  onChange({ ...cmd, entry_var: n }))
+              }>
+              …
+            </button>
+          </div>
+          <span className="hint">
+            L'équipe est une donnée : remplir cette variable avec
+            « Numéro d'une fiche » change le combattant posé.
+          </span>
+        </label>
+      )}
+      {cmd.show && (
+        <div className="row">
+          <label>
+            X (px)
+            <input
+              type="number" min={0} max={255} value={cmd.x}
+              onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Y (px)
+            <input
+              type="number" min={0} max={216} value={cmd.y}
+              onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      )}
+      <span className="hint">
+        Pose le battler 32x32 du héros (composé depuis son charset,
+        comme en combat) sur l'écran composé — la colonne de droite
+        classique : X 200, Y 40 + 32 par héros. La première pose
+        transfère la cellule (le script attend quelques frames) ;
+        les suivantes sont immédiates. Nécessite une table
+        « heroes » (Tools → Database) et un écran composé ouvert.
+      </span>
+    </>
+  );
+  return { body, valid: true };
+}
+
+export function formPopup(cmd: Extract<Command, { c: "popup" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const fromVar = cmd.value_var !== undefined;
+  const body = (
+    <>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={fromVar}
+          onChange={(e) => {
+            if (e.target.checked) onChange({ ...cmd, value_var: 0 });
+            else {
+              const { value_var: _drop, ...rest } = cmd;
+              onChange(rest);
+            }
+          }}
+        />
+        Valeur lue dans une variable (dégâts calculés par une fonction)
+      </label>
+      {fromVar ? (
+        <label>
+          Variable de la valeur
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={cmd.value_var}
+              onChange={(e) => onChange({ ...cmd, value_var: Number(e.target.value) })} />
+            <button className="browse"
+              onClick={() => x.p.onPickVar("var", cmd.value_var ?? 0,
+                (n) => onChange({ ...cmd, value_var: n }))}>
+              …
+            </button>
+          </div>
+          <span className="hint">{x.p.varNames[cmd.value_var ?? 0] || ""}</span>
+        </label>
+      ) : (
+        <label>
+          Valeur (0-9999)
+          <input
+            type="number" min={0} max={9999} value={cmd.value}
+            onChange={(e) => onChange({ ...cmd, value: Number(e.target.value) })}
+          />
+        </label>
+      )}
+      <div className="row">
+        <label>
+          X (px)
+          <input
+            type="number" min={0} max={255} value={cmd.x}
+            onChange={(e) => onChange({ ...cmd, x: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Y (px)
+          <input
+            type="number" min={0} max={216} value={cmd.y}
+            onChange={(e) => onChange({ ...cmd, y: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+      <span className="hint">
+        Le nombre saute en chiffres blancs à (X,Y) — monte de 12 px et
+        disparaît (48 frames), le popup de dégâts du combat. Un seul à
+        la fois : le plus récent remplace l'ancien. Sur un écran
+        composé uniquement ; non bloquant (enchaîner une Attente pour
+        le laisser lire). Pour un dégât : sur un monstre, viser
+        X + 16, Y + 8 de l'image posée.
+      </span>
+    </>
+  );
+  return { body, valid: true };
+}
+
+export function formClock(cmd: Extract<Command, { c: "clock" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const valid = cmd.lanes === 0 || cmd.base + cmd.lanes * 2 <= 256;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Nombre de jauges (0 = arrêter)
+          <input
+            type="number" min={0} max={8} value={cmd.lanes}
+            onChange={(e) => onChange({ ...cmd, lanes: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Première variable
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={cmd.base}
+              onChange={(e) => onChange({ ...cmd, base: Number(e.target.value) })} />
+            <button className="browse"
+              onClick={() => x.p.onPickVar("var", cmd.base, (n) => onChange({ ...cmd, base: n }))}>
+              …
+            </button>
+          </div>
+          <span className="hint">{x.p.varNames[cmd.base] || ""}</span>
+        </label>
+      </div>
+      <span className="hint">
+        L'horloge ATB, en variables ORDINAIRES : chaque frame, chaque
+        jauge gagne (sa vitesse ÷ 4), plafonnée à 255. Les paires se
+        suivent : jauge [base], vitesse [base+1], jauge [base+2],
+        vitesse [base+3]… Le script règle les vitesses (Database,
+        stats), lit les jauges (condition ≥ 255 = prêt), les remet à
+        0 après l'action ; un widget jauge lié à la variable la
+        DESSINE. Tourne partout (minuteur, course…) jusqu'à l'arrêt.
+        {!valid && " ⚠ base + 2×jauges dépasse la variable 255."}
+      </span>
+    </>
+  );
+  return { body, valid };
+}
+
+export function formTargetSel(cmd: Extract<Command, { c: "target_sel" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <label>
+        Côté visé
+        <select
+          value={cmd.ally ? 1 : 0}
+          onChange={(e) => onChange({ ...cmd, ally: e.target.value === "1" || undefined })}
+        >
+          <option value={0}>Les images posées (monstres)</option>
+          <option value={1}>L'équipe posée (soin, objet)</option>
+        </select>
+      </label>
+      <label>
+        Variable destination (slot choisi, 255 = annulé)
+        <div className="row" style={{ gap: 4 }}>
+          <input type="number" min={0} max={255} value={cmd.var}
+            onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+          <button className="browse"
+            onClick={() => x.p.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+            …
+          </button>
+        </div>
+        <span className="hint">{x.p.varNames[cmd.var] || ""}</span>
+      </label>
+      <label className="checkline">
+        <input type="checkbox" checked={cmd.cancel}
+          onChange={(e) => onChange({ ...cmd, cancel: e.target.checked })} />
+        B annule (la variable reçoit 255)
+      </label>
+      <span className="hint">
+        BLOQUANT : le curseur de cible du combat — parcourt les slots
+        occupés (pulsation) ou les battlers posés (clignotement),
+        directions pour naviguer, A valide. La variable reçoit le
+        NUMÉRO du slot (0-4) ou du héros (0-3) : la suite du script
+        vise ce slot (effet, dégâts). Rien à viser : 255 direct, sans
+        attendre.
+      </span>
+    </>
+  );
+  return { body, valid: true };
+}
+
+
+// ---- The SRAM primitive (M2 — PLANNING_MENU_EN_EVENTS.md) ----
+
+export function formSram(
+  cmd: Extract<Command, { c: "save_slot" | "load_slot" | "slot_info" }>,
+  x: FormCtx
+): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <label>
+        Slot (1-4)
+        <select
+          value={cmd.slot}
+          onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
+        >
+          {[1, 2, 3, 4].map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </label>
+      {cmd.c === "slot_info" && (
+        <label>
+          Variable destination (1 = occupé, 0 = vide)
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={cmd.var}
+              onChange={(e) => onChange({ ...cmd, var: Number(e.target.value) })} />
+            <button className="browse"
+              onClick={() => x.p.onPickVar("var", cmd.var, (n) => onChange({ ...cmd, var: n }))}>
+              …
+            </button>
+          </div>
+          <span className="hint">{x.p.varNames[cmd.var] || ""}</span>
+        </label>
+      )}
+      <span className="hint">
+        {cmd.c === "save_slot"
+          ? "Écrit l'état du jeu (scène, position, switches, variables) " +
+            "dans la SRAM. Immédiat — les menus autour sont tes events " +
+            "(voir menu_sauvegarder dans un projet neuf)."
+          : cmd.c === "load_slot"
+            ? "Recharge la partie du slot : l'écran se rouvre sur la scène " +
+              "sauvegardée et CE SCRIPT S'ARRÊTE (l'invariant du warp). Un " +
+              "slot vide ne change rien et le script continue — tester " +
+              "d'abord avec « Slot occupé ? »."
+            : "Met 1 dans la variable si le slot contient une sauvegarde " +
+              "valide, 0 sinon — pour afficher « Partie 1 / (vide) » et " +
+              "protéger le Charger."}
+      </span>
+    </>
+  );
+  return { body, valid: true };
 }

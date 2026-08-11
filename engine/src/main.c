@@ -14,7 +14,6 @@
 #include "textbox.h"
 #include "vm.h"
 #include "save.h"
-#include "sysmenu.h"
 #include "audio.h"
 #include "timer.h"
 #include "screenfx.h"
@@ -27,6 +26,7 @@
 #include "weather.h"
 #include "hdmafx.h"
 #include "stage.h"
+#include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
 #include "anim.h"
@@ -211,7 +211,6 @@ int main(void)
   textbox_init();
   ui_screen_init(); /* shared BG3 buffer (M1): map cleared with the screen off */
   vm_init();
-  sysmenu_init();
   timer_init();
   screenfx_init();
   overlay_init(); /* permanent HUD from the uigen layout */
@@ -255,14 +254,12 @@ int main(void)
       vm_was_active = 0;
       actors_resolve_pages();
     }
-    else if (sysmenu_active())
+    else if (save_take_load())
     {
-      sysmenu_update(); /* System menu: save / load */
-      if (sysmenu_take_load())
-      {
-        do_warp(save_info.scene, save_info.x, save_info.y, 0, 0);
-        player.dir = save_info.dir; /* saved direction */
-      }
+      /* the SRAM load command (M2): the script read the slot and died
+         with the request — the restore is an ordinary warp */
+      do_warp(save_info.scene, save_info.x, save_info.y, 0, 0);
+      player.dir = save_info.dir; /* saved direction */
     }
     else
     {
@@ -324,13 +321,10 @@ int main(void)
               (u8)((player.y + 8) >> 4), 1, 0);
     }
 
-    if (!sysmenu_active())
-    {
-      actors_update(); /* routes (even during a script — cutscenes) +
-                          NPC wandering (frozen during scripts) */
-      timer_tick();    /* the timer runs during dialogues too */
-      vm_parallel_update(); /* "parallel" common events (v0.16) */
-    }
+    actors_update(); /* routes (even during a script — cutscenes) +
+                        NPC wandering (frozen during scripts) */
+    timer_tick();    /* the timer runs during dialogues too */
+    vm_parallel_update(); /* "parallel" common events (v0.16) */
 
     screenfx_update(); /* scripted fade/flash/shake (v0.15) */
     effect_update();   /* drift of the effect layer (S9) */
@@ -339,6 +333,7 @@ int main(void)
     debug_update();    /* Start+Select+R panel (S6) — inert without
                           datagen's --debug flag; AFTER overlay */
     stage_update();    /* composed screen: map rows still to lay down (B3) */
+    btlprim_update();  /* battle primitives (V1): clock + stage OAM */
     m7_update();       /* Mode 7: one step of the zoom ramp (M7-A) */
     camera_update();
     if (!picture_active() && !stage_active() && !m7_active())
@@ -414,6 +409,7 @@ int main(void)
       vbl_open();        /* stage_vblank is not counted either */
       ui_screen_vblank();
       vig_vblank();      /* vignette frames (B5) */
+      btlprim_vblank();  /* battler cells + digits (V1), under the budget */
     }
     else
     {

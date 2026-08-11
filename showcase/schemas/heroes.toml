@@ -1,0 +1,46 @@
+# Table des heros (G1) — une table de database ORDINAIRE. Le champ
+# `charset` est le seul que datagen lit : il compose le combattant 32x32
+# de la fiche depuis ce bloc de la planche de sprites. Tout le reste est
+# TA donnee, lue par TES events (« Lire la database »).
+name  = "heroes"
+title = "Heros"
+max   = 8
+
+[[fields]]
+name = "charset"
+type = "charset"
+
+[[fields]]
+name    = "max_hp"
+type    = "u16"
+default = 100
+
+[[fields]]
+name    = "max_mp"
+type    = "u16"
+default = 0
+
+[[fields]]
+name    = "speed"
+type    = "u8"
+default = 50
+
+[[fields]]
+name    = "attack"
+type    = "u8"
+default = 5
+
+[[fields]]
+name    = "defense"
+type    = "u8"
+default = 0
+
+[[fields]]
+name    = "magic"
+type    = "u8"
+default = 5
+
+[[fields]]
+name    = "magic_def"
+type    = "u8"
+default = 0

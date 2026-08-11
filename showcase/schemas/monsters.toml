@@ -37,3 +37,22 @@ optional = true
 name     = "cry_sfx"
 type     = "sound"
 optional = true
+
+[[fields]]
+name    = "speed"
+type    = "u8"
+default = 40
+
+[[fields]]
+name    = "magic"
+type    = "u8"
+default = 0
+
+[[fields]]
+name    = "magic_def"
+type    = "u8"
+default = 0
+
+[[fields]]
+name = "ai"
+type = "build"

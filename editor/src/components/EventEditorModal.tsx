@@ -22,6 +22,7 @@ import {
   formCampan,
   formChoice,
   formDbRead,
+  formDbEntry,
   formFace,
   formFlash,
   formHeroLocWarpVar,
@@ -40,6 +41,10 @@ import {
   formRoute,
   formScrHideScrShow,
   formScreen,
+  formBtlPose,
+  formPopup,
+  formClock,
+  formTargetSel,
   formScreenCall,
   formSetAdd,
   formSetpos,
@@ -59,6 +64,7 @@ import {
   formSwappos,
   formSwitch,
   formSysmenu,
+  formSram,
   formTimer,
   formTint,
   formUiShow,
@@ -257,7 +263,13 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "key_input":
       return `Touche pressée → [${c.var}]${c.wait ? " (attendre)" : ""}`;
     case "sysmenu":
-      return "Ouvrir le menu Système (sauvegarde)";
+      return "Ouvrir le menu Système (OBSOLÈTE — bibliothèque menu, M2)";
+    case "save_slot":
+      return `Sauvegarder la partie (slot ${c.slot})`;
+    case "load_slot":
+      return `Charger la partie (slot ${c.slot})`;
+    case "slot_info":
+      return `Slot ${c.slot} occupé ? → [${c.var}]`;
     case "pic_show":
       return `Afficher l'image ${
         c.pic_var !== undefined ? `n°[${c.pic_var}]` : `« ${c.pic || "?"} »`
@@ -299,6 +311,21 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
       );
     case "screen":
       return `Aller à l'écran « ${c.name} »`;
+    case "btl_pose":
+      return c.show
+        ? `Poser ${c.entry !== undefined && c.entry !== "" ? `« ${c.entry} »` : `le combattant ${c.slot + 1}`} en (${c.x},${c.y}) [empl. ${c.slot + 1}]`
+        : `Cacher le combattant de l'emplacement ${c.slot + 1}`;
+    case "popup":
+      return `Popup : ${
+        c.value_var !== undefined ? `[${c.value_var}]` : c.value
+      } en (${c.x},${c.y})`;
+    case "clock":
+      return c.lanes
+        ? `Horloge de jauges : ${c.lanes} voie(s) depuis [${c.base}]`
+        : "Horloge de jauges : stop";
+    case "target_sel":
+      return `Curseur de cible (${c.ally ? "équipe" : "monstres"}) → [${
+        c.var}]${c.cancel ? "" : " (B désactivé)"}`;
     case "screen_call":
       return `Appeler le script d'écran « ${c.script} »`;
     case "stage_open":
@@ -395,6 +422,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "db_read":
       return `Variable [${c.dst}] = ${c.table}[${
         c.from === "var" ? `variable [${c.entry}]` : c.entry}].${c.field}`;
+    case "db_entry":
+      return `Variable [${c.dst}] = n° de ${c.table}[${c.entry}]`;
   }
 }
 
@@ -453,6 +482,7 @@ function cmdTitle(c: Command["c"]): string {
     shake: "Secouer l'écran",
     call: "Appeler un common event",
     db_read: "Lire la database",
+    db_entry: "Numéro d'une fiche (database)",
     pic_show: "Afficher une image",
     pic_move: "Déplacer l'image",
     pic_hide: "Effacer l'image",
@@ -720,6 +750,12 @@ export function CommandListEditor(props: {
         return { c: "key_input", var: 0, wait: true, keys: [1, 2, 3, 4, 5, 6] };
       case "sysmenu":
         return { c: "sysmenu" };
+      case "save_slot":
+        return { c: "save_slot", slot: 1 };
+      case "load_slot":
+        return { c: "load_slot", slot: 1 };
+      case "slot_info":
+        return { c: "slot_info", slot: 1, var: 0 };
       case "pic_show":
         return { c: "pic_show", pic: "" };
       case "pic_move":
@@ -736,6 +772,23 @@ export function CommandListEditor(props: {
         return { c: "weather", kind: "rain", power: 2 };
       case "screen":
         return { c: "screen", name: "", dur: 20 };
+      case "btl_pose":
+        return { c: "btl_pose", slot: 0, x: 200, y: 40, show: true };
+      case "db_entry": {
+        const sc = props.db?.schemas[0];
+        return {
+          c: "db_entry",
+          table: sc?.name ?? "",
+          entry: props.db?.entries[sc?.name ?? ""]?.[0]?.id ?? "",
+          dst: 0,
+        };
+      }
+      case "popup":
+        return { c: "popup", value: 100, x: 112, y: 96 };
+      case "clock":
+        return { c: "clock", base: 236, lanes: 4 };
+      case "target_sel":
+        return { c: "target_sel", var: 0, ally: false, cancel: true };
       case "screen_call":
         return { c: "screen_call", script: "" };
       case "stage_open":
@@ -1658,6 +1711,11 @@ function CommandForm(props: CommandFormProps) {
     case "sysmenu":
       ({ body, valid } = formSysmenu(cmd, x));
       break;
+    case "save_slot":
+    case "load_slot":
+    case "slot_info":
+      ({ body, valid } = formSram(cmd, x));
+      break;
     case "pic_show":
       ({ body, valid } = formPicShow(cmd, x));
       break;
@@ -1691,6 +1749,18 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "screen":
       ({ body, valid } = formScreen(cmd, x));
+      break;
+    case "btl_pose":
+      ({ body, valid } = formBtlPose(cmd, x));
+      break;
+    case "popup":
+      ({ body, valid } = formPopup(cmd, x));
+      break;
+    case "clock":
+      ({ body, valid } = formClock(cmd, x));
+      break;
+    case "target_sel":
+      ({ body, valid } = formTargetSel(cmd, x));
       break;
     case "screen_call":
       ({ body, valid } = formScreenCall(cmd, x));
@@ -1760,6 +1830,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "db_read":
       ({ body, valid } = formDbRead(cmd, x));
+      break;
+    case "db_entry":
+      ({ body, valid } = formDbEntry(cmd, x));
       break;
     case "shake":
       ({ body, valid } = formShake(cmd, x));

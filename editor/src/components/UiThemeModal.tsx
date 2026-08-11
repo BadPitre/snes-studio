@@ -8,27 +8,62 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../types";
+import type { Database } from "../db";
 import { assetStem } from "../types";
 import type { DialogStyle, NodeKind, UiLayout2, UiNode } from "../uilayout";
 import {
+  ANCHORS,
+  NODE_KINDS,
+  anchorOrigin,
   childrenOf,
   flatten,
   setPicSizes,
+  setDbTables,
+  imageMode,
+  isCanvas,
   isContainer,
   layoutToToml,
   nodeFramed,
   parseLayoutToml,
-  rootAncestor,
   rootsOf,
   sizeOf,
 } from "../uilayout";
 import {
   ensureProjectDir,
+  loadAssetPalette,
   loadAssetPng,
   readProjectText,
   writeProjectText,
 } from "../io";
 import VarListModal from "./VarListModal";
+import { CommandListEditor } from "./EventEditorModal";
+import type { Scene, TextEntry, TintPreset } from "../types";
+
+/** U3-b — the command blocks written ON a widget (ui/hooks.json). */
+export const HOOKS = [
+  ["on_move", "Au déplacement du curseur", "liste"],
+  ["on_confirm", "À la validation (A)", "liste"],
+  ["on_cancel", "À l'annulation (B)", "liste"],
+  ["on_show", "À l'affichage", "tous"],
+  ["on_hide", "Au masquage", "tous"],
+] as const;
+
+export interface WidgetHooks {
+  row_var?: number;
+  on_move?: unknown[];
+  on_confirm?: unknown[];
+  on_cancel?: unknown[];
+  on_show?: unknown[];
+  on_hide?: unknown[];
+}
+
+export async function loadUiHooks(root: string): Promise<Record<string, WidgetHooks>> {
+  try {
+    return JSON.parse(await readProjectText(root, "ui/hooks.json"));
+  } catch {
+    return {};
+  }
+}
 
 interface Props {
   root: string;
@@ -41,6 +76,24 @@ interface Props {
   fonts: string[]; // the project's fonts (S1) — the default (assets.font) first
   varNames: string[];
   switchNames: string[];
+  /** the project's database — a list widget can source its rows on a
+   *  table, and the canvas must show the rows the engine will draw */
+  db: Database | null;
+  // U3-b — everything the ordinary event-command editor needs, so a
+  // widget's hook is written with the SAME tool as any other script
+  sceneNames: string[];
+  scenes: Record<string, Scene>;
+  charsetNames: string[];
+  texts: TextEntry[];
+  pictures: string[];
+  mode7Images: string[];
+  tintPresets: TintPreset[];
+  soundNames: string[];
+  musicNames: string[];
+  vigNames: string[];
+  animNames: string[];
+  screenNames: string[];
+  onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
   // the project's ui + widgets (roots) + dialogue styles — ui/layout.toml
   // is written BEFORE the call, the lists feed the event commands
@@ -49,27 +102,40 @@ interface Props {
 }
 
 const KIND_LABELS: Record<NodeKind, string> = {
-  window: "🗔 Fenêtre",
+  canvas: "🗔 Canvas",
   vbox: "☰ Liste verticale",
   hbox: "⋯ Boîte horizontale",
   label: "🄰 Label",
   image: "🖼 Image",
-  value: "№ Valeur",
-  gauge: "▮ Jauge",
-  icon_row: "♥ Cœurs",
-  icon_value: "♦ Icône + compteur",
-  variable_display: "🗇 Libellé + valeur",
   list: "▤ Liste (curseur)",
+  // out of the palette, still edited when a project holds one
+  window: "🗔 Fenêtre (ancien)",
+  value: "№ Valeur (ancien)",
+  gauge: "▮ Jauge (ancien)",
+  icon_row: "♥ Cœurs (ancien)",
+  icon_value: "♦ Icône + compteur (ancien)",
+  variable_display: "🗇 Libellé + valeur (ancien)",
+};
+
+// What each palette button says it is for — the five widgets that left
+// the palette are all doable with these six.
+const KIND_HELP: Partial<Record<NodeKind, string>> = {
+  canvas: "Rectangle de placement. Coche « Cadre » pour l'habiller du windowskin.",
+  label: "Texte. \\v[3] y affiche la variable 3, \\v[3,4] calée sur 4 colonnes, \\v[3,04] avec des zéros.",
+  image: "Icônes ou image du projet. Mode sliced = cadre étirable, fill = jauge / cœurs.",
+  list: "Menu navigable, ouvert par la commande « Choix dans une liste ».",
 };
 
 // a fresh node per type (the designer fills in id/pos/parent)
 function newNode(kind: NodeKind): Partial<UiNode> {
   switch (kind) {
-    case "window": return { size: [10, 4] };
+    case "canvas": case "window": return { size: [10, 4] };
     case "vbox": case "hbox": return {};
     case "label": return { text: "Texte" };
     case "value": return { var: 0, width: 3 };
-    case "image": return { icon: 0, width: 1 };
+    // a fresh image is a SOLID COLOUR rectangle: something you can see
+    // and place before any artwork exists
+    case "image": return { color: 1, size: [4, 2] };
     case "gauge": return { var: 0, max: 10, icon: 0, size: [6, 1], frame: false };
     case "icon_row": return { var: 0, max: 12, icon: 0, size: [6, 1], frame: false };
     case "icon_value": return { var: 0, icon: 0, width: 5, frame: false };
@@ -77,6 +143,72 @@ function newNode(kind: NodeKind): Partial<UiNode> {
     case "list": return { items: ["Attaque", "Magie", "Objet", "Fuite"] };
   }
 }
+
+// Objects whose size the compiler INSISTS on: no "auto" to go back to.
+function SIZE_REQUIRED(n: UiNode): boolean {
+  return (
+    isCanvas(n.type) ||
+    n.type === "gauge" ||
+    n.type === "icon_row" ||
+    n.type === "variable_display" ||
+    (n.type === "list" && !!n.source) ||
+    (n.type === "image" &&
+      (n.color !== undefined || imageMode(n) === "sliced" ||
+        (imageMode(n) === "fill" && n.pic === undefined)))
+  );
+}
+
+/** The ⛓ affordance, Unreal's "Bind" on a property: a fixed value on the
+ *  left, or "suit la variable […]" on the right. The mechanism is the
+ *  engine's own — the widget WATCHES the variable, nothing writes back. */
+function BindRow(props: {
+  label: string;
+  bound: boolean;
+  onBind: (on: boolean) => void;
+  varNum?: number;
+  onVar?: (n: number) => void;
+  pick?: (cur: number, cb: (n: number) => void) => void;
+  varName?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bindrow">
+      <div className="row" style={{ alignItems: "center", gap: 4 }}>
+        <span className="hint" style={{ flex: 1 }}>{props.label}</span>
+        <button
+          className={"bindbtn" + (props.bound ? " on" : "")}
+          title={props.bound
+            ? "Valeur pilotée par une variable — cliquer pour la refixer"
+            : "Lier cette propriété à une variable de jeu"}
+          onClick={() => props.onBind(!props.bound)}
+        >
+          ⛓
+        </button>
+      </div>
+      {props.bound ? (
+        <>
+          <div className="row" style={{ gap: 4 }}>
+            <input type="number" min={0} max={255} value={props.varNum ?? 0}
+              onChange={(e) => props.onVar?.(Number(e.target.value))} />
+            <button className="browse" title="Choisir dans la liste des variables"
+              onClick={() => props.pick?.(props.varNum ?? 0, (n) => props.onVar?.(n))}>
+              …
+            </button>
+          </div>
+          <span className="hint">suit la variable {props.varName || props.varNum}</span>
+        </>
+      ) : (
+        props.children
+      )}
+    </div>
+  );
+}
+
+const ANCHOR_TITLES: Record<string, string> = {
+  tl: "Haut gauche", tc: "Haut centre", tr: "Haut droite",
+  ml: "Milieu gauche", mc: "Centre", mr: "Milieu droite",
+  bl: "Bas gauche", bc: "Bas centre", br: "Bas droite",
+};
 
 export async function loadUiLayout2(root: string): Promise<UiLayout2> {
   try {
@@ -92,6 +224,10 @@ export default function UiThemeModal(props: Props) {
   const [font, setFont] = useState<ImageBitmap | null>(null);
   const [skin, setSkin] = useState<ImageBitmap | null>(null);
   const [icons, setIcons] = useState<ImageBitmap | null>(null);
+  // The UI layer's four colours — the font's palette, in palette order,
+  // which is the order the compiler indexes them by. What the image
+  // widget's colour picker offers.
+  const [uiPal, setUiPal] = useState<string[]>([]);
   // the project's pictures (the "Image" widget in picture mode): bitmap
   // by NAME (the stem, as in the event commands)
   const [pics, setPics] = useState<Record<string, ImageBitmap>>({});
@@ -101,13 +237,23 @@ export default function UiThemeModal(props: Props) {
   const [styleIdx, setStyleIdx] = useState(0);
   const [stSkin, setStSkin] = useState<ImageBitmap | null>(null);
   const [stFont, setStFont] = useState<ImageBitmap | null>(null);
-  // widget (root) being edited — the others are dimmed on the canvas;
-  // null = the whole screen (creating a widget opens the designer
-  // straight onto it)
+  // widget (root) being edited — the canvas shows ONLY that widget;
+  // null = the whole screen ("Vue d'ensemble", every widget in context)
   const [scope, setScope] = useState<string | null>(null);
   // two pages: the widget list -> the designer
   const [view, setView] = useState<"list" | "design">("list");
   const [varPick, setVarPick] = useState<{ current: number; cb: (n: number) => void } | null>(null);
+  // undo / redo: snapshots of the whole layout. A drag COALESCES — it
+  // would otherwise push one entry per mouse move and undo would crawl
+  // back pixel by pixel.
+  const [past, setPast] = useState<UiLayout2[]>([]);
+  const [future, setFuture] = useState<UiLayout2[]>([]);
+  const coalesceRef = useRef<string | null>(null);
+  // Ctrl+C / Ctrl+V in the tree: the copied node and its descendants
+  const [clip, setClip] = useState<UiNode[] | null>(null);
+  // U3-b — the hook blocks, keyed by widget id, and the one being edited
+  const [hooks, setHooks] = useState<Record<string, WidgetHooks>>({});
+  const [hookEdit, setHookEdit] = useState<{ id: string; k: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // drag in progress: moving a root or resizing
   const dragRef = useRef<
@@ -118,7 +264,11 @@ export default function UiThemeModal(props: Props) {
 
   useEffect(() => {
     void loadUiLayout2(props.root).then(setLay);
+    void loadUiHooks(props.root).then(setHooks);
     void loadAssetPng(props.root, props.project.assets.font).then(setFont).catch(() => {});
+    void loadAssetPalette(props.root, props.project.assets.font)
+      .then((p) => setUiPal(p.slice(0, 4)))
+      .catch(() => setUiPal([]));
   }, [props.root]);
   useEffect(() => {
     if (ui.windowskin)
@@ -150,6 +300,19 @@ export default function UiThemeModal(props: Props) {
       alive = false;
     };
   }, [props.project.pictures, props.root]);
+  // Tables a list can source its rows on (names + columns), for the
+  // inspector's pickers and the faithful preview.
+  const dbTables = useMemo(() => {
+    const out: Record<string, { cols: string[]; names: string[] }> = {};
+    for (const sc of props.db?.schemas ?? []) {
+      out[sc.name] = {
+        cols: sc.fields.map((f) => f.name),
+        names: (props.db?.entries[sc.name] ?? []).map((e) => String(e.name || e.id)),
+      };
+    }
+    return out;
+  }, [props.db]);
+  useEffect(() => setDbTables(dbTables), [dbTables]);
   useEffect(() => {
     const sizes: Record<string, [number, number]> = {};
     for (const [name, bmp] of Object.entries(pics))
@@ -197,7 +360,27 @@ export default function UiThemeModal(props: Props) {
   }, [widgetFontKey, props.root]);
 
   const iconCount = icons ? Math.floor(icons.width / 8) : 0;
-  const flat = useMemo(() => (lay ? flatten(lay, iconCount) : null), [lay, iconCount, pics]);
+  const flat = useMemo(
+    () => (lay ? flatten(lay, iconCount) : null),
+    [lay, iconCount, pics, dbTables]
+  );
+
+  // ids under the edited widget — with a scope the canvas draws (and
+  // hit-tests) ONLY those nodes; null = whole-screen view
+  const scopeIds = useMemo(() => {
+    if (!scope || !lay) return null;
+    const ids = new Set([scope]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const n of lay.nodes)
+        if (n.parent && ids.has(n.parent) && !ids.has(n.id)) {
+          ids.add(n.id);
+          grew = true;
+        }
+    }
+    return ids;
+  }, [scope, lay]);
 
   const iconUrls = useMemo(() => {
     if (!icons) return [] as string[];
@@ -260,8 +443,10 @@ export default function UiThemeModal(props: Props) {
     };
 
     // primitives in emission order (panels come before their children —
-    // the same z-order as the engine)
+    // the same z-order as the engine); a scoped widget hides everything
+    // else
     for (const p of flat.prims) {
+      if (scopeIds && !scopeIds.has(p.nodeId)) continue;
       // the widget's font (S2) — the project's if absent or not loaded
       const pf = p.font ? fontMap[p.font] ?? font : font;
       const f = p.frame;
@@ -277,7 +462,7 @@ export default function UiThemeModal(props: Props) {
         case 1:
         case 2: {
           const cells = p.vertical ? ch : cw;
-          const fill = Math.floor(cells * 2 * 0.58);
+          const fill = Math.floor(cells * 2 * (p.pad ? (p.pad - 1) / 100 : 0.58));
           for (let k = 0; k < cells; k++) {
             const d = Math.max(0, Math.min(2, fill - k * 2));
             const n = p.icon + 2 - d;
@@ -293,6 +478,8 @@ export default function UiThemeModal(props: Props) {
           break;
         }
         case 5:
+        case 11: // dynamic label: the flattener already substituted a
+          // plausible value for each \v[n]
           text(p.text, x0, y0, cw, pf);
           break;
         case 6:
@@ -305,6 +492,71 @@ export default function UiThemeModal(props: Props) {
           // simulate the colour reduction.
           const bmp = p.pic ? pics[p.pic] : undefined;
           if (bmp) ctx.drawImage(bmp, x0 * 8, y0 * 8);
+          // bound to a variable: the canvas can only show candidate 0,
+          // so it says so rather than pretend
+          if (p.picVar !== undefined) {
+            ctx.fillStyle = "rgba(10,36,106,0.85)";
+            ctx.fillRect(x0 * 8, y0 * 8, 8, 8);
+            ctx.fillStyle = "#fff";
+            ctx.font = "7px monospace";
+            ctx.fillText("v", x0 * 8 + 2, y0 * 8 + 6);
+          }
+          break;
+        }
+        case 12:
+        case 13: {
+          // a solid colour; filled shows the same 58 % as a gauge does
+          ctx.fillStyle = uiPal[p.icon] ?? "#c8c8c8";
+          if (p.kind === 12) ctx.fillRect(x0 * 8, y0 * 8, cw * 8, ch * 8);
+          else {
+            const cells = p.vertical ? ch : cw;
+            const amount = p.pad ? (p.pad - 1) / 100 : 0.58;
+            const fill = Math.floor(cells * 2 * amount);
+            for (let k = 0; k < cells; k++) {
+              const d = Math.max(0, Math.min(2, fill - k * 2));
+              if (d === 0) continue;
+              if (p.vertical)
+                ctx.fillRect(x0 * 8, (y0 + ch - 1 - k) * 8 + (d === 1 ? 4 : 0), cw * 8, d === 1 ? 4 : 8);
+              else ctx.fillRect((x0 + k) * 8, y0 * 8, d === 1 ? 4 : 8, ch * 8);
+            }
+          }
+          break;
+        }
+        case 9: {
+          // sliced: the 3x3 picture stretched over the widget, exactly as
+          // the engine will lay its nine chars out
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (!bmp) break;
+          for (let ty = 0; ty < ch; ty++)
+            for (let tx = 0; tx < cw; tx++) {
+              const sx = tx === 0 ? 0 : tx === cw - 1 ? 2 : 1;
+              const sy = ty === 0 ? 0 : ty === ch - 1 ? 2 : 1;
+              ctx.drawImage(bmp, sx * 8, sy * 8, 8, 8, (x0 + tx) * 8, (y0 + ty) * 8, 8, 8);
+            }
+          break;
+        }
+        case 10: {
+          // fill: the preview shows the same 58 % as the gauge, so the
+          // two read alike side by side
+          const bmp = p.pic ? pics[p.pic] : undefined;
+          if (!bmp) break;
+          const cells = p.vertical ? ch : cw;
+          const fill = Math.floor(cells * 2 * (p.pad ? (p.pad - 1) / 100 : 0.58));
+          for (let k = 0; k < cells; k++) {
+            const d = Math.max(0, Math.min(2, fill - k * 2));
+            if (d === 0) continue;
+            const half = d === 1;
+            if (p.vertical) {
+              const ty = ch - 1 - k;
+              for (let tx = 0; tx < cw; tx++)
+                ctx.drawImage(bmp, tx * 8, ty * 8 + (half ? 4 : 0), 8, half ? 4 : 8,
+                  (x0 + tx) * 8, (y0 + ty) * 8 + (half ? 4 : 0), 8, half ? 4 : 8);
+            } else {
+              for (let ty = 0; ty < ch; ty++)
+                ctx.drawImage(bmp, k * 8, ty * 8, half ? 4 : 8, 8,
+                  (x0 + k) * 8, (y0 + ty) * 8, half ? 4 : 8, 8);
+            }
+          }
           break;
         }
         case 0: {
@@ -315,36 +567,36 @@ export default function UiThemeModal(props: Props) {
           break;
         }
         case 7: {
-          // cursor list (B6): one item per row, '>' on the first
+          // cursor list (B6): one item per row, the cursor ('>' or an
+          // icon — pad flag) on the first; a scrolling list shows the
+          // 'v' indicator (the preview always sits at the top)
           const items = p.text.split("\n");
           for (let k = 0; k < items.length && k < ch; k++) {
-            if (k === 0) text(">", x0, y0 + k, 1, pf);
+            if (k === 0) {
+              if (p.pad) icon(p.icon, x0 * 8, y0 * 8);
+              else text(">", x0, y0, 1, pf);
+            }
             text(items[k], x0 + 1, y0 + k, cw - 1, pf);
           }
+          if (items.length > ch) text("v", x0 + cw - 1, y0 + ch - 1, 1, pf);
           break;
         }
       }
     }
     // the dialogue's windows (areas forbidden to widgets) — in dialogs
-    // mode, those of the SELECTED style, with ITS skin and ITS font
-    const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
-    const dSkin = st?.windowskin ? stSkin : skin;
-    const dFont = st?.font ? stFont : font;
-    const m = st ? st.message ?? lay.message : lay.message;
-    win(m.pos[0], m.pos[1], m.size[0], m.size[1], dSkin);
-    text(st ? `Style ${st.id}` : "Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4, dFont);
-    const c = st ? st.choice ?? m : lay.choice;
-    if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
-      win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
-      text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
-    }
-    // widget mode: the OTHER widgets are dimmed (context)
-    if (scope) {
-      ctx.fillStyle = "rgba(10, 12, 16, 0.55)";
-      for (const r of rootsOf(lay.nodes)) {
-        if (r.id === scope || !flat.rects[r.id]) continue;
-        const rr = flat.rects[r.id];
-        ctx.fillRect(rr.x * 8, rr.y * 8, rr.w * 8, rr.h * 8);
+    // mode, those of the SELECTED style, with ITS skin and ITS font.
+    // Hidden while a widget is scoped: only the edited widget is shown.
+    if (!scopeIds) {
+      const st = props.mode === "dialogs" && styleIdx > 0 ? lay.styles[styleIdx - 1] : undefined;
+      const dSkin = st?.windowskin ? stSkin : skin;
+      const dFont = st?.font ? stFont : font;
+      const m = st ? st.message ?? lay.message : lay.message;
+      win(m.pos[0], m.pos[1], m.size[0], m.size[1], dSkin);
+      text(st ? `Style ${st.id}` : "Fenetre message", m.pos[0] + 2, m.pos[1] + 1, m.size[0] - 4, dFont);
+      const c = st ? st.choice ?? m : lay.choice;
+      if (c.pos[0] !== m.pos[0] || c.pos[1] !== m.pos[1]) {
+        win(c.pos[0], c.pos[1], c.size[0], c.size[1], dSkin);
+        text("> Choix", c.pos[0] + 2, c.pos[1] + 1, c.size[0] - 4, dFont);
       }
     }
     // selection: a white/black frame + a resize handle
@@ -362,27 +614,63 @@ export default function UiThemeModal(props: Props) {
         ctx.strokeRect((r.x + r.w) * 8 - 4.5, (r.y + r.h) * 8 - 4.5, 5, 5);
       }
     }
-  }, [lay, flat, font, skin, icons, iconCount, selId, scope, styleIdx, stSkin, stFont, fontMap, props.mode]);
+  }, [lay, flat, font, skin, icons, iconCount, selId, scopeIds, styleIdx, stSkin, stFont, fontMap, props.mode]);
+
+  // keyboard shortcuts of the structure tree — installed once, routed
+  // through a ref so the handler always sees the current layout
+  const kbdRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => kbdRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   if (!lay || !flat) return null;
   const sel = lay.nodes.find((n) => n.id === selId);
 
-  const patchNode = (id: string, patch: Partial<UiNode>) => {
-    setLay({
-      ...lay,
-      nodes: lay.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-    });
+  // Every change to the layout goes through commit: that is what makes
+  // undo possible. `coalesce` folds a whole drag into one entry.
+  const HISTORY_MAX = 64;
+  const commit = (next: UiLayout2, coalesce?: string) => {
+    const keep = coalesce !== undefined && coalesceRef.current === coalesce;
+    coalesceRef.current = coalesce ?? null;
+    if (!keep) setPast((p) => [...p, lay].slice(-HISTORY_MAX));
+    setFuture([]);
+    setLay(next);
+  };
+  const undo = () => {
+    if (!past.length) return;
+    setFuture([lay, ...future]);
+    setLay(past[past.length - 1]);
+    setPast(past.slice(0, -1));
+    coalesceRef.current = null;
+    setSelId(null);
+  };
+  const redo = () => {
+    if (!future.length) return;
+    setPast([...past, lay]);
+    setLay(future[0]);
+    setFuture(future.slice(1));
+    coalesceRef.current = null;
+    setSelId(null);
+  };
+
+  const patchNode = (id: string, patch: Partial<UiNode>, coalesce?: string) => {
+    commit(
+      { ...lay, nodes: lay.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) },
+      coalesce
+    );
   };
   const patchWin = (key: "message" | "choice", i: number, axis: "pos" | "size", v: number) => {
     const w = { ...lay[key], [axis]: [...lay[key][axis]] as [number, number] };
     w[axis][i] = v;
-    setLay({ ...lay, [key]: w });
+    commit({ ...lay, [key]: w });
   };
 
   // ---- dialogue styles (S1, "dialogs" mode) ----------------------------
   const patchStyle = (patch: Partial<DialogStyle>) => {
     if (styleIdx === 0) return;
-    setLay({
+    commit({
       ...lay,
       styles: lay.styles.map((s, i) => (i === styleIdx - 1 ? { ...s, ...patch } : s)),
     });
@@ -403,7 +691,7 @@ export default function UiThemeModal(props: Props) {
       id: `style${i}`,
       message: { pos: [...lay.message.pos] as [number, number], size: [...lay.message.size] as [number, number] },
     };
-    setLay({ ...lay, styles: [...lay.styles, st] });
+    commit({ ...lay, styles: [...lay.styles, st] });
     setStyleIdx(lay.styles.length + 1);
   };
 
@@ -421,6 +709,9 @@ export default function UiThemeModal(props: Props) {
     let best: string | null = null;
     let bestD = -1;
     for (const [id, r] of Object.entries(flat.rects)) {
+      // scoped designer: the other widgets are not drawn, so they are
+      // not clickable either
+      if (scopeIds && !scopeIds.has(id)) continue;
       if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) {
         const d = depthOf(id);
         if (d > bestD) {
@@ -452,21 +743,18 @@ export default function UiThemeModal(props: Props) {
       }
     }
     const hit = nodeAt(tx, ty);
-    // in widget mode: clicking ANOTHER widget switches the designer to it
-    if (hit && scope) {
-      const hitRoot = rootAncestor(lay.nodes, hit);
-      if (hitRoot && hitRoot.id !== scope) setScope(hitRoot.id);
-    }
     setSelId(hit);
     if (hit) {
-      const root = rootAncestor(lay.nodes, hit);
-      if (root?.pos) {
-        dragRef.current = {
-          mode: "move",
-          id: root.id,
-          offX: tx - root.pos[0],
-          offY: ty - root.pos[1],
-        };
+      // what actually moves: the object under the mouse if it is placed
+      // freely (a root, or a canvas child that opted in), otherwise the
+      // nearest ancestor that is
+      let n = lay.nodes.find((k) => k.id === hit);
+      while (n && !n.pos) n = n.parent ? lay.nodes.find((k) => k.id === n!.parent) : undefined;
+      const rr = n ? flat.rects[n.id] : undefined;
+      // grab point relative to where the object actually IS on screen —
+      // `pos` is an offset from its anchor, not a screen position
+      if (n && rr) {
+        dragRef.current = { mode: "move", id: n.id, offX: tx - rr.x, offY: ty - rr.y };
       }
     }
   };
@@ -478,20 +766,28 @@ export default function UiThemeModal(props: Props) {
       const n = lay.nodes.find((k) => k.id === d.id);
       if (!n) return;
       const s = sizeOf(lay.nodes, n);
-      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX));
-      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY));
-      if (n.pos?.[0] !== nx || n.pos?.[1] !== ny) patchNode(d.id, { pos: [nx, ny] });
+      // the canvas works in absolute tiles; `pos` is an OFFSET from the
+      // object's anchor inside its box, so take both back out
+      const area = areaOf(n) ?? [32, 28];
+      const [ox, oy] = originOf(n);
+      const [ax, ay] = anchorOrigin(n.anchor, s, area);
+      const nx = Math.max(0, Math.min(32 - s[0], tx - d.offX)) - ax - ox;
+      const ny = Math.max(0, Math.min(28 - s[1], ty - d.offY)) - ay - oy;
+      if (n.pos?.[0] !== nx || n.pos?.[1] !== ny)
+        patchNode(d.id, { pos: [nx, ny] }, `move:${d.id}`);
     } else {
       const r = flat.rects[d.id];
       const n = lay.nodes.find((k) => k.id === d.id);
       if (!r || !n) return;
       const w = Math.max(1, tx - r.x + 1);
       const h = Math.max(1, ty - r.y + 1);
-      if (n.size?.[0] !== w || n.size?.[1] !== h) patchNode(d.id, { size: [w, h] });
+      if (n.size?.[0] !== w || n.size?.[1] !== h)
+        patchNode(d.id, { size: [w, h] }, `resize:${d.id}`);
     }
   };
   const onCanvasUp = () => {
     dragRef.current = null;
+    coalesceRef.current = null; // the drag is over: next change is its own undo step
   };
 
   // first FREE position for a new root widget — avoids the existing
@@ -537,7 +833,7 @@ export default function UiThemeModal(props: Props) {
       ];
       node.pos = freeSpot(s[0], s[1]);
     }
-    setLay({ ...lay, nodes: [...lay.nodes, node] });
+    commit({ ...lay, nodes: [...lay.nodes, node] });
     setSelId(node.id);
     if (!target) {
       setScope(node.id); // a new widget: the designer opens onto it
@@ -545,21 +841,84 @@ export default function UiThemeModal(props: Props) {
     }
   };
 
-  const deleteSel = () => {
-    if (!sel) return;
-    const doomed = new Set<string>([sel.id]);
+  // a node plus everything under it
+  const subtreeOf = (id: string): Set<string> => {
+    const ids = new Set<string>([id]);
     let grew = true;
     while (grew) {
       grew = false;
       for (const n of lay.nodes)
-        if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) {
-          doomed.add(n.id);
+        if (n.parent && ids.has(n.parent) && !ids.has(n.id)) {
+          ids.add(n.id);
           grew = true;
         }
     }
-    setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
+    return ids;
+  };
+
+  const deleteSel = () => {
+    if (!sel) return;
+    const doomed = subtreeOf(sel.id);
+    commit({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
     setSelId(null);
-    if (scope && doomed.has(scope)) setScope(null);
+    // Deleting the widget's ROOT deletes the widget: there is nothing
+    // left to design, so go back to the list instead of falling into the
+    // whole-screen view — which used to show every OTHER widget and read
+    // as a bug.
+    if (scope && doomed.has(scope)) {
+      setScope(null);
+      setView("list");
+    }
+  };
+
+  // ---- copy / paste in the tree ---------------------------------------
+  const copySel = () => {
+    if (!sel) return;
+    const ids = subtreeOf(sel.id);
+    setClip(lay.nodes.filter((n) => ids.has(n.id)).map((n) => ({ ...n })));
+  };
+
+  const pasteClip = () => {
+    if (!clip || !clip.length) return;
+    const taken = new Set(lay.nodes.map((n) => n.id));
+    // fresh ids, and the copies keep pointing at each OTHER
+    const ren: Record<string, string> = {};
+    for (const n of clip) {
+      const stem = n.id.replace(/\d+$/, "") || n.type;
+      let i = 1;
+      while (taken.has(`${stem}${i}`)) i++;
+      ren[n.id] = `${stem}${i}`;
+      taken.add(`${stem}${i}`);
+    }
+    const rootId = clip[0].id;
+    // where it lands: in the selected container, else next to the
+    // selection, else a new widget of its own on a free spot
+    const scopeNode = scope ? lay.nodes.find((n) => n.id === scope) : undefined;
+    const target =
+      sel && isContainer(sel)
+        ? sel.id
+        : sel?.parent
+          ? sel.parent
+          : scopeNode && isContainer(scopeNode)
+            ? scopeNode.id
+            : undefined;
+    const copies = clip.map((n) => {
+      const c: UiNode = { ...n, id: ren[n.id] };
+      if (n.id === rootId) {
+        if (target) {
+          c.parent = target;
+          delete c.pos;
+          delete c.anchor;
+        } else {
+          delete c.parent;
+          const s = sizeOf(clip, n);
+          c.pos = freeSpot(s[0], s[1]);
+        }
+      } else c.parent = ren[n.parent!];
+      return c;
+    });
+    commit({ ...lay, nodes: [...lay.nodes, ...copies] });
+    setSelId(copies[0].id);
   };
 
   const moveSel = (delta: -1 | 1) => {
@@ -572,12 +931,12 @@ export default function UiThemeModal(props: Props) {
     const b = lay.nodes.indexOf(other);
     const nodes = [...lay.nodes];
     [nodes[a], nodes[b]] = [nodes[b], nodes[a]];
-    setLay({ ...lay, nodes });
+    commit({ ...lay, nodes });
   };
 
   const renameSel = (newId: string) => {
     if (!sel || !newId || lay.nodes.some((n) => n.id === newId && n.id !== sel.id)) return;
-    setLay({
+    commit({
       ...lay,
       nodes: lay.nodes.map((n) =>
         n.id === sel.id
@@ -589,6 +948,60 @@ export default function UiThemeModal(props: Props) {
     });
     if (scope === sel.id) setScope(newId);
     setSelId(newId);
+  };
+
+  // Keyboard shortcuts, as on the event layer of the map: copy, paste,
+  // delete, undo, redo. Skipped while a field has the focus — Ctrl+C in
+  // a text box must stay Ctrl+C.
+  kbdRef.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    if (props.mode !== "widgets" || view !== "design") return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if (ctrl && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+      e.preventDefault();
+      redo();
+    } else if (ctrl && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      copySel();
+    } else if (ctrl && e.key.toLowerCase() === "x") {
+      e.preventDefault();
+      copySel();
+      deleteSel();
+    } else if (ctrl && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      pasteClip();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      if (!sel) return;
+      e.preventDefault();
+      deleteSel();
+    }
+  };
+
+  // The box an object is positioned inside: the screen for a root, the
+  // parent canvas' content rect for a child. Anchors and free placement
+  // only make sense in a CANVAS — a vbox/hbox stacks, that is its job.
+  // Absolute top-left of that same box, so a drag can turn a screen
+  // position back into an offset.
+  const originOf = (n: UiNode): [number, number] => {
+    if (!n.parent) return [0, 0];
+    const p = lay.nodes.find((k) => k.id === n.parent);
+    const pr = p ? flat.rects[p.id] : undefined;
+    if (!p || !pr) return [0, 0];
+    const m = p.margin ?? [nodeFramed(p) ? 1 : 0, nodeFramed(p) ? 1 : 0];
+    return [pr.x + m[0], pr.y + m[1]];
+  };
+
+  const areaOf = (n: UiNode): [number, number] | null => {
+    if (!n.parent) return [32, 28];
+    const p = lay.nodes.find((k) => k.id === n.parent);
+    if (!p || !isCanvas(p.type)) return null;
+    const ps = sizeOf(lay.nodes, p);
+    const m = p.margin ?? [nodeFramed(p) ? 1 : 0, nodeFramed(p) ? 1 : 0];
+    return [ps[0] - 2 * m[0], ps[1] - 2 * m[1]];
   };
 
   // ---- tree ------------------------------------------------------------
@@ -669,7 +1082,7 @@ export default function UiThemeModal(props: Props) {
                             alert(`Le style « ${newId} » existe déjà.`);
                             return;
                           }
-                          setLay({
+                          commit({
                             ...lay,
                             styles: lay.styles.map((s) => (s.id === st.id ? { ...s, id: newId } : s)),
                           });
@@ -680,7 +1093,7 @@ export default function UiThemeModal(props: Props) {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!confirm(`Supprimer le style « ${st.id} » ? Les messages qui l'utilisent devront être corrigés.`)) return;
-                          setLay({ ...lay, styles: lay.styles.filter((s) => s.id !== st.id) });
+                          commit({ ...lay, styles: lay.styles.filter((s) => s.id !== st.id) });
                           setStyleIdx(0);
                         }}>
                         🗑
@@ -855,6 +1268,13 @@ export default function UiThemeModal(props: Props) {
                   ))}
                 </div>
               )}
+              {flat.notes.length > 0 && (
+                <div className="hint uitheme-notes">
+                  {flat.notes.map((e, i) => (
+                    <div key={i}>ℹ {e}</div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -881,7 +1301,7 @@ export default function UiThemeModal(props: Props) {
             </div>
             <fieldset className="evedit-box uitheme-widgetlist">
               <legend>Widgets du projet ({rootsOf(lay.nodes).length})</legend>
-              <button onClick={() => addNode("window", true)}>✧ Nouveau widget</button>
+              <button onClick={() => addNode("canvas", true)}>✧ Nouveau widget</button>
               <div className="uitheme-treelist">
                 {rootsOf(lay.nodes).map((r) => (
                   <div key={r.id} className="tree-row uitheme-widgetrow"
@@ -917,7 +1337,7 @@ export default function UiThemeModal(props: Props) {
                           alert(`Le nom « ${newId} » est déjà pris.`);
                           return;
                         }
-                        setLay({
+                        commit({
                           ...lay,
                           nodes: lay.nodes.map((n) =>
                             n.id === r.id
@@ -947,7 +1367,7 @@ export default function UiThemeModal(props: Props) {
                               grew = true;
                             }
                         }
-                        setLay({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
+                        commit({ ...lay, nodes: lay.nodes.filter((n) => !doomed.has(n.id)) });
                         setSelId(null);
                         setScope(null);
                       }}>
@@ -982,18 +1402,24 @@ export default function UiThemeModal(props: Props) {
             <fieldset className="evedit-box">
               <legend>Palette (clic = ajouter)</legend>
               <div className="uitheme-palette">
-                {(Object.keys(KIND_LABELS) as NodeKind[]).map((k) => (
+                {NODE_KINDS.map((k) => (
                   <button key={k} onClick={() => addNode(k)} title={
-                    sel && isContainer(sel)
+                    (KIND_HELP[k] ? KIND_HELP[k] + "\n\n" : "") +
+                    (sel && isContainer(sel)
                       ? `Ajouter dans « ${sel.id} »`
                       : sel?.parent
                         ? `Ajouter à côté de « ${sel.id} »`
-                        : "Ajouter sur le canvas (nouveau widget)"
+                        : "Ajouter sur le canvas (nouveau widget)")
                   }>
                     {KIND_LABELS[k]}
                   </button>
                 ))}
               </div>
+              <span className="hint">
+                Une valeur, une jauge, des cœurs, un compteur : un LABEL
+                avec \v[n] et une IMAGE en mode fill les font tous, sans
+                composant dédié.
+              </span>
             </fieldset>
             <fieldset className="evedit-box uitheme-tree">
               <legend>
@@ -1010,6 +1436,17 @@ export default function UiThemeModal(props: Props) {
                   <span className="hint">Vide — ✧ Nouveau widget, ou un objet de la palette.</span>
                 )}
               </div>
+              <div className="row">
+                <button onClick={undo} disabled={!past.length} title="Annuler (Ctrl+Z)">↶</button>
+                <button onClick={redo} disabled={!future.length} title="Rétablir (Ctrl+Y)">↷</button>
+                <button onClick={copySel} disabled={!sel} title="Copier (Ctrl+C)">⧉</button>
+                <button onClick={pasteClip} disabled={!clip} title="Coller (Ctrl+V)">📋</button>
+                <button className="danger" onClick={deleteSel} disabled={!sel} title="Supprimer (Suppr)">🗑</button>
+              </div>
+              <span className="hint">
+                Ctrl+C copier, Ctrl+X couper, Ctrl+V coller, Suppr
+                supprimer, Ctrl+Z annuler, Ctrl+Y rétablir.
+              </span>
             </fieldset>
           </div>
 
@@ -1056,6 +1493,13 @@ export default function UiThemeModal(props: Props) {
                 ))}
               </div>
             )}
+            {flat.notes.length > 0 && (
+              <div className="hint uitheme-notes">
+                {flat.notes.map((e, i) => (
+                  <div key={i}>ℹ {e}</div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* inspector */}
@@ -1074,22 +1518,158 @@ export default function UiThemeModal(props: Props) {
                   <label>id
                     <input value={sel.id} onChange={(e) => renameSel(e.target.value)} />
                   </label>
-                  {!sel.parent && (
-                    <div className="row">
-                      {num("x", sel.pos?.[0] ?? 0, (v) =>
-                        patchNode(sel.id, { pos: [v ?? 0, sel.pos?.[1] ?? 0] })
+                  {/* U3-d: hooks belong to the COMPONENT. A vbox/hbox
+                      draws nothing, so it has no primitive to hang one on. */}
+                  {(!isContainer(sel) || isCanvas(sel.type)) && (
+                    <fieldset className="evedit-box uitheme-events">
+                      <legend>Événements de « {sel.id} »</legend>
+                      {HOOKS.filter(([, , scope]) =>
+                        scope === "tous" || sel.type === "list"
+                      ).map(([k, label]) => {
+                        const h = hooks[sel.id] ?? {};
+                        const n = (h[k] as unknown[] | undefined)?.length ?? 0;
+                        return (
+                          <div className="row" key={k} style={{ alignItems: "center", gap: 4 }}>
+                            <span className="hint" style={{ flex: 1 }}>{label}</span>
+                            {n > 0 && <span className="hint">{n} cmd</span>}
+                            <button
+                              title={n ? "Modifier le script" : "Écrire le script de cet événement"}
+                              onClick={() => {
+                                // the block must exist before the editor
+                                // mutates it in place
+                                if (!(hooks[sel.id]?.[k] as unknown[] | undefined))
+                                  setHooks({
+                                    ...hooks,
+                                    [sel.id]: { ...hooks[sel.id], [k]: [] },
+                                  });
+                                setHookEdit({ id: sel.id, k: HOOKS.findIndex((x) => x[0] === k) });
+                              }}
+                            >
+                              {n ? "✎" : "+"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {sel.parent && (
+                        <span className="hint">
+                          « À l'affichage / au masquage » suit le WIDGET entier :
+                          c'est la racine qu'on montre ou qu'on cache.
+                        </span>
                       )}
-                      {num("y", sel.pos?.[1] ?? 0, (v) =>
-                        patchNode(sel.id, { pos: [sel.pos?.[0] ?? 0, v ?? 0] })
+                      {sel.type === "list" && (
+                        <label>La ligne choisie va dans
+                          <div className="row" style={{ gap: 4 }}>
+                            <input type="number" min={0} max={255}
+                              value={hooks[sel.id]?.row_var ?? ""}
+                              placeholder="(aucune)"
+                              onChange={(e) =>
+                                setHooks({
+                                  ...hooks,
+                                  [sel.id]: {
+                                    ...hooks[sel.id],
+                                    row_var: e.target.value === "" ? undefined : Number(e.target.value),
+                                  },
+                                })
+                              } />
+                            <button className="browse"
+                              onClick={() =>
+                                setVarPick({
+                                  current: hooks[sel.id]?.row_var ?? 0,
+                                  cb: (nv) =>
+                                    setHooks({
+                                      ...hooks,
+                                      [sel.id]: { ...hooks[sel.id], row_var: nv },
+                                    }),
+                                })
+                              }>
+                              …
+                            </button>
+                          </div>
+                          <span className="hint">
+                            Le moteur y écrit la ligne — ou le NUMÉRO DE FICHE
+                            pour une liste branchée sur une table — juste avant
+                            de jouer le script. Un hook ne peut rien bloquer
+                            (message, attente, choix) : datagen le refuse.
+                          </span>
+                        </label>
                       )}
+                    </fieldset>
+                  )}
+                  {areaOf(sel) && (sel.pos || !sel.parent) && (
+                    <div className="row uitheme-anchorrow">
+                      <div className="anchorgrid" title="Ancre : le point de l'écran d'où partent x et y">
+                        {ANCHORS.map((a) => (
+                          <button
+                            key={a}
+                            className={(sel.anchor ?? "tl") === a ? "sel" : undefined}
+                            title={ANCHOR_TITLES[a]}
+                            onClick={() => {
+                              // keep the object WHERE IT IS: recompute the
+                              // offset against the new anchor
+                              const s = sizeOf(lay.nodes, sel);
+                              const ar = areaOf(sel)!;
+                              const [ox, oy] = anchorOrigin(sel.anchor, s, ar);
+                              const [nx, ny] = anchorOrigin(a, s, ar);
+                              patchNode(sel.id, {
+                                anchor: a === "tl" ? undefined : a,
+                                pos: [
+                                  ox + (sel.pos?.[0] ?? 0) - nx,
+                                  oy + (sel.pos?.[1] ?? 0) - ny,
+                                ],
+                              });
+                            }}
+                          >
+                            <span />
+                          </button>
+                        ))}
+                      </div>
+                      <div>
+                        <div className="row">
+                          {num("x", sel.pos?.[0] ?? 0, (v) =>
+                            patchNode(sel.id, { pos: [v ?? 0, sel.pos?.[1] ?? 0] })
+                          )}
+                          {num("y", sel.pos?.[1] ?? 0, (v) =>
+                            patchNode(sel.id, { pos: [sel.pos?.[0] ?? 0, v ?? 0] })
+                          )}
+                        </div>
+                        <span className="hint">
+                          Comptés depuis l'ancre ({ANCHOR_TITLES[sel.anchor ?? "tl"]}
+                          ) {sel.parent ? "du canvas parent" : "de l'écran"} — le même
+                          coin y reste collé quand l'objet grandit.
+                        </span>
+                      </div>
                     </div>
                   )}
-                  {!sel.parent && (
+                  {sel.parent && areaOf(sel) && (
                     <label className="checkline">
-                      <input type="checkbox" checked={!!sel.visible}
-                        onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
-                      Visible au démarrage (sinon : commande « Afficher un widget UI »)
+                      <input type="checkbox" checked={!!sel.pos}
+                        onChange={(e) =>
+                          patchNode(sel.id, {
+                            pos: e.target.checked ? [0, 0] : undefined,
+                            anchor: e.target.checked ? sel.anchor : undefined,
+                          })
+                        } />
+                      Placement libre dans le canvas (sinon : empilé avec ses frères)
                     </label>
+                  )}
+                  {!sel.parent && (
+                    <BindRow
+                      label="Visible"
+                      bound={sel.vis_var !== undefined}
+                      onBind={(on) =>
+                        patchNode(sel.id, { vis_var: on ? sel.vis_var ?? 0 : undefined })
+                      }
+                      varNum={sel.vis_var}
+                      onVar={(n) => patchNode(sel.id, { vis_var: n })}
+                      pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                      varName={props.varNames[sel.vis_var ?? 0]}
+                    >
+                      <label className="checkline">
+                        <input type="checkbox" checked={!!sel.visible}
+                          onChange={(e) => patchNode(sel.id, { visible: e.target.checked || undefined })} />
+                        Visible au démarrage (sinon : commande « Afficher un widget UI »)
+                      </label>
+                    </BindRow>
                   )}
                   {!sel.parent && (
                     <label>Fonte du widget
@@ -1114,15 +1694,28 @@ export default function UiThemeModal(props: Props) {
                       </span>
                     </label>
                   )}
-                  {sel.size && (
-                    <div className="row">
-                      {num("largeur", sel.size[0], (v) =>
-                        patchNode(sel.id, { size: [v ?? 1, sel.size![1]] })
-                      )}
-                      {num("hauteur", sel.size[1], (v) =>
-                        patchNode(sel.id, { size: [sel.size![0], v ?? 1] })
-                      )}
-                    </div>
+                  <div className="row" style={{ alignItems: "flex-end" }}>
+                    {num("largeur", (sel.size ?? sizeOf(lay.nodes, sel))[0], (v) =>
+                      patchNode(sel.id, {
+                        size: [v ?? 1, (sel.size ?? sizeOf(lay.nodes, sel))[1]],
+                      })
+                    )}
+                    {num("hauteur", (sel.size ?? sizeOf(lay.nodes, sel))[1], (v) =>
+                      patchNode(sel.id, {
+                        size: [(sel.size ?? sizeOf(lay.nodes, sel))[0], v ?? 1],
+                      })
+                    )}
+                    {sel.size && !SIZE_REQUIRED(sel) && (
+                      <button title="Revenir à la taille calculée par le contenu"
+                        onClick={() => patchNode(sel.id, { size: undefined })}>
+                        auto
+                      </button>
+                    )}
+                  </div>
+                  {!sel.size && (
+                    <span className="hint">
+                      Taille calculée par le contenu — saisir une valeur la fige.
+                    </span>
                   )}
                   {(sel.type === "vbox" || sel.type === "hbox") &&
                     num("Espacement (gap)", sel.gap ?? 0, (v) => patchNode(sel.id, { gap: v || undefined }))}
@@ -1150,7 +1743,8 @@ export default function UiThemeModal(props: Props) {
                     </label>
                   )}
                   {sel.type === "list" && (
-                    <label>Items (un par ligne, 2-16)
+                    <>
+                    <label>Items (un par ligne, 2-32)
                       <textarea rows={6} value={(sel.items ?? []).join("\n")}
                         onChange={(e) =>
                           patchNode(sel.id, {
@@ -1163,8 +1757,108 @@ export default function UiThemeModal(props: Props) {
                         dans une variable, B = 255 (annulé).
                       </span>
                     </label>
+                    <label>Contenu
+                      <select
+                        value={sel.source ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v)
+                            patchNode(sel.id, {
+                              source: undefined,
+                              source_filter: undefined,
+                              source_count: undefined,
+                            });
+                          else
+                            patchNode(sel.id, { source: v, size: sel.size ?? [12, 5] });
+                        }}
+                      >
+                        <option value="">Items écrits ici</option>
+                        {Object.keys(dbTables).map((t) => (
+                          <option key={t} value={t}>Fiches de la table « {t} »</option>
+                        ))}
+                      </select>
+                      <span className="hint">
+                        Branchée sur une table, la liste EST cette table :
+                        ajouter une fiche dans la Database l'ajoute au menu.
+                        « Choix dans une liste » rend alors le NUMÉRO DE
+                        FICHE, prêt pour « Lire la database ».
+                      </span>
+                    </label>
+                    {sel.source && (
+                      <>
+                        <label>Filtre (colonne portant un n° de variable)
+                          <select
+                            value={sel.source_filter ?? ""}
+                            onChange={(e) =>
+                              patchNode(sel.id, { source_filter: e.target.value || undefined })
+                            }
+                          >
+                            <option value="">(toutes les fiches)</option>
+                            {(dbTables[sel.source]?.cols ?? []).map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                          <span className="hint">
+                            La ligne est cachée tant que cette variable vaut 0
+                            — un inventaire ne montre que ce qu'on possède.
+                          </span>
+                        </label>
+                        <label>Quantité affichée (même genre de colonne)
+                          <select
+                            value={sel.source_count ?? ""}
+                            onChange={(e) =>
+                              patchNode(sel.id, { source_count: e.target.value || undefined })
+                            }
+                          >
+                            <option value="">(aucune)</option>
+                            {(dbTables[sel.source]?.cols ?? []).map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                    {!sel.source && num("Lignes visibles (vide = toutes)", sel.rows ?? "", (v) =>
+                      patchNode(sel.id, { rows: v && v >= 1 ? v : undefined }),
+                      { min: 1, max: 26, empty: true })}
+                    {(sel.rows ?? 0) >= 1 && (sel.rows ?? 0) < (sel.items ?? []).length && (
+                      <span className="hint">
+                        Liste déroulante : {(sel.items ?? []).length} items sur {sel.rows} lignes —
+                        le curseur fait défiler, les flèches ^ / v s'affichent au bord.
+                      </span>
+                    )}
+                    <label>Curseur
+                      <select
+                        value={sel.cursor_icon !== undefined ? "icon" : "text"}
+                        onChange={(e) =>
+                          patchNode(sel.id, {
+                            cursor_icon: e.target.value === "icon" ? 0 : undefined,
+                          })
+                        }>
+                        <option value="text">Chevron « &gt; » (fonte)</option>
+                        <option value="icon" disabled={iconCount === 0}>
+                          Icône de la planche{iconCount === 0 ? " (aucune planche)" : ""}
+                        </option>
+                      </select>
+                    </label>
+                    {sel.cursor_icon !== undefined && iconCount > 0 && (
+                      <div className="iconpick">
+                        {iconUrls.map((u, i) => (
+                          <button key={i}
+                            className={i === sel.cursor_icon ? "sel" : undefined}
+                            title={`icône ${i}`}
+                            onClick={() => patchNode(sel.id, { cursor_icon: i })}>
+                            <img src={u} alt={`icône ${i}`} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    </>
                   )}
-                  {(sel.type === "value" || (sel.type === "image" && !sel.pic) || sel.type === "icon_value") &&
+                  {(sel.type === "value" ||
+                    (sel.type === "image" && sel.pic === undefined && sel.color === undefined &&
+                      imageMode(sel) === "normal") ||
+                    sel.type === "icon_value") &&
                     num(
                       sel.type === "value" ? "Chiffres (1-5)" : sel.type === "image" ? "Icônes (largeur)" : "Largeur",
                       sel.width ?? (sel.type === "value" ? 3 : sel.type === "image" ? 1 : 4),
@@ -1215,18 +1909,20 @@ export default function UiThemeModal(props: Props) {
                       </label>
                     </>
                   )}
-                  {sel.type === "gauge" && (
-                    <label>Direction
+                  {(sel.type === "gauge" ||
+                    (sel.type === "image" && imageMode(sel) === "fill")) && (
+                    <label>Direction du remplissage
                       <select value={sel.dir ?? "h"}
                         onChange={(e) => patchNode(sel.id, { dir: e.target.value === "v" ? "v" : undefined })}>
-                        <option value="h">Horizontale</option>
+                        <option value="h">Horizontale (de la gauche)</option>
                         <option value="v">Verticale (remplie du bas)</option>
                       </select>
                     </label>
                   )}
                   {sel.type === "icon_value" &&
                     num("Zéros de tête (pad)", sel.pad ?? 0, (v) => patchNode(sel.id, { pad: v || undefined }), { min: 0, max: 5 })}
-                  {(sel.type === "gauge" ||
+                  {(isCanvas(sel.type) ||
+                    sel.type === "gauge" ||
                     sel.type === "icon_row" ||
                     sel.type === "icon_value" ||
                     sel.type === "variable_display" ||
@@ -1235,7 +1931,7 @@ export default function UiThemeModal(props: Props) {
                       <input type="checkbox"
                         checked={sel.type === "list" ? sel.frame ?? true : nodeFramed(sel)}
                         onChange={(e) => patchNode(sel.id, { frame: e.target.checked })} />
-                      Cadre
+                      Cadre {isCanvas(sel.type) && "(sinon : simple boîte de placement, rien à l'écran)"}
                     </label>
                   )}
                   {sel.type === "image" && (
@@ -1243,24 +1939,168 @@ export default function UiThemeModal(props: Props) {
                       <label>
                         Source
                         <select
-                          value={sel.pic ? "pic" : "icon"}
-                          onChange={(e) =>
-                            patchNode(sel.id, {
-                              pic:
-                                e.target.value === "pic"
-                                  ? Object.keys(pics)[0] ?? ""
-                                  : undefined,
-                            })
+                          value={
+                            sel.color !== undefined ? "color" : sel.pic !== undefined ? "pic" : "icon"
                           }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            patchNode(sel.id, {
+                              color: v === "color" ? sel.color ?? 1 : undefined,
+                              pic: v === "pic" ? Object.keys(pics)[0] ?? "" : undefined,
+                              // sliced needs a picture; anywhere else it
+                              // falls back to the plain type
+                              mode: v !== "pic" && imageMode(sel) === "sliced" ? undefined : sel.mode,
+                              // a colour and a run of icons are sized by
+                              // the author, an image by itself
+                              size: v === "pic" ? undefined : sel.size ?? [4, 2],
+                            });
+                          }}
                         >
+                          <option value="color">Couleur unie</option>
+                          <option value="pic" disabled={Object.keys(pics).length === 0}>
+                            Image du projet{Object.keys(pics).length === 0 ? " (aucune)" : ""}
+                          </option>
                           <option value="icon">Icônes de la planche</option>
-                          <option value="pic">Image du projet</option>
                         </select>
                       </label>
+                      {sel.color !== undefined && (
+                        <label>
+                          Couleur
+                          <div className="colorpick">
+                            {(uiPal.length ? uiPal : ["", "", "", ""]).slice(0, 4).map((c, i) => (
+                              <button key={i}
+                                className={i === sel.color ? "sel" : undefined}
+                                title={i === 0 ? "Transparent (le jeu passe au travers)" : `Couleur ${i} de la fonte`}
+                                style={i === 0 ? undefined : { background: c || "#888" }}
+                                onClick={() => patchNode(sel.id, { color: i })}>
+                                {i === 0 ? "∅" : ""}
+                              </button>
+                            ))}
+                          </div>
+                          <span className="hint">
+                            La couche UI n'a que ces 4 couleurs — celles de la
+                            fonte du projet. La 0 est la transparence.
+                          </span>
+                        </label>
+                      )}
+                      <label>
+                        Type
+                        <select
+                          value={imageMode(sel)}
+                          onChange={(e) => {
+                            const m = e.target.value;
+                            patchNode(sel.id, {
+                              mode: m === "normal" ? undefined : m,
+                              // sliced and a filled icon bar are sized by
+                              // the author, not by the artwork
+                              size:
+                                m === "sliced" || (m === "fill" && sel.pic === undefined)
+                                  ? sel.size ?? [8, m === "sliced" ? 3 : 1]
+                                  : sel.size,
+                              max: m === "fill" ? sel.max ?? 100 : sel.max,
+                              var: m === "fill" ? sel.var ?? 0 : sel.var,
+                            });
+                          }}
+                        >
+                          <option value="normal">Normal (telle quelle)</option>
+                          <option value="sliced" disabled={sel.pic === undefined}>
+                            Sliced (9 tranches étirables{sel.pic === undefined ? " — image requise" : ""})
+                          </option>
+                          <option value="fill">Fill (remplissage réglable)</option>
+                        </select>
+                        <span className="hint">
+                          {imageMode(sel) === "sliced"
+                            ? "L'image fait 3x3 tuiles (24x24 px) et s'étire sur la taille du widget — la recette du windowskin, avec n'importe quel dessin."
+                            : imageMode(sel) === "fill"
+                              ? sel.color !== undefined
+                                ? "Rectangle de couleur dévoilé progressivement, deux crans par tuile."
+                                : sel.pic === undefined
+                                  ? "Barre d'icônes : icône pleine, +1 demie, +2 vide — jauge ou rangée de cœurs, deux crans par tuile."
+                                  : "L'image se dévoile progressivement, deux crans par tuile. Le fond ne se dessine pas : pose l'image « vide » DERRIÈRE, les widgets ont le droit de se chevaucher."
+                              : ""}
+                        </span>
+                      </label>
+                      {imageMode(sel) === "fill" && (
+                        <>
+                          <BindRow
+                            label="Remplissage"
+                            bound={sel.var !== undefined}
+                            onBind={(on) =>
+                              patchNode(sel.id, {
+                                var: on ? sel.var ?? 0 : undefined,
+                                max: on ? sel.max ?? 100 : undefined,
+                                max_var: on ? sel.max_var : undefined,
+                                fill: on ? undefined : sel.fill ?? 1,
+                              })
+                            }
+                            varNum={sel.var}
+                            onVar={(n) => patchNode(sel.id, { var: n })}
+                            pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                            varName={props.varNames[sel.var ?? 0]}
+                          >
+                            <label>
+                              {Math.round((sel.fill ?? 1) * 100)} %
+                              <input type="range" min={0} max={100}
+                                value={Math.round((sel.fill ?? 1) * 100)}
+                                onChange={(e) =>
+                                  patchNode(sel.id, { fill: Number(e.target.value) / 100 },
+                                    `fill:${sel.id}`)
+                                } />
+                              <span className="hint">
+                                Valeur fixe, réglée ici — aucune variable n'est
+                                nécessaire. Deux crans par tuile.
+                              </span>
+                            </label>
+                          </BindRow>
+                          {sel.var !== undefined && (
+                            <>
+                              {num(`Max${sel.max_var !== undefined ? " (ignoré)" : ""}`,
+                                sel.max ?? 100, (v) => patchNode(sel.id, { max: v }), { min: 1 })}
+                              <label>Max depuis var (vide = constante)
+                                <div className="row" style={{ gap: 4 }}>
+                                  <input type="number" min={0} max={255} value={sel.max_var ?? ""}
+                                    onChange={(e) =>
+                                      patchNode(sel.id, {
+                                        max_var: e.target.value === "" ? undefined : Number(e.target.value),
+                                      })
+                                    } />
+                                  <button className="browse"
+                                    onClick={() =>
+                                      setVarPick({
+                                        current: sel.max_var ?? 0,
+                                        cb: (n) => patchNode(sel.id, { max_var: n }),
+                                      })
+                                    }>
+                                    …
+                                  </button>
+                                </div>
+                              </label>
+                            </>
+                          )}
+                        </>
+                      )}
                       {sel.pic !== undefined && (
                         <>
-                          <label>
-                            Image
+                          <BindRow
+                            label="Image"
+                            bound={sel.pic_var !== undefined}
+                            onBind={(on) =>
+                              patchNode(sel.id, {
+                                pic_var: on ? sel.pic_var ?? 0 : undefined,
+                                // a bound image needs at least two
+                                // candidates; seed with the current one
+                                pics: on
+                                  ? sel.pics?.length
+                                    ? sel.pics
+                                    : [sel.pic!, Object.keys(pics)[1] ?? sel.pic!]
+                                  : undefined,
+                              })
+                            }
+                            varNum={sel.pic_var}
+                            onVar={(n) => patchNode(sel.id, { pic_var: n })}
+                            pick={(cur, cb) => setVarPick({ current: cur, cb })}
+                            varName={props.varNames[sel.pic_var ?? 0]}
+                          >
                             <select
                               value={sel.pic}
                               onChange={(e) => patchNode(sel.id, { pic: e.target.value })}
@@ -1272,7 +2112,53 @@ export default function UiThemeModal(props: Props) {
                                 <option key={n} value={n}>{n}</option>
                               ))}
                             </select>
-                          </label>
+                          </BindRow>
+                          {sel.pic_var !== undefined && (
+                            <div className="picset">
+                              <span className="hint">
+                                Images candidates — la variable donne le numéro
+                                (0 = la première). Toutes doivent faire la même
+                                taille, et toutes vivent en VRAM à la fois.
+                              </span>
+                              {(sel.pics ?? []).map((nm, i) => (
+                                <div className="row" key={i} style={{ gap: 4 }}>
+                                  <span className="hint" style={{ width: 16 }}>{i}</span>
+                                  <select value={nm} style={{ flex: 1 }}
+                                    onChange={(e) =>
+                                      patchNode(sel.id, {
+                                        pics: (sel.pics ?? []).map((o, k) =>
+                                          k === i ? e.target.value : o
+                                        ),
+                                      })
+                                    }>
+                                    {Object.keys(pics).map((n) => (
+                                      <option key={n} value={n}>{n}</option>
+                                    ))}
+                                  </select>
+                                  <button className="danger"
+                                    disabled={(sel.pics ?? []).length <= 2}
+                                    title={(sel.pics ?? []).length <= 2
+                                      ? "Au moins deux candidates" : "Retirer"}
+                                    onClick={() =>
+                                      patchNode(sel.id, {
+                                        pics: (sel.pics ?? []).filter((_, k) => k !== i),
+                                      })
+                                    }>
+                                    🗑
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                disabled={(sel.pics ?? []).length >= 16}
+                                onClick={() =>
+                                  patchNode(sel.id, {
+                                    pics: [...(sel.pics ?? []), Object.keys(pics)[0] ?? ""],
+                                  })
+                                }>
+                                ✧ Ajouter une candidate
+                              </button>
+                            </div>
+                          )}
                           <span className="hint">
                             {pics[sel.pic]
                               ? `${pics[sel.pic].width}x${pics[sel.pic].height} px = ${Math.ceil(
@@ -1288,18 +2174,23 @@ export default function UiThemeModal(props: Props) {
                     </>
                   )}
                   {(sel.type === "gauge" || sel.type === "icon_row" || sel.type === "icon_value" ||
-                    (sel.type === "image" && sel.pic === undefined)) && (
+                    (sel.type === "image" && sel.pic === undefined && sel.color === undefined)) && (
                     <>
                       <span className="hint">
                         Icône : {sel.icon ?? 0}
-                        {(sel.type === "gauge" || sel.type === "icon_row") &&
+                        {(sel.type === "gauge" || sel.type === "icon_row" ||
+                          (sel.type === "image" && imageMode(sel) === "fill")) &&
                           ` (+ ${(sel.icon ?? 0) + 1} demie, ${(sel.icon ?? 0) + 2} vide)`}
                         {iconCount === 0 && " — choisis une planche (Thème)."}
                       </span>
                       {iconCount > 0 && (
                         <div className="iconpick">
                           {iconUrls.map((u, i) => {
-                            const span = sel.type === "gauge" || sel.type === "icon_row" ? 3 : 1;
+                            const span =
+                              sel.type === "gauge" || sel.type === "icon_row" ||
+                              (sel.type === "image" && imageMode(sel) === "fill")
+                                ? 3
+                                : 1;
                             const s0 = sel.icon ?? 0;
                             return (
                               <button key={i}
@@ -1330,6 +2221,22 @@ export default function UiThemeModal(props: Props) {
                 // the write/reload race has bitten once already
                 await ensureProjectDir(props.root, "ui");
                 await writeProjectText(props.root, "ui/layout.toml", layoutToToml(lay));
+                // U3-b: drop the blocks of widgets that no longer exist,
+                // so hooks.json can never name one datagen will refuse
+                const ids = new Set(
+                  lay.nodes.filter((n) => !isContainer(n) || isCanvas(n.type)).map((n) => n.id)
+                );
+                const keep = Object.fromEntries(
+                  Object.entries(hooks).filter(
+                    ([id, h]) =>
+                      ids.has(id) &&
+                      (h.row_var !== undefined ||
+                        HOOKS.some(([k]) => (h[k] as unknown[] | undefined)?.length))
+                  )
+                );
+                await writeProjectText(
+                  props.root, "ui/hooks.json", JSON.stringify(keep, null, 1) + "\n"
+                );
                 props.onOk(
                   ui.windowskin || ui.text_speed || ui.icons ? ui : undefined,
                   rootsOf(lay.nodes).map((n) => n.id),
@@ -1342,6 +2249,47 @@ export default function UiThemeModal(props: Props) {
           </button>
           <button onClick={props.onClose}>Annuler</button>
         </div>
+        {hookEdit && hooks[hookEdit.id]?.[HOOKS[hookEdit.k][0]] && (
+          <div className="modal-backdrop" onClick={(e) => e.stopPropagation()}>
+            <div className="modal evedit">
+              <div className="palette-title">
+                {HOOKS[hookEdit.k][1]} — « {hookEdit.id} »
+                <button className="modal-x" title="Fermer" onClick={() => setHookEdit(null)}>✕</button>
+              </div>
+              <div className="evedit-cmds" style={{ minHeight: 320, maxHeight: 460, overflowY: "auto" }}>
+                <CommandListEditor
+                  key={`${hookEdit.id}-${hookEdit.k}`}
+                  cmds={hooks[hookEdit.id]![HOOKS[hookEdit.k][0]] as never}
+                  commit={() => setHooks({ ...hooks })}
+                  sceneNames={props.sceneNames}
+                  scenes={props.scenes}
+                  switchNames={props.switchNames}
+                  varNames={props.varNames}
+                  entryNames={[]}
+                  charsetNames={props.charsetNames}
+                  commonNames={[]}
+                  db={props.db}
+                  uiWidgets={rootsOf(lay.nodes).map((n) => n.id)}
+                  uiStyles={lay.styles.map((st) => st.id)}
+                  texts={props.texts}
+                  pictures={props.pictures}
+                  mode7Images={props.mode7Images}
+                  tintPresets={props.tintPresets}
+                  soundNames={props.soundNames}
+                  musicNames={props.musicNames}
+                  vigNames={props.vigNames}
+                  animNames={props.animNames}
+                  screenNames={props.screenNames}
+                  onTintPresets={props.onTintPresets}
+                  onRenameVars={props.onRenameVars}
+                />
+              </div>
+              <div className="row">
+                <button onClick={() => setHookEdit(null)}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        )}
         {varPick && (
           <VarListModal
             kind="var"

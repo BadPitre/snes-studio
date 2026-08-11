@@ -10,6 +10,7 @@
 //!  - engine/src/data/*.c — graphics and tables as generated C
 
 mod anim;
+mod battle;
 mod binbank;
 mod charset;
 mod chipset;
@@ -118,9 +119,54 @@ fn main() -> Result<()> {
             (stem, p)
         })
         .collect();
-    let (ui_layout, mut ui_prims, ui_widgets, ui_pics) =
-        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal)?;
+    let (ui_layout, mut ui_prims, ui_widgets, ui_pics, ui_list_tables) =
+        ui::load(&proj_dir, ui_icon_count, &ui_pic_paths, &ui_font_pal,
+                 database.as_ref())?;
     let ui_widget_ids: Vec<String> = ui_widgets.iter().map(|w| w.0.clone()).collect();
+    // U3-b — WIDGET HOOKS: each command list written on a widget becomes
+    // a synthetic COMMON EVENT, so compilation, banking, text extraction
+    // and the CALL machinery all apply unchanged. The engine reaches the
+    // body through the CETAB's "b" entries.
+    let ui_hooks_src = ui::load_hooks(&proj_dir)?;
+    // U3-d: a hook belongs to a COMPONENT, so it is keyed by NODE id and
+    // lands on that node's PRIMITIVE.
+    let ui_prim_nodes: Vec<String> = ui_prims.iter().map(|p| p.node.clone()).collect();
+    for id in ui_hooks_src.keys() {
+        if !ui_prim_nodes.contains(id) {
+            anyhow::bail!(
+                "ui/hooks.json : objet « {} » inconnu, ou sans rien à l'écran \
+                 (objets : {})",
+                id,
+                if ui_prim_nodes.is_empty() { "aucun".into() } else { ui_prim_nodes.join(", ") }
+            );
+        }
+    }
+    let mut commons_all = project.common_events.clone();
+    let mut ui_hook_idx: Vec<[u8; 5]> = vec![[0xFF; 5]; ui_prims.len()];
+    let mut ui_hook_rowvar: Vec<u8> = vec![0xFF; ui_prims.len()];
+    let mut ui_hook_ces: Vec<usize> = Vec::new();
+    for (w, id) in ui_prim_nodes.iter().enumerate() {
+        let Some(h) = ui_hooks_src.get(id) else { continue };
+        ui_hook_rowvar[w] = h.row_var.unwrap_or(0xFF);
+        for k in 0..ui::HOOK_NAMES.len() {
+            let cmds = h.list(k);
+            if cmds.is_empty() {
+                continue;
+            }
+            if commons_all.len() >= 255 {
+                anyhow::bail!("ui/hooks.json : trop de scripts (255 common events au total)");
+            }
+            ui_hook_idx[w][k] = commons_all.len() as u8;
+            ui_hook_ces.push(commons_all.len());
+            commons_all.push(project::CommonEvent {
+                name: format!("{} / {}", id, ui::HOOK_NAMES[k]),
+                trigger: "none".to_string(),
+                switch: None,
+                commands: cmds.to_vec(),
+                ..Default::default()
+            });
+        }
+    }
     let ui_style_ids: Vec<String> =
         ui_layout.dialog_style.iter().map(|st| st.id.clone()).collect();
 
@@ -309,10 +355,11 @@ fn main() -> Result<()> {
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
-                &project.common_events,
+                &commons_all,
                 &project.functions,
                 database.as_ref(),
                 &ui_widget_ids,
+                &ui_hook_ces,
                 &ui_style_ids,
                 &pic_names,
                 &pic_dims,
@@ -1072,6 +1119,15 @@ fn main() -> Result<()> {
             write_out(&out_dir, &name, content)?;
         }
     }
+    // Battler cells (G1). data_battle.c is ALWAYS emitted — btlprim.c
+    // links unconditionally, with zeroed tables when the project has no
+    // `heroes` table.
+    {
+        let b = battle::build(&project.charsets, &sprites, database.as_ref())?;
+        for (name, content) in battle::emit_files(b.as_ref()) {
+            write_out(&out_dir, &name, content)?;
+        }
+    }
     // Per-scene effect layer: data_effects.c is ALWAYS emitted (the
     // engine includes effectlayer.c unconditionally); 0xFF means none.
     // Speeds in px/s are converted to 8.8 steps per frame at 60 Hz.
@@ -1347,7 +1403,8 @@ fn main() -> Result<()> {
         write_out(
             &out_dir,
             "ui_overlays.c",
-            ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases),
+            ui::emit_overlays(prims, &ui_widgets, &ui_ov_font_bases)
+                + &ui::emit_hooks(prims, &ui_hook_idx, &ui_hook_rowvar),
         )?;
         write_out(&out_dir, "ui_styles.c", ui::emit_styles(&ui_style_rows))?;
         if !prims.is_empty() {
@@ -1372,8 +1429,9 @@ fn main() -> Result<()> {
                 pictures: &pic_names,
                 sounds: &sound_names,
                 musics: &music_names,
+                charsets: &project.charsets,
             })?;
-            for (name, content) in db::emit_files(d) {
+            for (name, content) in db::emit_files(d, &ui_list_tables)? {
                 write_out(&out_dir, &name, content)?;
             }
             for (ti, sc) in d.schemas.iter().enumerate() {

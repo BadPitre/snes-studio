@@ -36,6 +36,7 @@ const TABS: Tab[] = [
       { c: "break", label: "Sortir de la boucle" },
       { c: "rem", label: "Commentaire" },
       { c: "db_read", label: "Lire la database" },
+      { c: "db_entry", label: "Numéro d'une fiche (database)" },
     ],
   },
   {
@@ -114,6 +115,15 @@ const TABS: Tab[] = [
     ],
   },
   {
+    title: "Combat",
+    items: [
+      { c: "btl_pose", label: "Poser un combattant (équipe)" },
+      { c: "popup", label: "Nombre qui saute (popup)" },
+      { c: "clock", label: "Horloge de jauges (ATB)" },
+      { c: "target_sel", label: "Curseur de cible" },
+    ],
+  },
+  {
     title: "Animations",
     items: [
       { c: "anim_play", label: "Jouer une animation" },
@@ -131,7 +141,10 @@ const TABS: Tab[] = [
   {
     title: "Autres",
     items: [
-      { c: "sysmenu", label: "Ouvrir le menu Système (sauvegarde)" },{ c: "call", label: "Appeler un common event" },
+      { c: "save_slot", label: "Sauvegarder la partie (slot)" },
+      { c: "load_slot", label: "Charger la partie (slot)" },
+      { c: "slot_info", label: "Slot de sauvegarde occupé ?" },
+      { c: "call", label: "Appeler un common event" },
       { c: "call_fn", label: "Appeler une fonction (avec paramètres)" },
       { c: "ret_fn", label: "Retourner un résultat (dans une fonction)" }],
     soon: ["Jouer un son"],
@@ -160,6 +173,7 @@ const FN_TABS: Tab[] = [
       { c: "loop", label: "Boucle" },
       { c: "break", label: "Sortir de la boucle" },
       { c: "db_read", label: "Lire la database" },
+      { c: "db_entry", label: "Numéro d'une fiche (database)" },
       { c: "rem", label: "Commentaire" },
     ],
   },

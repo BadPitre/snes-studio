@@ -13,7 +13,7 @@ import { loadAssetPng } from "../io";
 
 interface Props {
   root: string;
-  screenNames: string[]; // project order
+  screenNames: string[];
   screens: Record<string, Screen>;
   picturePaths: Record<string, string>; // stem -> assets/ path
   sceneNames: string[];

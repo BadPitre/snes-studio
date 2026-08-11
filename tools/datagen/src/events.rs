@@ -406,10 +406,11 @@ impl<'a> EventCompiler<'a> {
                     cmd[key].as_array().map(|v| v.as_slice()).unwrap_or(&[])
                 };
                 match cmd["c"].as_str().unwrap_or("") {
-                    "msg" | "choice" | "sysmenu" => bail!(
-                        "common event « {} » (parallel) : les messages et les \
-                         choix sont interdits dans un Parallel process (il \
-                         tourne en tache de fond, sans dialogue)",
+                    "msg" | "choice" | "target_sel" => bail!(
+                        "common event « {} » (parallel) : les messages, les \
+                         choix et le curseur de cible sont interdits dans un \
+                         Parallel process (il tourne en tache de fond, sans \
+                         dialogue)",
                         root_name
                     ),
                     "loop" => scan(sub("do"), commons, functions, seen, root_name)?,
@@ -479,7 +480,15 @@ impl<'a> EventCompiler<'a> {
                 "pic_hide" => self.cmd_pic_hide(cmd, out)?,
                 "pic_move" => self.cmd_pic_move(cmd, out)?,
                 "key_input" => self.cmd_key_input(cmd, out)?,
-                "sysmenu" => self.cmd_sysmenu(out)?,
+                "sysmenu" => bail!(
+                    "sysmenu : le menu Systeme est devenu une bibliotheque \
+                     d'events (M2) — remplacer par les commandes Sauvegarder/\
+                     Charger la partie, ou par le menu du gabarit \
+                     (PLANNING_MENU_EN_EVENTS.md)"
+                ),
+                "save_slot" => self.cmd_sram(cmd, out, 0)?,
+                "load_slot" => self.cmd_sram(cmd, out, 1)?,
+                "slot_info" => self.cmd_sram(cmd, out, 2)?,
                 "tint" => self.cmd_tint(cmd, out)?,
                 "screen" => self.cmd_screen(cmd, out, depth)?,
                 "screen_call" => self.cmd_screen_call(cmd, out, depth)?,
@@ -496,6 +505,20 @@ impl<'a> EventCompiler<'a> {
                 "m7" => self.cmd_m7(cmd, out)?,
                 "m7_view" => self.cmd_m7_view(cmd, out)?,
                 "m7_rot" => self.cmd_m7_rot(cmd, out)?,
+                // G2: "Lancer un combat" is gone — a battle is a
+                // COMPOSED SCREEN the author arranges visually.
+                "battle" => bail!(
+                    "la commande « Lancer un combat » n'existe plus : un combat \
+                     est un ÉCRAN COMPOSÉ. Créer un écran (Tools → Écrans), y \
+                     poser les monstres, et remplacer cette commande par \
+                     « Aller à l'écran ». Le script de l'écran nomme ses \
+                     monstres (« Numéro d'une fiche ») puis appelle la \
+                     bibliothèque (combat_tour)."
+                ),
+                "btl_pose" => self.cmd_btl_pose(cmd, out)?,
+                "popup" => self.cmd_popup(cmd, out)?,
+                "clock" => self.cmd_clock(cmd, out)?,
+                "target_sel" => self.cmd_target_sel(cmd, out)?,
                 "m7_turn" => self.cmd_m7_turn(cmd, out)?,
                 "sfx" => self.cmd_sfx(cmd, out)?,
                 "bgm" => self.cmd_bgm(cmd, out)?,
@@ -512,6 +535,7 @@ impl<'a> EventCompiler<'a> {
                 // Comment: decorative in the editor, no bytecode emitted
                 "rem" => {}
                 "db_read" => self.cmd_db_read(cmd, out)?,
+                "db_entry" => self.cmd_db_entry(cmd, out)?,
                 "call" => self.cmd_call(cmd, out)?,
                 "call_fn" => self.cmd_call_fn(cmd, out)?,
                 "ret_fn" => self.cmd_ret_fn(cmd, out)?,
@@ -554,6 +578,9 @@ impl<'a> EventCompiler<'a> {
         functions: &[FunctionDef],
         db: Option<&'a Db>,
         ui_widgets: &[String],
+        // U3-b: the common events that are WIDGET HOOKS — always
+        // emitted, and reachable through a CETAB "b" entry.
+        ui_hook_ces: &[usize],
         ui_styles: &[String],
         pictures: &[String],
         pic_dims: &[(usize, usize)],
@@ -609,7 +636,7 @@ impl<'a> EventCompiler<'a> {
             #[allow(clippy::type_complexity)]
             let pages: Vec<(&Option<Value>, &str, i16, &str, &Option<String>, &[Value], &Option<String>, &Option<Value>, &Option<String>, u8, Option<u16>)> =
                 if ev.pages.is_empty() {
-                    vec![(&None, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
+                    vec![(&ev.condition, ev.trigger.as_str(), ev.sprite, ev.dir.as_str(),
                           &ev.entry, ev.commands.as_slice(), &ev.r#move,
                           &ev.move_route, &ev.priority, ev.speed.unwrap_or(0),
                           ev.tile)]
@@ -806,7 +833,24 @@ impl<'a> EventCompiler<'a> {
         let mut cetab = "CETAB".to_string();
         for (k, ce) in commons.iter().enumerate() {
             match ce.trigger.as_str() {
-                "none" => {}
+                "none" => {
+                    // A WIDGET HOOK (U3-b) is callable only, like any
+                    // "none" common event, but the engine reaches it by
+                    // INDEX rather than through a CALL opcode — hence a
+                    // CETAB entry of type "b", and a body always emitted.
+                    if ui_hook_ces.contains(&k) {
+                        Self::check_no_ui(commons, functions, k).with_context(|| {
+                            format!(
+                                "script du widget « {} » : un hook ne peut pas bloquer \
+                                 (message, attente, choix, liste, warp) — la liste \
+                                 mangerait sa propre entree",
+                                ce.name
+                            )
+                        })?;
+                        self.used_commons[k] = true;
+                        cetab.push_str(&format!(" b {} __ce{}_{}", k, k, scene_name));
+                    }
+                }
                 "auto" | "parallel" => {
                     // The switch is optional (box unchecked means always
                     // active, as in RM2003). An autorun with no switch
@@ -1264,10 +1308,6 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
-    fn cmd_sysmenu(&mut self, out: &mut Vec<String>) -> Result<()> {
-        out.push("  SYSMENU".to_string());
-        Ok(())
-    }
 
     fn cmd_tint(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let mode = match cmd["mode"].as_str().unwrap_or("off") {
@@ -1543,7 +1583,12 @@ impl<'a> EventCompiler<'a> {
             "0".to_string()
         };
         let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
-        out.push(format!("  ANIMPLAY {} {} {} {}", id, anchor, target, wait));
+        // screen aim (V2): where a screen-anchored animation lands —
+        // the composed-screen centre by default, a target's pixel when
+        // the script says so (the library aims skills at monsters).
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96);
+        out.push(format!("  ANIMPLAY {} {} {} {} {} {}", id, anchor, target, wait, x, y));
         Ok(())
     }
 
@@ -1620,6 +1665,124 @@ impl<'a> EventCompiler<'a> {
     fn cmd_m7_view(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let (horizon, anchor) = m7_view_preset(cmd)?;
         out.push(format!("  M7VIEW {} {}", horizon, anchor));
+        Ok(())
+    }
+
+    /// `btl_pose` — a hero's battler cell on the composed screen (V1).
+    /// Blocking while the session's first show uploads the cell.
+    fn cmd_btl_pose(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        // `hero` was the old name of the slot (V1) — kept as a fallback
+        // so a project written before G1 still compiles.
+        let slot = cmd["slot"]
+            .as_u64()
+            .or_else(|| cmd["hero"].as_u64())
+            .filter(|&v| v < 4)
+            .with_context(|| "btl_pose : emplacement 0-3".to_string())?;
+        // Which entry of the `heroes` table the slot shows: from a
+        // VARIABLE (a party that changes), or a symbolic id, or its
+        // index; the default is the slot's own number.
+        if let Some(v) = cmd["entry_var"].as_u64() {
+            if v > 255 {
+                bail!("btl_pose : entry_var 0-255");
+            }
+            let show = cmd["show"].as_bool().unwrap_or(true);
+            let x = cmd["x"].as_u64().filter(|&n| n <= 255).unwrap_or(200);
+            let y = cmd["y"].as_u64().filter(|&n| n <= 216).unwrap_or(40);
+            out.push(format!("  BTLPOSE {} 1 {} {} {} {}", slot, v, x, y, show as u8));
+            return Ok(());
+        }
+        let entry = match cmd["entry"].as_str() {
+            Some(id) => {
+                let dbr = self.db.with_context(|| {
+                    "btl_pose : le projet n'a pas de database (schemas/)".to_string()
+                })?;
+                let ti = dbr.table_id("heroes").with_context(|| {
+                    "btl_pose : la database n'a pas de table « heroes »".to_string()
+                })?;
+                dbr.entry_index(ti, id).with_context(|| {
+                    format!("btl_pose : « {} » absent de la table heroes", id)
+                })? as u64
+            }
+            None => cmd["entry"].as_u64().filter(|&v| v < 256).unwrap_or(slot),
+        };
+        let show = cmd["show"].as_bool().unwrap_or(true);
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(200);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(40);
+        out.push(format!("  BTLPOSE {} 0 {} {} {} {}", slot, entry, x, y, show as u8));
+        Ok(())
+    }
+
+    /// `popup` — a number in white digits over the composed screen
+    /// (V1), from a constant or a variable.
+    fn cmd_popup(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let (src, value) = match cmd["value_var"].as_u64() {
+            Some(v) => {
+                if v > 255 {
+                    bail!("popup : value_var 0-255");
+                }
+                (1u8, v)
+            }
+            None => (0u8, cmd["value"].as_u64().filter(|&v| v <= 9999).unwrap_or(0)),
+        };
+        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112);
+        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96);
+        out.push(format!("  POPUP {} {} {} {}", src, value, x, y));
+        Ok(())
+    }
+
+    /// `clock` — the gauge clock (V1): n lanes of (gauge, speed)
+    /// variable pairs from base; 0 lanes stops the service.
+    fn cmd_clock(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let base = cmd["base"]
+            .as_u64()
+            .filter(|&v| v < 256)
+            .with_context(|| "clock : base 0-255".to_string())?;
+        let lanes = cmd["lanes"]
+            .as_u64()
+            .filter(|&v| v <= 8)
+            .with_context(|| "clock : lanes 0-8".to_string())?;
+        if lanes > 0 && base + lanes * 2 > 256 {
+            bail!(
+                "clock : base {} + {} paires (jauge, vitesse) déborde des \
+                 256 variables",
+                base,
+                lanes
+            );
+        }
+        out.push(format!("  CLOCK {} {}", base, lanes));
+        Ok(())
+    }
+
+    /// `target_sel` — the target cursor (V1): walks the stage's
+    /// occupied slots (or the posed party), pick into a variable.
+    fn cmd_target_sel(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let var = cmd["var"]
+            .as_u64()
+            .filter(|&v| v < 256)
+            .with_context(|| "target_sel : var 0-255".to_string())?;
+        let ally = cmd["ally"].as_bool().unwrap_or(false);
+        let cancel = cmd["cancel"].as_bool().unwrap_or(true);
+        let flags = ally as u8 | (cancel as u8) << 1;
+        out.push(format!("  TARGETSEL {} {}", var, flags));
+        Ok(())
+    }
+
+    /// `save_slot` / `load_slot` / `slot_info` — the SRAM primitive
+    /// (M2). The menus around it are the project's events.
+    fn cmd_sram(&mut self, cmd: &Value, out: &mut Vec<String>, op: u8) -> Result<()> {
+        let slot = cmd["slot"]
+            .as_u64()
+            .filter(|&v| (1..=4).contains(&v))
+            .with_context(|| "sauvegarde : slot 1-4".to_string())?;
+        let var = if op == 2 {
+            cmd["var"]
+                .as_u64()
+                .filter(|&v| v < 256)
+                .with_context(|| "slot_info : var 0-255".to_string())?
+        } else {
+            0
+        };
+        out.push(format!("  SRAM {} {} {}", op, slot - 1, var));
         Ok(())
     }
 
@@ -1901,6 +2064,30 @@ impl<'a> EventCompiler<'a> {
             "  DBREAD {} {} {} {} {} {}",
             ti, esrc, entry, ofs, size, dst
         ));
+        Ok(())
+    }
+
+    /// `db_entry` — the NUMBER of a database entry into a variable.
+    /// No opcode of its own: the index is resolved here, so this is a
+    /// plain "variable = constant". The author names the row; renaming
+    /// or moving it later never silently shifts a script.
+    fn cmd_db_entry(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let dbr = self.db.with_context(|| {
+            "db_entry : le projet n'a pas de database (schemas/)".to_string()
+        })?;
+        let table = cmd["table"].as_str().context("db_entry sans table")?;
+        let ti = dbr.table_id(table).with_context(|| {
+            format!("db_entry : table inconnue « {} »", table)
+        })?;
+        let id = cmd["entry"].as_str().with_context(|| {
+            format!("db_entry : entry (id symbolique de {})", table)
+        })?;
+        let idx = dbr.entry_index(ti, id).with_context(|| {
+            format!("db_entry : « {} » absent de la table {}", id, table)
+        })?;
+        let dst = Self::idx_field(cmd, "dst", 256)?;
+        // VAROP, not SETVAR: the 16-bit variable space is 0-255
+        out.push(format!("  VAROP {} = const {}", dst, idx));
         Ok(())
     }
 

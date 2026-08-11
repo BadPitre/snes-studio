@@ -172,6 +172,7 @@ export default function SchemaEditorModal(props: Props) {
                       <option value="picture">picture (image du projet)</option>
                       <option value="sound">sound (son du projet)</option>
                       <option value="music">music (musique du projet)</option>
+                      <option value="charset">charset (planche de sprites)</option>
                     </select>
                   </label>
                 </div>

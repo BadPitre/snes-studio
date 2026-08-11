@@ -9,23 +9,68 @@
  *                        (filled from the BOTTOM up, ALttP style)
  *   2 icon_row         — repeated icons, Zelda hearts style
  *   3 icon_value       — icon + counter (optional leading zeros)
- *   4 panel            — frame only (the designer's window) — STATIC
+ *   4 panel            — frame only (the designer's CANVAS) — STATIC
  *   5 label            — fixed text (ui_ov_label) — STATIC
  *   6 image            — a run of icons from the sheet — STATIC
  *   7 list             — cursor menu (B6): items in ui_ov_label
  *                        separated by '\n', 1 column reserved for the
- *                        '>' cursor — driven by the LISTSEL opcode
+ *                        cursor ('>', or an icon when ui_ov_pad is set —
+ *                        ui_ov_icon says which) — driven by the LISTSEL
+ *                        opcode. More items than content rows = the
+ *                        window SCROLLS (ls_top) with ^ / v indicators
+ *                        in the last column.
+ *                        When ui_ov_src is a table id, the rows ARE that
+ *                        DATABASE table's entries (their names): the
+ *                        inventory case. ui_ov_srcfilt names a column
+ *                        holding a VARIABLE NUMBER — the row is skipped
+ *                        while that variable is 0; ui_ov_srccnt names
+ *                        one whose value is drawn right-aligned (the
+ *                        quantity). LISTSEL then returns the chosen
+ *                        ENTRY's number, ready for "read the database".
  *   8 image (picture)  — a project PICTURE laid into the UI layer:
  *                        datagen converts it to 2bpp chars brought back
  *                        to the font's 4 colours (no free palette: the
  *                        tileset takes colours 0-127), and ui_ov_icon
  *                        carries the base char — STATIC
+ *   9 image (sliced)   — a 3x3 picture stretched over the widget's rect,
+ *                        the windowskin recipe applied to any image —
+ *                        STATIC
+ *  10 image (fill)     — a picture revealed proportionally to var/max,
+ *                        left to right or bottom up (ui_ov_dir). Half
+ *                        tiles come from the CUT copy of the image that
+ *                        datagen lays right after the full one, so a
+ *                        fill has the gauge's two units per tile.
+ *  11 label (dynamic)  — like 5, but the text carries \v[n] escapes:
+ *                        byte 1, then the variable number + 1, then a
+ *                        format byte (1 = plain, w+1 = right-aligned on
+ *                        w columns, 0x80|(w+1) = zero-padded). Redrawn
+ *                        like a value: ui_ov_var is the first variable
+ *                        it reads, ui_ov_maxvar the second (0xFF none).
+ *  12 image (colour)   — one SOLID character over the whole rect: what a
+ *                        fresh image widget is, before any artwork.
+ *  13 image (colour, filled) — the same, revealed to var/max; ui_ov_icon
+ *                        is the full character and ui_ov_icon + 1 the
+ *                        half one.
+ * A FILLED object (1, 2, 10, 13) reads ui_ov_pad: 0 means var against
+ * max, anything else is 1 + a percentage the author set by hand — a
+ * fill needs no variable at all.
  * ui_ov_frame: 9-slice/box frame, or a bare widget over the game.
  * Icons: chars UI_ICON_BASE+n (the ui.icons sheet, after the windowskin);
  * gauge/icon_row: icon, icon+1, icon+2 = full, half, empty.
  *
  * The tables come from the uigen layout (generated ui_overlays.c); a
  * redraw only fires when var (or max_var) changes.
+ *
+ * WIDGETS MAY OVERLAP. The layer is one shared tilemap, so a primitive
+ * can never be painted or erased on its own: everything goes through
+ * ov_repaint, which clears a rect and replays — in emission order, which
+ * IS the z-order — every visible primitive that meets it. The author's
+ * widget order decides who is on top; a later widget wins.
+ *
+ * A widget may also overlap a DIALOGUE window (U2), and there the box
+ * wins: while ui_band_up is set, nothing paints or clears the band's
+ * rows. tb_clear_band drops the flag and refreshes, so the widget comes
+ * back the moment the message closes.
  *
  * Composes into the shared ui_map buffer (M1) — the transfer is
  * centralised in ui_screen_vblank.
@@ -35,6 +80,7 @@
 #include "ui_overlay.h"
 #include "ui_screen.h"
 #include "data/ui_cfg.h"
+#include "data/db_tables.h"
 
 #if UI_OV_COUNT
 
@@ -53,6 +99,24 @@ extern const u8 ui_ov_widget[]; /* index of the prim's ROOT (widget) */
 extern const u8 ui_ov_font[]; /* base of the ' ' glyph of the widget's font
     (S2) — 1 = project font, otherwise the base of the extra font in VRAM */
 extern const u8 ui_widget_vis[]; /* INITIAL visibility per widget */
+extern const u8 ui_hook_move[]; /* U3-b/U3-d: per PRIMITIVE — a hook
+    belongs to a COMPONENT — the common event of each hook (0xFF none),
+    and where the row is handed over */
+extern const u8 ui_hook_confirm[];
+extern const u8 ui_hook_cancel[];
+extern const u8 ui_hook_show[];
+extern const u8 ui_hook_hide[];
+extern const u8 ui_hook_rowvar[];
+extern const u8 ui_widget_visvar[]; /* U3-a: widget shown while this
+    variable is non-zero (0xFF = SHOWUI alone decides) */
+extern const u8 ui_ov_picvar[]; /* U3-a: image BOUND to a variable —
+    which one shows, among ui_ov_picn candidates laid ui_ov_picstr
+    characters apart (0xFF = a fixed image) */
+extern const u8 ui_ov_picn[];
+extern const u8 ui_ov_picstr[];
+extern const u8 ui_ov_src[];     /* list: source table id (0xFF none) */
+extern const u8 ui_ov_srcfilt[]; /* list: filter column offset (0xFF none) */
+extern const u8 ui_ov_srccnt[];  /* list: quantity column offset (0xFF) */
 extern const u8 ui_ov_maxvar[]; /* 0xFF = constant max (maxlo/maxhi) */
 extern const u8 ui_ov_maxlo[];
 extern const u8 ui_ov_maxhi[];
@@ -79,13 +143,60 @@ extern const char *const ui_ov_label[];
 
 static u16 ov_last[UI_OV_COUNT];  /* last value drawn */
 static u16 ov_lastm[UI_OV_COUNT]; /* last maximum (max_var) */
+static u8 ov_lastpic[UI_OV_COUNT]; /* last candidate drawn (U3-a) */
 static u8 ov_vis[UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1]; /* visibility
     runtime visibility per widget: hidden by default, driven by SHOWUI */
 static char ov_num[5];
 /* the ACTIVE cursor list (B6) — only one at a time, driven by the VM
    (LISTSEL). Explicit init: tcc-816 does not clear the BSS. */
 static u8 ls_prim = 0xFF; /* type 7 primitive in progress (0xFF = none) */
-static u8 ls_sel = 0;     /* row under the cursor */
+static u8 ls_sel = 0;     /* ROW under the cursor (absolute index) */
+static u8 ls_top = 0;     /* first visible row (scrolling list) */
+/* A list sourced on a database table: the rows that PASSED the filter,
+   as entry numbers, frozen when the menu opens — the cursor must not
+   move under the player because a quantity changed mid-menu. */
+#define LS_ROWS_MAX 32
+static u8 ls_row[LS_ROWS_MAX];
+static u8 ls_rows = 0; /* 0 = the list is not sourced */
+
+/* How full a FILLED object is, in half-tile units out of `units`.
+   ui_ov_pad carries 1 + a percentage when the author set the amount by
+   hand (no variable); 0 means the usual var-against-max reading. */
+static u8 ov_fill(u8 i, u16 units)
+{
+  u16 v, m;
+
+  if (ui_ov_pad[i])
+  {
+    v = (u16)(ui_ov_pad[i] - 1);
+    m = 100;
+  }
+  else
+  {
+    v = ov_last[i];
+    m = ov_lastm[i];
+  }
+  if (m == 0 || v == 0)
+    return 0;
+  if (v >= m)
+    return (u8)units;
+  return (u8)(((u32)v * units) / m);
+}
+
+/* Base character of an image primitive: the fixed one, or candidate N
+   of a bound set (U3-a). Out of range clamps rather than reading the
+   characters of whatever sits next in VRAM. */
+static u16 ov_pic_base(u8 i)
+{
+  u8 k;
+
+  if (ui_ov_picvar[i] == 0xFF)
+    return ui_ov_icon[i];
+  k = (u8)vm.vars16[ui_ov_picvar[i]];
+  if (k >= ui_ov_picn[i])
+    k = (u8)(ui_ov_picn[i] - 1);
+  return (u16)ui_ov_icon[i] + (u16)k * ui_ov_picstr[i];
+}
 
 /* a widget's current maximum: compiled constant or variable */
 static u16 ov_max(u8 i)
@@ -95,22 +206,134 @@ static u16 ov_max(u8 i)
   return (u16)ui_ov_maxlo[i] | ((u16)ui_ov_maxhi[i] << 8);
 }
 
-/* Erases a primitive's rect (hidden widget) — transparent */
-static void ov_erase(u8 i)
+/* A sourced list's column byte for one entry: the table's raw ROM. */
+static u8 ov_src_col(u8 i, u8 entry, u8 ofs)
 {
-  u8 cx, cy;
+  u8 t = ui_ov_src[i];
+
+  return db_tables[t][(u16)entry * db_table_sizes[t] + ofs];
+}
+
+/* Builds the visible rows of a sourced list: every entry of the table,
+   minus those the filter column hides (its byte is a VARIABLE NUMBER,
+   the row shows while that variable is non-zero). */
+static u8 ov_src_rows(u8 i)
+{
+  u8 t = ui_ov_src[i];
+  u8 filt = ui_ov_srcfilt[i];
+  u8 e, n = 0;
+
+  for (e = 0; e < db_table_counts[t] && n < LS_ROWS_MAX; e++)
+  {
+    if (filt != 0xFF && vm.vars16[ov_src_col(i, e, filt)] == 0)
+      continue;
+    ls_row[n++] = e;
+  }
+  return n;
+}
+
+/* Is widget i on screen right now? A primitive laid over the DIALOGUE
+   band counts as absent while a box is up: the textbox is not a
+   primitive, so nothing could repaint it if we drew over it. It comes
+   straight back — tb_clear_band drops the flag, then refreshes. */
+#define OV_BAND(i) \
+  (ui_band_up && ui_ov_y[i] < (u8)(UI_SHADOW_ROW + UI_SHADOW_H) && \
+   (u8)(ui_ov_y[i] + ui_ov_h[i]) > UI_SHADOW_ROW)
+#define OV_VIS(i) (ov_vis[ui_ov_widget[i]] && !OV_BAND(i))
+
+/* Does primitive i meet the rect? */
+static u8 ov_hits(u8 i, u8 rx, u8 ry, u8 rw, u8 rh)
+{
+  if (ui_ov_x[i] + ui_ov_w[i] <= rx || rx + rw <= ui_ov_x[i])
+    return 0;
+  if (ui_ov_y[i] + ui_ov_h[i] <= ry || ry + rh <= ui_ov_y[i])
+    return 0;
+  return 1;
+}
+
+static void ov_paint(u8 i);
+
+/* Repaints a rect: clears it, then replays every VISIBLE primitive that
+   meets it, in emission order (= z-order). This is the only honest way
+   to let widgets overlap on a shared tilemap — a primitive drawn alone
+   would punch a hole in whoever sits under or over it.
+
+   The rect GROWS first: a primitive that only pokes into it paints its
+   whole rect, which may cover a third one that was outside. Growing
+   until nothing new is caught makes the repaint closed under that. */
+static void ov_repaint(u8 rx, u8 ry, u8 rw, u8 rh)
+{
+  u8 i, grew, cx, cy;
   u16 base;
 
-  for (cy = 0; cy < ui_ov_h[i]; cy++)
+  do
   {
-    base = (u16)(ui_ov_y[i] + cy) * 32 + ui_ov_x[i];
-    for (cx = 0; cx < ui_ov_w[i]; cx++)
+    grew = 0;
+    for (i = 0; i < UI_OV_COUNT; i++)
+    {
+      if (!OV_VIS(i) || !ov_hits(i, rx, ry, rw, rh))
+        continue;
+      if (ui_ov_x[i] < rx)
+      {
+        rw = (u8)(rw + rx - ui_ov_x[i]);
+        rx = ui_ov_x[i];
+        grew = 1;
+      }
+      if (ui_ov_y[i] < ry)
+      {
+        rh = (u8)(rh + ry - ui_ov_y[i]);
+        ry = ui_ov_y[i];
+        grew = 1;
+      }
+      if (ui_ov_x[i] + ui_ov_w[i] > rx + rw)
+      {
+        rw = (u8)(ui_ov_x[i] + ui_ov_w[i] - rx);
+        grew = 1;
+      }
+      if (ui_ov_y[i] + ui_ov_h[i] > ry + rh)
+      {
+        rh = (u8)(ui_ov_y[i] + ui_ov_h[i] - ry);
+        grew = 1;
+      }
+    }
+  } while (grew);
+
+  for (cy = 0; cy < rh; cy++)
+  {
+    /* the dialogue band belongs to the box while one is up */
+    if (ui_band_up && (u8)(ry + cy) >= UI_SHADOW_ROW &&
+        (u8)(ry + cy) < (u8)(UI_SHADOW_ROW + UI_SHADOW_H))
+      continue;
+    base = (u16)(ry + cy) * 32 + rx;
+    for (cx = 0; cx < rw; cx++)
       ui_map[base + cx] = 0;
   }
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (OV_VIS(i) && ov_hits(i, rx, ry, rw, rh))
+      ov_paint(i);
+  ui_mark(ry, rh);
+}
+
+/* Redraws one primitive — through a repaint as soon as another visible
+   one shares its rect, which is the overlapping case. */
+static void ov_draw(u8 i)
+{
+  u8 k;
+
+  for (k = 0; k < UI_OV_COUNT; k++)
+    if (k != i && OV_VIS(k) &&
+        ov_hits(k, ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]))
+    {
+      ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
+      return;
+    }
+  ov_paint(i);
   ui_mark(ui_ov_y[i], ui_ov_h[i]);
 }
 
-static void ov_draw(u8 i)
+/* Paints one primitive into the buffer. Never called on its own from
+   outside — see ov_draw / ov_repaint. */
+static void ov_paint(u8 i)
 {
   u8 x = ui_ov_x[i];
   u8 w = ui_ov_w[i];
@@ -118,8 +341,13 @@ static void ov_draw(u8 i)
   u8 f = ui_ov_frame[i];
   u8 fb = ui_ov_font[i]; /* font base for the prim's text (S2) */
   u8 cx, cy, sy, d, cells, k, fill;
+  /* nrow/top/r/nm serve the sourced list. Declared HERE, not inside the
+     case: tcc-816 miscompiles a declaration inside a switch case (the
+     bug that once corrupted the HUD's row of hearts). */
+  u8 nrow, top, r;
   u16 base, v, units, ch;
   const char *l;
+  const char *nm;
 
   if (f)
   {
@@ -166,16 +394,7 @@ static void ov_draw(u8 i)
   case 2: /* icon_row (hearts): same filling, always horizontal */
     cells = ui_ov_dir[i] ? h : w;
     units = (u16)cells << 1;
-    {
-      u16 m = ov_lastm[i];
-
-      if (m == 0 || v == 0)
-        fill = 0;
-      else if (v >= m)
-        fill = (u8)units;
-      else
-        fill = (u8)(((u32)v * units) / m);
-    }
+    fill = ov_fill(i, units);
     for (k = 0; k < cells; k++)
     {
       /* 2=full 1=half 0=empty -> chars icon+0 / +1 / +2 */
@@ -193,11 +412,34 @@ static void ov_draw(u8 i)
   case 4: /* panel: frame only (drawn above) */
     break;
 
-  case 5: /* label: static text */
+  case 5:  /* label: static text */
+  case 11: /* label: text carrying \v[n] escapes (see the header) */
     cx = x;
     l = ui_ov_label[i];
     while (*l && cx < (u8)(x + w))
-      ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
+    {
+      if (*l != 1)
+      {
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(*l++));
+        continue;
+      }
+      /* \v[n]: variable number + 1, then the format byte */
+      v = vm.vars16[(u8)(l[1] - 1)];
+      d = (u8)l[2];
+      l += 3;
+      k = 0;
+      do
+      {
+        ov_num[k++] = '0' + (v % 10);
+        v /= 10;
+      } while (v && k < 5);
+      /* pad to the requested column count — with zeros or with spaces
+         (the digits sit reversed, so padding appended comes out LEFT) */
+      while (k < (u8)((d & 0x7F) - 1) && k < 5)
+        ov_num[k++] = (d & 0x80) ? '0' : ' ';
+      while (k && cx < (u8)(x + w))
+        ui_map[base + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--k]));
+    }
     break;
 
   case 6: /* image: consecutive icons from the sheet */
@@ -209,18 +451,144 @@ static void ov_draw(u8 i)
              by datagen (4 colours, the font's palette). The chars are
              consecutive, row by row — here ui_ov_icon carries the
              absolute BASE char, not an index into the icon sheet. */
-    ch = ui_ov_icon[i];
+    ch = ov_pic_base(i);
     for (cy = 0; cy < h; cy++)
       for (k = 0; k < w; k++)
         ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch++);
     break;
 
-  case 7: /* list (B6): one item per row, column 0 = the '>' cursor */
-    l = ui_ov_label[i];
+  case 9: /* image: a 3x3 picture SLICED over the widget's rect — the
+             windowskin recipe, opened to any image */
+    ch = ov_pic_base(i);
     for (cy = 0; cy < h; cy++)
     {
-      if (i == ls_prim && cy == ls_sel)
-        ui_map[base + (u16)cy * 32 + x] = OV_ENTRY(OV_FCHAR('>'));
+      sy = cy == 0 ? 0 : (cy == (u8)(h - 1) ? 2 : 1);
+      for (k = 0; k < w; k++)
+        ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(
+            ch + sy * 3 + (k == 0 ? 0 : (k == (u8)(w - 1) ? 2 : 1)));
+    }
+    break;
+
+  case 10: /* image: FILLED to var/max. Two units per tile — the full
+              image, then its CUT copy, which datagen lays immediately
+              after (chars ch .. ch + w*h - 1, then w*h more). The
+              unfilled part keeps the background, so an "empty" image
+              placed UNDER this one draws the rest of the bar. */
+    ch = ov_pic_base(i);
+    cells = ui_ov_dir[i] ? h : w;
+    units = (u16)cells << 1;
+    fill = ov_fill(i, units);
+    for (k = 0; k < cells; k++)
+    {
+      d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
+      if (d > 2)
+        d = 2;
+      if (d == 0)
+        continue; /* empty: the background stays */
+      if (ui_ov_dir[i]) /* vertical: filled from the BOTTOM up */
+      {
+        cy = (u8)(h - 1 - k);
+        for (r = 0; r < w; r++)
+          ui_map[base + (u16)cy * 32 + x + r] =
+              OV_ENTRY(ch + (d == 1 ? (u16)w * h : 0) + (u16)cy * w + r);
+      }
+      else
+        for (cy = 0; cy < h; cy++)
+          ui_map[base + (u16)cy * 32 + x + k] =
+              OV_ENTRY(ch + (d == 1 ? (u16)w * h : 0) + (u16)cy * w + k);
+    }
+    break;
+
+  case 12: /* image: a SOLID COLOUR — one character over the whole rect.
+              What a fresh image widget is, before any artwork. */
+    ch = ui_ov_icon[i];
+    for (cy = 0; cy < h; cy++)
+      for (k = 0; k < w; k++)
+        ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch);
+    break;
+
+  case 13: /* image: a solid colour FILLED — ch is the full character,
+              ch + 1 the half one (datagen lays them side by side) */
+    ch = ui_ov_icon[i];
+    cells = ui_ov_dir[i] ? h : w;
+    units = (u16)cells << 1;
+    fill = ov_fill(i, units);
+    for (k = 0; k < cells; k++)
+    {
+      d = fill > (u8)(k << 1) ? (u8)(fill - (k << 1)) : 0;
+      if (d > 2)
+        d = 2;
+      if (d == 0)
+        continue;
+      if (ui_ov_dir[i]) /* vertical: filled from the BOTTOM up */
+      {
+        cy = (u8)(h - 1 - k);
+        for (r = 0; r < w; r++)
+          ui_map[base + (u16)cy * 32 + x + r] = OV_ENTRY(ch + (d == 1));
+      }
+      else
+        for (cy = 0; cy < h; cy++)
+          ui_map[base + (u16)cy * 32 + x + k] = OV_ENTRY(ch + (d == 1));
+    }
+    break;
+
+  case 7: /* list (B6): one item per row, column 0 = the cursor ('>'
+             or an icon when ui_ov_pad is set). The active list scrolls
+             when the items outnumber the rows: ls_top items are
+             skipped and the last column carries the ^ / v hints. */
+    if (ui_ov_src[i] != 0xFF)
+    {
+      /* rows from a DATABASE table: the entry names, and the quantity
+         column when there is one. Only the ACTIVE list has a row map;
+         a sourced list drawn while closed shows the table as it
+         stands, which is what the designer's preview promises. */
+      nrow = (i == ls_prim && ls_rows) ? ls_rows : ov_src_rows(i);
+      top = (i == ls_prim) ? ls_top : 0;
+      for (cy = 0; cy < h; cy++)
+      {
+        r = (u8)(cy + top);
+        if (r >= nrow)
+          break;
+        if (i == ls_prim && r == ls_sel)
+          ui_map[base + (u16)cy * 32 + x] =
+              ui_ov_pad[i] ? OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i])
+                           : OV_ENTRY(OV_FCHAR('>'));
+        nm = db_names[ui_ov_src[i]][ls_row[r]];
+        cx = (u8)(x + 1);
+        while (*nm && cx < (u8)(x + w - 1))
+          ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*nm++));
+        if (ui_ov_srccnt[i] != 0xFF)
+        {
+          /* quantity, right-aligned on the row */
+          v = vm.vars16[ov_src_col(i, ls_row[r], ui_ov_srccnt[i])];
+          d = 0;
+          do
+          {
+            ov_num[d++] = '0' + (v % 10);
+            v /= 10;
+          } while (v && d < 5);
+          cx = (u8)(x + w - d);
+          while (d)
+            ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(ov_num[--d]));
+        }
+      }
+      if (i == ls_prim && ls_top)
+        ui_map[base + x + w - 1] = OV_ENTRY(OV_FCHAR('^'));
+      if ((u16)top + h < nrow)
+        ui_map[base + (u16)(h - 1) * 32 + x + w - 1] = OV_ENTRY(OV_FCHAR('v'));
+      break;
+    }
+    l = ui_ov_label[i];
+    k = (i == ls_prim) ? ls_top : 0;
+    while (k && *l) /* skip the items scrolled out above */
+      if (*l++ == '\n')
+        k--;
+    for (cy = 0; cy < h; cy++)
+    {
+      if (i == ls_prim && (u8)(cy + ls_top) == ls_sel)
+        ui_map[base + (u16)cy * 32 + x] =
+            ui_ov_pad[i] ? OV_ENTRY(OV_ICON_BASE(i) + ui_ov_icon[i])
+                         : OV_ENTRY(OV_FCHAR('>'));
       cx = (u8)(x + 1);
       while (*l && *l != '\n' && cx < (u8)(x + w))
         ui_map[base + (u16)cy * 32 + cx++] = OV_ENTRY(OV_FCHAR(*l++));
@@ -229,8 +597,17 @@ static void ov_draw(u8 i)
       if (*l == '\n')
         l++;
       else
-        break; /* no more items: the remaining rows keep the background */
+      {
+        l = ""; /* no more items: the remaining rows keep the background */
+        break;
+      }
     }
+    /* scroll hints in the last content column (a scrolling list is one
+       column wider precisely so they never cover an item) */
+    if (i == ls_prim && ls_top)
+      ui_map[base + x + w - 1] = OV_ENTRY(OV_FCHAR('^'));
+    if (*l) /* items remain below the window */
+      ui_map[base + (u16)(h - 1) * 32 + x + w - 1] = OV_ENTRY(OV_FCHAR('v'));
     break;
 
   case 3: /* icon_value: icon + right-aligned counter, zero padded */
@@ -279,7 +656,6 @@ static void ov_draw(u8 i)
     }
     break;
   }
-  ui_mark(ui_ov_y[i], ui_ov_h[i]);
 }
 
 void overlay_init(void)
@@ -287,33 +663,73 @@ void overlay_init(void)
   u8 i;
 
   for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
-    ov_vis[i] = UI_WIDGET_COUNT ? ui_widget_vis[i] : 0;
-  /* ui_map has already been cleared by ui_screen_init (called first) */
+    ov_vis[i] = !UI_WIDGET_COUNT
+                    ? 0
+                    : (ui_widget_visvar[i] != 0xFF
+                           ? (vm.vars16[ui_widget_visvar[i]] ? 1 : 0)
+                           : ui_widget_vis[i]);
+  /* ui_map has already been cleared by ui_screen_init (called first), so
+     painting straight through in emission order gives the right z-order */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     ov_last[i] = vm.vars16[ui_ov_var[i]];
     ov_lastm[i] = ov_max(i);
-    if (ov_vis[ui_ov_widget[i]])
-      ov_draw(i);
+    ov_lastpic[i] =
+        ui_ov_picvar[i] == 0xFF ? 0 : (u8)vm.vars16[ui_ov_picvar[i]];
   }
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (OV_VIS(i))
+    {
+      ov_paint(i);
+      ui_mark(ui_ov_y[i], ui_ov_h[i]);
+    }
 }
 
 void overlay_update(void)
 {
-  u8 i;
+  u8 i, t, p;
   u16 v, m;
 
+  /* Visibility BOUND to a variable (U3-a): the declarative twin of
+     SHOWUI — the widget follows the variable, on or off. */
+  for (i = 0; i < (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1); i++)
+  {
+    if (!UI_WIDGET_COUNT || ui_widget_visvar[i] == 0xFF)
+      continue;
+    t = vm.vars16[ui_widget_visvar[i]] ? 1 : 0;
+    if (t != ov_vis[i])
+      overlay_show(i, t);
+  }
   for (i = 0; i < UI_OV_COUNT; i++)
   {
-    if (ui_ov_type[i] >= 4)
-      continue; /* panel/label/image: static (refresh only) */
+    /* an image bound to a variable redraws when it changes, whatever
+       its kind says about being static */
+    if (ui_ov_picvar[i] != 0xFF)
+    {
+      p = (u8)vm.vars16[ui_ov_picvar[i]];
+      if (p != ov_lastpic[i])
+      {
+        ov_lastpic[i] = p;
+        if (OV_VIS(i))
+          ov_draw(i);
+      }
+    }
+    t = ui_ov_type[i];
+    /* panel / static label / icons / picture / sliced / solid: refresh
+       only. A filled image (10, 13) and an interpolating label (11)
+       track their variables like a value does — unless the author set
+       the amount by hand, which ui_ov_pad marks. */
+    if (t >= 4 && t != 10 && t != 11 && t != 13)
+      continue;
+    if (ui_ov_pad[i] && (t == 1 || t == 2 || t == 10 || t == 13))
+      continue;
     v = vm.vars16[ui_ov_var[i]];
     m = ov_max(i);
     if (v != ov_last[i] || m != ov_lastm[i])
     {
       ov_last[i] = v;
       ov_lastm[i] = m;
-      if (ov_vis[ui_ov_widget[i]])
+      if (OV_VIS(i))
         ov_draw(i);
     }
   }
@@ -321,14 +737,38 @@ void overlay_update(void)
 
 void overlay_refresh(void)
 {
-  u8 i;
+  u8 i, cy, cx;
+  u16 base;
 
+  /* A widget that STRADDLES the dialogue band gives the whole of itself
+     up while a box is down — a canvas showing only the one row poking
+     out above the box reads as a bug, not as a feature. Clear those
+     rows first; the pass below brings back whatever was underneath. */
+  for (i = 0; i < UI_OV_COUNT; i++)
+  {
+    if (!ov_vis[ui_ov_widget[i]] || !OV_BAND(i))
+      continue;
+    for (cy = 0; cy < ui_ov_h[i]; cy++)
+    {
+      if ((u8)(ui_ov_y[i] + cy) >= UI_SHADOW_ROW &&
+          (u8)(ui_ov_y[i] + cy) < (u8)(UI_SHADOW_ROW + UI_SHADOW_H))
+        continue; /* the band itself belongs to the box */
+      base = (u16)(ui_ov_y[i] + cy) * 32 + ui_ov_x[i];
+      for (cx = 0; cx < ui_ov_w[i]; cx++)
+        ui_map[base + cx] = 0;
+    }
+    ui_mark(ui_ov_y[i], ui_ov_h[i]);
+  }
   /* unconditional redraw: after the dialogue band is cleared
      (tb_clear_band), the widgets sharing its rows must reappear —
-     except those hidden by SHOWUI */
+     except those hidden by SHOWUI. Straight through in emission order:
+     that IS the z-order, so overlapping widgets land right. */
   for (i = 0; i < UI_OV_COUNT; i++)
-    if (ov_vis[ui_ov_widget[i]])
-      ov_draw(i);
+    if (OV_VIS(i))
+    {
+      ov_paint(i);
+      ui_mark(ui_ov_y[i], ui_ov_h[i]);
+    }
 }
 
 void overlay_show(u8 widget, u8 on)
@@ -338,6 +778,9 @@ void overlay_show(u8 widget, u8 on)
   if (widget >= (UI_WIDGET_COUNT ? UI_WIDGET_COUNT : 1))
     return;
   ov_vis[widget] = on;
+  /* Hiding: the rect goes back to whoever is underneath — ov_vis is
+     already down, so the repaint leaves us out. Showing: ov_draw sorts
+     the z-order out on its own as soon as anything overlaps. */
   for (i = 0; i < UI_OV_COUNT; i++)
   {
     if (ui_ov_widget[i] != widget)
@@ -345,26 +788,63 @@ void overlay_show(u8 widget, u8 on)
     if (on)
       ov_draw(i); /* values are up to date: ov_last tracked even when hidden */
     else
-      ov_erase(i);
+      ov_repaint(ui_ov_x[i], ui_ov_y[i], ui_ov_w[i], ui_ov_h[i]);
   }
+  /* U3-b/U3-d: the on_show / on_hide block of EVERY component of the
+     widget, AFTER the screen is right — a hook must find the widget in
+     the state it announces. */
+  for (i = 0; i < UI_OV_COUNT; i++)
+    if (ui_ov_widget[i] == widget)
+      vm_ui_hook(overlay_hook(i, on ? 3 : 4));
+}
+
+u8 overlay_hook(u8 prim, u8 which)
+{
+  if (prim >= UI_OV_COUNT)
+    return 0xFF;
+  switch (which)
+  {
+  case 0: return ui_hook_move[prim];
+  case 1: return ui_hook_confirm[prim];
+  case 2: return ui_hook_cancel[prim];
+  case 3: return ui_hook_show[prim];
+  default: return ui_hook_hide[prim];
+  }
+}
+
+u8 overlay_hook_rowvar(u8 prim)
+{
+  if (prim >= UI_OV_COUNT)
+    return 0xFF;
+  return ui_hook_rowvar[prim];
+}
+
+/* Which primitive the open cursor list is (0xFF none) — the VM needs it
+   to find the LIST's own hooks rather than its widget's. */
+u8 overlay_list_prim(void)
+{
+  return ls_prim;
 }
 
 /* ---- cursor list (B6) — driven by the VM (LISTSEL opcode) ---- */
 
-/* number of items in the label (separated by '\n'), capped to the
-   widget's content rows — the cursor never lands on an empty row */
+/* number of rows — the FULL count: when it exceeds the widget's content
+   rows the list scrolls (ls_top), so the cursor never lands on an empty
+   row. A sourced list counts the entries that passed the filter. */
 static u8 ov_list_count(u8 i)
 {
-  const char *l = ui_ov_label[i];
-  u8 rows = (u8)(ui_ov_h[i] - (ui_ov_frame[i] << 1));
+  const char *l;
   u8 n = 1;
 
+  if (ui_ov_src[i] != 0xFF)
+    return ls_rows;
+  l = ui_ov_label[i];
   if (!*l)
     return 0;
   while (*l)
     if (*l++ == '\n')
       n++;
-  return n < rows ? n : rows;
+  return n;
 }
 
 u8 overlay_list_open(u8 widget)
@@ -377,6 +857,16 @@ u8 overlay_list_open(u8 widget)
     {
       ls_prim = i;
       ls_sel = 0;
+      ls_top = 0;
+      /* a sourced list freezes its rows here: what the table holds and
+         the filter allows AT THIS MOMENT (an empty inventory returns 0,
+         and the command is ignored — the script sees var untouched) */
+      ls_rows = (ui_ov_src[i] != 0xFF) ? ov_src_rows(i) : 0;
+      if (ui_ov_src[i] != 0xFF && ls_rows == 0)
+      {
+        ls_prim = 0xFF;
+        return 0;
+      }
       overlay_show(widget, 1); /* redraws — the cursor starts at the top */
       return ov_list_count(i);
     }
@@ -386,10 +876,28 @@ u8 overlay_list_open(u8 widget)
 
 void overlay_list_cursor(u8 sel)
 {
+  u8 rows;
+
   if (ls_prim == 0xFF)
     return;
   ls_sel = sel;
+  /* keep the cursor inside the window: scroll the view when needed */
+  rows = (u8)(ui_ov_h[ls_prim] - (ui_ov_frame[ls_prim] << 1));
+  if (ls_sel < ls_top)
+    ls_top = ls_sel;
+  else if (rows && ls_sel >= (u8)(ls_top + rows))
+    ls_top = (u8)(ls_sel - rows + 1);
   ov_draw(ls_prim); /* small rect: a full redraw is simpler */
+}
+
+/* Row -> what LISTSEL writes: the ROW NUMBER for a plain list, the
+   chosen entry's DATABASE NUMBER for a sourced one (so "read the
+   database" reads it straight away). */
+u8 overlay_list_pick(u8 row)
+{
+  if (ls_prim != 0xFF && ui_ov_src[ls_prim] != 0xFF)
+    return row < ls_rows ? ls_row[row] : 0;
+  return row;
 }
 
 void overlay_list_close(u8 keep)
@@ -401,6 +909,7 @@ void overlay_list_close(u8 keep)
   w = ui_ov_widget[ls_prim];
   p = ls_prim;
   ls_prim = 0xFF;
+  ls_rows = 0;
   if (keep)
     ov_draw(p); /* multi-panel: the list stays, without the cursor */
   else
@@ -431,6 +940,29 @@ u8 overlay_list_open(u8 widget)
 {
   (void)widget;
   return 0;
+}
+
+u8 overlay_list_pick(u8 row)
+{
+  return row;
+}
+
+u8 overlay_hook(u8 prim, u8 which)
+{
+  (void)prim;
+  (void)which;
+  return 0xFF;
+}
+
+u8 overlay_hook_rowvar(u8 prim)
+{
+  (void)prim;
+  return 0xFF;
+}
+
+u8 overlay_list_prim(void)
+{
+  return 0xFF;
 }
 
 void overlay_list_cursor(u8 sel)

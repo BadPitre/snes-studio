@@ -1,0 +1,153 @@
+{
+ "backdrop": "fond_prairie",
+ "slots": [
+  {
+   "slot": 1,
+   "pic": "gobelin",
+   "x": 48,
+   "y": 96,
+   "name": "gobelin_g"
+  },
+  {
+   "slot": 2,
+   "pic": "gobelin",
+   "x": 120,
+   "y": 96,
+   "name": "gobelin_d"
+  }
+ ],
+ "scripts": [
+  {
+   "name": "principal",
+   "trigger": "auto",
+   "commands": [
+    {
+     "c": "rem",
+     "text": "V1 : les quatre primitives, en pur script - jauge, poses, cible, popup"
+    },
+    {
+     "c": "var",
+     "n": 70,
+     "op": "=",
+     "value": 0
+    },
+    {
+     "c": "var",
+     "n": 71,
+     "op": "=",
+     "value": 40
+    },
+    {
+     "c": "clock",
+     "base": 70,
+     "lanes": 1
+    },
+    {
+     "c": "ui_show",
+     "widget": "jauge_v1",
+     "on": true
+    },
+    {
+     "c": "btl_pose",
+     "hero": 0,
+     "x": 200,
+     "y": 40,
+     "show": true
+    },
+    {
+     "c": "btl_pose",
+     "hero": 1,
+     "x": 200,
+     "y": 72,
+     "show": true
+    },
+    {
+     "c": "rem",
+     "text": "attendre que la jauge (var 70) soit pleine"
+    },
+    {
+     "c": "loop",
+     "do": [
+      {
+       "c": "if_var",
+       "n": 70,
+       "op": ">=",
+       "value": 255,
+       "then": [
+        {
+         "c": "break"
+        }
+       ],
+       "else": []
+      }
+     ]
+    },
+    {
+     "c": "clock",
+     "base": 70,
+     "lanes": 0
+    },
+    {
+     "c": "target_sel",
+     "var": 72,
+     "ally": false,
+     "cancel": false
+    },
+    {
+     "c": "if_var",
+     "n": 72,
+     "op": "==",
+     "value": 0,
+     "then": [
+      {
+       "c": "slot_fx",
+       "slot": 1,
+       "fx": "flash",
+       "frames": 12
+      },
+      {
+       "c": "popup",
+       "value": 1234,
+       "x": 64,
+       "y": 104
+      }
+     ],
+     "else": []
+    },
+    {
+     "c": "if_var",
+     "n": 72,
+     "op": "==",
+     "value": 1,
+     "then": [
+      {
+       "c": "slot_fx",
+       "slot": 2,
+       "fx": "flash",
+       "frames": 12
+      },
+      {
+       "c": "popup",
+       "value": 1234,
+       "x": 136,
+       "y": 104
+      }
+     ],
+     "else": []
+    },
+    {
+     "c": "wait",
+     "frames": 60
+    },
+    {
+     "c": "msg",
+     "text": "V1 : primitives OK !"
+    },
+    {
+     "c": "stage_close",
+     "dur": 20
+    }
+   ]
+  }
+ ]
+}

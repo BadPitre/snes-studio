@@ -13,21 +13,102 @@ size = [32, 8]
 [[node]]
 id = "menu_combat"
 type = "list"
-pos = [2, 2]
-items = ["Attaque", "Objet", "Fuite"]
+pos = [1, 13]
+items = ["Attaque", "Eclair", "Soin", "Objets", "Fuite"]
 
-# menu d'inventaire — ouvert par Start (common event « inventaire »)
+# menu d'inventaire — ouvert par Start (common event « inventaire »).
+# Ses lignes SONT la table `items` : ajouter un objet dans la Database
+# l'ajoute au menu, sans toucher au layout. `source_filter` cache la
+# ligne tant que la variable de comptage vaut 0 (on ne voit que ce
+# qu'on possede), `source_count` affiche cette quantite a droite.
 [[node]]
 id = "menu_objets"
 type = "list"
-pos = [2, 10]
-items = ["Potion", "Etat", "Fermer"]
+pos = [2, 5]
+size = [14, 6]
+source = "items"
+source_filter = "count_var"
+source_count = "count_var"
 
-# PV du heros pendant le combat (cadre libelle + valeur)
+# PV du heros pendant le combat : un CANVAS encadre qui porte un label.
+# \v[10,4] = la variable 10, calee sur 4 colonnes (U1) — plus besoin d'un
+# composant « libelle + valeur » dedie.
 [[node]]
 id = "hud_pv"
-type = "variable_display"
+type = "canvas"
 pos = [22, 2]
 size = [8, 3]
-var = 10
-label = "PV"
+frame = true
+
+[[node]]
+id = "hud_pv_txt"
+parent = "hud_pv"
+type = "label"
+text = "PV\\v[10,4]"
+
+# C1 — fenetres du combat ATB : PV de l'equipe, liees aux variables
+# RESERVEES du moteur (btl.h : 240 + heros*2). Montrees par l'event qui
+# lance le combat ; C2 en donnera la garde au moteur.
+[[node]]
+id = "combat_pv1"
+type = "canvas"
+pos = [12, 14]
+size = [9, 3]
+frame = true
+
+[[node]]
+id = "combat_pv1_txt"
+parent = "combat_pv1"
+type = "label"
+text = "Arven\\v[240,2]"
+
+[[node]]
+id = "combat_pv2"
+type = "canvas"
+pos = [12, 17]
+size = [9, 3]
+frame = true
+
+[[node]]
+id = "combat_pv2_txt"
+parent = "combat_pv2"
+type = "label"
+text = "Nadia\\v[242,2]"
+
+# V1 — the toy screen's ATB bar: an IMAGE in fill mode on the icon
+# sheet (icons 3/4/5 = full/half/empty). DRAWS the clock's variable 70.
+# Hidden until the test script shows it.
+[[node]]
+id = "jauge_v1"
+type = "image"
+mode = "fill"
+pos = [12, 2]
+size = [8, 1]
+var = 70
+max = 255
+icon = 3
+frame = false
+
+# Barres ATB (V4+) : la jauge DESSINE la variable que l'horloge (CLOCK)
+# remplit — aucune ligne moteur, c'est le contrat de la bibliotheque.
+[[node]]
+id = "jauge_atb1"
+type = "image"
+mode = "fill"
+pos = [22, 15]
+size = [9, 1]
+var = 100
+max = 255
+icon = 3
+frame = false
+
+[[node]]
+id = "jauge_atb2"
+type = "image"
+mode = "fill"
+pos = [22, 18]
+size = [9, 1]
+var = 102
+max = 255
+icon = 3
+frame = false

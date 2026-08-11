@@ -16,6 +16,13 @@
 
 extern u16 ui_map[32 * UI_ROWS];
 
+/* A dialogue box is UP: the rows of the dialogue band belong to it.
+   Since U2 a widget MAY be placed over those rows, so ui_overlay stops
+   painting anything that touches them while this is set — the textbox
+   is not a primitive, nothing could repaint it. tb_clear_band drops the
+   flag and refreshes, which brings those widgets straight back. */
+extern u8 ui_band_up;
+
 /* Clears the buffer AND the whole VRAM map — screen off only. */
 void ui_screen_init(void);
 

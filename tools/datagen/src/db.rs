@@ -77,8 +77,14 @@ fn field_size(ty: &str) -> Result<usize> {
         "u16" | "s16" | "text_id" => 2,
         // Project resources by NAME become a u8 index in ROM: the order
         // of the project.json lists, the same one the SHOWPIC/PLAYSFX/
-        // PLAYBGM opcodes use. 0xFF means absent (optional).
-        "picture" | "sound" | "music" => 1,
+        // PLAYBGM opcodes use. 0xFF means absent (optional). `charset`
+        // is the same thing for a sprite sheet block — build modules
+        // read it by name (the battler cells), so its ROM byte is the
+        // block index.
+        "picture" | "sound" | "music" | "charset" => 1,
+        // Build-time data (C4): validated by the schema's presence, read
+        // raw by build modules (battle's `ai`), never packed into ROM.
+        "build" => 0,
         t if t.starts_with("ref:") => 1,
         other => bail!("type de champ inconnu : « {} »", other),
     })
@@ -98,6 +104,9 @@ pub struct Db {
     pub schemas: Vec<Schema>,
     /// Per table: symbolic ids in index order.
     pub ids: Vec<Vec<String>>,
+    /// Per table: the entries' DISPLAY names (the `name` key, the id
+    /// when absent) — what a list widget sourced on the table draws.
+    pub names: Vec<Vec<String>>,
     /// Per table: the raw entries. `encode` turns them into bytes, and
     /// needs the FINAL text bank — closed after the events — to resolve
     /// text_id. The encoded bytes go here too.
@@ -114,6 +123,42 @@ impl Db {
     /// Entry index, keyed by symbolic id.
     pub fn entry_index(&self, table: usize, id: &str) -> Option<usize> {
         self.ids[table].iter().position(|s| s == id)
+    }
+
+    /// A STRING field of one entry, raw from the TOML — for build-time
+    /// consumers that resolve resources by name (the battle module reads
+    /// a monster's battle_pic to pose it). None when absent or not a
+    /// string.
+    pub fn field_str(&self, table: usize, entry: usize, field: &str) -> Option<String> {
+        self.entries[table]
+            .get(entry)?
+            .get(field)?
+            .as_str()
+            .map(|s| s.to_string())
+    }
+
+    /// An INTEGER field of one entry, raw from the TOML (or the schema
+    /// default when the entry omits it). For build-time consumers (the
+    /// battle module reads a hero's charset column).
+    pub fn field_int(&self, table: usize, entry: usize, field: &str) -> Option<i64> {
+        let e = self.entries[table].get(entry)?;
+        if let Some(v) = e.get(field).and_then(|v| v.as_integer()) {
+            return Some(v);
+        }
+        self.schemas[table]
+            .fields
+            .iter()
+            .find(|f| f.name == field)
+            .and_then(|f| f.default.as_ref())
+            .and_then(|d| d.as_integer())
+    }
+
+    /// A RAW field of one entry, whatever its TOML shape — for
+    /// build-time consumers with formats richer than the packed table
+    /// (the battle module reads a monster's `ai` action list, an array
+    /// of strings that never lands in ROM as a db column).
+    pub fn field_raw(&self, table: usize, entry: usize, field: &str) -> Option<&toml::Value> {
+        self.entries[table].get(entry)?.get(field)
     }
 
     /// (offset, size in bytes) of a table's field.
@@ -183,7 +228,7 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
                     sc.name, f.name
                 );
             }
-            let is_res = matches!(f.ty.as_str(), "picture" | "sound" | "music");
+            let is_res = matches!(f.ty.as_str(), "picture" | "sound" | "music" | "charset");
             if f.optional && !(f.ty.starts_with("ref:") || f.ty == "text_id" || is_res) {
                 bail!(
                     "schema {}, champ « {} » : optional est reserve aux \
@@ -218,6 +263,7 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
     // tables, then encode.
     let mut entries: Vec<Vec<toml::Table>> = Vec::new();
     let mut ids: Vec<Vec<String>> = Vec::new();
+    let mut names: Vec<Vec<String>> = Vec::new();
     for sc in &schemas {
         let p = proj_dir.join("data").join(format!("{}.toml", sc.name));
         let list = if p.is_file() {
@@ -250,11 +296,26 @@ pub fn load(proj_dir: &Path) -> Result<Option<Db>> {
             }
             tids.push(id.to_string());
         }
+        // Display names, as the Database window holds them. They are
+        // editor metadata until a list widget sources the table — the
+        // ASCII rule is checked THERE (emit_files), so a name only a
+        // human reads may keep its accents.
+        let mut tnames: Vec<String> = Vec::new();
+        for (i, e) in list.iter().enumerate() {
+            tnames.push(
+                e.get("name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&tids[i])
+                    .to_string(),
+            );
+        }
+        names.push(tnames);
         ids.push(tids);
         entries.push(list);
     }
 
-    Ok(Some(Db { schemas, ids, entries, blobs: Vec::new() }))
+    Ok(Some(Db { schemas, ids, names, entries, blobs: Vec::new() }))
 }
 
 /// Byte-packed encoding, field by field in schema order. Call once the
@@ -265,10 +326,11 @@ pub struct ResNames<'a> {
     pub pictures: &'a [String],
     pub sounds: &'a [String],
     pub musics: &'a [String],
+    pub charsets: &'a [String],
 }
 
 pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> Result<()> {
-    let Db { schemas, ids, entries, blobs } = db;
+    let Db { schemas, ids, names: _, entries, blobs } = db;
     let table_idx: HashMap<String, usize> = schemas
         .iter()
         .enumerate()
@@ -295,6 +357,7 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                 let ctx = || format!("data/{}.toml : entree « {} », champ « {} »",
                                      sc.name, ids[ti][ei], f.name);
                 match f.ty.as_str() {
+                    "build" => {} /* consumed at build time, no ROM bytes */
                     "u8" | "u16" | "s8" | "s16" => {
                         let v = match raw {
                             None => 0,
@@ -333,11 +396,12 @@ pub fn encode(db: &mut Db, text_ids: &HashMap<String, u16>, res: &ResNames) -> R
                         }
                         blob.push(byte);
                     }
-                    "picture" | "sound" | "music" => {
+                    "picture" | "sound" | "music" | "charset" => {
                         // name -> index in the project list (0xFF absent)
                         let (list, what): (&[String], &str) = match f.ty.as_str() {
                             "picture" => (res.pictures, "picture"),
                             "sound" => (res.sounds, "son"),
+                            "charset" => (res.charsets, "planche de sprites"),
                             _ => (res.musics, "musique"),
                         };
                         match raw.and_then(|v| v.as_str()) {
@@ -424,7 +488,10 @@ pub fn emit_empty() -> Vec<(String, String)> {
 
 /// Emits db_<table>.c (one per table), db_index.c (the DBREAD registry)
 /// and db_tables.h, as (name, contents).
-pub fn emit_files(db: &Db) -> Vec<(String, String)> {
+/// `named` lists the tables whose entry NAMES must reach ROM: the
+/// tables a "list" widget draws its rows from. Names are editor
+/// metadata everywhere else, so nothing else pays for them.
+pub fn emit_files(db: &Db, named: &[String]) -> Result<Vec<(String, String)>> {
     let mut files = Vec::new();
     let mut h = String::from(emit::HEADER);
     h.push_str("#ifndef DB_TABLES_H\n#define DB_TABLES_H\n\n");
@@ -458,6 +525,50 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
         }
         files.push((format!("db_{}.c", sc.name), c));
     }
+    // Entry NAMES of the sourced tables (a list widget's rows), plus a
+    // registry parallel to db_tables so the engine can index by table.
+    {
+        let mut c = String::from(emit::HEADER);
+        c.push_str("#include <snes.h>\n\n");
+        for (ti, sc) in db.schemas.iter().enumerate() {
+            if !named.contains(&sc.name) {
+                continue;
+            }
+            for (i, nm) in db.names[ti].iter().enumerate() {
+                // On screen now: the font has no accents.
+                if !nm.chars().all(|c| (' '..='~').contains(&c)) {
+                    bail!(
+                        "table {} : la fiche « {} » s'affiche dans un menu \
+                         (un widget liste est branché sur cette table) — son \
+                         nom doit être ASCII, sans accents",
+                        sc.name, nm
+                    );
+                }
+                let _ = write!(c, "static const char dbn_{}_{}[] = {:?};\n", sc.name, i, nm);
+            }
+            let n = db.names[ti].len().max(1);
+            let _ = write!(c, "const char *const db_names_{}[{}] = {{ ", sc.name, n);
+            for i in 0..n {
+                if i < db.names[ti].len() {
+                    let _ = write!(c, "dbn_{}_{}, ", sc.name, i);
+                } else {
+                    c.push_str("0, ");
+                }
+            }
+            c.push_str("};\n");
+        }
+        c.push_str("\nconst char *const *const db_names[] = {\n");
+        for sc in &db.schemas {
+            if named.contains(&sc.name) {
+                let _ = write!(c, "  db_names_{},\n", sc.name);
+            } else {
+                c.push_str("  0,\n");
+            }
+        }
+        c.push_str("};\n");
+        files.push(("db_names.c".to_string(), c));
+    }
+    h.push_str("extern const char *const *const db_names[];\n");
     h.push_str("#endif /* DB_TABLES_H */\n");
     files.push(("db_tables.h".to_string(), h));
 
@@ -479,5 +590,5 @@ pub fn emit_files(db: &Db) -> Vec<(String, String)> {
     }
     c.push_str("\n};\n");
     files.push(("db_index.c".to_string(), c));
-    files
+    Ok(files)
 }

@@ -216,11 +216,9 @@
                               10 R, 11 Select, 12 Start; 0 = none).
                               wait = 1 blocks until a FRESH press of a
                               key in the mask */
-#define VM_OP_SYSMENU 0x26 /* opens the System menu (saving) — the
-                              menu takes over when the script ends. The
-                              hardcoded START mapping is gone: the author
-                              maps their own key with KEYIN plus this
-                              command */
+/* 0x26 was VM_OP_SYSMENU — freed in M2: the System menu became the
+   project's event library (PLANNING_MENU_EN_EVENTS.md); saving goes
+   through VM_OP_SRAM. */
 #define VM_OP_DLGSTYLE 0x27 /* style (u8, 0 = default) — dialogue box
                                of the next MSG/CHOICE: window, windowskin
                                and font per style (the ui_styles.c
@@ -330,7 +328,9 @@
                               frames per image of the sheet.
                               NON-blocking. */
 #define VM_OP_VIGHIDE 0x39 /* slot u8 — hides the slot's vignette. */
-#define VM_OP_ANIMPLAY 0x3B /* anim u8, anchor u8, target u8, flags u8 —
+#define VM_OP_ANIMPLAY 0x3B /* anim u8, anchor u8, target u8, flags u8,
+   x u8, y u8 (V2: the SCREEN anchor's aim point — 112,96 is the old
+   fixed centre; the event library lands skills on their target) —
                                frame-by-frame ANIMATION: plays on a
                                vignette slot, since its cell sheet IS a
                                vignette. anchor: 0 screen (offsets around
@@ -409,10 +409,51 @@
                              the short way round. The step count only
                              buys resolution; this is what buys motion.
                              frames 0 = as fast as the steps allow. */
+/* 0x46 free — was BATTLE (C1-V2). A battle is a COMPOSED SCREEN now:
+   the author arranges the monsters visually, the screen's script names
+   them and calls his event library (PLANNING_COMBAT_GENERIQUE.md, G2). */
+#define VM_OP_BTLPOSE 0x47 /* slot (u8 0-3), src (u8: 0 constant,
+   1 variable), entry (u8), x (u8), y (u8),
+   op (u8: 1 show, 0 hide) — poses a 32x32 battler cell on the composed
+   screen (chars 448+, OAM 104-107). `entry` is a row of the database's
+   `heroes` table, whose battler cell datagen composed from its charset
+   column; `slot` is one of the 4 VRAM/palette slots. Pointing a slot at
+   another entry swaps the character — with src = 1 the entry comes from
+   a VARIABLE, which is how a party is data and not a fixed list.
+   BLOCKING while the cell uploads. Ignored with no stage up.
+   PLANNING_COMBAT_EN_EVENTS.md (V1), PLANNING_COMBAT_GENERIQUE.md (G1). */
+#define VM_OP_POPUP 0x48 /* src (u8: 0 constant, 1 variable), value
+   (u16), x (u8), y (u8) — a number in white 8x8 digits at screen
+   (x,y), risen then gone (the C4 damage popup). NON-blocking; one at
+   a time, the newer replaces the older. Stage only. */
+#define VM_OP_CLOCK 0x49 /* base (u8), n (u8 0-8) — the GAUGE CLOCK:
+   every frame, vars16[base+2i] += vars16[base+2i+1]/4 for the n
+   (gauge, speed) variable pairs, saturating at 255. The gauges are
+   ordinary variables — scripts read them, widgets draw them. n = 0
+   stops the service. Persists until stopped, stage or not. */
+#define VM_OP_TARGETSEL 0x4A /* var (u8), flags (u8: bit 0 = the
+   posed PARTY instead of the stage slots, bit 1 = B cancels) — the
+   TARGET CURSOR: walks the occupied stage slots (or the posed
+   battlers) with the C3 pulse/blink feedback; Left/Up back,
+   Right/Down forward, A writes the pick into vars16[var] (255 on
+   cancel). BLOCKING. Nothing to point at: var = 255, no wait. */
+#define VM_OP_SRAM 0x4B /* op (u8: 0 save, 1 load, 2 exists), slot
+   (u8 0-3), var (u8) — the SRAM primitive (M2). save writes the game
+   state into the slot; load reads it and ENDS the script (the
+   restore is a warp from the main loop; an invalid slot changes
+   nothing and the script continues); exists puts 1 in vars16[var]
+   if the slot holds a valid save. The menus around it are the
+   project's events. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at
-                              the top; up/down navigate and wrap, A confirms
+                              the top; a list with more items than content
+                              rows SCROLLS to follow the cursor (^ / v
+                              hints — see ui_overlay.c). A list SOURCED on
+                              a database table answers the chosen ENTRY's
+                              number instead of the row, so "read the
+                              database" reads it straight after; up/down
+                              navigate and wrap, A confirms
                               (var = index 0..n-1), B cancels (var = 255)
                               when flags bit 0 is set. flags bit 1: the
                               widget STAYS shown on close (multi-panel,

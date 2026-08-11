@@ -175,6 +175,7 @@ export default function App() {
   const [evCursor, setEvCursor] = useState<[number, number] | null>(null);
   // Database (Phase 10): schemas + instances (null = no schemas/)
   const [db, setDb] = useState<Database | null>(null);
+  // Battle data (C5): the fixed-format files of data/ (null = none)
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
@@ -2152,6 +2153,7 @@ export default function App() {
           pictures={(data.project.pictures ?? []).map(picPath)}
           sounds={data.project.sounds ?? []}
           musics={data.project.musics ?? []}
+          charsets={data.project.charsets ?? []}
           onOk={(next, removedTables) => {
             setDb(next);
             setDbOpen(false);
@@ -2164,9 +2166,27 @@ export default function App() {
       )}
       {uiMode && data && (
         <UiThemeModal
+          db={db}
           root={data.root}
           mode={uiMode}
           project={data.project}
+          sceneNames={data.project.scenes}
+          scenes={data.scenes}
+          charsetNames={Array.from({ length: spriteBlocks }, (_, b) =>
+            charsetName(data.project, b)
+          )}
+          texts={data.texts}
+          pictures={projectPictures(data.project).map((e) => assetStem(picPath(e)))}
+          mode7Images={projectMode7(data.project).map(assetStem)}
+          tintPresets={data.project.tint_presets ?? []}
+          soundNames={(data.project.sounds ?? []).map(musicStem)}
+          musicNames={(data.project.musics ?? []).map(musicStem)}
+          vigNames={(data.project.vignettes ?? []).map(musicStem)}
+          animNames={(data.project.animations ?? []).map((a) => a.name)}
+          screenNames={data.project.screens ?? []}
+          onTintPresets={(list) =>
+            mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
+          }
           windowskins={projectWindowskins(data.project)}
           iconsets={projectIconsets(data.project)}
           fonts={projectFonts(data.project)}

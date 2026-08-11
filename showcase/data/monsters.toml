@@ -8,14 +8,23 @@ xp = 25
 gold = 8
 battle_pic = "gobelin"
 cry_sfx = "attaque"
+speed = 40
+magic = 8
+magic_def = 1
+# IA (C4) : liste d'actions ponderees — "attack[:poids]" / "skill:<id>[:poids]"
+ai = ["attack:3", "skill:eclair:1"]
 
 [[entry]]
 id = "dragon"
 name = "Dragon"
-max_hp = 48
-attack = 11
+max_hp = 90
+attack = 14
 defense = 4
 xp = 60
 gold = 40
 battle_pic = "dragon"
 cry_sfx = "attaque"
+speed = 30
+magic = 12
+magic_def = 4
+ai = ["attack:2", "skill:eclair:1", "skill:morsure:1"]

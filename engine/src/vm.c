@@ -18,6 +18,8 @@
 #include "ui_overlay.h" /* SHOWUI: widget visibility (Ph. 12) */
 #include "picture.h" /* SHOWPIC/HIDEPIC: full-screen pictures (S3) */
 #include "weather.h" /* WEATHER: particle weather (S13) */
+#include "btlprim.h" /* BTLPOSE/POPUP/CLOCK/TARGETSEL: the battle
+                        primitives (V1) */
 #include "hdmafx.h"  /* WAVE: screen ripple (S14) */
 #include "audio.h"   /* PLAYSFX / PLAYBGM: sound and music (B1) */
 #include "stage.h"   /* composed screen (B3) */
@@ -25,6 +27,7 @@
 #include "anim.h"  /* ANIMPLAY: frame-by-frame animations (A1) */
 #include "m7.h"     /* M7OPEN/M7ZOOM/M7CLOSE: the Mode 7 screen (M7-A) */
 #include "data/db_tables.h" /* Database register (DBREAD, v0.17) */
+#include "save.h"
 #include "vm.h"
 
 #define VM_OPS_PER_FRAME 32
@@ -153,6 +156,93 @@ static u16 common_lookup(u8 kind)
 u16 vm_common_auto(void)
 {
   return common_lookup(0);
+}
+
+/* Battle hook (C4): the CETAB's type-2 entries map a COMMON EVENT index
+   (carried by the switch field) to the body's offset in THIS scene's
+   block. SCRIPT_NONE when the scene compiled without it. */
+static void vm_step(void);
+
+u16 vm_common_hook(u8 ce)
+{
+  u8 n, i;
+  u16 p, id;
+
+  n = scene_ctx.scripts[0];
+  p = 1;
+  for (i = 0; i < n; i++)
+  {
+    if (scene_ctx.scripts[p] == 2)
+    {
+      id = scene_ctx.scripts[p + 1] | ((u16)scene_ctx.scripts[p + 2] << 8);
+      if (id == ce)
+        return (u16)scene_ctx.scripts[p + 3] |
+               ((u16)scene_ctx.scripts[p + 4] << 8);
+    }
+    p += 5;
+  }
+  return SCRIPT_NONE;
+}
+
+/* U3-b — hands the row over in the variable the author chose, then runs
+   the open list's hook `which` (0 move, 1 confirm, 2 cancel). */
+static void vm_list_hook(u8 which)
+{
+  u8 p, rv;
+
+  /* U3-d: the hooks belong to the LIST COMPONENT, not to the widget
+     that contains it — a menu is usually a list inside a canvas. */
+  p = overlay_list_prim();
+  if (p == 0xFF)
+    return;
+  rv = overlay_hook_rowvar(p);
+  if (rv != 0xFF)
+    vm.vars16[rv] = overlay_list_pick(vm.choice_sel);
+  vm_ui_hook(overlay_hook(p, which));
+}
+
+/* U3-b — a WIDGET HOOK, run to completion right here. See vm.h: a hook
+   may not block, which is what lets it be synchronous — nothing new to
+   unwind when a scene unloads, and the menu never eats its own input.
+   The guard bounds a LOOP an author left without an exit. */
+static u8 hook_busy = 0; /* EXPLICIT init (tcc statics) */
+
+void vm_ui_hook(u8 ce)
+{
+  u16 ofs, s_pc;
+  u8 s_active, s_wait, s_sp, s_actor, s_fb, s_fsp, guard;
+
+  if (ce == 0xFF || hook_busy)
+    return;
+  ofs = vm_common_hook(ce);
+  if (ofs == SCRIPT_NONE)
+    return;
+  hook_busy = 1;
+  s_active = vm.active;
+  s_wait = vm.wait_mode;
+  s_pc = vm.pc;
+  s_sp = vm.call_sp;
+  s_actor = vm.script_actor;
+  s_fb = vm.frame_base;
+  s_fsp = vm.frame_sp;
+
+  vm.active = 1;
+  vm.wait_mode = VM_WAIT_NONE;
+  vm.pc = ofs;
+  vm.call_sp = 0;
+  vm.script_actor = 0xFF;
+  /* vm_step spends at most VM_OPS_PER_FRAME opcodes per call */
+  for (guard = 0; guard < 8 && vm.active && vm.wait_mode == VM_WAIT_NONE; guard++)
+    vm_step();
+
+  vm.active = s_active;
+  vm.wait_mode = s_wait;
+  vm.pc = s_pc;
+  vm.call_sp = s_sp;
+  vm.script_actor = s_actor;
+  vm.frame_base = s_fb;
+  vm.frame_sp = s_fsp;
+  hook_busy = 0;
 }
 
 /* --- PARALLEL context (v0.16) — a "Parallel process" common event runs
@@ -724,8 +814,12 @@ static void vm_step(void)
       idx16 = fetch8(); /* target (actor), 0xFF = the script's event */
       if (val == ANIM_ANC_ACTOR && (u8)idx16 == 0xFF)
         idx16 = vm.script_actor;
+      op = fetch8();  /* flags */
+      ofs = fetch8(); /* screen-anchor aim point (V2) — the event
+                         library lands skills ON their target */
+      anim_screen_at((u8)ofs, fetch8());
       anim_play(var, val, (u8)idx16);
-      if (fetch8() & 1)
+      if (op & 1)
         vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignores loops */
       break;
 
@@ -778,6 +872,48 @@ static void vm_step(void)
         vm.wait_mode = VM_WAIT_M7T;
       break;
 
+
+    case VM_OP_BTLPOSE: /* battler pose (V1) — BLOCKING on the upload */
+      var = fetch8();   /* slot 0-3 */
+      op = fetch8();    /* entry source: 0 constant, 1 variable */
+      val = fetch8();   /* entry in the heroes table (or variable no) */
+      if (op)
+        val = (u8)vm.vars16[val];
+      idx16 = fetch8(); /* x */
+      op = fetch8();    /* y */
+      btlprim_pose(var, val, (u8)idx16, op, fetch8());
+      if (btlprim_busy())
+        vm.wait_mode = VM_WAIT_BTLUP;
+      break;
+
+    case VM_OP_POPUP: /* digit popup (V1) — NON blocking */
+      var = fetch8();    /* src: 0 constant, 1 variable */
+      val16 = fetch16(); /* value (or variable number) */
+      if (var)
+        val16 = vm.vars16[val16 & 255];
+      val = fetch8(); /* x */
+      btlprim_popup(val16, val, fetch8());
+      break;
+
+    case VM_OP_CLOCK: /* gauge clock (V1) — NON blocking, persistent */
+      var = fetch8(); /* base variable */
+      btlprim_clock(var, fetch8());
+      break;
+
+    case VM_OP_TARGETSEL: /* target cursor (V1) — BLOCKING */
+      var = fetch8(); /* destination variable */
+      val = fetch8(); /* flags: bit 0 ally, bit 1 B cancels */
+      op = btlprim_target_begin((u8)(val & 1));
+      if (op == 0xFF)
+      {
+        vm.vars16[var] = 255; /* nothing to point at */
+        break;
+      }
+      vm.choice_var = var;
+      vm.list_flags = val;
+      vm.wait_mode = VM_WAIT_TARGET;
+      break;
+
     case VM_OP_LISTSEL: /* cursor menu (B6) — BLOCKING */
       var = fetch8();          /* widget (root of the layout) */
       vm.choice_var = fetch8(); /* destination variable */
@@ -785,6 +921,7 @@ static void vm_step(void)
       val = overlay_list_open(var);
       if (!val)
         break; /* no list on that widget: command ignored */
+      vm.list_widget = var; /* U3-b: whose hooks to run */
       vm.choice_count = val;
       vm.choice_sel = 0;
       vm.list_flags = op;
@@ -942,10 +1079,27 @@ static void vm_step(void)
       textbox_set_style(fetch8());
       break;
 
-    case VM_OP_SYSMENU: /* System menu (saving) — Phase 12: the
-                           hard-wired START mapping is gone, the author
-                           opens the menu with this command */
-      sysmenu_open();
+    case VM_OP_SRAM: /* SRAM (M2): the save primitive — the menus that
+                        used to live in sysmenu.c are the project's
+                        events now (PLANNING_MENU_EN_EVENTS.md) */
+      op = fetch8();  /* 0 save, 1 load, 2 exists */
+      var = fetch8(); /* slot */
+      val = fetch8(); /* destination variable (exists) */
+      if (op == 0)
+        save_write(var);
+      else if (op == 1)
+      {
+        if (save_read(var))
+        {
+          /* restore = a warp from the main loop: the script ends
+             here, the warp invariant (cf. VM_OP_WARP) */
+          save_request_load();
+          vm.active = 0;
+        }
+        /* invalid slot: nothing changed, the script continues */
+      }
+      else
+        vm.vars16[val] = save_exists(var);
       break;
 
     case VM_OP_SHOWPIC: /* picture (S3/S5/S7) — transition DEFERRED to the
@@ -1104,6 +1258,36 @@ void vm_update(void)
     vm.vars16[vm.keyin_dst] = down;
     vm.wait_mode = VM_WAIT_NONE;
   }
+  if (vm.wait_mode == VM_WAIT_BTLUP)
+  {
+    if (!btlprim_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_TARGET)
+  {
+    /* the target cursor (V1): the same pads vocabulary as the C3
+       cursor — the feedback (pulse/blink) is btlprim's business */
+    btlprim_target_tick();
+    down = padsDown(0);
+    if (down & (KEY_LEFT | KEY_UP))
+      btlprim_target_step(0);
+    else if (down & (KEY_RIGHT | KEY_DOWN))
+      btlprim_target_step(1);
+    else if (down & KEY_A)
+    {
+      vm.vars16[vm.choice_var] = btlprim_target_end();
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    else if ((down & KEY_B) && (vm.list_flags & 2))
+    {
+      btlprim_target_end();
+      vm.vars16[vm.choice_var] = 255;
+      vm.wait_mode = VM_WAIT_NONE;
+    }
+    return;
+  }
   if (vm.wait_mode == VM_WAIT_LIST)
   {
     /* cursor menu (B6): wrap around top/bottom — the reflex of SNES
@@ -1114,23 +1298,30 @@ void vm_update(void)
       vm.choice_sel = vm.choice_sel ? (u8)(vm.choice_sel - 1)
                                     : (u8)(vm.choice_count - 1);
       overlay_list_cursor(vm.choice_sel);
+      vm_list_hook(0); /* U3-b: on_move */
     }
     else if (down & KEY_DOWN)
     {
       vm.choice_sel = (u8)(vm.choice_sel + 1) >= vm.choice_count
                           ? 0 : (u8)(vm.choice_sel + 1);
       overlay_list_cursor(vm.choice_sel);
+      vm_list_hook(0);
     }
     else if (down & KEY_A)
     {
-      /* 16-bit variable (0-255), like KEYIN — the if_var circuit */
-      vm.vars16[vm.choice_var] = vm.choice_sel;
+      /* 16-bit variable (0-255), like KEYIN — the if_var circuit. A
+         list sourced on a database table answers the chosen ENTRY's
+         number instead of the row, so "read the database" reads it. */
+      vm.vars16[vm.choice_var] = overlay_list_pick(vm.choice_sel);
+      vm_list_hook(1); /* on_confirm — BEFORE the list closes, so the
+                          block still sees which row it was */
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
     else if ((down & KEY_B) && (vm.list_flags & 1))
     {
       vm.vars16[vm.choice_var] = 255;
+      vm_list_hook(2); /* on_cancel */
       overlay_list_close((u8)(vm.list_flags & 2));
       vm.wait_mode = VM_WAIT_NONE;
     }
@@ -1216,6 +1407,12 @@ void vm_parallel_update(void)
   if (p_wait_mode == VM_WAIT_ANIM)
   {
     if (anim_busy())
+      return;
+    p_wait_mode = VM_WAIT_NONE;
+  }
+  if (p_wait_mode == VM_WAIT_BTLUP)
+  {
+    if (btlprim_busy())
       return;
     p_wait_mode = VM_WAIT_NONE;
   }

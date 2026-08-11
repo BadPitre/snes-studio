@@ -34,6 +34,17 @@ extern const u8 anim_track[];
    the editor, whose canvas shows the whole screen. */
 #define ANIM_SCR_X 112
 #define ANIM_SCR_Y 96
+/* The SCREEN anchor's base. Scripts always get the fixed centre (the
+   ANIMPLAY opcode resets it); the battle aims it at a target before
+   playing a skill's animation (C3). */
+static u8 a_scr_x = ANIM_SCR_X;
+static u8 a_scr_y = ANIM_SCR_Y;
+
+void anim_screen_at(u8 x, u8 y)
+{
+  a_scr_x = x;
+  a_scr_y = y;
+}
 
 /* vignette slot of layer l of animation s */
 #define A_VS(s, l) a_vs[((s) << 2) + (l)]
@@ -117,7 +128,7 @@ static void anim_enter(u8 s)
     vig_set_visible(vs, 1);
     vig_set_frame(vs, cell);
     if (a_anc[s] == ANIM_ANC_SCREEN)
-      vig_move(vs, (u8)(ANIM_SCR_X + dx), (u8)(ANIM_SCR_Y + dy));
+      vig_move(vs, (u8)(a_scr_x + dx), (u8)(a_scr_y + dy));
     else
       vig_move(vs, (u8)dx, (u8)dy); /* signed offsets around the target */
   }

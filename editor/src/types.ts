@@ -392,7 +392,34 @@ export type Command =
   // A1 — frame-by-frame animations. anchor "event" + event = -1 for
   // "this event". wait: blocks the script until the end (never for a
   // looping animation, which never ends).
-  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean }
+  // x/y (V2): where a SCREEN-anchored animation lands (default 112,96,
+  // the screen centre) — the combat library aims skills at their target.
+  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number }
+  // G2 — there is no "Lancer un combat" command: a battle is a COMPOSED
+  // SCREEN ("Aller à l'écran"), whose script names its monsters and
+  // calls the project's library. The aftermath stays an AUTO page
+  // conditioned on the reserved switch 500.
+  // V1 — the battle PRIMITIVES (PLANNING_COMBAT_EN_EVENTS.md §2): the
+  // four generic services scripted battles are built on. btl_pose
+  // shows/hides, in one of 4 slots, the battler of an entry of the
+  // database's `heroes` table — the party is the script's data, so
+  // pointing a slot at another entry swaps the character; popup pops a
+  // number (constant, or value_var when set); clock serves `lanes`
+  // (gauge, speed) variable pairs from `base` every frame (0 stops);
+  // target_sel walks the stage's occupied slots (or the posed party
+  // when ally) and writes the pick (255 on cancel).
+  | { c: "btl_pose"; slot: number; entry?: string | number; entry_var?: number;
+      x: number; y: number; show: boolean;
+      /** V1 name of the slot — read by datagen for older projects */
+      hero?: number }
+  | { c: "popup"; value: number; value_var?: number; x: number; y: number }
+  | { c: "clock"; base: number; lanes: number }
+  | { c: "target_sel"; var: number; ally?: boolean; cancel: boolean }
+  // M2 — the SRAM primitive: the menus around it are the project's
+  // events (PLANNING_MENU_EN_EVENTS.md). Slot is 1-4 for the author.
+  | { c: "save_slot"; slot: number }
+  | { c: "load_slot"; slot: number }
+  | { c: "slot_info"; slot: number; var: number }
   | { c: "anim_stop" }
   | { c: "sfx"; sound: string }
   | { c: "bgm"; music: string }
@@ -419,7 +446,12 @@ export type Command =
   | { c: "ret_fn"; from?: VarSource; value: number }
   // v0.17 — read a Database field into a 16-bit variable.
   // entry: a symbolic id (from const) or a variable number (from var)
-  | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number };
+  | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number }
+  // The NUMBER of a database entry, into a variable — the generic way
+  // to name a table row in a script (which monster a screen poses,
+  // which hero a party slot holds). Resolved at build time, so the
+  // author names the entry and never types an index.
+  | { c: "db_entry"; table: string; entry: string; dst: number };
 
 // Common event (v0.16, the RM2003 Database -> Common Events model): a
 // project-global script — callable ({"c":"call"}), Autorun (restarted as

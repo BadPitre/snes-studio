@@ -28,6 +28,9 @@ u8 stage_active(void);
 /* A pose or clear transfer is in progress (the VM waits on it). */
 u8 stage_busy(void);
 
+/* The slot holds a posed image (TARGETSEL walks the occupied ones). */
+u8 stage_slot_used(u8 slot);
+
 /* VM commands, deferred and spread out — never a large DMA outside the
    VBlank. trans: 0 fade, 1 instant, 2 mosaic. */
 void stage_request_open(u8 backdrop_pic, u8 fade_dur, u8 trans); /* 0xFF = black */

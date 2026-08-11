@@ -592,7 +592,12 @@ impl IndexedImage {
     /// the tile grid — take the frame's BACKGROUND colour instead of
     /// showing the game through. SNES compositing is per tile, so this is
     /// resolved at compile time, as for the icons (to_icons_bg).
-    pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool) -> Result<(Vec<u8>, u8, u8)> {
+    ///
+    /// `cut` keeps only part of EVERY tile, which is what gives a FILLED
+    /// image (the "fill" mode of the image widget) its half-step: 0 the
+    /// whole tile, 1 its left half — a bar filling left to right — and 2
+    /// its bottom half, one filling upwards. The rest goes to `void`.
+    pub fn to_ui_image_bg(&self, ui_pal: &[u16], bg: bool, cut: u8) -> Result<(Vec<u8>, u8, u8)> {
         if self.width == 0 || self.height == 0 {
             bail!("image UI : image vide");
         }
@@ -640,6 +645,17 @@ impl IndexedImage {
                 padded.pixels[y * padded.width + x] = *map.get(src).unwrap_or(&void);
             }
         }
+        // half tile: blank the part the bar has not reached yet
+        if cut != 0 {
+            for y in 0..padded.height {
+                for x in 0..padded.width {
+                    let drop = if cut == 1 { x % 8 >= 4 } else { y % 8 < 4 };
+                    if drop {
+                        padded.pixels[y * padded.width + x] = void;
+                    }
+                }
+            }
+        }
         let mut out = Vec::new();
         for ty in 0..th {
             for tx in 0..tw {
@@ -670,4 +686,28 @@ impl IndexedImage {
         p.resize(n, 0);
         p
     }
+}
+
+/// A 2bpp character filled with ONE palette index — what the "image"
+/// widget draws in solid-colour mode. The UI layer only has the font's
+/// four colours, so `index` is 0-3 and 0 is transparency.
+///
+/// `cut` keeps only part of the tile, the half-step of a FILLED image:
+/// 0 the whole tile, 1 its left half, 2 its bottom half — the same
+/// convention as IndexedImage::to_ui_image_bg.
+pub fn solid_char(index: u8, cut: u8) -> Vec<u8> {
+    let mut out = vec![0u8; 16];
+    for y in 0..8 {
+        if cut == 2 && y < 4 {
+            continue; /* fills upwards: the top half stays empty */
+        }
+        let row = if cut == 1 { 0xF0u8 } else { 0xFFu8 };
+        if index & 1 != 0 {
+            out[y * 2] = row;
+        }
+        if index & 2 != 0 {
+            out[y * 2 + 1] = row;
+        }
+    }
+    out
 }

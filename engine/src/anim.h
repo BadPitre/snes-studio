@@ -42,6 +42,11 @@
    played rather than played in the wrong colours. */
 void anim_play(u8 anim_id, u8 anchor, u8 target);
 
+/* Moves the SCREEN anchor's base point (default: the screen centre).
+   Persistent until moved again — the ANIMPLAY opcode resets it to the
+   centre so scripts never inherit the battle's aim (C3). */
+void anim_screen_at(u8 x, u8 y);
+
 /* Stops every running animation and puts its sprites away. */
 void anim_stop(void);
 

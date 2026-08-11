@@ -70,7 +70,6 @@ const OP_RET: u8 = 0x22;
 const OP_DBREAD: u8 = 0x23;
 const OP_SHOWUI: u8 = 0x24;
 const OP_KEYIN: u8 = 0x25;
-const OP_SYSMENU: u8 = 0x26;
 const OP_DLGSTYLE: u8 = 0x27;
 const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
@@ -102,6 +101,11 @@ const OP_M7CLOSE: u8 = 0x42;
 const OP_M7VIEW: u8 = 0x43;
 const OP_M7ROT: u8 = 0x44;
 const OP_M7TURN: u8 = 0x45;
+const OP_BTLPOSE: u8 = 0x47;
+const OP_POPUP: u8 = 0x48;
+const OP_CLOCK: u8 = 0x49;
+const OP_TARGETSEL: u8 = 0x4A;
+const OP_SRAM: u8 = 0x4B;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -280,7 +284,8 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         // LISTSEL <widget> <var> <flags> — cursor menu
         "LISTSEL" => 4,
         // ANIMPLAY <anim> <anchor 0-2> <target> <flags bit0 = wait>
-        "ANIMPLAY" => 5,
+        // <x> <y> — screen-anchor aim point (V2)
+        "ANIMPLAY" => 7,
         // ANIMSTOP — stop every running animation
         "ANIMSTOP" => 1,
         // M7OPEN <img> <dur> — Mode 7 screen (M7-A)
@@ -295,6 +300,16 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "M7ROT" => 2,
         // M7TURN <cran> <frames> <flags> — animated world map rotation
         "M7TURN" => 4,
+        // BTLPOSE <slot 0-3> <src 0|1> <entry> <x> <y> <op 0|1>
+        "BTLPOSE" => 7,
+        // POPUP <src 0|1> <value u16> <x> <y> — digit popup (V1)
+        "POPUP" => 6,
+        // CLOCK <base> <n 0-8> — the gauge clock (V1)
+        "CLOCK" => 3,
+        // TARGETSEL <var> <flags> — the target cursor (V1), blocking
+        "TARGETSEL" => 3,
+        // SRAM <op 0|1|2> <slot 0-3> <var> — save / load / exists (M2)
+        "SRAM" => 4,
         "SHAKE" => 4,
         "CALL" => 3,
         "RET" => 1,
@@ -316,7 +331,6 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "SHOWUI" => 3,
         // KEYIN <wait> <masklo> <maskhi> <var>: Key Input
         "KEYIN" => 5,
-        "SYSMENU" => 1,
         // DLGSTYLE <n>: style of the next dialogue box
         "DLGSTYLE" => 2,
         // SHOWPIC <pic> <x> <y> <flags> <dur> / HIDEPIC <dur> /
@@ -703,10 +717,6 @@ pub fn assemble(
                     code.push(parse_u8(t)?);
                 }
             }
-            "SYSMENU" => {
-                if argc != 0 { bail!("SYSMENU (sans argument)"); }
-                code.push(OP_SYSMENU);
-            }
             "DLGSTYLE" => {
                 if argc != 1 { bail!("DLGSTYLE <style>"); }
                 code.push(OP_DLGSTYLE);
@@ -739,7 +749,8 @@ pub fn assemble(
                     code.push(match args[i] {
                         "a" => 0,
                         "p" => 1,
-                        o => bail!("CETAB : type inconnu '{}' (a = autorun, p = parallel)", o),
+                        "b" => 2, /* battle hook: field 2 = common event id */
+                        o => bail!("CETAB : type inconnu '{}' (a, p, b)", o),
                     });
                     // "-" means no condition (always active) -> 0xFFFF
                     let sw: u16 = if args[i + 1] == "-" {
@@ -936,13 +947,16 @@ pub fn assemble(
             }
             // ANIMPLAY/ANIMSTOP — frame-by-frame animations
             "ANIMPLAY" => {
-                if argc != 4 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags>"); }
+                if argc != 6 { bail!("ANIMPLAY <anim> <ancre> <cible|self> <flags> <x> <y>"); }
                 code.push(OP_ANIMPLAY);
                 code.push(parse_u8(args[0])?);
                 code.push(parse_u8(args[1])?);
                 // "this event": 255, resolved at run time (vm.script_actor)
                 code.push(if args[2] == "self" { 255 } else { parse_u8(args[2])? });
                 code.push(parse_u8(args[3])?);
+                // screen-anchor aim point (V2)
+                code.push(parse_u8(args[4])?);
+                code.push(parse_u8(args[5])?);
             }
             "ANIMSTOP" => {
                 if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }
@@ -991,6 +1005,69 @@ pub fn assemble(
                 if a > 63 { bail!("M7ROT : cran {} — 64 crans au maximum (0-63)", a); }
                 code.push(OP_M7ROT);
                 code.push(a);
+            }
+            // BTLPOSE <slot 0-3> <entry> <x> <y> <op 0|1> — a battler
+            // cell on the composed screen (V1/G1); blocking on the upload
+            "BTLPOSE" => {
+                if argc != 6 { bail!("BTLPOSE <slot> <src> <entry> <x> <y> <op>"); }
+                let h = parse_u8(args[0])?;
+                if h > 3 { bail!("BTLPOSE : emplacement {} — 4 au maximum (0-3)", h); }
+                code.push(OP_BTLPOSE);
+                code.push(h);
+                code.push(parse_u8(args[1])?);
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+                code.push(parse_u8(args[4])?);
+                code.push(parse_u8(args[5])?);
+            }
+            // POPUP <src 0|1> <value u16> <x> <y> — a number in digits
+            // over the composed screen (V1)
+            "POPUP" => {
+                if argc != 4 { bail!("POPUP <src> <valeur> <x> <y>"); }
+                code.push(OP_POPUP);
+                code.push(parse_u8(args[0])?);
+                let v: u16 = args[1]
+                    .parse()
+                    .with_context(|| format!("POPUP : valeur invalide '{}'", args[1]))?;
+                code.push((v & 0xFF) as u8);
+                code.push((v >> 8) as u8);
+                code.push(parse_u8(args[2])?);
+                code.push(parse_u8(args[3])?);
+            }
+            // CLOCK <base> <n 0-8> — the gauge clock (V1): n lanes of
+            // (gauge, speed) variable pairs from base; 0 stops it
+            "CLOCK" => {
+                if argc != 2 { bail!("CLOCK <base> <n>"); }
+                let base = parse_u8(args[0])?;
+                let n = parse_u8(args[1])?;
+                if n > 8 { bail!("CLOCK : {} voies — 8 au maximum", n); }
+                if n > 0 && base as u16 + (n as u16) * 2 > 256 {
+                    bail!("CLOCK : base {} + {} paires déborde des 256 variables", base, n);
+                }
+                code.push(OP_CLOCK);
+                code.push(base);
+                code.push(n);
+            }
+            // TARGETSEL <var> <flags bit0 = équipe, bit1 = B annule> —
+            // the target cursor (V1); blocking
+            "TARGETSEL" => {
+                if argc != 2 { bail!("TARGETSEL <var> <flags>"); }
+                code.push(OP_TARGETSEL);
+                code.push(parse_u8(args[0])?);
+                code.push(parse_u8(args[1])?);
+            }
+            // SRAM <op> <slot> <var> — the save primitive (M2): 0 save,
+            // 1 load (ends the script on success), 2 exists -> var
+            "SRAM" => {
+                if argc != 3 { bail!("SRAM <op> <slot> <var>"); }
+                let o = parse_u8(args[0])?;
+                if o > 2 { bail!("SRAM : op {} (0 save, 1 load, 2 exists)", o); }
+                let slot = parse_u8(args[1])?;
+                if slot > 3 { bail!("SRAM : slot {} — 4 slots (0-3)", slot); }
+                code.push(OP_SRAM);
+                code.push(o);
+                code.push(slot);
+                code.push(parse_u8(args[2])?);
             }
             // M7TURN <cran> <frames> <flags bit1 = attendre> — the angle
             // is masked by the map's OWN step count at run time, so the

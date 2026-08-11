@@ -13,6 +13,7 @@
 #include "vbudget.h"
 
 u16 ui_map[32 * UI_ROWS];
+u8 ui_band_up = 0; /* EXPLICIT init: tcc-816 does not clear the BSS */
 static u8 ui_lo, ui_hi; /* dirty span — lo > hi means nothing to transfer */
 /* Where the VRAM map lives. Constant everywhere except on a Mode 7 world
    map, whose plane owns the low half of VRAM (vram.h). */

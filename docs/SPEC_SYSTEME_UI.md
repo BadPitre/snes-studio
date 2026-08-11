@@ -369,6 +369,159 @@ are plain TOML files — the community will be able to share them.
   projects with no widget font. Editor: a "Fonte du widget" select in the
   inspector (roots only), a canvas preview using each widget's font;
   renaming and deleting a FontSet account for widgets as well as styles.
+- **Shipped (U1) — the designer moves closer to Unity.** Eight changes,
+  asked for together because they hold each other up:
+  1. **Widgets MAY OVERLAP.** The rule "two widgets may not overlap" was
+     never a design choice: it was the shape of a bug. The UI layer is a
+     single shared tilemap, and a primitive used to paint (or erase) its
+     rect on its own, so whoever shared that rect got a hole punched
+     through it. `ui_overlay.c` now repaints by RECT: `ov_repaint` clears
+     an area and replays, in emission order — which IS the z-order —
+     every visible primitive that meets it, growing the rect until it is
+     closed under that. `ov_draw` takes that path as soon as anything
+     overlaps and keeps the cheap direct paint otherwise, so the common
+     case costs nothing. The later widget wins. **A widget still may not
+     overlap a dialogue window**: the textbox writes into the same
+     tilemap and is not a primitive, so no repaint can bring the widget
+     back — that check stays an error in uigen and in the designer.
+  2. **Anchors, Unity style.** A root carries `anchor` (t/m/b then
+     l/c/r, default `"tl"`) and its `pos` is an OFFSET from that point;
+     the same corner of the widget is pinned to it, so a `"br"` widget
+     keeps its bottom-right corner put as it grows. The inspector shows
+     the 3x3 grid next to x/y, and switching anchor keeps the widget
+     where it is by recomputing the offset.
+  3. **Keyboard in the tree**: Ctrl+C / Ctrl+X / Ctrl+V (a subtree, with
+     fresh ids that keep pointing at each other), Suppr, Ctrl+Z, Ctrl+Y
+     — as on the map's event layer. A drag is ONE undo step.
+  4. **The image widget gains Unity's types**: `mode = "normal"`
+     (default), `"sliced"` (a 3x3 picture stretched over `size` — the
+     windowskin recipe opened to any image, prim 9) and `"fill"` (the
+     image revealed in proportion to `var`/`max`, `dir = "v"` filling
+     upwards, prim 10). A fill has TWO units per tile: datagen lays a
+     CUT copy of the picture right after the whole one (`gfx.rs`, half
+     the pixels of each tile blanked) and the engine picks between them.
+     The unfilled part keeps the background — put the "empty" artwork
+     BEHIND, which point 1 has just made legal. On the ICON sheet, fill
+     is the classic three-icon bar (full, half, empty) — prim 1, the old
+     gauge, reused as is.
+  5. **Deleting a widget's root** no longer drops the designer into the
+     whole-screen view, which showed every OTHER widget and read as a
+     bug: it goes back to the widget list.
+  6. **Five components leave the palette**: Valeur, Jauge, Cœurs, Icône +
+     compteur, Libellé + valeur. Each was a specific answer to something
+     the generic parts now do — a **label may interpolate variables**
+     (`\v[n]`, `\v[n,w]` right-aligned on w columns, `\v[n,0w]`
+     zero-padded; at most TWO per label, which is what the engine
+     watches — beyond that, split across an hbox) and an **image in fill
+     mode** is the gauge and the hearts. The five types are still read,
+     drawn and compiled, so no existing project breaks; they simply
+     cannot be created any more. Encoding: datagen turns each escape
+     into the three bytes `0x01`, variable + 1, format (prim 11), and
+     emits labels as C strings with OCTAL escapes — `\x` in C is greedy
+     and would swallow the next letter. In TOML, write `"PV \\v[10,3]"`
+     or `'PV \v[10,3]'`: `\v` is not a legal escape in a basic string.
+  7. **`window` is renamed `canvas`** — read under both names, migrated
+     on load by the editor.
+  8. **A canvas has NO frame by default.** It is a placement box that
+     draws nothing; `frame = true` dresses it with the windowskin. A
+     bare canvas also gives its children no background and starts its
+     margin at zero. The old `window` keeps framing by default, so
+     nothing changes look.
+- **Shipped (U2) — the five follow-ups to U1.**
+  1. **A widget may also overlap a DIALOGUE window.** U1 kept that as an
+     error because the textbox is not a primitive and no repaint can
+     bring a widget back from under it. True, but it blocked layouts for
+     nothing: the answer is simply to say who wins. `ui_band_up` (set by
+     `tb_box_at`, cleared by `textbox_close`, both BEFORE the band is
+     cleared) marks the dialogue's rows as the box's; while it is up,
+     ui_overlay paints, clears and repaints nothing that touches them,
+     and `overlay_refresh` blanks the rows a straddling widget owns
+     OUTSIDE the band too — a canvas showing only the one row poking
+     above the box reads as a bug, not a feature. The whole widget comes
+     back the moment the message closes. The designer says so as a NOTE,
+     not an error: OK is no longer blocked.
+  2. **An image is a SOLID COLOUR by default** (`color = 0-3`), with a
+     picker limited to the four colours the UI layer actually has — the
+     font's, read from its PNG palette in palette order, which is the
+     order the compiler indexes them by. Colour 0 is transparency.
+     datagen registers each used colour as a one-character "picture", so
+     it rides the same VRAM plan; the cost is one char per colour.
+  3. **The image source is picked directly**: Couleur unie / Image du
+     projet / Icônes de la planche, the project's pictures one click
+     away instead of behind an icon-sheet default.
+  4. **A fill needs no variable.** `fill = 0.0 … 1.0` sets the amount
+     once, in the inspector, on a slider; ticking "piloté par une
+     variable" switches to the old var/max contract. datagen bakes the
+     constant into the primitive's `pad` field as 1 + a percentage, and
+     the engine reads `pad != 0` as "constant, out of 100" — so a
+     hand-set fill costs no variable, and `overlay_update` skips it.
+  5. **Size and anchor on EVERY object**, not just the canvas. An
+     explicit `size` overrides the one the content computes (with an
+     "auto" button to give it back where the compiler does not insist on
+     one), and a canvas child that carries `pos` is placed FREELY inside
+     its parent, anchored to the parent's inside exactly as a root is to
+     the screen. A child with no `pos` keeps stacking, so nothing
+     changes for existing layouts; a vbox/hbox always stacks — that is
+     what they are for.
+- **Shipped (U3-a) — binding a property, with Unreal's gesture.** See
+  `PLANNING_WIDGETS_REACTIFS.md` for the whole design. UMG binds a
+  property to a function evaluated every frame; that is out of reach at
+  3.58 MHz, so a property binds to a **VARIABLE** and the engine compares
+  it — which is what `overlay_update` already did for a value. What
+  changes is where the author meets it: a **⛓ button next to the field**
+  turns a fixed value into "suit la variable […]".
+  - **Remplissage** was already bindable; it only gets the affordance.
+  - **Image affichée** is new: `pics = [...]` plus `pic_var`. The
+    candidates must all be the same size in tiles, they live in BG3 VRAM
+    at once and CONTIGUOUSLY — datagen pushes them as a block under a
+    synthetic key so a picture used elsewhere never breaks the run — and
+    the engine reads `base + N * stride` (`ui_ov_picvar/picn/picstr`,
+    with `ov_lastpic` as the redraw shadow). Out of range clamps rather
+    than reading whatever sits next in VRAM.
+  - **Visible** gains `vis_var` on a root: the widget follows the
+    variable, on or off, checked once per frame in `overlay_update`
+    against `ui_widget_visvar[]`. SHOWUI still works; this is its
+    declarative twin.
+  An imperative setter ("Modifier un widget → propriété → valeur") stays
+  refused for a structural reason: the primitive tables are `const` in
+  ROM, so a setter needs a WRAM shadow per property, where a binding
+  needs one byte.
+- **Shipped (U3-b) — the script written ON the widget.** The point of
+  Unreal's `+` is that the reaction lives where the widget is, so a hook
+  is NOT a dropdown pointing at a global function: it is an ordinary
+  event command block, edited with the same `CommandListEditor` the
+  Écrans window uses, stored in **`ui/hooks.json`** keyed by widget id.
+  - Five hooks: `on_show` / `on_hide` on any widget, `on_move` /
+    `on_confirm` / `on_cancel` on a list. Each hands the row over in the
+    variable the author names (`row_var`) — the chosen **entry number**
+    for a list sourced on a table, as "Choix dans une liste" does.
+  - **No new bytecode host.** datagen turns each block into a synthetic
+    COMMON EVENT, so compilation, banking, text extraction and CALL all
+    apply unchanged; the engine reaches the body through the CETAB's
+    `b` entries, the lookup `vm_common_hook` already provided. Per
+    widget, `ui_hook_move/confirm/cancel/show/hide` hold the common
+    event's index (0xFF none) and `ui_hook_rowvar` the variable.
+  - **A hook may not BLOCK** — no message, wait, choice, list or warp.
+    That is a compile-time refusal naming the widget, not a convention,
+    because it is what lets `vm_ui_hook` run the block SYNCHRONOUSLY:
+    the caller's execution state is saved and put back, there is no
+    third VM context for a scene change to unwind, and the menu cannot
+    eat its own input. A guard bounds a loop left without an exit, and
+    a hook never re-enters.
+  - **(U3-d)** A hook belongs to a **COMPONENT**, not only to the
+    widget's root: `ui/hooks.json` is keyed by NODE id and the tables are
+    indexed by PRIMITIVE, which is what a real menu needs — a list is
+    usually a child inside a canvas, so the canvas carries `on_show` and
+    the list carries `on_move` / `on_confirm` / `on_cancel`. Each
+    primitive carries the node it came from (`Prim::node`), the list
+    hooks are found through the OPEN list's primitive
+    (`overlay_list_prim`), and SHOWUI offers every component of the
+    widget its `on_show` / `on_hide`. A vbox or an hbox draws nothing, so
+    it has no primitive to hang a hook on, and the inspector says so by
+    not offering the section.
+  - Still open, and deliberately out of U3-b: a NON-modal list (`LISTSEL`
+    still parks the main context in `VM_WAIT_LIST`) and the question of
+    who owns the pad while one is live. That is U3-c.
 - **To come** (the detailed plan is in `PLANNING_SYSTEME_MENUS.md`):
   declarative menu screens M2, lists + cursor + stack M3 (the FF4 menu —
   the list object will become NAVIGABLE, the designer already lays it

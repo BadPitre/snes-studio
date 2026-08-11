@@ -3,10 +3,17 @@
  "slots": [
   {
    "slot": 1,
-   "pic": "dragon",
-   "x": 40,
-   "y": 48,
-   "name": "dragon"
+   "pic": "gobelin",
+   "x": 32,
+   "y": 40,
+   "name": "gobelin_g"
+  },
+  {
+   "slot": 2,
+   "pic": "gobelin",
+   "x": 64,
+   "y": 64,
+   "name": "gobelin_d"
   }
  ],
  "scripts": [
@@ -16,7 +23,7 @@
    "commands": [
     {
      "c": "rem",
-     "text": "Combat : le dragon, seul. Le 2e emplacement reste vide (65535)."
+     "text": "Combat : deux gobelins. Poser/deplacer les monstres = glisser sur le canvas."
     },
     {
      "c": "rem",
@@ -25,14 +32,14 @@
     {
      "c": "db_entry",
      "table": "monsters",
-     "entry": "dragon",
+     "entry": "gobelin",
      "dst": 252
     },
     {
-     "c": "var",
-     "n": 253,
-     "op": "=",
-     "value": 65535
+     "c": "db_entry",
+     "table": "monsters",
+     "entry": "gobelin",
+     "dst": 253
     },
     {
      "c": "rem",
