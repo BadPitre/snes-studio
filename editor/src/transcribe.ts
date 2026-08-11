@@ -138,6 +138,15 @@ export function transcribe(
     new Array<ItCell | null>(8).fill(null)
   );
 
+  // VxVOL is not the loudness a listener hears: plenty of drivers — Akao
+  // among them — keep it low and shape the real amplitude with the
+  // envelope, which a tracker has no use for. Taking the register at face
+  // value gives a module at a tenth of its volume, and its quietest notes
+  // rounded away to silence. Scaling so the loudest note reaches the top
+  // of the column keeps every relative dynamic and loses only an absolute
+  // level that meant nothing here.
+  const peak = trace.ons.reduce((m, o) => Math.max(m, o.vol), 0) || 127;
+
   let notes = 0;
   for (const on of trace.ons) {
     const ins = insOf.get(on.srcn);
@@ -146,7 +155,7 @@ export function transcribe(
     cells[r][on.voice] = {
       note: noteOf(on.pitch),
       ins,
-      vol: Math.max(0, Math.min(64, Math.round(on.vol / 2))),
+      vol: Math.max(1, Math.min(64, Math.round((on.vol * 64) / peak))),
     };
     notes++;
   }
