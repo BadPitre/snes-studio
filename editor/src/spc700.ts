@@ -400,7 +400,12 @@ export class Spc700 {
           127,
           Math.round((((Math.abs(l) + Math.abs(rr)) >> 1) * v.env) / 2047)
         );
-        if (this.lastVol[i] - eff >= 5) {
+        // Loudness is logarithmic: near the floor a step of 5 is a lurch,
+        // not a fade. Tighten the sampling as the level falls so the last
+        // stretch of a cymbal's ring lands in several small steps instead
+        // of one audible drop to zero.
+        const need = eff < 6 ? 1 : eff < 14 ? 2 : 5;
+        if (this.lastVol[i] - eff >= need) {
           this.lastVol[i] = eff;
           this.lastVolT[i] = this.dspSamples;
           this.vols.push({ t: this.dspSamples, voice: i, vol: eff });
