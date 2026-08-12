@@ -41,6 +41,11 @@
           "args": true
         },
         {
+          "name": "binaries/snesphoto",
+          "sidecar": true,
+          "args": true
+        },
+        {
           "name": "cmd",
           "cmd": "cmd",
           "args": true

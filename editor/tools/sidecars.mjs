@@ -22,7 +22,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
 const MANIFEST = join(REPO, "tools", "Cargo.toml");
 const DEST = join(REPO, "editor", "src-tauri", "binaries");
-const BINARIES = ["datagen", "snesbuild"];
+const BINARIES = ["datagen", "snesbuild", "snesphoto"];
 
 function hostTriple() {
   const out = execFileSync("rustc", ["-vV"], { encoding: "utf8" });

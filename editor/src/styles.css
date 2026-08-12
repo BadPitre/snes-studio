@@ -683,3 +683,107 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 }
 .m7preview-side input[type="range"] { width: 100%; }
 .m7preview-check { flex-direction: row; align-items: center; gap: 6px; }
+
+/* Extraction depuis une ROM (X1/X2) : trois colonnes — format et offset à
+   gauche, la vue au centre, palette et destination à droite. Le canevas
+   est en pixel art, jamais lissé. */
+.modal.romrip { width: 1180px; max-width: 96vw; max-height: 94vh; overflow-y: auto; }
+.romrip-head { align-items: center; flex-wrap: wrap; gap: 10px; }
+.romrip-head > button { flex: 0 0 auto; }
+.romrip-head label { flex-direction: row; align-items: center; gap: 4px; }
+.romrip-empty { max-width: 640px; line-height: 1.5; padding: 12px 0; }
+.romrip-body { display: flex; gap: 10px; align-items: flex-start; }
+.romrip-col {
+  display: flex; flex-direction: column; gap: 6px;
+  width: 210px; flex: 0 0 210px;
+}
+.romrip-col .panel-title { margin: 6px 0 0; }
+.romrip-col label { flex-direction: column; }
+.romrip-view {
+  flex: 1 1 auto; overflow: auto; max-height: 70vh;
+  background: #000; box-shadow: var(--bev-field);
+}
+.romrip-view canvas { image-rendering: pixelated; display: block; }
+.romrip-off { font-family: monospace; font-size: 13px; }
+.romrip-nav { gap: 4px; align-items: center; }
+.romrip-nav button { flex: 0 0 auto; padding: 2px 6px; }
+.romrip-jump { width: 110px; font-family: monospace; }
+.romrip-swatches { display: flex; flex-wrap: wrap; gap: 2px; }
+.romrip-sw {
+  width: 18px; height: 18px; padding: 0; flex: 0 0 auto;
+  border: 1px solid #000;
+}
+.romrip-sw.sel { outline: 2px solid var(--accent, #0a246a); outline-offset: -4px; }
+/* L'index transparent : le damier des éditeurs d'images */
+.romrip-sw.trans {
+  background-image:
+    linear-gradient(45deg, #0006 25%, transparent 25%, transparent 75%, #0006 75%),
+    linear-gradient(45deg, #0006 25%, transparent 25%, transparent 75%, #0006 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+.romrip-why { color: #a33; }
+
+/* Le titre de la fenêtre et sa croix : plus de bouton Fermer en bas. */
+.romrip-title { align-items: center; justify-content: space-between; }
+.romrip-title .panel-title { margin: 0; }
+.modal-x { flex: 0 0 auto; padding: 1px 8px; font-weight: 700; line-height: 1.1; }
+
+/* Extraction audio : ce qu'EST le morceau à gauche, ses instruments au
+   centre, ce qu'on peut en FAIRE à droite. */
+.romrip-tabs { display: flex; gap: 2px; margin-left: auto; }
+.romrip-tabs button { flex: 0 0 auto; padding: 2px 12px; }
+.romrip-tabs button.sel { font-weight: 700; box-shadow: var(--bev-in, inset 1px 1px 0 #000); }
+.romrip-audio { display: flex; gap: 10px; align-items: flex-start; }
+/* La liste prend les couleurs du THÈME, pas un blanc en dur : un fond
+   blanc avec le texte clair du thème sombre était illisible. */
+.romrip-samples {
+  flex: 1 1 auto; overflow: auto; max-height: 60vh; min-height: 220px;
+  box-shadow: var(--bev-field);
+  background: var(--face-light); color: var(--text);
+}
+
+/* Le morceau se présente avant ses chiffres. */
+.romrip-song { padding: 2px 0 4px; }
+.romrip-song-title {
+  font-size: 15px; font-weight: 700; line-height: 1.25;
+  word-break: break-word;
+}
+.romrip-song-game { font-size: 12px; opacity: 0.75; word-break: break-word; }
+
+/* Les informations techniques en liste étiquette/valeur, pas en prose. */
+.romrip-facts { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.romrip-facts li {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 2px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+.romrip-facts li span { opacity: 0.8; }
+.romrip-facts li b { font-weight: 700; text-align: right; white-space: nowrap; }
+
+.romrip-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.romrip-table th {
+  position: sticky; top: 0; z-index: 1; text-align: left; padding: 5px 8px;
+  font-weight: 700;
+  background: var(--face); color: var(--text); box-shadow: var(--bev-field);
+}
+.romrip-table td { padding: 4px 8px; cursor: default; white-space: nowrap; }
+.romrip-table tbody tr { border-bottom: 1px solid var(--face-dark); }
+.romrip-table tbody tr:hover { background: var(--face-dark); }
+.romrip-table tbody tr.sel { background: var(--sel); color: var(--sel-text); }
+.romrip-table .mono { font-family: monospace; }
+.romrip-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Le bouton d'écoute de chaque ligne : une colonne à lui, largeur fixe. */
+.romrip-playcol { width: 30px; padding: 2px 4px !important; text-align: center; }
+.romrip-playcol button { padding: 0 5px; min-width: 22px; }
+
+/* Jouer le morceau entier : l'action principale de la fenêtre. */
+.romrip-bigplay { font-weight: 700; padding: 6px 10px; }
+
+/* Le photomaton (X6) : les réglages dans l'en-tête, la vignette de
+   l'écran capturé dans la colonne de gauche. */
+.romrip-photo { align-items: center; gap: 6px; flex: 0 0 auto; }
+.romrip-photo select { width: auto; }
+.romrip-shot {
+  width: 100%; max-width: 210px; image-rendering: pixelated;
+  border: 1px solid var(--dark);
+}

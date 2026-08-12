@@ -93,6 +93,55 @@ export function previewSound(path: string, root: string) {
   void start(path, path, root).catch(() => setState(null, "off"));
 }
 
+// ---- a module that is not a file yet ---------------------------------
+//
+// The ROM ripper transcribes a song into memory and the author wants to
+// hear it BEFORE deciding whether it earns a place in the project. The
+// worklet already takes an ArrayBuffer, so nothing has to be written to
+// disk — only an entry point that does not go through readBinaryFile.
+// Same singleton, so the same rule holds: one preview at a time.
+
+async function startBytes(key: string, bytes: Uint8Array) {
+  stopPreview();
+  setState(key, "loading");
+  const node = await ensureIt();
+  if (curKey !== key) return; // another preview took over
+  node.port.postMessage({ cmd: "play", val: bytes.slice().buffer });
+  setState(key, "playing");
+}
+
+// Play / pause an in-memory module. `make` is called only when playback
+// actually has to START, so the caller can produce the bytes lazily —
+// the ripper transcribes on the first click instead of up front.
+export function toggleBytes(key: string, make: () => Uint8Array | null) {
+  if (curKey === key && curState === "playing") {
+    itNode?.port.postMessage({ cmd: "pause" });
+    setState(key, "paused");
+    return;
+  }
+  if (curKey === key && curState === "paused") {
+    itNode?.port.postMessage({ cmd: "unpause" });
+    setState(key, "playing");
+    return;
+  }
+  const b = make();
+  if (b) void startBytes(key, b).catch(() => setState(null, "off"));
+}
+
+// Subscribes a component to the shared player. "off" whenever something
+// else is playing, which is what a button wants to show.
+export function usePreviewState(key: string): State {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const l = () => force((n) => n + 1);
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  }, []);
+  return curKey === key ? curState : "off";
+}
+
 function toggle(key: string, path: string, root: string) {
   if (curKey !== key) {
     void start(key, path, root).catch(() => setState(null, "off"));
@@ -118,22 +167,13 @@ interface Props {
 }
 
 export default function AudioPreviewButton(props: Props) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const l = () => force((n) => n + 1);
-    listeners.add(l);
-    return () => {
-      listeners.delete(l);
-    };
-  }, []);
   const key = props.path;
-  const mine = curKey === key;
-  const icon =
-    mine && curState === "playing" ? "⏸" : mine && curState === "loading" ? "…" : "▶";
+  const st = usePreviewState(key);
+  const icon = st === "playing" ? "⏸" : st === "loading" ? "…" : "▶";
   return (
     <button
       className="browse"
-      title={props.title ?? (mine && curState === "playing" ? "Pause" : "Écouter")}
+      title={props.title ?? (st === "playing" ? "Pause" : "Écouter")}
       onClick={(e) => {
         e.stopPropagation(); // do not select the row behind
         toggle(key, props.path, props.root);

@@ -222,6 +222,103 @@ fn run(what: &str, cmd: &mut Command) -> Result<()> {
 
 /// Same, but hands the tool's stdout back. wlalink already computes the
 /// ROM occupancy under `-v` and we were throwing it away.
+// smconv colours its output; the messages have to be read, so strip it.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' || c == '\u{9b}' {
+            for e in chars.by_ref() {
+                if e.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// What smconv did, said and produced.
+///
+/// Two failure modes hid behind a cryptic wlalink error until this
+/// existed, and both come from the same habit: smconv reports a fatal
+/// problem on stdout and STILL EXITS 0, so run_capturing sees success.
+///
+///  1. A module that does not fit ARAM ("Module is too big"). The
+///     soundbank is written anyway, short.
+///  2. A soundbank over 32 KB. smconv splits it across ROM banks and
+///     names the pieces SOUNDBANK__0, SOUNDBANK__1… instead of the single
+///     SOUNDBANK__ that audio.c references — so the LINK fails, far from
+///     the cause, with "Unresolved reference to SOUNDBANK__".
+///
+/// Case 2 is not an error: the split is what smconv is supposed to do
+/// with a big soundbank. The engine simply needs a symbol at the start of
+/// it, so one is added by hand — a label costs nothing and points at the
+/// same address as SOUNDBANK__0.
+fn check_soundbank(output: &str, asm_path: &Path) -> Result<()> {
+    let clean = strip_ansi(output);
+    if let Some(line) = clean.lines().find(|l| l.contains("error:")) {
+        let total = clean
+            .lines()
+            .find(|l| l.contains("Total Modules Size"))
+            .unwrap_or("")
+            .trim();
+        bail!(
+            "smconv a refusé la musique :\n  {}\n  {}\n\
+             Chaque morceau doit tenir seul dans l'ARAM du SPC700. Réduire le \
+             nombre d'instruments, les rééchantillonner plus bas, ou couper l'écho.",
+            line.trim(),
+            total
+        );
+    }
+    let asm = std::fs::read_to_string(asm_path)
+        .with_context(|| format!("lecture de {}", asm_path.display()))?;
+    if asm.contains("\n.ORG 0") || !asm.contains("SOUNDBANK__0:") {
+        return Ok(());
+    }
+    let banks = (0..)
+        .take_while(|i| asm.contains(&format!("SOUNDBANK__{}:", i)))
+        .count();
+    println!(
+        "  soundbank sur {} banques ROM — sections converties en .ORG",
+        banks
+    );
+    // Two problems hide in smconv's multi-bank output, and both have to be
+    // fixed here or the failure is silent until the game PLAYS the data.
+    //
+    // The engine references SOUNDBANK__; smconv names the pieces
+    // SOUNDBANK__0..N, so without an alias the link fails. Worse: wlalink
+    // runs with -d, which DISCARDS unreferenced sections — and nothing
+    // references SOUNDBANK__1..N, so every bank after the first was
+    // silently dropped and the ROM shipped engine code where the tail of
+    // the soundbank should be. snesmod then streamed that code into ARAM
+    // as sample data; it sounds like thin metallic beeps.
+    //
+    // The fix uses the linker's own rules: data OUTSIDE a section (.ORG)
+    // is written to the ROM unconditionally — -d only applies to
+    // sections. So the .SECTION/.ENDS pairs become .ORG 0, and the alias
+    // label rides on the first bank.
+    let mut out = String::with_capacity(asm.len());
+    for line in asm.lines() {
+        let t = line.trim_start();
+        if t.starts_with(".SECTION \"SOUNDBANK") {
+            out.push_str(".ORG 0\n");
+        } else if t.starts_with(".ENDS") {
+            // dropped: no section left to close
+        } else if t.starts_with("SOUNDBANK__0:") {
+            out.push_str("SOUNDBANK__:\nSOUNDBANK__0:\n");
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    std::fs::write(asm_path, out)
+        .with_context(|| format!("écriture de {}", asm_path.display()))?;
+    Ok(())
+}
+
 fn run_capturing(what: &str, cmd: &mut Command) -> Result<String> {
     let out = cmd.output().with_context(|| format!("running {}", what))?;
     if !out.status.success() {
@@ -311,8 +408,10 @@ fn build(cfg: &Cfg) -> Result<()> {
         for m in &music {
             c.arg(rel(engine, m));
         }
-        run("smconv", &mut c)?;
-        asm_files.push(with_ext(&bank, "asm"));
+        let out = run_capturing("smconv", &mut c)?;
+        let asm_path = with_ext(&bank, "asm");
+        check_soundbank(&out, &asm_path)?;
+        asm_files.push(asm_path);
     }
 
     // C: three tools per file, exactly as snes_rules chains them.

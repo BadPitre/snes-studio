@@ -1,0 +1,9 @@
+[package]
+name = "snesphoto"
+version = "0.1.0"
+edition = "2021"
+description = "SNES Studio — runs a ROM headless in a libretro core and photographs its memory (savestate + screen)"
+
+[dependencies]
+anyhow = "1"
+libloading = "0.7"

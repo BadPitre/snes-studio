@@ -597,6 +597,221 @@ Not yet: autotile animation (water), gfx editing.
   shown. The category is a `cat` field in texts.json — editor only,
   datagen ignores it (the text_ids follow the file's order).
 
+## Tools -> Ressources -> Extraire (X1/X2/X5)
+
+A tile viewer over a byte range, whose selection lands in a project
+resource category already validated. Design doc:
+`docs/PLANNING_EXTRACTION_ROM.md`.
+
+**Two doors into one window.** "Extraire d'une ROM…" opens on the cart
+and its tiles, with a Graphismes/Sons switch. "Extraire une musique…"
+asks for the `.spc` **before the window exists** and opens straight on
+the audio panel — same component, but an SPC is 64 KB of *sound* RAM, so
+its graphics side is not hidden by policy, it simply does not exist.
+Both close with the ✕ in the title bar, and closing silences whatever
+was playing (the module player is a singleton shared with the resource
+manager, so nothing else would have stopped it).
+
+**Opening a file.** Any file, not just a `.sfc` — the ROM is a SOURCE and
+is never copied into the project. A copier header (512 bytes glued in
+front of a dump whose real size is a whole number of kilobytes) is
+detected on load and can be forced on or off, because a mangled dump can
+lie about it. The current offset is also shown as its LoROM and HiROM
+`bank:address` equivalents, since that is the notation documentation
+sites quote; the jump field accepts either form (`1A8000`, or `C2:8000`
+with a colon).
+
+**Finding something.** Four controls do the work: the format (1/2/4/8bpp
+or Mode 7 linear), the width in tiles, the offset, and the **+-1 byte**
+nudge — a one-byte misalignment scrambles the whole image, so it has its
+own buttons. The wheel scrolls by a row. "Zone suivante" skips to the
+next non-uniform stretch, which matters more than it sounds: a ROM is
+mostly padding.
+
+**16x16 blocks** is not an advanced option. SNES sprites are stored as
+2x2 tile groups in sequence, so without it every character shows up
+quartered and interleaved.
+
+**Palette.** Greyscale by default, so something is always visible while
+hunting. Then: read 16 colours at the current offset (with a 2-byte
+nudge), scan the file for plausible palettes, borrow the palette of a PNG
+already in the project, or edit the swatches by hand. One index can be
+marked transparent — it becomes index 0 on export, which is the engine's
+convention for fonts and windowskins.
+
+**Sending it.** Drag a rectangle, pick a target, and the window says why
+a target would refuse before the import does — the size rules are read
+from the resource descriptors in `resources.ts`, so the two can never
+disagree. Targets: Picture, Tileset, IconSet, Vignette, Fonte,
+Windowskin, Mode 7. **CharSet and ChipSet are deliberately absent**: both
+expect an RPG Maker 2003 sheet layout (288x256, 480x256) that no SNES ROM
+stores, so offering them would only produce a size refusal every time.
+
+A font is the easy case, and worth knowing: our font format is a 768x8
+strip, i.e. **96 tiles on one row**. Set the width to 96, select one row,
+done.
+
+The extraction is written as an INDEXED PNG (`encodeIndexedPng` in
+`rom.ts`), not truecolour, so the palette order the author chose
+survives: `gfx.rs` reads raw indices, and a windowskin is refused
+outright when any index exceeds 3.
+
+### « 📸 Photographier » (X6) — the route for compressed games
+
+Most commercial carts compress their graphics, so the tile viewer shows
+noise where the art is. The photo goes around the compression instead
+of fighting it: **run the cart in an emulator and read its memory** —
+the game decompresses everything itself just by running.
+
+Two controls in the header once a ROM is open: how many seconds to run
+(default 15 — past the logos, onto the title, music playing) and an
+optional Start press at mid-run for titles that wait for it. Headless
+emulation runs at hundreds of times real time, so the wait is seconds.
+
+One click yields four things at once:
+
+- **VRAM** (64 KB) replaces the byte view — the tiles as the PPU drew
+  them, decompressed;
+- **CGRAM** fills the palette picker with the sixteen REAL palettes
+  (0-7 backgrounds, 8-15 sprites) — no more palette hunting;
+- **jump buttons** to the sprite tiles and each background's tiles,
+  read from the PPU registers of the moment;
+- **the sound chip as a `.spc`**, synthesized from the APU state — the
+  Sons tab opens it like any snapshot, verdict, listening and
+  transcription included.
+
+A thumbnail of the captured screen answers "did I photograph the right
+moment?" before any ripping starts.
+
+**How it works, and what it needs.** `snesphoto` (a sidecar, like
+datagen) runs the ROM in a **stock snes9x libretro core** and asks it to
+serialize; `s9xstate.ts` mines the savestate — VRA block for VRAM, PPU
+block for CGRAM/OAM/bases (field offsets computed from snes9x's own
+snapshot tables; whether a state matches that layout is decided by the
+PPU block's length, so version bumps that never touch it — the libretro
+fork's MSU-1 fields, for instance — pass through), SND block for the
+APU, from which a
+standard 66048-byte `.spc` is written, with the write-only cells
+($F1, $FA-$FC) rebuilt from the SMP state. The core is NOT bundled
+(snes9x's licence is non-commercial): install it once via RetroArch's
+core manager, or drop `snes9x_libretro.so`/`.dll` in the checkout's
+`tools/regress/` — the editor looks in both places and says so when it
+finds neither.
+
+**In-game moments: play, save a state, open it.** The 📸 button plays
+without a human, so it reaches title screens and attract modes. For
+the boss of dungeon 3, the author plays: in **RetroArch** (the same
+snes9x core), reach the moment and press **F2** — then open the
+`.state` file with the same « Ouvrir » button. It lands exactly like a
+photo: decompressed VRAM, the sixteen real palettes, the jumps, and
+the sound chip of that moment in the Sons tab. Desktop Snes9x
+savestates (`.000`-`.008`, gzip) are read too; RetroArch's RASTATE
+container and its RZIP compression are unwrapped transparently. The
+music door accepts the same files. bsnes and Mesen states stay
+refused — different, undocumented formats — and the window still
+accepts raw `.bin` dumps as the last resort.
+
+### The audio panel (X3)
+
+Three columns, and the order is deliberate: what the song IS on the left
+(its name and the game's, then the technical facts as a label/value
+list), the instruments in the middle with a **play button on every row**,
+and what one can DO with it on the right.
+
+This is the part of the ripper that works BEST, and structurally rather
+than by luck. A BRR sample describes itself — 9-byte blocks, a range
+field that cannot legally exceed 12, one end flag at the end — so the
+scan asserts its way to a sample instead of guessing at one. Compression
+is not in the way either: BRR *is* the compressed form, and games store
+it as is. Decoding lives in `editor/src/brr.ts`, with the same filter
+coefficients as datagen's `brr_predict` (`tools/datagen/src/sfx.rs`) —
+that encoder and this decoder are two directions of one format.
+
+**From a ROM: scan.** "Blocs minimum" is the only knob; 16 blocks is
+about 8 ms. Every hit is listed with its address, duration, size and loop
+flag; the ▶ on its row plays it and selects it in one gesture.
+
+**From an `.spc`: read.** An SPC is a snapshot of a *running* sound chip
+— 64 KB of ARAM plus the DSP registers — and register `$5D` holds the
+page of the SAMPLE DIRECTORY. From an SPC the tool does not scan at all:
+it reads the table, with exact boundaries, true loop points and the
+instrument numbers of one specific song. Any emulator dumps an SPC in one
+keypress, so this is the source to prefer. It is what "Extraire une
+musique…" asks for, and the "Extraire d'une ROM…" door accepts it too —
+the same "Ouvrir" button takes it and the window drops its graphics side.
+
+**The rate is a guess, by construction.** BRR carries no sample rate:
+pitch came from the driver's per-voice register at play time. 32000 Hz
+is the DSP's output rate and the usual convention, and the selector is
+there because only the ear can settle it.
+
+**A scan pins the END of a sample exactly and its start only to within a
+block.** Whatever sits in front of a real sample has roughly a one-in-five
+chance of reading as a valid header, and the chain then carries one junk
+block at the front. The "◀ bloc / bloc ▶" trim answers that — the same
+idea as the +-1 byte nudge on the graphics side — instead of pretending
+the scan is exact. An SPC does not need it.
+
+**Two consequences of the engine's budget, stated before the author hears
+them.** Sound effects are 8 kHz, at most 8 KB of BRR each (~1.8 s), 16
+sounds, 24 KB total (`docs/TOOLS.md`). So only short samples fit — the
+panel computes the size the build will produce and refuses to send one
+that would not — and the chain is BRR -> PCM -> resample to 8 kHz -> BRR
+again, so a ripped effect sounds duller than in the original game.
+
+**"Ce morceau tiendrait-il ?"** (X5-a) totals an SPC directory's BRR and
+compares it to the 58573 bytes of ARAM a module gets after the snesmod
+driver — smconv's own refusal figure, not an estimate. It is an upper
+bound:
+a directory may list samples the song never plays, and pattern data plus
+the echo region are charged on top (echo alone runs to 28 KB on the
+demo's `pollen8`). A second, separate ceiling lives in ROM: all the
+modules together are concatenated into a soundbank, and past 32 KB smconv
+splits it across banks — snesbuild handles that transparently now, but
+the ROM cost is real.
+
+**"▶ Jouer le morceau"** (X5-c/X5-d) turns an `.spc` into an `.it` and
+plays it, transcribing on the first click and turning into "⏸ Pause"
+while it sounds — through the same libopenmpt worklet as the resource
+manager's preview, on the bytes in memory, with nothing written to disk
+(`toggleBytes` in `AudioPreview.tsx`). One preview at a time still holds:
+starting a sample stops the module, and the other way round.
+
+There is no sequence parser behind it and there could not be — every
+studio invented its own format. Instead `spc700.ts` EMULATES the sound
+CPU and lets the game's own driver play, watching what it writes to the
+eight voices: `KON` for note-ons, `VxSRCN` for the instrument,
+`VxPITCH` for the note, `VxVOL` for the volume. One implementation, any
+game. Roughly 170x real time, so a 30-second capture costs under 200 ms.
+
+Two controls: how long to capture, and how fine the row grid is (15, 30
+or 60 rows per second). `transcribe.ts` then quantises events to rows,
+maps pitch to a note (12*log2(P/4096) semitones above C-5), and
+**downsamples the instruments until they fit the ARAM budget**, saying by
+how much. `itfile.ts` writes the module in IT **instrument mode** with **8-bit**
+samples — not a style choice: a sample-mode module is accepted by smconv,
+builds without a word, and plays absolute silence, because a pattern's
+instrument number resolves to nothing. Every module the engine plays is
+shaped that way; the transcription now matches them.
+
+**One verb for both exits.** "⬇ Importer l'instrument" and "⬇ Importer la
+musique" — a sound and a song leaving by doors with different-sounding
+names is the kind of small confusion that costs an author ten minutes.
+Both go through `runImport`, so they inherit the resource manager's own
+validation.
+
+**Explanations are tooltips, not paragraphs.** The panel is read at a
+glance far more often than it is read for the first time, so the prose
+that used to sit under each control now hangs off it as a `title`. What
+is left on screen is data.
+
+What comes out is a PERFORMANCE, not a score: one long flat sequence,
+no pattern structure, no clean loop points, and a quantised tempo. It is
+an `.it` to finish in OpenMPT, and the design doc
+(`docs/PLANNING_MUSIQUE_RIPPEE.md`) says so at length. For a game
+**VGMTrans** knows, its route is better — it recovers the composition.
+This one earns its keep on the games VGMTrans does not know.
+
 ## Running it
 
 Prerequisites: Node.js, Rust (already needed for datagen). On Windows,
