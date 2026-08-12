@@ -1,8 +1,14 @@
-# Party battlers: the team on screen, animated (H0)
+# Animated characters on composed screens (H0)
 
 *Design doc, C0-style. The author showed the Kefka fight from Final
-Fantasy VI: the party standing on the right of the battle screen, each
-hero with combat animations — attack, taking damage, KO, victory.*
+Fantasy VI — the party standing on the right, animated through the
+battle — and then set the constraint that matters: the system must be
+GENERIC, not built for a JRPG, and above all not automatically tied to
+a battler database. That constraint is the project's founding rule
+stated back at the engine: the engine owns primitives, the game is
+data and events. So this plan ships PRIMITIVES; Final Fantasy is the
+worked example that proves them, living entirely in the author's
+event library.*
 
 ## 1. What is being asked
 
@@ -58,25 +64,37 @@ telling the truth (one slot's frame swap per VBlank — eight animating
 slots wave their updates across eight frames, invisible at idle
 speeds).
 
-### H2 — the convention and the library: battlers are data
+### H2a — engine primitive: vignettes and animations BY VARIABLE
 
-No new engine object. A battler is a **vignette sheet + a handful of
-animations** (idle, attack, hurt, KO, victory), named or referenced
-from the héros database table (new resource fields — B7 already gives
-tables image/sound/music fields; this adds vignette/animation ones).
+The one genuinely missing primitive. VIGSHOW, VIGPLAY and ANIMPLAY
+take only immediate operands today, while pictures already have
+"image par variable" (S7). Without indirection, a script cannot say
+"play the animation of WHOEVER is in v91" — it needs one branch per
+character, which is exactly the hardcoding the author refused.
 
-The starter combat library grows the choreography at its existing
-beats: battle open lays the heroes' idle loops at their positions
-(slots 4-5 for the two party places), attack plays the attack
-animation before the damage function, the damage function plays hurt
-on the victim, KO swaps the idle for the KO pose instead of hiding a
-number, victory plays the victory loop before the rewards. Positions
-are two constants in the library — the author moves their party by
-editing two commands, FF6-style right column by default.
+So: the vignette and animation commands gain the same variable form
+pictures have. Which variable holds what is ENTIRELY the author's
+business — a database read, a constant, the result of a menu. The
+engine learns indirection, not battlers. This is what makes the same
+primitive serve a JRPG's party, a visual-novel cast, board pieces, a
+cutscene — anything that stands on a screen and moves.
 
-The library is the AUTHOR's file once scaffolded: existing projects
-get the recipe in the doc (which calls to insert where), new projects
-get it built in. The showcase carries the reference implementation.
+### H2b — the worked example: Final Fantasy in the author's library
+
+ZERO schema, ZERO engine knowledge. The starter combat library (which
+already belongs to the author once scaffolded) demonstrates the
+choreography at its existing beats using plain commands + variables:
+battle open lays idle loops at two position constants, attack plays
+the actor's animation before the damage function, damage plays hurt
+on the victim, KO holds a pose instead of hiding a number, victory
+loops before the rewards. Where the battler ids come from is the
+example's own choice, visible and editable like every other line of
+the library — an author who wants them in their database adds a
+column to their OWN table (tables are theirs to edit); an author
+making something else ignores the example entirely.
+
+Existing projects get the recipe in the doc (which calls to insert
+where); the showcase carries the reference implementation.
 
 ### H3 — editor comfort: authoring a battler without pixel surgery
 
@@ -95,9 +113,10 @@ where they belong.
   four-hero party first — menus, ATB variables, balance: its own
   project, to be priced separately if wanted. The battler system
   itself is ready for it (slots 4-7 hold four).
-- **No battler entity in the engine.** Poses are animations, beats are
-  library calls. The engine learns nothing about "battlers" — same
-  philosophy as the combat itself (V2): the game is data.
+- **No battler entity in the engine, no database coupling.** Poses
+  are animations, beats are library calls, identities are variables.
+  The engine learns indirection and nothing else — same philosophy as
+  the combat itself (V2): the game is data.
 - **Big bosses stay laid images.** A Kefka-sized battler is BG1
   territory (the monsters' existing system, SLOTFX for flashes), not
   a 32x32 sprite.
@@ -107,7 +126,8 @@ where they belong.
 | Piece | Where | Size |
 |---|---|---|
 | H1 — 8 vignette slots | vignette.c/h, VM range checks, editor slot dropdowns, SPEC_FORMATS §OAM/chars, S6 note | ~60 lines, half a day with the verification |
-| H2 — library beats + héros battler fields | combatlib.ts (starter), showcase (reference), database schema fields, PLANNING_COMBAT recipe update | the bulk: a day of event-writing and testing in the showcase |
+| H2a — vignette/animation by variable | vm.c (mirror pic_var, S7), datagen event forms, editor command forms | ~80 lines across the three, half a day |
+| H2b — the FF example in the library | combatlib.ts (starter), showcase (reference), PLANNING_COMBAT recipe update — no schema change anywhere | the bulk: a day of event-writing and testing in the showcase |
 | H3 — charset → vignette helper | editor (one modal or a button in the vignette import), datagen untouched (vignettes are PNG sheets) | half a day |
 
 ## 6. Verification plan
