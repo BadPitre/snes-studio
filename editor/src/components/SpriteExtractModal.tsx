@@ -88,7 +88,18 @@ export default function SpriteExtractModal(props: Props) {
 
   const w = props.bmp.width;
   const h = props.bmp.height;
-  const scale = Math.max(1, Math.min(3, Math.floor(560 / w), Math.floor(380 / h)));
+  // zoom: starts on a comfortable automatic fit, then the ± buttons
+  const [scale, setScale] = useState(() =>
+    Math.max(1, Math.min(3, Math.floor(560 / props.bmp.width), Math.floor(380 / props.bmp.height)))
+  );
+
+  // the two mode buttons carry their state INLINE — the shared .active
+  // class only styles tab bars, and an invisible mode is how "I picked
+  // the colour and now the rectangles won't draw" happens
+  const modeStyle = (on: boolean): React.CSSProperties =>
+    on
+      ? { background: "var(--sel)", color: "var(--sel-text)", fontWeight: 700 }
+      : {};
 
   // source pixels, read once
   useEffect(() => {
@@ -115,8 +126,14 @@ export default function SpriteExtractModal(props: Props) {
           s[i + 3] < 128 ||
           (trans !== null &&
             s[i] === trans[0] && s[i + 1] === trans[1] && s[i + 2] === trans[2]);
-        if (transparent) checker(ctx, x * scale, y * scale, scale <= 1 ? 2 : scale);
-        else {
+        if (transparent) {
+          if (scale <= 1) {
+            /* one pixel per cell: alternate the two greys by parity —
+               a 2 px checker here would overpaint opaque neighbours */
+            ctx.fillStyle = ((x ^ y) & 1) ? "#666" : "#9a9a9a";
+            ctx.fillRect(x, y, 1, 1);
+          } else checker(ctx, x * scale, y * scale, scale);
+        } else {
           ctx.fillStyle = `rgb(${s[i]},${s[i + 1]},${s[i + 2]})`;
           ctx.fillRect(x * scale, y * scale, scale, scale);
         }
@@ -197,19 +214,23 @@ export default function SpriteExtractModal(props: Props) {
         <div className="panel-title">Extraire des sprites animés d'une planche</div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <button
-            className={mode === "pipette" ? "active" : ""}
+            style={modeStyle(mode === "pipette")}
             onClick={() => setMode("pipette")}
             title="Cliquer la couleur de fond à rendre transparente"
           >
             🖊 Couleur transparente
           </button>
           <button
-            className={mode === "rect" ? "active" : ""}
+            style={modeStyle(mode === "rect")}
             onClick={() => setMode("rect")}
             title="Tracer un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
           >
             ▭ Tracer les frames
           </button>
+          <span className="hint" style={{ marginLeft: 8 }}>Zoom :</span>
+          <button disabled={scale <= 1} onClick={() => setScale((z) => z - 1)}>−</button>
+          <span className="hint">×{scale}</span>
+          <button disabled={scale >= 8} onClick={() => setScale((z) => z + 1)}>+</button>
           <span
             style={{
               width: 18,
@@ -235,8 +256,12 @@ export default function SpriteExtractModal(props: Props) {
                 const dd = dataRef.current;
                 if (!dd) return;
                 const i = (p.y * w + p.x) * 4;
-                if (dd.data[i + 3] >= 128)
+                if (dd.data[i + 3] >= 128) {
                   setTrans([dd.data[i], dd.data[i + 1], dd.data[i + 2]]);
+                  setMode("rect"); /* the colour is picked: the natural
+                     next gesture is drawing frames — switch for the
+                     author instead of waiting for a second click */
+                }
                 return;
               }
               if (rects.length >= MAX_FRAMES) return;
