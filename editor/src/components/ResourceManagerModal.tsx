@@ -47,6 +47,8 @@ interface Props {
   // the eight register-backed categories, in one call
   onRes: (kind: ResKind, act: ResAct, rel?: string, name?: string) => void;
   onImportCharset: () => void;
+  // H4: builds a 12-frame vignette strip from a charset block.
+  onVignetteFromCharset: (block: number, name: string) => void;
   onImportChipset: () => void;
   onImportTilesetPng: () => void; // a free PNG grid (not an RM2003 chipset)
   onExportCharset: (b: number) => void;
@@ -421,6 +423,27 @@ export default function ResourceManagerModal(p: Props) {
             >
               {cat === "chipset" ? "Chipset RM2003…" : "Importer…"}
             </button>
+            {cat === "vignette" && (
+              <button
+                disabled={!p.canWrite || p.blockCount === 0}
+                title="Fabriquer une planche de vignette 32x32 à partir des 12 frames d'un personnage (4 directions x 3 pas) — un personnage de carte devient un battler en un clic"
+                onClick={() => {
+                  const pick = prompt(
+                    "Numéro du charset (1-" + p.blockCount + ") :\n" +
+                      p.blockNames.map((n, i) => `${i + 1}. ${n}`).join("\n")
+                  );
+                  const b = pick === null ? NaN : Number(pick) - 1;
+                  if (!Number.isInteger(b) || b < 0 || b >= p.blockCount) return;
+                  const nm = prompt(
+                    "Nom de la vignette :",
+                    (p.blockNames[b] || "battler").toLowerCase().replace(/[^a-z0-9_]/g, "_")
+                  );
+                  if (nm) p.onVignetteFromCharset(b, nm);
+                }}
+              >
+                Depuis un charset…
+              </button>
+            )}
             {cat === "chipset" && (
               <button
                 disabled={!p.canWrite}

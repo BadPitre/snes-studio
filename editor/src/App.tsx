@@ -927,6 +927,27 @@ export default function App() {
     }
   }
 
+  // H4 — a charset block becomes a vignette strip: the 12 frames
+  // (4 directions x 3 steps, the charset's own order) each centred in a
+  // 32x32 cell, feet on the cell's bottom edge. The result goes through
+  // the ordinary vignette import, so it is validated and recorded like
+  // any hand-made sheet.
+  async function vignetteFromCharset(block: number, nm: string) {
+    if (!sprites) return;
+    const cv = new OffscreenCanvas(12 * 32, 32);
+    const ctx2 = cv.getContext("2d")!;
+    for (let i = 0; i < 12; i++)
+      ctx2.drawImage(sprites, (block * 12 + i) * 16, 0, 16, 24, i * 32 + 8, 8, 16, 24);
+    const blob = await cv.convertToBlob({ type: "image/png" });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const ctx = resCtx();
+    if (ctx)
+      await runImport(ctx, RESOURCES.vignette, {
+        name: `${nm.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.png`,
+        bytes,
+      });
+  }
+
   // An extraction from the ROM ripper (X2). The register categories go
   // through the shared import flow with bytes instead of a file, so a rip
   // is validated and recorded exactly like a browsed PNG. A tileset is not
@@ -1979,6 +2000,7 @@ export default function App() {
       {showResources && data && (
         <ResourceManagerModal
           root={data.root}
+          onVignetteFromCharset={(block, nm) => void vignetteFromCharset(block, nm)}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}
