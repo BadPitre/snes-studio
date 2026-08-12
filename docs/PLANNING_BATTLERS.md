@@ -96,7 +96,25 @@ making something else ignores the example entirely.
 Existing projects get the recipe in the doc (which calls to insert
 where); the showcase carries the reference implementation.
 
-### H3 — editor comfort: authoring a battler without pixel surgery
+### H3 — the Écrans window: vignettes placed with the mouse
+
+The author's ask, and the natural completion of the composition tab:
+vignettes join laid images as first-class citizens of a screen's
+COMPOSITION. "＋ Ajouter une vignette" next to "＋ Ajouter une image";
+each carries a name, its slot, the vignette (or animation) to play,
+the mode (loop / once / stopped) and coordinates; on the canvas they
+drag with the same 8-px snapping, previewed with their first frame.
+
+No engine change and no new format concept: exactly like the rest of
+the composition, datagen UNROLLS placed vignettes into ordinary
+"Afficher une vignette" / "Jouer une animation" commands at the head
+of the screen's automatic script — the same sugar "Aller à l'écran"
+already is. The event route stays fully available for everything
+dynamic (the FF example uses it); the composition route covers the
+static cast — a shopkeeper behind the counter, a portrait that
+breathes, the party idling before the script takes over.
+
+### H4 — editor comfort: authoring a battler without pixel surgery
 
 A **« Créer une vignette depuis un charset »** helper: pick a
 character block, the tool lays its 16x24 frames into 32x32 vignette
@@ -128,7 +146,8 @@ where they belong.
 | H1 — 8 vignette slots | vignette.c/h, VM range checks, editor slot dropdowns, SPEC_FORMATS §OAM/chars, S6 note | ~60 lines, half a day with the verification |
 | H2a — vignette/animation by variable | vm.c (mirror pic_var, S7), datagen event forms, editor command forms | ~80 lines across the three, half a day |
 | H2b — the FF example in the library | combatlib.ts (starter), showcase (reference), PLANNING_COMBAT recipe update — no schema change anywhere | the bulk: a day of event-writing and testing in the showcase |
-| H3 — charset → vignette helper | editor (one modal or a button in the vignette import), datagen untouched (vignettes are PNG sheets) | half a day |
+| H3 — vignettes in the Écrans composition | ScreensModal (list + canvas drag + first-frame preview), datagen's screen unroll (emit VIGSHOW/ANIMPLAY at the automatic script's head) | ~a day |
+| H4 — charset → vignette helper | editor (one modal or a button in the vignette import), datagen untouched (vignettes are PNG sheets) | half a day |
 
 ## 6. Verification plan
 
@@ -140,7 +159,10 @@ where they belong.
   pose at the attack frame, hurt on damage, KO held, victory loop at
   the end. The AUDIO_DUMP route already proves battles run to
   completion headless.
-- H3: import a demo charset, check the sheet's geometry
+- H3: a screen with two placed vignettes in the showcase — the editor
+  preview and the harness screenshot agree on their positions; closing
+  the screen still hides every slot.
+- H4: import a demo charset, check the sheet's geometry
   pixel-for-pixel.
 
 ## 7. Refused alternatives
