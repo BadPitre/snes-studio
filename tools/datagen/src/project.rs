@@ -129,6 +129,11 @@ pub struct ScreenDef {
     /// Images posed on open (slot 1-5, position in pixels).
     #[serde(default)]
     pub slots: Vec<ScreenSlot>,
+    /// Vignettes posed on open (H3): the screen's standing cast. Each
+    /// unrolls to ordinary vig_show/vig_play or anim_play commands at
+    /// the head of the automatic script — sugar, like the rest.
+    #[serde(default)]
+    pub vignettes: Vec<ScreenVig>,
     /// Legacy single script; becomes scripts[0].
     #[serde(default)]
     pub script: Vec<serde_json::Value>,
@@ -164,6 +169,31 @@ pub struct ScreenCond {
     pub op: Option<String>,
     #[serde(default)]
     pub value: Option<i64>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ScreenVig {
+    /// Free label, editor-side only.
+    #[serde(default)]
+    pub name: String,
+    /// Vignette slot 1-8.
+    pub slot: u8,
+    /// EITHER a vignette stem (a strip shown from frame 0)...
+    #[serde(default)]
+    pub vig: String,
+    /// ...or an animation name (played through the animation player).
+    #[serde(default)]
+    pub anim: String,
+    /// For a vignette: "stop" (frame 0 held), "loop" or "once".
+    #[serde(default)]
+    pub mode: String,
+    /// Frames per sheet cell when animating (vig_play speed).
+    #[serde(default)]
+    pub speed: u8,
+    #[serde(default)]
+    pub x: u16,
+    #[serde(default)]
+    pub y: u16,
 }
 
 #[derive(Deserialize, Clone)]

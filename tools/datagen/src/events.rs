@@ -1384,6 +1384,30 @@ impl<'a> EventCompiler<'a> {
                 sl.slot - 1, pid, sl.x / 8, sl.y / 8
             ));
         }
+        // The posed vignettes (H3): synthesized as ordinary commands
+        // and compiled like authored ones, so they share every check.
+        for v in &sc.vignettes {
+            let cmds = if !v.anim.is_empty() {
+                serde_json::json!([{
+                    "c": "anim_play", "anim": v.anim, "anchor": "screen",
+                    "x": v.x, "y": v.y
+                }])
+            } else {
+                let mut list = vec![serde_json::json!({
+                    "c": "vig_show", "slot": v.slot, "vig": v.vig,
+                    "x": v.x, "y": v.y, "anchor": "screen"
+                })];
+                if v.mode == "loop" || v.mode == "once" {
+                    list.push(serde_json::json!({
+                        "c": "vig_play", "slot": v.slot, "mode": v.mode,
+                        "speed": if v.speed == 0 { 8 } else { v.speed }
+                    }));
+                }
+                serde_json::Value::Array(list)
+            };
+            let list = cmds.as_array().cloned().unwrap_or_default();
+            self.compile_list(&list, depth + 1, out)?;
+        }
         // AUTO scripts play on open, in order; a condition
         // (switch or variable) becomes an `if` around the
         // body. "call" scripts wait for screen_call, with the

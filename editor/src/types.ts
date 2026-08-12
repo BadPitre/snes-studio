@@ -803,6 +803,10 @@ export interface TextEntry {
 export interface Screen {
   backdrop: string; // stem of a picture, "" = a black background
   slots: ScreenSlot[];
+  // The standing cast (H3): vignettes posed with the mouse, unrolled by
+  // datagen into ordinary vig_show/vig_play/anim_play commands at the
+  // head of the automatic script.
+  vignettes?: ScreenVig[];
   // NAMED scripts: the FIRST runs on opening, the others are called
   // through "Appeler un script de l'écran" (unrolled inline)
   scripts: ScreenScript[];
@@ -824,6 +828,17 @@ export interface ScreenCond {
   on?: boolean; // switch
   op?: "==" | "!=" | ">="; // variable
   value?: number;
+}
+
+export interface ScreenVig {
+  name: string; // free label
+  slot: number; // 1-8
+  vig?: string; // a vignette strip (frame 0, or looped)...
+  anim?: string; // ...or an animation, played through the player
+  mode: "stop" | "loop" | "once";
+  speed?: number; // frames per cell when looping
+  x: number;
+  y: number;
 }
 
 export interface ScreenSlot {
