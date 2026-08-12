@@ -1,3 +1,3 @@
 [workspace]
-members = ["datagen", "snesbuild"]
+members = ["datagen", "snesbuild", "snesphoto"]
 resolver = "2"

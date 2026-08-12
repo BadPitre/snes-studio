@@ -245,3 +245,56 @@ export async function mode7Preview(
   if (!r.ok) throw new Error(r.output);
   return { rel: out, summary: r.output.trim().split("\n").pop() ?? "" };
 }
+
+// ---------------------------------------------------------------------
+// The ROM photo booth (X6)
+// ---------------------------------------------------------------------
+
+// Where a stock snes9x libretro core might live. The core is NOT
+// bundled — snes9x's licence is non-commercial and the regress kit's
+// README already tells authors to fetch it from RetroArch — so the
+// editor looks where RetroArch installs it, plus the checkout's own
+// tools/regress. The returned path is also what the error message
+// names when nothing is found.
+export async function findSnesCore(projectRoot: string): Promise<string | null> {
+  const { homeDir } = await import("@tauri-apps/api/path");
+  const home = (await homeDir()).replace(/[\\/]+$/, "");
+  const win = isWindows();
+  const lib = win ? "snes9x_libretro.dll" : "snes9x_libretro.so";
+  const repo = parentDir(parentDir(projectRoot));
+  const candidates = [
+    // a checkout: <repo>/tools/regress, next to the regression kit
+    `${parentDir(projectRoot)}/tools/regress/${lib}`,
+    `${repo}/tools/regress/${lib}`,
+    // RetroArch's standard install locations
+    ...(win
+      ? [
+          `${home}/AppData/Roaming/RetroArch/cores/${lib}`,
+          `C:/RetroArch-Win64/cores/${lib}`,
+        ]
+      : [
+          `${home}/.config/retroarch/cores/${lib}`,
+          `${home}/Library/Application Support/RetroArch/cores/snes9x_libretro.dylib`,
+          `/usr/lib/libretro/${lib}`,
+        ]),
+  ];
+  for (const c of candidates) if (await exists(c).catch(() => false)) return c;
+  return null;
+}
+
+// Runs the ROM headless in the core and photographs it: savestate +
+// screen. Wall clock is a fraction of game time (measured ~750x real
+// time on the demo), so seconds of play cost almost nothing.
+export async function runPhoto(
+  core: string,
+  rom: string,
+  projectRoot: string,
+  frames: number,
+  startAt: number | null
+): Promise<{ ok: boolean; output: string; state: string; shot: string }> {
+  const outDir = `${projectRoot}/.build/photo`;
+  const args = [core, rom, String(frames), outDir];
+  if (startAt !== null) args.push("--start", String(startAt));
+  const r = await sidecar("snesphoto", args);
+  return { ...r, state: `${outDir}/photo.state`, shot: `${outDir}/photo.ppm` };
+}

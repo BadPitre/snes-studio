@@ -55,7 +55,8 @@
     },
     "externalBin": [
       "binaries/datagen",
-      "binaries/snesbuild"
+      "binaries/snesbuild",
+      "binaries/snesphoto"
     ],
     "resources": {
       "vendor/engine": "vendor/engine",

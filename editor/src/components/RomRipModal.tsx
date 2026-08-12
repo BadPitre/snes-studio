@@ -46,6 +46,8 @@ import {
   withHeader,
 } from "../rom";
 import { type Spc, loadSpc } from "../brr";
+import { cgramRows, decodePpm, parsePhoto } from "../s9xstate";
+import { canBuild, findSnesCore, runPhoto } from "../build";
 import RomAudioPanel from "./RomAudioPanel";
 import { RESOURCES, type ResKind } from "../resources";
 import { loadAssetPalette, pickFile, readBinaryFile } from "../io";
@@ -132,10 +134,25 @@ interface Props {
 
 const ZOOMS = [1, 2, 3, 4, 6, 8];
 
+// What a photo adds to the plain byte view: the real palettes, where
+// the sprite and background tiles start, and the screen as it was.
+interface PhotoUi {
+  rows: Rgb[][];
+  row: number;
+  objBase: number;
+  bgBase: number[];
+  shot: { w: number; h: number; rgba: Uint8ClampedArray<ArrayBuffer> } | null;
+}
+
 export default function RomRipModal(p: Props) {
   const music = p.mode === "music";
   const [rom, setRom] = useState<Rom | null>(null);
+  const [romPath, setRomPath] = useState<string | null>(null);
   const [spc, setSpc] = useState<Spc | null>(null);
+  const [photo, setPhoto] = useState<PhotoUi | null>(null);
+  const [photoSecs, setPhotoSecs] = useState(15);
+  const [photoStart, setPhotoStart] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("gfx");
   const [offset, setOffset] = useState(0);
   const [bpp, setBpp] = useState<Bpp>("4bpp");
@@ -255,6 +272,7 @@ export default function RomRipModal(p: Props) {
     const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
     setRom(r);
     setSpc(snap);
+    setPhoto(null);
     setTab(snap ? "audio" : "gfx");
     setOffset(0);
     setCut(null);
@@ -280,8 +298,71 @@ export default function RomRipModal(p: Props) {
     if (!file) return;
     try {
       applyFile(file.split(/[\\/]/).pop() ?? "rom", await readBinaryFile(file));
+      setRomPath(file);
     } catch (e) {
       p.setStatus(`Ouverture : ${e}`);
+    }
+  }
+
+  // ---- the photo (X6) -------------------------------------------------
+  //
+  // Run the cart in a stock snes9x core, then mine the savestate: the
+  // tiles the game DECOMPRESSED (VRAM), the real colours (CGRAM), where
+  // the sprites start, and the sound chip mid-song as a .spc. This is
+  // the route that works on commercial games — their carts are
+  // compressed, their memory is not.
+  async function takePhoto() {
+    if (!rom || !romPath) return;
+    setPhotoBusy(true);
+    try {
+      const core = await findSnesCore(p.root);
+      if (!core) {
+        p.setStatus(
+          "Photo : aucun core snes9x_libretro trouvé. L'installer via RetroArch (gestionnaire de cores), ou poser snes9x_libretro dans tools/regress/ du dépôt."
+        );
+        return;
+      }
+      p.setStatus(`Photo en cours — ${photoSecs} s de jeu…`);
+      const frames = photoSecs * 60;
+      const r = await runPhoto(
+        core,
+        romPath,
+        p.root,
+        frames,
+        photoStart ? Math.floor(frames / 2) : null
+      );
+      if (!r.ok) {
+        p.setStatus(`Photo : ${r.output || "le core a refusé la ROM"}`);
+        return;
+      }
+      const base = rom.name.replace(/ — photo$/, "");
+      const state = await readBinaryFile(r.state);
+      const ph = parsePhoto(state, `Photo — ${base}`, base);
+      const shotBytes = await readBinaryFile(r.shot).catch(() => null);
+      const rows = cgramRows(ph.cgram);
+      setRom(loadRom(`${base} — photo`, ph.vram));
+      setSpc(loadSpc(ph.spc));
+      setPhoto({
+        rows,
+        row: 8, // the first sprite palette: the most wanted default
+        objBase: ph.objBase,
+        bgBase: ph.bgBase,
+        shot: shotBytes ? decodePpm(shotBytes) : null,
+      });
+      setPalette([...rows[8], ...greyPalette(256).slice(16)]);
+      setOffset(ph.objBase);
+      setBpp("4bpp");
+      setBlocks16(true);
+      setCut(null);
+      setHits(null);
+      setTab("gfx");
+      p.setStatus(
+        `Photo prise à ${photoSecs} s : 64 Ko de VRAM décompressée, les 16 palettes, et le son du moment dans l'onglet Sons.`
+      );
+    } catch (e) {
+      p.setStatus(`Photo : ${e}`);
+    } finally {
+      setPhotoBusy(false);
     }
   }
 
@@ -403,9 +484,10 @@ export default function RomRipModal(p: Props) {
           {rom ? (
             <>
               <span className="hint">
-                {rom.name} — {(rom.raw.length / 1024) | 0} Ko{spc ? " d'ARAM" : ""}
+                {rom.name} — {(rom.raw.length / 1024) | 0} Ko
+                {spc && !photo ? " d'ARAM" : ""}
               </span>
-              {!spc && (
+              {!spc && !photo && (
                 <>
                   <label className="hint" title="512 octets collés devant certains dumps">
                     <input
@@ -420,9 +502,41 @@ export default function RomRipModal(p: Props) {
                   </span>
                 </>
               )}
+              {/* The photo: run the cart in an emulator and read its
+                  MEMORY — the route that works on compressed games. */}
+              {romPath && !music && (!spc || photo) && canBuild() && (
+                <span className="row romrip-photo">
+                  <select
+                    value={photoSecs}
+                    onChange={(e) => setPhotoSecs(+e.target.value)}
+                    title="Combien de secondes de jeu avant la photo"
+                  >
+                    {[5, 10, 15, 30, 60].map((s) => (
+                      <option key={s} value={s}>
+                        {s} s
+                      </option>
+                    ))}
+                  </select>
+                  <label className="hint" title="Pour les écrans titres qui attendent Start">
+                    <input
+                      type="checkbox"
+                      checked={photoStart}
+                      onChange={(e) => setPhotoStart(e.target.checked)}
+                    />
+                    Start à mi-parcours
+                  </label>
+                  <button
+                    disabled={photoBusy}
+                    title="Faire tourner le jeu et photographier sa mémoire : tuiles décompressées, vraies palettes, et la musique du moment"
+                    onClick={() => void takePhoto()}
+                  >
+                    {photoBusy ? "… Photo en cours" : "📸 Photographier"}
+                  </button>
+                </span>
+              )}
               {/* An SPC is 64 KB of sound RAM: there are no graphics in
                   it to switch to, so the switch itself is not shown. */}
-              {!spc && (
+              {(!spc || photo) && (
                 <span className="romrip-tabs">
                   <button
                     className={tab === "gfx" ? "sel" : ""}
@@ -460,9 +574,9 @@ export default function RomRipModal(p: Props) {
             sûr : un échantillon BRR se décrit lui-même.
           </div>
           )
-        ) : tab === "audio" || spc ? (
+        ) : tab === "audio" || (spc && !photo) ? (
           <RomAudioPanel
-            bytes={rom.bytes}
+            bytes={spc ? spc.aram : rom.bytes}
             spc={spc}
             stem={name || "rip"}
             onSend={p.onSendSound}
@@ -473,6 +587,39 @@ export default function RomRipModal(p: Props) {
           <div className="romrip-body">
             {/* ---- format ------------------------------------------- */}
             <div className="romrip-col">
+              {photo && (
+                <>
+                  <div className="panel-title">La photo</div>
+                  {photo.shot && <PhotoShot shot={photo.shot} />}
+                  <div className="row romrip-nav">
+                    <button
+                      title={`Tuiles de sprites à $${hex(photo.objBase, 4)}`}
+                      onClick={() => {
+                        setOffset(photo.objBase);
+                        setBpp("4bpp");
+                        setBlocks16(true);
+                      }}
+                    >
+                      🎭 Sprites
+                    </button>
+                    {photo.bgBase
+                      .map((b, i) => [b, i] as const)
+                      .filter(([b, i]) => photo.bgBase.indexOf(b) === i)
+                      .map(([b, i]) => (
+                        <button
+                          key={i}
+                          title={`Tuiles du fond ${i + 1} à $${hex(b, 4)}`}
+                          onClick={() => {
+                            setOffset(b);
+                            setBlocks16(false);
+                          }}
+                        >
+                          Fond {i + 1}
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
               <div className="panel-title">Format</div>
               <label className="hint">
                 Codage
@@ -625,6 +772,28 @@ export default function RomRipModal(p: Props) {
             {/* ---- palette + selection ------------------------------ */}
             <div className="romrip-col">
               <div className="panel-title">Palette</div>
+              {photo && (
+                <select
+                  value={photo.row}
+                  title="Les 16 palettes que le jeu utilisait à l'instant de la photo (CGRAM). 0-7 : les fonds, 8-15 : les sprites."
+                  onChange={(e) => {
+                    const r = +e.target.value;
+                    setPhoto({ ...photo, row: r });
+                    setPalette(
+                      r < 0
+                        ? photo.rows.flat()
+                        : [...photo.rows[r], ...greyPalette(256).slice(16)]
+                    );
+                  }}
+                >
+                  {photo.rows.map((_, r) => (
+                    <option key={r} value={r}>
+                      Palette {r} — {r < 8 ? "fonds" : "sprites"}
+                    </option>
+                  ))}
+                  <option value={-1}>CGRAM entière (256 couleurs)</option>
+                </select>
+              )}
               <div className="row romrip-nav">
                 <button onClick={() => setPalette(greyPalette(def.colors))}>Gris</button>
                 <button onClick={() => paletteFromRom(offset)} title="Lire la palette ici">
@@ -724,4 +893,18 @@ export default function RomRipModal(p: Props) {
       </div>
     </div>
   );
+}
+
+// The captured screen, small — its job is only to answer "did the photo
+// catch the right moment?" before any ripping starts.
+function PhotoShot({ shot }: { shot: { w: number; h: number; rgba: Uint8ClampedArray<ArrayBuffer> } }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    cv.width = shot.w;
+    cv.height = shot.h;
+    cv.getContext("2d")!.putImageData(new ImageData(shot.rgba, shot.w, shot.h), 0, 0);
+  }, [shot]);
+  return <canvas ref={ref} className="romrip-shot" />;
 }

@@ -1,9 +1,10 @@
 # One-click dumping: the ROM photo booth (X6)
 
-*Design doc, C0-style. The author opened Secret of Mana in the tile
-viewer, saw noise, and asked the right question: "comment faire pour que
-ce soit beaucoup plus simple pour un utilisateur de dumper les infos
-d'une ROM ?"*
+*Design doc, C0-style — since built; §5 records how the route changed
+on contact with the repo's own rules. The author opened Secret of Mana
+in the tile viewer, saw noise, and asked the right question: "comment
+faire pour que ce soit beaucoup plus simple pour un utilisateur de
+dumper les infos d'une ROM ?"*
 
 ## 1. The finding that motivates this
 
@@ -109,20 +110,31 @@ and the title music, on any game, including fully compressed ones.
   the photo booth proves insufficient, that is the upgrade path and
   the plumbing (harness → files → window) is identical.
 
-## 5. Cost, priced
+## 5. Cost, priced — and how the build route changed on contact
 
-| Piece | Where | Size |
+**Shipped**, with one deviation from the plan above, forced by the
+repo's own rules. The regress README promises a **stock core** ("get it
+from RetroArch") and deliberately does not vendor snes9x — its licence
+is non-commercial — so patching the core was off the table for anything
+shipped. The stock libretro API turns out to carry everything anyway:
+
+| Piece | Where | What it does |
 |---|---|---|
-| Core patch: `CGRAM_DUMP`, `OAM_DUMP`, `SPC_DUMP` env vars | our snes9x libretro build (`retro_unload_game` / end-of-run hook) | ~30 lines C++ |
-| Harness: arm the SPC dump, write the PNG thumbnail | `tools/regress/harness.c` | ~40 lines C |
-| Ship harness + core as a sidecar | `editor/tools/sidecars.mjs`, tauri.conf | config |
-| The 📸 form + temp-dir plumbing | `RomRipModal.tsx`, `build.ts` | ~150 lines TS |
-| CGRAM → palette rows in the Graphismes tab | `rom.ts` (`readCgram`), `RomRipModal.tsx` | ~60 lines TS |
-| OAM → "sprites à l'écran" jump | `rom.ts`, `RomRipModal.tsx` | ~50 lines TS |
+| `snesphoto` (Rust sidecar, libloading) | `tools/snesphoto/` | runs the ROM headless in the stock core, writes `photo.state` (retro_serialize) + `photo.ppm`. Rust rather than the C harness so it builds wherever cargo builds — Windows included. ~750x real time measured. |
+| `s9xstate.ts` (pure TS) | `editor/src/` | mines the savestate: VRA block → VRAM, PPU block → CGRAM + OAM + OBJ/BG bases (offsets from snes9x's SnapPPU × SPPU, versions 7-12), SND block → APU state → a standard `.spc`, its write-only cells ($F1, $FA-$FC, $FD-$FF) rebuilt from the SMP registers. |
+| The 📸 form, palettes, jumps, thumbnail | `RomRipModal.tsx`, `build.ts` | two controls, one button; the core found in `tools/regress/` or RetroArch's install dirs. |
 
-Total: a solid day, dominated by the UI half. No new dependency — the
-core and harness are already ours, already licensed (see
-`tools/regress/LICENSE-libretro`), already proven by the regression kit.
+The regression harness (`harness.c`) is untouched: it is the regression
+kit's tool, and stays C-and-cc as `regress.sh` expects.
+
+**A hardware bug this flushed out of `spc700.ts`**: $F4-$F7 are two
+registers each on the chip (write → OUT latch, read → IN latch). Our
+emulator conflated them; snesmod's main loop writes $80 to $F4 then
+polls $F4 for the S-CPU's answer, so a resumed photo of a snesmod game
+read back its own $80 and waited forever — pure silence, measured as
+0 note-ons against level 3777 on the real core. With the latches
+separated, the same snapshot resumes to 337 note-ons in 10 s, and the
+FF5 transcriptions are unchanged to the note (808/739).
 
 ## 6. Verification plan
 

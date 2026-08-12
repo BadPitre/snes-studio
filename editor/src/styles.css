@@ -778,3 +778,12 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 
 /* Jouer le morceau entier : l'action principale de la fenêtre. */
 .romrip-bigplay { font-weight: 700; padding: 6px 10px; }
+
+/* Le photomaton (X6) : les réglages dans l'en-tête, la vignette de
+   l'écran capturé dans la colonne de gauche. */
+.romrip-photo { align-items: center; gap: 6px; flex: 0 0 auto; }
+.romrip-photo select { width: auto; }
+.romrip-shot {
+  width: 100%; max-width: 210px; image-rendering: pixelated;
+  border: 1px solid var(--dark);
+}

@@ -130,6 +130,16 @@ export class Spc700 {
   private control = 0;
   private dspAddr = 0;
 
+  // $F4-$F7 are TWO registers each on the chip: a write goes to the OUT
+  // latch (towards the S-CPU), a read returns the IN latch (what the
+  // S-CPU last wrote). Conflating them deadlocks snesmod: its main loop
+  // writes $80 to $F4 then polls $F4 for the S-CPU's answer — reading
+  // back its own $80 means waiting forever, and a resumed photo of a
+  // snesmod game is pure silence. In an .spc there is no S-CPU, so the
+  // IN latches hold whatever the file froze — which is exactly what
+  // real hardware would keep returning.
+  private inPort = [0, 0, 0, 0];
+
   private voices: Voice[] = [];
   private dspTick = 0;
   private dspSamples = 0;
@@ -154,6 +164,7 @@ export class Spc700 {
     // image; the timers must resume from there or the tempo is wrong.
     this.control = this.ram[0xf1];
     for (let i = 0; i < 3; i++) this.tDiv[i] = this.ram[0xfa + i];
+    for (let i = 0; i < 4; i++) this.inPort[i] = this.ram[0xf4 + i];
     for (let v = 0; v < 8; v++)
       this.voices.push({
         active: false, brr: 0, brrPos: 0, loopAddr: 0, frac: 0,
@@ -191,6 +202,11 @@ export class Spc700 {
           return this.dspAddr;
         case 0xf3:
           return this.readDsp(this.dspAddr & 0x7f);
+        case 0xf4:
+        case 0xf5:
+        case 0xf6:
+        case 0xf7:
+          return this.inPort[addr - 0xf4];
         case 0xfd:
         case 0xfe:
         case 0xff: {
@@ -220,9 +236,19 @@ export class Spc700 {
               this.tOut[i] = 0;
               this.tTick[i] = 0;
             }
+          // bits 4/5: clear the IN latches of ports 0-1 / 2-3
+          if (v & 0x10) this.inPort[0] = this.inPort[1] = 0;
+          if (v & 0x20) this.inPort[2] = this.inPort[3] = 0;
           this.control = v;
           break;
         }
+        case 0xf4:
+        case 0xf5:
+        case 0xf6:
+        case 0xf7:
+          // OUT latch only: with no S-CPU there is nobody to read it,
+          // and it must NOT shadow the IN latch a later read returns.
+          return;
         case 0xf2:
           this.dspAddr = v;
           break;

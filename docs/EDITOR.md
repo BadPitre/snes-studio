@@ -656,6 +656,51 @@ The extraction is written as an INDEXED PNG (`encodeIndexedPng` in
 survives: `gfx.rs` reads raw indices, and a windowskin is refused
 outright when any index exceeds 3.
 
+### « 📸 Photographier » (X6) — the route for compressed games
+
+Most commercial carts compress their graphics, so the tile viewer shows
+noise where the art is. The photo goes around the compression instead
+of fighting it: **run the cart in an emulator and read its memory** —
+the game decompresses everything itself just by running.
+
+Two controls in the header once a ROM is open: how many seconds to run
+(default 15 — past the logos, onto the title, music playing) and an
+optional Start press at mid-run for titles that wait for it. Headless
+emulation runs at hundreds of times real time, so the wait is seconds.
+
+One click yields four things at once:
+
+- **VRAM** (64 KB) replaces the byte view — the tiles as the PPU drew
+  them, decompressed;
+- **CGRAM** fills the palette picker with the sixteen REAL palettes
+  (0-7 backgrounds, 8-15 sprites) — no more palette hunting;
+- **jump buttons** to the sprite tiles and each background's tiles,
+  read from the PPU registers of the moment;
+- **the sound chip as a `.spc`**, synthesized from the APU state — the
+  Sons tab opens it like any snapshot, verdict, listening and
+  transcription included.
+
+A thumbnail of the captured screen answers "did I photograph the right
+moment?" before any ripping starts.
+
+**How it works, and what it needs.** `snesphoto` (a sidecar, like
+datagen) runs the ROM in a **stock snes9x libretro core** and asks it to
+serialize; `s9xstate.ts` mines the savestate — VRA block for VRAM, PPU
+block for CGRAM/OAM/bases (field offsets computed from snes9x's own
+snapshot tables, versions 7-12), SND block for the APU, from which a
+standard 66048-byte `.spc` is written, with the write-only cells
+($F1, $FA-$FC) rebuilt from the SMP state. The core is NOT bundled
+(snes9x's licence is non-commercial): install it once via RetroArch's
+core manager, or drop `snes9x_libretro.so`/`.dll` in the checkout's
+`tools/regress/` — the editor looks in both places and says so when it
+finds neither.
+
+**The limit, stated plainly.** A photo reaches what a timer and one
+Start press can reach: title screens, attract modes, first screens.
+The boss of dungeon 3 still requires a human playing in a real
+emulator and exporting VRAM by hand — the window keeps accepting raw
+`.bin` dumps for exactly that.
+
 ### The audio panel (X3)
 
 Three columns, and the order is deliberate: what the song IS on the left
