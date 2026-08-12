@@ -286,7 +286,10 @@ export class Spc700 {
       if (vc && vc.active && this.vols.length < 60000) {
         const l = (this.dsp[voice * 16] << 24) >> 24;
         const rr = (this.dsp[voice * 16 + 1] << 24) >> 24;
-        const vol = Math.min(127, (Math.abs(l) + Math.abs(rr)) >> 1);
+        const vol = Math.min(
+          127,
+          Math.round((((Math.abs(l) + Math.abs(rr)) >> 1) * vc.env) / 2047)
+        );
         const last = this.lastVol[voice];
         if (Math.abs(vol - last) >= 4) {
           this.lastVol[voice] = vol;
@@ -297,6 +300,7 @@ export class Spc700 {
   }
 
   private lastVol = new Array(8).fill(0);
+  private lastVolT = new Array(8).fill(0);
 
   private keyOn(mask: number) {
     for (let i = 0; i < 8; i++) {
@@ -320,6 +324,7 @@ export class Spc700 {
       const r = (this.dsp[i * 16 + 1] << 24) >> 24;
       const vol = Math.min(127, (Math.abs(l) + Math.abs(r)) >> 1);
       this.lastVol[i] = vol;
+      this.lastVolT[i] = this.dspSamples;
       this.ons.push({
         t: this.dspSamples,
         voice: i,
@@ -377,6 +382,30 @@ export class Spc700 {
       }
       this.envStep(i, v);
       this.dsp[i * 16 + 8] = v.env >> 4; // ENVX
+      // The audible level is VxVOL scaled by the envelope. While the
+      // envelope FALLS under a held key (decay or sustain-fade), sample
+      // it as volume events: this is a crash cymbal's whole shape, and
+      // holding it flat then cutting reads as "someone keeps hitting the
+      // cymbal" instead of one strike ringing out. Attack and release
+      // are skipped — attack is near-instant, release is sub-row.
+      if (
+        (v.envState === 1 || v.envState === 2) &&
+        !v.dead &&
+        this.vols.length < 60000 &&
+        this.dspSamples - this.lastVolT[i] >= 800
+      ) {
+        const l = (this.dsp[i * 16] << 24) >> 24;
+        const rr = (this.dsp[i * 16 + 1] << 24) >> 24;
+        const eff = Math.min(
+          127,
+          Math.round((((Math.abs(l) + Math.abs(rr)) >> 1) * v.env) / 2047)
+        );
+        if (this.lastVol[i] - eff >= 5) {
+          this.lastVol[i] = eff;
+          this.lastVolT[i] = this.dspSamples;
+          this.vols.push({ t: this.dspSamples, voice: i, vol: eff });
+        }
+      }
       // -48 dB after having actually sounded, WHILE STILL KEYED ON
       // (decay or sustain — never release): that is percussion decaying
       // to nothing under a held key. A death during release is just the
