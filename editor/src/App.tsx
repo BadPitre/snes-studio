@@ -94,6 +94,7 @@ import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
 import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
+import SpriteExtractModal from "./components/SpriteExtractModal";
 import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
@@ -160,6 +161,8 @@ export default function App() {
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
+  // sprite-animé extraction from a PNG sheet (RM-extract)
+  const [spriteExtract, setSpriteExtract] = useState<ImageBitmap | null>(null);
   // resource manager (RM2003 style)
   const [showResources, setShowResources] = useState(false);
   // Aide > À propos menu
@@ -946,6 +949,19 @@ export default function App() {
         name: `${nm.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.png`,
         bytes,
       });
+  }
+
+  // RM-extract: pick the sheet, then the rectangle modal takes over —
+  // the strip it builds goes through the ordinary sprite-animé import.
+  async function vignetteExtractOpen() {
+    if (!data) return;
+    const file = await pickPngFile("Planche de sprites (PNG)");
+    if (!file) return;
+    try {
+      setSpriteExtract(await loadPngBitmap(file));
+    } catch (e) {
+      setStatus(`Planche illisible : ${e}`);
+    }
   }
 
   // An extraction from the ROM ripper (X2). The register categories go
@@ -1987,6 +2003,17 @@ export default function App() {
           }}
         />
       )}
+      {spriteExtract && data && (
+        <SpriteExtractModal
+          bmp={spriteExtract}
+          onOk={(name, bytes) => {
+            setSpriteExtract(null);
+            const ctx = resCtx();
+            if (ctx) void runImport(ctx, RESOURCES.vignette, { name, bytes });
+          }}
+          onClose={() => setSpriteExtract(null)}
+        />
+      )}
       {transPick && data && (
         <TransparencyPickModal
           bmp={transPick.bmp}
@@ -2001,6 +2028,7 @@ export default function App() {
         <ResourceManagerModal
           root={data.root}
           onVignetteFromCharset={(block, nm) => void vignetteFromCharset(block, nm)}
+          onVignetteExtract={() => void vignetteExtractOpen()}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}

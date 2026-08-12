@@ -49,6 +49,7 @@ interface Props {
   onImportCharset: () => void;
   // H4: builds a 12-frame vignette strip from a charset block.
   onVignetteFromCharset: (block: number, name: string) => void;
+  onVignetteExtract: () => void; // rectangle extraction from a PNG sheet (RM-extract)
   onImportChipset: () => void;
   onImportTilesetPng: () => void; // a free PNG grid (not an RM2003 chipset)
   onExportCharset: (b: number) => void;
@@ -442,6 +443,15 @@ export default function ResourceManagerModal(p: Props) {
                 }}
               >
                 Depuis un charset…
+              </button>
+            )}
+            {cat === "vignette" && (
+              <button
+                disabled={!p.canWrite}
+                title="Extraire les frames d'une planche PNG : couleur transparente à la pipette, puis un rectangle (32x32 max) par frame"
+                onClick={() => p.onVignetteExtract()}
+              >
+                Depuis une planche…
               </button>
             )}
             {cat === "chipset" && (
