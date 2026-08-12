@@ -186,15 +186,36 @@ void btlprim_target_tick(void)
    vignette discipline, with the target cursor's blink. */
 static void bp_oam(void)
 {
-  u8 h;
+  u8 h, bit, show;
   u8 *om;
 
+  bit = 1;
   for (h = 0; h < 4; h++)
   {
-    if (!((bp_shown >> h) & 1) || !((bp_have >> h) & 1) ||
-        (tg_on && tg_ally && h == tg_cur && (tg_blink & 8)))
+    /* Split into single tests on masks — the natural form,
+       !((bp_shown >> h) & 1) || !((bp_have >> h) & 1) || (tg...),
+       is MISCOMPILED by tcc-816 (a variable shift inside a chained
+       ||): it took the show branch with both masks at ZERO, parading
+       four garbage battlers at (0x55, 0x55) over every battle that
+       had pixels on chars 448+. Found when the H1 battler vignettes
+       first put pixels there; measured with counters in the branch
+       (112 shows, 0 hides, bp_shown == 0). Same family as the
+       "variable declared in a case" codegen bug the regression
+       caught in a dialogue frame. */
+    show = 0;
+    if (bp_shown & bit)
+      if (bp_have & bit)
+        show = 1;
+    if (show)
+      if (tg_on)
+        if (tg_ally)
+          if (h == tg_cur)
+            if (tg_blink & 8)
+              show = 0; /* ally-target blink hides its battler */
+    if (!show)
     {
       oamSetVisible(BP_OAM(h), OBJ_HIDE);
+      bit = (u8)(bit << 1);
       continue;
     }
     om = oamMemory + BP_OAM(h);
@@ -203,6 +224,7 @@ static void bp_oam(void)
     om[2] = (u8)(BP_CHAR(h) - 256); /* 9th char bit rides attr bit 0 */
     om[3] = (u8)(0x30 | (h << 1) | 1); /* prio 3, OBJ palette h */
     oamSetEx(BP_OAM(h), OBJ_LARGE, OBJ_SHOW);
+    bit = (u8)(bit << 1);
   }
 }
 

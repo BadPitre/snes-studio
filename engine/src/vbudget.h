@@ -39,15 +39,22 @@
    a small one per transfer, plus the throughput. */
 #define VBL_COST_BURST(n, bytes) ((u8)(2 + (n) + ((bytes) >> 7)))
 #define VBL_COST_MAPHALF(n) VBL_COST_BURST(n, (u16)(n) << 6)
-#define VBL_COST_VIG 15 /* MEASURED (A10): one cell, 4 calls + 512 B,
-                            costs 14.3 lines on average and 15 at the
-                            peak — the model said 12 and under-declared
-                            by a fifth. Measured on a project built for
-                            it (a looping animation, one frame per cell)
-                            since none in the repo animates a vignette;
-                            see PERF_MEASUREMENTS.md §4.
-                            Vignettes did not move to bursts — the slot
-                            that passes is chosen INSIDE the VBlank. */
+#define VBL_COST_VIG_ROW 4 /* ONE row of a vignette cell: 1 call +
+                            128 B. Derived from the A10 measurement of
+                            the whole cell (4 calls + 512 B = 14.3
+                            lines average, 15 peak — PERF_MEASUREMENTS
+                            §4): a quarter of it, rounded up. The cell
+                            stopped being the transfer atom on H1's
+                            battle screens: after the NMI, the stage
+                            registers and the battle UI, the window
+                            holds 6-11 real lines — a 15-line atom
+                            never fits and the slot starves (measured
+                            with the V counter: vig entered at line
+                            250 with 9 declared left, every frame).
+                            Rows fit; a cell completes over 1-4
+                            VBlanks. Vignettes still do not move to
+                            bursts — the row that passes is chosen
+                            INSIDE the VBlank. */
 #define VBL_COST_UI(rows) ((u8)(2 + ((rows) >> 1))) /* 1 call + rows*64 B */
 /* How many UI rows fit in `lines` lines — the inverse. */
 #define VBL_UI_ROWS(lines) ((u8)((lines) <= 2 ? 0 : ((lines) - 2) << 1))
@@ -66,6 +73,17 @@ u8 vbl_take(u8 lines);
 /* What is left, without reserving anything — for a consumer that SPLITS
    itself instead of giving up (the UI layer). */
 u8 vbl_left(void);
+
+/* The raw guard rail, for a consumer whose transfer is silently
+   DROPPED outside the window (VRAM, CGRAM): vbl_probe() latches the
+   current scan line into vbl_v (vbudgetfast.asm — free, unlike a C
+   read). Take from the budget FIRST (the ledger keeps the sharing
+   fair), then probe and refuse the transfer if the beam is past
+   VBL_LAST minus its cost: the ledger can drift optimistic, the beam
+   cannot (measured: it granted a cell at line 253 on battle frames —
+   vignette.c tells that story). */
+extern u16 vbl_v;
+void vbl_probe(void);
 
 /* 0 or 1: which of the two optional consumers goes first this frame. In
    a fixed chain the last one is the systematic sacrifice. */
