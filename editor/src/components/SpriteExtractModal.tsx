@@ -111,14 +111,23 @@ export default function SpriteExtractModal(props: Props) {
     dataRef.current = tctx.getImageData(0, 0, w, h);
   }, [props.bmp, w, h]);
 
-  // the sheet + transparency + rectangles
+  const [redraw, setRedraw] = useState(0);
+
+  // The sheet with its transparency, rendered ONCE per colour change
+  // into an offscreen 1:1 canvas (a putImageData, not a fillRect per
+  // pixel). The interactive redraw below only blits it. The first
+  // version repainted every pixel of the sheet on every mouse move of
+  // a drag — the lag made precise rectangles impossible (reported).
+  const baseRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
-    const cv = canvasRef.current;
     const dd = dataRef.current;
-    if (!cv || !dd) return;
-    const ctx = cv.getContext("2d")!;
-    ctx.imageSmoothingEnabled = false;
+    if (!dd) return;
+    const base = document.createElement("canvas");
+    base.width = w;
+    base.height = h;
+    const img = new ImageData(w, h);
     const s = dd.data;
+    const d = img.data;
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4;
@@ -127,17 +136,25 @@ export default function SpriteExtractModal(props: Props) {
           (trans !== null &&
             s[i] === trans[0] && s[i + 1] === trans[1] && s[i + 2] === trans[2]);
         if (transparent) {
-          if (scale <= 1) {
-            /* one pixel per cell: alternate the two greys by parity —
-               a 2 px checker here would overpaint opaque neighbours */
-            ctx.fillStyle = ((x ^ y) & 1) ? "#666" : "#9a9a9a";
-            ctx.fillRect(x, y, 1, 1);
-          } else checker(ctx, x * scale, y * scale, scale);
+          const g = ((x ^ y) & 1) ? 0x66 : 0x9a; /* pixel chequer */
+          d[i] = g; d[i + 1] = g; d[i + 2] = g; d[i + 3] = 255;
         } else {
-          ctx.fillStyle = `rgb(${s[i]},${s[i + 1]},${s[i + 2]})`;
-          ctx.fillRect(x * scale, y * scale, scale, scale);
+          d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; d[i + 3] = 255;
         }
       }
+    base.getContext("2d")!.putImageData(img, 0, 0);
+    baseRef.current = base;
+    setRedraw((k) => k + 1); /* the blit effect below re-runs */
+  }, [props.bmp, trans, w, h]);
+
+  // the blit + rectangles: cheap, runs on every drag step
+  useEffect(() => {
+    const cv = canvasRef.current;
+    const base = baseRef.current;
+    if (!cv || !base) return;
+    const ctx = cv.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(base, 0, 0, w * scale, h * scale);
     const drawRect = (r: ExtractRect, n: number, live: boolean) => {
       ctx.strokeStyle = live ? "#ffd24a" : "#7a5cff";
       ctx.lineWidth = 2;
@@ -152,7 +169,7 @@ export default function SpriteExtractModal(props: Props) {
     };
     rects.forEach((r, n) => drawRect(r, n, false));
     if (drag) drawRect(drag, rects.length, true);
-  }, [props.bmp, trans, rects, drag, scale, w, h]);
+  }, [redraw, rects, drag, scale, w, h]);
 
   // the resulting strip, live
   useEffect(() => {
@@ -210,7 +227,11 @@ export default function SpriteExtractModal(props: Props) {
 
   return (
     <div className="modal-backdrop transpick-top" onClick={props.onClose}>
-      <div className="modal transpick" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal transpick"
+        style={{ width: "min(96vw, 1180px)", maxWidth: "96vw", maxHeight: "94vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="panel-title">Extraire des sprites animés d'une planche</div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <button
@@ -244,7 +265,7 @@ export default function SpriteExtractModal(props: Props) {
           </span>
           {trans && <button onClick={() => setTrans(null)}>✕</button>}
         </div>
-        <div style={{ alignSelf: "center", maxWidth: "100%", maxHeight: 400, overflow: "auto" }}>
+        <div style={{ alignSelf: "center", maxWidth: "100%", maxHeight: "58vh", overflow: "auto" }}>
           <canvas
             ref={canvasRef}
             width={w * scale}
