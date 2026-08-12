@@ -41,10 +41,21 @@ export interface NoteOff {
   voice: number;
 }
 
+// The envelope reached silence while the note was still keyed on. This is
+// how percussion dies on the SNES: a cymbal is a LOOPING sample whose
+// ADSR sustain-rate fades it out — the loop never stops, the envelope
+// mutes it. A transcription that drops the envelope must write the
+// silence down explicitly, or the loop rings forever.
+export interface EnvDeath {
+  t: number;
+  voice: number;
+}
+
 export interface SpcTrace {
   ons: NoteOn[];
   offs: NoteOff[];
   vols: VolChange[];
+  deaths: EnvDeath[];
   samples: number; // length of the run, in DSP samples
   srcnUsed: Set<number>;
 }
@@ -96,6 +107,8 @@ interface Voice {
   env: number; // 0..2047
   envState: number; // 0 attack, 1 decay, 2 sustain, 3 release
   envCount: number;
+  peaked: boolean; // env rose past the noise floor at least once
+  dead: boolean; // death already logged for this note
 }
 
 export class Spc700 {
@@ -124,6 +137,7 @@ export class Spc700 {
   ons: NoteOn[] = [];
   offs: NoteOff[] = [];
   vols: VolChange[] = [];
+  deaths: EnvDeath[] = [];
 
   constructor(aram: Uint8Array, dsp: Uint8Array, regs: {
     pc: number; a: number; x: number; y: number; psw: number; sp: number;
@@ -143,7 +157,7 @@ export class Spc700 {
     for (let v = 0; v < 8; v++)
       this.voices.push({
         active: false, brr: 0, brrPos: 0, loopAddr: 0, frac: 0,
-        env: 0, envState: 3, envCount: 0,
+        env: 0, envState: 3, envCount: 0, peaked: false, dead: false,
       });
   }
 
@@ -299,6 +313,8 @@ export class Spc700 {
       v.env = 0;
       v.envState = 0;
       v.envCount = 0;
+      v.peaked = false;
+      v.dead = false;
       this.dsp[0x7c] &= ~(1 << i); // key-on clears this voice's ENDX
       const l = (this.dsp[i * 16] << 24) >> 24;
       const r = (this.dsp[i * 16 + 1] << 24) >> 24;
@@ -361,6 +377,16 @@ export class Spc700 {
       }
       this.envStep(i, v);
       this.dsp[i * 16 + 8] = v.env >> 4; // ENVX
+      // -48 dB after having actually sounded, WHILE STILL KEYED ON
+      // (decay or sustain — never release): that is percussion decaying
+      // to nothing under a held key. A death during release is just the
+      // normal end of every note and must not add a cut, or melodic
+      // tails get chopped 40 ms after each key-off.
+      if (v.env > 256) v.peaked = true;
+      else if (v.peaked && !v.dead && v.env <= 8 && (v.envState === 1 || v.envState === 2)) {
+        v.dead = true;
+        if (this.deaths.length < 20000) this.deaths.push({ t: this.dspSamples, voice: i });
+      }
     }
   }
 
@@ -996,6 +1022,6 @@ export class Spc700 {
     while (this.cycles < target && guard++ < 200_000_000) this.step();
     const srcnUsed = new Set<number>();
     for (const o of this.ons) srcnUsed.add(o.srcn);
-    return { ons: this.ons, offs: this.offs, vols: this.vols, samples: this.dspSamples, srcnUsed };
+    return { ons: this.ons, offs: this.offs, vols: this.vols, deaths: this.deaths, samples: this.dspSamples, srcnUsed };
   }
 }

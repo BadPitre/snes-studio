@@ -56,6 +56,7 @@ export interface TranscribeReport {
   downsampled: number; // 1 = untouched, 2 = halved, ...
   echoBytes: number; // ARAM the echo buffer will claim
   volCells: number; // mid-note volume nuances written
+  cuts: number; // notes silenced where the envelope died (percussion)
   warnings: string[];
 }
 
@@ -217,11 +218,40 @@ export function transcribe(
     if (gap > GAP_ROWS && !cells[r][off.voice]) cells[r][off.voice] = { note: 255 };
   }
 
+  // ---- percussion: silence where the envelope died ---------------------
+  // A looping cymbal is muted by its ADSR on the chip, not by a key-off.
+  // Without this, the loop rings at full volume for the rest of the song.
+  // A volume-0 cell reproduces the silence with zero format risk; the
+  // loop keeps spinning inaudibly, exactly as on hardware.
+  const lastOnBefore = (voice: number, t: number) => {
+    const arr = nextOnAt[voice];
+    let lo = -Infinity;
+    for (const x of arr) {
+      if (x >= t) break;
+      lo = x;
+    }
+    return lo;
+  };
+  const deathAfterOn = new Array(8).fill(-Infinity); // t of last applied death
+  let cuts = 0;
+  for (const d of trace.deaths) {
+    const r = Math.min(totalRows - 1, Math.round(d.t / rowSamples));
+    const cell = cells[r][d.voice];
+    if (cell && cell.note !== undefined) continue; // a real note owns the row
+    cells[r][d.voice] = { vol: 0 };
+    deathAfterOn[d.voice] = Math.max(deathAfterOn[d.voice], d.t);
+    cuts++;
+  }
+
   // ---- the nuances: volume rewritten mid-note --------------------------
   // Crescendos, swells and hand-made fades all arrive as VxVOL rewrites.
-  // Each becomes a volume-only cell; the note keeps ringing.
+  // Each becomes a volume-only cell; the note keeps ringing. A rewrite
+  // that lands AFTER the envelope already died must not resurrect the
+  // loop, so those are dropped.
   let volCells = 0;
   for (const vc of trace.vols) {
+    const on = lastOnBefore(vc.voice, vc.t);
+    if (deathAfterOn[vc.voice] > on && deathAfterOn[vc.voice] < vc.t) continue;
     const r = Math.min(totalRows - 1, Math.round(vc.t / rowSamples));
     if (cells[r][vc.voice]) continue; // a note or note-off wins the row
     cells[r][vc.voice] = { vol: Math.max(0, Math.min(64, Math.round((vc.vol * 64) / peak))) };
@@ -307,6 +337,7 @@ export function transcribe(
       downsampled: factor,
       echoBytes,
       volCells,
+      cuts,
       warnings,
     },
   };
