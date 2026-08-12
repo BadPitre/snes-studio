@@ -605,10 +605,12 @@ resource category already validated. Design doc:
 
 **Two doors into one window.** "Extraire d'une ROM…" opens on the cart
 and its tiles, with a Graphismes/Sons switch. "Extraire une musique…"
-asks for an `.spc` straight away and shows nothing but the audio panel —
-same component, but an SPC is 64 KB of *sound* RAM, so its graphics side
-is not hidden by policy, it simply does not exist. Both close with the ✕
-in the title bar.
+asks for the `.spc` **before the window exists** and opens straight on
+the audio panel — same component, but an SPC is 64 KB of *sound* RAM, so
+its graphics side is not hidden by policy, it simply does not exist.
+Both close with the ✕ in the title bar, and closing silences whatever
+was playing (the module player is a singleton shared with the resource
+manager, so nothing else would have stopped it).
 
 **Opening a file.** Any file, not just a `.sfc` — the ROM is a SOURCE and
 is never copied into the project. A copier header (512 bytes glued in
@@ -737,11 +739,16 @@ builds without a word, and plays absolute silence, because a pattern's
 instrument number resolves to nothing. Every module the engine plays is
 shaped that way; the transcription now matches them.
 
-**One verb for both exits.** "⬇ Envoyer l'instrument vers le projet" and
-"⬇ Envoyer le morceau vers le projet" — a sound and a song leaving by
-doors with different-sounding names is the kind of small confusion that
-costs an author ten minutes. Both go through `runImport`, so they inherit
-the resource manager's own validation.
+**One verb for both exits.** "⬇ Importer l'instrument" and "⬇ Importer la
+musique" — a sound and a song leaving by doors with different-sounding
+names is the kind of small confusion that costs an author ten minutes.
+Both go through `runImport`, so they inherit the resource manager's own
+validation.
+
+**Explanations are tooltips, not paragraphs.** The panel is read at a
+glance far more often than it is read for the first time, so the prose
+that used to sit under each control now hangs off it as a `title`. What
+is left on screen is data.
 
 What comes out is a PERFORMANCE, not a score: one long flat sequence,
 no pattern structure, no clean loop points, and a quantised tempo. It is

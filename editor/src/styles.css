@@ -735,9 +735,12 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 .romrip-tabs button { flex: 0 0 auto; padding: 2px 12px; }
 .romrip-tabs button.sel { font-weight: 700; box-shadow: var(--bev-in, inset 1px 1px 0 #000); }
 .romrip-audio { display: flex; gap: 10px; align-items: flex-start; }
+/* La liste prend les couleurs du THÈME, pas un blanc en dur : un fond
+   blanc avec le texte clair du thème sombre était illisible. */
 .romrip-samples {
   flex: 1 1 auto; overflow: auto; max-height: 60vh; min-height: 220px;
-  box-shadow: var(--bev-field); background: var(--field, #fff);
+  box-shadow: var(--bev-field);
+  background: var(--face-light); color: var(--text);
 }
 
 /* Le morceau se présente avant ses chiffres. */
@@ -761,12 +764,12 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
 .romrip-table th {
   position: sticky; top: 0; z-index: 1; text-align: left; padding: 5px 8px;
   font-weight: 700;
-  background: var(--panel, #c0c0c0); box-shadow: var(--bev-out);
+  background: var(--face); color: var(--text); box-shadow: var(--bev-field);
 }
 .romrip-table td { padding: 4px 8px; cursor: default; white-space: nowrap; }
-.romrip-table tbody tr { border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
-.romrip-table tbody tr:hover { background: var(--hover, #e8e8e8); }
-.romrip-table tbody tr.sel { background: var(--sel, #0a246a); color: #fff; }
+.romrip-table tbody tr { border-bottom: 1px solid var(--face-dark); }
+.romrip-table tbody tr:hover { background: var(--face-dark); }
+.romrip-table tbody tr.sel { background: var(--sel); color: var(--sel-text); }
 .romrip-table .mono { font-family: monospace; }
 .romrip-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 /* Le bouton d'écoute de chaque ligne : une colonne à lui, largeur fixe. */

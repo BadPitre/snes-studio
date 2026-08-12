@@ -87,10 +87,14 @@ export default function RomAudioPanel(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.spc]);
 
+  // Closing the window has to silence it. The module player is a
+  // singleton shared with the resource manager, so nothing else stops it
+  // when this panel goes away — it would keep playing over the editor.
   useEffect(
     () => () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       audioRef.current?.pause();
+      stopPreview();
     },
     []
   );
@@ -259,10 +263,10 @@ export default function RomAudioPanel(p: Props) {
   const built = pcm ? brrSizeAtBuild(pcm.length, rate) : 0;
   const tooBig = built > SFX_MAX_BRR;
 
-  const fact = (label: string, value: string) => (
+  const fact = (label: string, value: string, bad = false) => (
     <li key={label}>
       <span>{label}</span>
-      <b>{value}</b>
+      <b className={bad ? "romrip-why" : undefined}>{value}</b>
     </li>
   );
 
@@ -284,7 +288,8 @@ export default function RomAudioPanel(p: Props) {
               {aram && fact("Budget d'un module", `${aram.budget} o`)}
               {aram &&
                 fact("Occupation", `${Math.round((aram.total / aram.budget) * 100)} %`)}
-              {aram && fact("Tient dans un module", aram.fits ? "oui" : "non")}
+              {aram &&
+                fact("Tient dans un module", aram.fits ? "oui" : "non", !aram.fits)}
               {fact(
                 "Écho d'origine",
                 echo ? `EDL ${echo.edl} — ${echo.edl * 2048} o` : "aucun"
@@ -300,13 +305,6 @@ export default function RomAudioPanel(p: Props) {
                   }`
                 )}
             </ul>
-            {aram && (
-              <div className={`hint${aram.fits ? "" : " romrip-why"}`}>{aram.verdict}</div>
-            )}
-            <div className="hint">
-              Le répertoire peut lister des échantillons que ce morceau n'utilise pas :
-              le total est un majorant.
-            </div>
             {report?.warnings.map((w, i) => (
               <div key={i} className="hint romrip-why">
                 {w}
@@ -327,10 +325,6 @@ export default function RomAudioPanel(p: Props) {
               />
             </label>
             <button onClick={runScan}>🔍 Scanner les échantillons</button>
-            <div className="hint">
-              Un BRR se décrit lui-même : blocs de 9 octets, portée ≤ 12, un seul
-              drapeau de fin. Le scan affirme, il ne devine pas.
-            </div>
             {list && (
               <div className="hint">
                 {list.length} échantillon(s)
@@ -345,8 +339,7 @@ export default function RomAudioPanel(p: Props) {
       <div className="romrip-samples">
         {!list ? (
           <div className="hint" style={{ padding: 10 }}>
-            Ouvrir une ROM et lancer le scan, ou ouvrir un fichier .spc — un émulateur
-            en produit un d'une touche, et c'est la meilleure source pour l'audio.
+            Aucun échantillon : ouvrir un fichier, ou lancer le scan.
           </div>
         ) : list.length === 0 ? (
           <div className="hint" style={{ padding: 10 }}>Rien trouvé ici.</div>
@@ -405,6 +398,7 @@ export default function RomAudioPanel(p: Props) {
             <button
               className="romrip-bigplay"
               disabled={!list || !list.length}
+              title="On fait tourner le driver du jeu et on note ce qu'il demande aux huit voix. C'est une exécution, pas une partition : ni patterns ni boucles propres — à finir dans OpenMPT."
               onClick={playMusic}
             >
               {musicState === "playing"
@@ -415,11 +409,6 @@ export default function RomAudioPanel(p: Props) {
                     ? "▶ Reprendre"
                     : "▶ Jouer le morceau"}
             </button>
-            <div className="hint">
-              On fait tourner le driver du jeu et on note ce qu'il demande aux huit
-              voix. C'est une exécution, pas une partition : ni patterns, ni boucles
-              propres — à finir dans OpenMPT.
-            </div>
             <label className="hint">
               Durée capturée
               <select value={capture} onChange={(e) => setCapture(+e.target.value)}>
@@ -449,13 +438,19 @@ export default function RomAudioPanel(p: Props) {
                 p.onSendMusic(`${slug(p.spc!.title || p.stem, "rip")}.it`, b);
               }}
             >
-              ⬇ Envoyer le morceau vers le projet
+              ⬇ Importer la musique
             </button>
           </>
         )}
 
         <div className="panel-title">L'instrument sélectionné</div>
-        <label className="hint">
+        {/* The explanations that used to sit under each control are now
+            their tooltips: the panel is read at a glance far more often
+            than it is read for the first time. */}
+        <label
+          className="hint"
+          title="Le BRR ne porte pas de taux : la hauteur venait du registre de voix du driver. 32000 Hz est la convention — ajuster à l'oreille."
+        >
           Taux supposé
           <select value={rate} onChange={(e) => setRate(+e.target.value)}>
             {RATES.map((r) => (
@@ -465,63 +460,52 @@ export default function RomAudioPanel(p: Props) {
             ))}
           </select>
         </label>
-        <div className="hint">
-          Le BRR ne porte pas de taux : la hauteur venait du registre de voix du
-          driver. 32000 Hz est la convention — ajuster à l'oreille.
-        </div>
         {!p.spc && (
-          <>
-            <div className="row romrip-nav">
-              <button
-                disabled={!found || trim === 0}
-                title="Le scan cale la FIN exactement, le début à un bloc près"
-                onClick={() => setTrim((t) => Math.max(0, t - 1))}
-              >
-                ◀ bloc
-              </button>
-              <span className="hint">début +{trim}</span>
-              <button
-                disabled={!found || trim >= found.blocks - 1}
-                title="Retirer un bloc parasite en tête"
-                onClick={() => setTrim((t) => t + 1)}
-              >
-                bloc ▶
-              </button>
-            </div>
-            <div className="hint">
-              Un clic ou deux si l'attaque du son commence par un craquement : les
-              octets qui précèdent un échantillon passent souvent pour un en-tête.
-            </div>
-          </>
+          <div className="row romrip-nav">
+            <button
+              disabled={!found || trim === 0}
+              title="Le scan cale la FIN exactement, le début à un bloc près : un clic ou deux si l'attaque commence par un craquement"
+              onClick={() => setTrim((t) => Math.max(0, t - 1))}
+            >
+              ◀ bloc
+            </button>
+            <span className="hint">début +{trim}</span>
+            <button
+              disabled={!found || trim >= found.blocks - 1}
+              title="Retirer un bloc parasite en tête"
+              onClick={() => setTrim((t) => t + 1)}
+            >
+              bloc ▶
+            </button>
+          </div>
         )}
         {cur ? (
-          <div className="hint">
-            {pcm!.length} échantillons, {dur(seconds)}
-            <br />
-            au build : {built} o de BRR à 8 kHz
-          </div>
+          <ul className="romrip-facts">
+            {fact("Durée", dur(seconds))}
+            {fact(
+              "Au build",
+              `${built} o de BRR${tooBig ? ` / ${SFX_MAX_BRR} o max` : ""}`,
+              tooBig
+            )}
+          </ul>
         ) : (
           <div className="hint">Aucun échantillon sélectionné.</div>
-        )}
-        {tooBig && (
-          <div className="hint romrip-why">
-            Budget dépassé : {built} o pour {SFX_MAX_BRR} o max par son (~1,8 s à
-            8 kHz). Le build refusera — prendre un échantillon plus court.
-          </div>
-        )}
-        {cur && !tooBig && (
-          <div className="hint">
-            Le son sera rééchantillonné en 8 kHz au build : il sonnera plus terne que
-            dans le jeu d'origine.
-          </div>
         )}
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={cur ? `${p.stem}_${cur.offset.toString(16)}` : "nom du fichier"}
         />
-        <button disabled={!pcm || tooBig} onClick={send}>
-          ⬇ Envoyer l'instrument vers le projet
+        <button
+          disabled={!pcm || tooBig}
+          title={
+            tooBig
+              ? "Budget dépassé : le build refusera. Prendre un échantillon plus court."
+              : "Le son sera rééchantillonné en 8 kHz au build : plus terne que dans le jeu d'origine."
+          }
+          onClick={send}
+        >
+          ⬇ Importer l'instrument
         </button>
       </div>
     </div>

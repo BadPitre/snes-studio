@@ -108,6 +108,11 @@ interface Props {
   // entered by its audio side — the author picks an .spc and lands
   // straight in the extraction panel, with no graphics anywhere.
   mode?: "rom" | "music";
+  // A file already chosen before the window opened. "Extraire une
+  // musique" picks the .spc FIRST and only then shows anything: an empty
+  // shell with one button in it, in front of a file dialog, is a step
+  // that asks the author to acknowledge something they already decided.
+  initial?: { name: string; bytes: Uint8Array };
   root: string;
   // Project PNGs, to borrow a palette the project already uses.
   assetPngs: string[];
@@ -239,6 +244,31 @@ export default function RomRipModal(p: Props) {
   // An .spc is accepted alongside a ROM: it is not a cart, but its 64 KB
   // of ARAM is a byte range like any other — and the best audio source
   // there is, because the DSP registers point at a real sample directory.
+  function applyFile(base: string, bytes: Uint8Array) {
+    const snap = loadSpc(bytes);
+    if (music && !snap) {
+      p.setStatus(
+        `${base} n'est pas un instantané SPC : un émulateur en produit un avec « Save SPC », pendant que le morceau joue.`
+      );
+      return;
+    }
+    const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
+    setRom(r);
+    setSpc(snap);
+    setTab(snap ? "audio" : "gfx");
+    setOffset(0);
+    setCut(null);
+    setHits(null);
+    setName(base.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+    p.setStatus(
+      snap
+        ? `SPC ouvert : ${base} — 64 Ko d'ARAM${snap.game ? `, ${snap.game}` : ""}`
+        : `ROM ouverte : ${base} — ${(bytes.length / 1024) | 0} Ko${
+            r.header ? ", en-tête copieur de 512 o détecté" : ""
+          }`
+    );
+  }
+
   async function openRom() {
     const file = await pickFile(
       music
@@ -249,43 +279,18 @@ export default function RomRipModal(p: Props) {
     );
     if (!file) return;
     try {
-      const bytes = await readBinaryFile(file);
-      const base = file.split(/[\\/]/).pop() ?? "rom";
-      const snap = loadSpc(bytes);
-      if (music && !snap) {
-        p.setStatus(
-          `${base} n'est pas un instantané SPC : un émulateur en produit un avec « Save SPC », pendant que le morceau joue.`
-        );
-        return;
-      }
-      const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
-      setRom(r);
-      setSpc(snap);
-      setTab(snap ? "audio" : "gfx");
-      setOffset(0);
-      setCut(null);
-      setHits(null);
-      setName(base.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_"));
-      p.setStatus(
-        snap
-          ? `SPC ouvert : ${base} — 64 Ko d'ARAM${snap.game ? `, ${snap.game}` : ""}`
-          : `ROM ouverte : ${base} — ${(bytes.length / 1024) | 0} Ko${
-              r.header ? ", en-tête copieur de 512 o détecté" : ""
-            }`
-      );
+      applyFile(file.split(/[\\/]/).pop() ?? "rom", await readBinaryFile(file));
     } catch (e) {
       p.setStatus(`Ouverture : ${e}`);
     }
   }
 
-  // Entered by "Extraire une musique" the window has exactly one thing to
-  // ask for, so it asks straight away instead of showing an empty shell
-  // with a button in it.
-  const asked = useRef(false);
+  // The music door picked its file before this window existed.
+  const loaded = useRef(false);
   useEffect(() => {
-    if (!music || asked.current) return;
-    asked.current = true;
-    void openRom();
+    if (!p.initial || loaded.current) return;
+    loaded.current = true;
+    applyFile(p.initial.name, p.initial.bytes);
     // one shot on open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -444,13 +449,7 @@ export default function RomRipModal(p: Props) {
 
         {!rom ? (
           music ? (
-            <div className="hint romrip-empty">
-              Un instantané SPC est une photographie du processeur sonore pendant que
-              la musique joue : les 64 Ko de RAM audio, les registres du DSP, et le
-              driver du jeu prêt à repartir. Les sets complets existent pour la
-              plupart des jeux SNES ; sinon, tout émulateur en produit un avec
-              « Save SPC » pendant que le morceau tourne.
-            </div>
+            <div className="hint romrip-empty">Aucun instantané SPC ouvert.</div>
           ) : (
           <div className="hint romrip-empty">
             Un visualiseur de tuiles : on fait défiler l'offset jusqu'à voir apparaître
