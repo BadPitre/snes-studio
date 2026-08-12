@@ -325,10 +325,10 @@ export default function ScreensModal(props: Props) {
                         </select>
                       </label>
                       <div className="compo-imgs-head">
-                        <span className="palette-title" style={{ margin: 0 }}>Vignettes (sprites 32×32)</span>
+                        <span className="palette-title" style={{ margin: 0 }}>Sprites animés (32×32)</span>
                         <button
                           disabled={vigs.length >= 8 || (props.vigNames.length === 0 && props.animNames.length === 0)}
-                          title="Poser une vignette animée — le casting de l'écran (glisser ensuite à la souris)"
+                          title="Poser un sprite animé — le casting de l'écran (glisser ensuite à la souris)"
                           onClick={() => {
                             let slot = 1;
                             while (vigs.some((v) => v.slot === slot) && slot <= 8) slot++;
@@ -337,7 +337,7 @@ export default function ScreensModal(props: Props) {
                               vignettes: [
                                 ...vigs,
                                 {
-                                  name: `vignette${slot}`,
+                                  name: `sprite${slot}`,
                                   slot,
                                   vig: props.vigNames[0] ?? undefined,
                                   anim: props.vigNames.length ? undefined : props.animNames[0],
@@ -376,7 +376,7 @@ export default function ScreensModal(props: Props) {
                               />
                               <button
                                 className="danger"
-                                title="Retirer cette vignette"
+                                title="Retirer ce sprite animé"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   patch({ vignettes: vigs.filter((x) => x.slot !== v.slot) });
@@ -404,7 +404,7 @@ export default function ScreensModal(props: Props) {
                               }}
                             >
                               {props.vigNames.length > 0 && (
-                                <optgroup label="Vignettes">
+                                <optgroup label="Sprites animés">
                                   {props.vigNames.map((n) => (
                                     <option key={`v:${n}`} value={`v:${n}`}>{n}</option>
                                   ))}

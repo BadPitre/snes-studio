@@ -2045,7 +2045,7 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
               value={cmd.vig}
               onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
             >
-              <option value="">(choisir une vignette…)</option>
+              <option value="">(choisir un sprite animé…)</option>
               {x.p.vigNames.map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
@@ -2053,12 +2053,12 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
           ) : (
             <input
               type="number" min={0} max={255} value={cmd.vig_var}
-              title="Numéro de la vignette lu dans cette variable au moment de l'exécution"
+              title="Numéro du sprite animé lu dans cette variable au moment de l'exécution"
               onChange={(e) => onChange({ ...cmd, vig_var: Number(e.target.value) })}
             />
           )}
         </label>
-        <label className="checkline" title="Le NUMÉRO de la vignette est lu dans une variable — la même commande affiche n'importe quel personnage (H2a)">
+        <label className="checkline" title="Le NUMÉRO du sprite animé est lu dans une variable — la même commande affiche n'importe quel personnage (H2a)">
           <input
             type="checkbox"
             checked={cmd.vig_var !== undefined}

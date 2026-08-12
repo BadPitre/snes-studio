@@ -1555,7 +1555,7 @@ impl<'a> EventCompiler<'a> {
                     .position(|v| v == name)
                     .with_context(|| {
                         format!(
-                            "vig_show : vignette '{}' introuvable \
+                            "vig_show : sprite animé '{}' introuvable \
                              (supprimée ou renommée ?)",
                             name
                         )

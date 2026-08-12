@@ -141,11 +141,11 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
    },
    {
     "c": "rem",
-    "text": "combat_slimes, section Vignettes) : le heros y respire en boucle."
+    "text": "combat_slimes, section Sprites animes) : le heros y respire en boucle."
    },
    {
     "c": "rem",
-    "text": "2e equipier : ajouter sa vignette (emplacement 6) dans l'ecran."
+    "text": "2e equipier : ajouter son sprite animé (emplacement 6) dans l'ecran."
    },
    {
     "c": "switch",
@@ -1699,7 +1699,7 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
      },
      {
       "c": "rem",
-      "text": "Le recul : la vignette accelere le temps de l'impact"
+      "text": "Le recul : le sprite animé accelere le temps de l'impact"
      },
      {
       "c": "vig_play",

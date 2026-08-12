@@ -64,7 +64,7 @@ pub fn compile(
         }
         let vig = vig_names.iter().position(|v| v == &a.vignette).with_context(|| {
             format!(
-                "animation '{}' : vignette '{}' introuvable (vignettes du projet : {})",
+                "animation '{}' : sprite animé '{}' introuvable (sprites animés du projet : {})",
                 a.name,
                 a.vignette,
                 if vig_names.is_empty() {
@@ -85,7 +85,7 @@ pub fn compile(
         let nl = a.layers as usize;
         if !(1..=4).contains(&nl) {
             bail!(
-                "animation '{}' : {} calques (1 a 4 — au dela, plus de slot de vignette)",
+                "animation '{}' : {} calques (1 a 4 — au dela, plus de slot de sprite animé)",
                 a.name, a.layers
             );
         }
@@ -116,7 +116,7 @@ pub fn compile(
                 }
                 if c as usize >= cells {
                     bail!(
-                        "animation '{}', frame {}, calque {} : cellule {} hors de la vignette '{}' ({} cellule(s))",
+                        "animation '{}', frame {}, calque {} : cellule {} hors du sprite animé '{}' ({} cellule(s))",
                         a.name, i + 1, l + 1, c, a.vignette, cells
                     );
                 }

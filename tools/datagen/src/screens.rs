@@ -96,14 +96,14 @@ fn check_vignettes(def: &crate::project::ScreenDef, name: &str) -> Result<()> {
     let mut seen = HashSet::new();
     for v in &def.vignettes {
         if !(1..=8).contains(&v.slot) {
-            bail!("écran '{}' : vignette '{}' — slot 1-8", name, v.name);
+            bail!("écran '{}' : sprite animé '{}' — slot 1-8", name, v.name);
         }
         if !seen.insert(v.slot) {
-            bail!("écran '{}' : slot vignette {} en double", name, v.slot);
+            bail!("écran '{}' : slot de sprite animé {} en double", name, v.slot);
         }
         if v.vig.is_empty() == v.anim.is_empty() {
             bail!(
-                "écran '{}' : vignette '{}' — une vignette OU une animation",
+                "écran '{}' : sprite animé '{}' — une planche OU une animation",
                 name, v.name
             );
         }

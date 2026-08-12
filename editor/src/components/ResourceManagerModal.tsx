@@ -143,11 +143,11 @@ const CATS: CatDef[] = [
   {
     cat: "vignette",
     kind: "vignette",
-    label: "Vignette (Animations)",
+    label: "Sprite animé (32×32)",
     bullet: "▦",
     items: (p) => p.vignettes,
     deleteTitle: () =>
-      "Supprimer la vignette et son fichier (le build signale les « Afficher une vignette » orphelins)",
+      "Supprimer le sprite animé et son fichier (le build signale les « Afficher un sprite animé » orphelins)",
   },
   {
     cat: "mode7",
@@ -300,7 +300,7 @@ export default function ResourceManagerModal(p: Props) {
       }
     } else if (cat === "vignette" && bmp) {
       const n = bmp.width / 32;
-      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer la vignette »`, 8, 12);
+      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer le sprite animé »`, 8, 12);
       for (let i = 0; i < n; i++) {
         ctx.drawImage(bmp, i * 32, 0, 32, 32, 8 + i * 74, 22, 64, 64);
         ctx.fillText(String(i + 1), 34 + i * 74, 96);
@@ -426,7 +426,7 @@ export default function ResourceManagerModal(p: Props) {
             {cat === "vignette" && (
               <button
                 disabled={!p.canWrite || p.blockCount === 0}
-                title="Fabriquer une planche de vignette 32x32 à partir des 12 frames d'un personnage (4 directions x 3 pas) — un personnage de carte devient un battler en un clic"
+                title="Fabriquer une planche de sprite animé 32x32 à partir des 12 frames d'un personnage (4 directions x 3 pas) — un personnage de carte devient un battler en un clic"
                 onClick={() => {
                   const pick = prompt(
                     "Numéro du charset (1-" + p.blockCount + ") :\n" +
@@ -435,7 +435,7 @@ export default function ResourceManagerModal(p: Props) {
                   const b = pick === null ? NaN : Number(pick) - 1;
                   if (!Number.isInteger(b) || b < 0 || b >= p.blockCount) return;
                   const nm = prompt(
-                    "Nom de la vignette :",
+                    "Nom du sprite animé :",
                     (p.blockNames[b] || "battler").toLowerCase().replace(/[^a-z0-9_]/g, "_")
                   );
                   if (nm) p.onVignetteFromCharset(b, nm);
