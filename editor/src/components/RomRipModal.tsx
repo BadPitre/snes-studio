@@ -46,7 +46,7 @@ import {
   withHeader,
 } from "../rom";
 import { type Spc, loadSpc } from "../brr";
-import { cgramRows, decodePpm, parsePhoto } from "../s9xstate";
+import { cgramRows, decodePpm, loadStateFile, parsePhoto } from "../s9xstate";
 import { canBuild, findSnesCore, runPhoto } from "../build";
 import RomAudioPanel from "./RomAudioPanel";
 import { RESOURCES, type ResKind } from "../resources";
@@ -258,16 +258,66 @@ export default function RomRipModal(p: Props) {
   const move = (delta: number) =>
     setOffset((o) => Math.max(0, Math.min(maxOff, o + delta)));
 
-  // An .spc is accepted alongside a ROM: it is not a cart, but its 64 KB
-  // of ARAM is a byte range like any other — and the best audio source
-  // there is, because the DSP registers point at a real sample directory.
-  function applyFile(base: string, bytes: Uint8Array) {
+  // Applies a parsed s9xsnp state — the same landing whether it came
+  // from the 📸 button or from a savestate the author made while
+  // PLAYING (RetroArch F2, or desktop Snes9x): tiles, real palettes,
+  // jumps, and the sound chip of that exact moment.
+  function applyPhotoState(state: Uint8Array, base: string, shotBytes: Uint8Array | null) {
+    const ph = parsePhoto(state, `Photo — ${base}`, base);
+    const rows = cgramRows(ph.cgram);
+    setRom(loadRom(`${base} — photo`, ph.vram));
+    setSpc(loadSpc(ph.spc));
+    setPhoto({
+      rows,
+      row: 8, // the first sprite palette: the most wanted default
+      objBase: ph.objBase,
+      bgBase: ph.bgBase,
+      shot: shotBytes ? decodePpm(shotBytes) : null,
+    });
+    setPalette([...rows[8], ...greyPalette(256).slice(16)]);
+    setOffset(ph.objBase);
+    setBpp("4bpp");
+    setBlocks16(true);
+    setCut(null);
+    setHits(null);
+    setTab("gfx");
+    setName(base.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+  }
+
+  // An .spc is accepted alongside a ROM: its 64 KB of ARAM is a byte
+  // range like any other, with a real sample directory. A SAVESTATE is
+  // accepted too — RetroArch's or desktop Snes9x's — and lands as a
+  // full photo: it is the in-game capture the 📸 button cannot take,
+  // because the button plays without a human.
+  async function applyFile(base: string, bytes: Uint8Array): Promise<"rom" | "spc" | "state"> {
+    const state = await loadStateFile(bytes).catch(() => null);
+    if (state) {
+      if (music) {
+        // The music door wants only the song: synthesize the .spc and
+        // open it exactly like a picked .spc file.
+        const ph = parsePhoto(state, base.replace(/\.[^.]+$/, ""), "");
+        const snap = loadSpc(ph.spc);
+        if (!snap) throw new Error("état APU illisible dans cette savestate");
+        setRom(loadRom(base, snap.aram));
+        setSpc(snap);
+        setPhoto(null);
+        setTab("audio");
+        setName(base.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+        p.setStatus(`Savestate ouverte : ${base} — le son du moment sauvegardé`);
+        return "state";
+      }
+      applyPhotoState(state, base.replace(/\.[^.]+$/, ""), null);
+      p.setStatus(
+        `Savestate ouverte : ${base} — VRAM décompressée, les 16 palettes, et le son du moment dans l'onglet Sons.`
+      );
+      return "state";
+    }
     const snap = loadSpc(bytes);
     if (music && !snap) {
       p.setStatus(
-        `${base} n'est pas un instantané SPC : un émulateur en produit un avec « Save SPC », pendant que le morceau joue.`
+        `${base} n'est ni un instantané SPC ni une savestate. Un émulateur produit un .spc avec « Save SPC » ; RetroArch produit une savestate avec F2, pendant que le morceau joue.`
       );
-      return;
+      return "spc";
     }
     const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
     setRom(r);
@@ -285,20 +335,39 @@ export default function RomRipModal(p: Props) {
             r.header ? ", en-tête copieur de 512 o détecté" : ""
           }`
     );
+    return snap ? "spc" : "rom";
   }
+
+  // RetroArch numbers its slots by suffix (.state, .state1…) and
+  // desktop Snes9x by extension (.000-.008); list them so the picker
+  // shows the files, detection itself is by content.
+  const STATE_EXTS = [
+    "state",
+    ...Array.from({ length: 9 }, (_, i) => `state${i + 1}`),
+    "auto",
+    "oops",
+    ...Array.from({ length: 9 }, (_, i) => `00${i}`),
+  ];
 
   async function openRom() {
     const file = await pickFile(
       music
-        ? "Ouvrir un instantané SPC"
-        : "Ouvrir une ROM (SFC / SMC) ou un instantané SPC",
-      music ? "Instantané SPC" : "ROM SNES / SPC",
-      music ? ["spc"] : ["sfc", "smc", "fig", "swc", "spc", "bin", "rom"]
+        ? "Ouvrir un instantané SPC ou une savestate"
+        : "Ouvrir une ROM (SFC / SMC), un SPC ou une savestate",
+      music ? "SPC / savestate" : "ROM SNES / SPC / savestate",
+      music
+        ? ["spc", ...STATE_EXTS]
+        : ["sfc", "smc", "fig", "swc", "spc", "bin", "rom", ...STATE_EXTS]
     );
     if (!file) return;
     try {
-      applyFile(file.split(/[\\/]/).pop() ?? "rom", await readBinaryFile(file));
-      setRomPath(file);
+      const kind = await applyFile(
+        file.split(/[\\/]/).pop() ?? "rom",
+        await readBinaryFile(file)
+      );
+      // Only a real CART can be photographed — feeding the core a
+      // savestate or an .spc as if it were a ROM would just crash it.
+      setRomPath(kind === "rom" ? file : null);
     } catch (e) {
       p.setStatus(`Ouverture : ${e}`);
     }
@@ -337,25 +406,8 @@ export default function RomRipModal(p: Props) {
       }
       const base = rom.name.replace(/ — photo$/, "");
       const state = await readBinaryFile(r.state);
-      const ph = parsePhoto(state, `Photo — ${base}`, base);
       const shotBytes = await readBinaryFile(r.shot).catch(() => null);
-      const rows = cgramRows(ph.cgram);
-      setRom(loadRom(`${base} — photo`, ph.vram));
-      setSpc(loadSpc(ph.spc));
-      setPhoto({
-        rows,
-        row: 8, // the first sprite palette: the most wanted default
-        objBase: ph.objBase,
-        bgBase: ph.bgBase,
-        shot: shotBytes ? decodePpm(shotBytes) : null,
-      });
-      setPalette([...rows[8], ...greyPalette(256).slice(16)]);
-      setOffset(ph.objBase);
-      setBpp("4bpp");
-      setBlocks16(true);
-      setCut(null);
-      setHits(null);
-      setTab("gfx");
+      applyPhotoState(state, base, shotBytes);
       p.setStatus(
         `Photo prise à ${photoSecs} s : 64 Ko de VRAM décompressée, les 16 palettes, et le son du moment dans l'onglet Sons.`
       );
@@ -371,7 +423,9 @@ export default function RomRipModal(p: Props) {
   useEffect(() => {
     if (!p.initial || loaded.current) return;
     loaded.current = true;
-    applyFile(p.initial.name, p.initial.bytes);
+    void applyFile(p.initial.name, p.initial.bytes).catch((e) =>
+      p.setStatus(`Ouverture : ${e}`)
+    );
     // one shot on open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -698,11 +698,18 @@ core manager, or drop `snes9x_libretro.so`/`.dll` in the checkout's
 `tools/regress/` — the editor looks in both places and says so when it
 finds neither.
 
-**The limit, stated plainly.** A photo reaches what a timer and one
-Start press can reach: title screens, attract modes, first screens.
-The boss of dungeon 3 still requires a human playing in a real
-emulator and exporting VRAM by hand — the window keeps accepting raw
-`.bin` dumps for exactly that.
+**In-game moments: play, save a state, open it.** The 📸 button plays
+without a human, so it reaches title screens and attract modes. For
+the boss of dungeon 3, the author plays: in **RetroArch** (the same
+snes9x core), reach the moment and press **F2** — then open the
+`.state` file with the same « Ouvrir » button. It lands exactly like a
+photo: decompressed VRAM, the sixteen real palettes, the jumps, and
+the sound chip of that moment in the Sons tab. Desktop Snes9x
+savestates (`.000`-`.008`, gzip) are read too; RetroArch's RASTATE
+container and its RZIP compression are unwrapped transparently. The
+music door accepts the same files. bsnes and Mesen states stay
+refused — different, undocumented formats — and the window still
+accepts raw `.bin` dumps as the last resort.
 
 ### The audio panel (X3)
 

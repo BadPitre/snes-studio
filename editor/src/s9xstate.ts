@@ -157,6 +157,98 @@ function synthesizeSpc(snd: Uint8Array, title: string, game: string): Uint8Array
   return out;
 }
 
+// ---- savestates made by a HUMAN playing -----------------------------
+//
+// The photo button reaches what a timer and a Start press reach. For
+// everything else — the boss of dungeon 3 — the author plays the game
+// themselves and saves a state at the exact moment. Those files are
+// the SAME s9xsnp stream inside, wrapped differently per emulator:
+//
+//   RetroArch  .state    "RASTATE" container, MEM block = the stream,
+//                        the whole file optionally RZIP-compressed
+//                        (chunked zlib, "#RZIPv1#")
+//   Snes9x     .000-.008 the stream, gzip-compressed
+//
+// Unwrap recursively until the bare stream appears. bsnes and Mesen
+// stay refused: different emulators, different (undocumented) formats.
+
+// A cheap sniff for "could this file be a savestate?" — used by the
+// door that must refuse invalid files with a helpful message.
+export function looksLikeState(b: Uint8Array): boolean {
+  const s = (o: number, t: string) => {
+    for (let i = 0; i < t.length; i++) if (b[o + i] !== t.charCodeAt(i)) return false;
+    return true;
+  };
+  return (
+    (b[0] === 0x1f && b[1] === 0x8b) || // gzip
+    s(0, "#RZIPv") ||
+    s(0, "RASTATE") ||
+    s(0, "#!s9xsnp")
+  );
+}
+
+async function inflate(b: Uint8Array, format: "gzip" | "deflate"): Promise<Uint8Array> {
+  const ds = new DecompressionStream(format);
+  const out = await new Response(
+    new Blob([b.slice().buffer as ArrayBuffer]).stream().pipeThrough(ds)
+  ).arrayBuffer();
+  return new Uint8Array(out);
+}
+
+// Unwraps any of the containers above down to the raw s9xsnp stream,
+// or null when the bytes are not a savestate at all.
+export async function loadStateFile(bytes: Uint8Array): Promise<Uint8Array | null> {
+  const s = (o: number, t: string) => {
+    for (let i = 0; i < t.length; i++) if (bytes[o + i] !== t.charCodeAt(i)) return false;
+    return true;
+  };
+  // Snes9x desktop: one gzip stream around the whole state.
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) return loadStateFile(await inflate(bytes, "gzip"));
+  // RetroArch RZIP: 20-byte header, then u32-prefixed zlib chunks.
+  if (s(0, "#RZIPv") && bytes[7] === 35) {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const total = Number(dv.getBigUint64(12, true));
+    if (total <= 0 || total > 512 * 1024 * 1024) return null;
+    const parts: Uint8Array[] = [];
+    let o = 20;
+    let got = 0;
+    while (o + 4 <= bytes.length && got < total) {
+      const n = dv.getUint32(o, true);
+      o += 4;
+      if (n === 0 || o + n > bytes.length) return null;
+      const chunk = await inflate(bytes.subarray(o, o + n), "deflate");
+      parts.push(chunk);
+      got += chunk.length;
+      o += n;
+    }
+    const out = new Uint8Array(got);
+    let w = 0;
+    for (const p of parts) {
+      out.set(p, w);
+      w += p.length;
+    }
+    return loadStateFile(out);
+  }
+  // RetroArch container: "RASTATE" + version, blocks of 4-char marker +
+  // u32 LE size + payload padded to 8. MEM holds the core's stream.
+  if (s(0, "RASTATE")) {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let o = 8;
+    while (o + 8 <= bytes.length) {
+      const marker = String.fromCharCode(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
+      const len = dv.getUint32(o + 4, true);
+      o += 8;
+      if (marker === "END ") break;
+      if (o + len > bytes.length) return null;
+      if (marker === "MEM ") return loadStateFile(bytes.subarray(o, o + len));
+      o += (len + 7) & ~7;
+    }
+    return null;
+  }
+  if (s(0, "#!s9xsnp")) return bytes;
+  return null;
+}
+
 export function parsePhoto(state: Uint8Array, title: string, game: string): S9xPhoto {
   const { version, map } = blocks(state);
   const vra = map.get("VRA");

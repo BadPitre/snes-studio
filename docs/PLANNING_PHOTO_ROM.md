@@ -95,15 +95,16 @@ and the title music, on any game, including fully compressed ones.
 
 - The manual recipe (Mesen-S → Memory Tools → export VRAM/CGRAM →
   reopen the .bin, greyscale only) is replaced for the common case.
-- **Savestate-grade moments are NOT replaced.** A photo reaches what a
-  timer and a Start press can reach: title, attract, first screen. The
-  boss of dungeon 3 requires a human playing. For that, the window will
-  still accept raw `.bin`/`.spc` files from any emulator's tools — the
-  expert path stays open. Parsing desktop emulators' savestates
-  (Snes9x `.state`, Mesen `.mss`, bsnes `.bst`) was considered and
-  refused: three formats, all version-dependent, none documented as
-  stable — a maintenance treadmill for a corner the raw-dump path
-  already serves.
+- **Savestate-grade moments: since SHIPPED, by opening savestates.**
+  The original refusal ("three formats, version-dependent, a
+  maintenance treadmill") was written before the photo existed. The
+  photo changed the economics: the s9xsnp parser had to exist anyway,
+  and BOTH RetroArch states (RASTATE container, optional RZIP
+  compression) and desktop Snes9x states (gzip) are thin wrappers
+  around that same stream. The author plays to the moment, presses F2
+  (RetroArch) and opens the .state — a full in-game photo, palettes
+  and sound included. The refusal stands where it was right: bsnes
+  .bst and Mesen .mss are genuinely different formats and stay out.
 - **An embedded playable emulator** (play inside the editor, press 📸
   live) was considered and refused for now: it means audio/video/input
   plumbing through Tauri, weeks of work, for the same four files. If

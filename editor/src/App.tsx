@@ -44,6 +44,7 @@ import type { ResCtx, ResKind } from "./resources";
 import { RESOURCES, runDelete, runExport, runImport, runRename } from "./resources";
 import RomRipModal, { type RipTarget } from "./components/RomRipModal";
 import { loadSpc } from "./brr";
+import { looksLikeState } from "./s9xstate";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
 import type { DrawMode, Tool } from "./state";
 import {
@@ -897,14 +898,25 @@ export default function App() {
   // window has exactly one prerequisite, and an empty shell holding a
   // single button in front of the file dialog is a step for nothing.
   async function openMusicRip() {
-    const file = await pickFile("Ouvrir un instantané SPC", "Instantané SPC", ["spc"]);
+    const file = await pickFile(
+      "Ouvrir un instantané SPC ou une savestate",
+      "SPC / savestate",
+      [
+        "spc",
+        "state",
+        ...Array.from({ length: 9 }, (_, i) => `state${i + 1}`),
+        "auto",
+        "oops",
+        ...Array.from({ length: 9 }, (_, i) => `00${i}`),
+      ]
+    );
     if (!file) return;
     try {
       const bytes = await readBinaryFile(file);
       const name = file.split(/[\\/]/).pop() ?? "musique.spc";
-      if (!loadSpc(bytes)) {
+      if (!loadSpc(bytes) && !looksLikeState(bytes)) {
         setStatus(
-          `${name} n'est pas un instantané SPC : un émulateur en produit un avec « Save SPC », pendant que le morceau joue.`
+          `${name} n'est ni un instantané SPC ni une savestate. Un émulateur produit un .spc avec « Save SPC » ; RetroArch produit une savestate avec F2, pendant que le morceau joue.`
         );
         return;
       }
