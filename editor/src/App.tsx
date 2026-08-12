@@ -180,7 +180,9 @@ export default function App() {
   const [dbOpen, setDbOpen] = useState(false);
   const [tilesetsOpen, setTilesetsOpen] = useState(false); // Tilesets window (T1)
   const [animsOpen, setAnimsOpen] = useState(false); // Animations window (A1-c)
-  const [ripOpen, setRipOpen] = useState(false); // ROM ripper (X1/X2)
+  // ROM ripper (X1/X2/X5): "rom" opens on the tile viewer, "music" on the
+  // SPC picker and its extraction panel.
+  const [ripOpen, setRipOpen] = useState<null | "rom" | "music">(null);
   // Mode 7 preview (world maps): the flat map says nothing about the pitch
   const [m7Preview, setM7Preview] = useState(false);
   const [m7Sky, setM7Sky] = useState<ImageBitmap | null>(null);
@@ -1542,7 +1544,13 @@ export default function App() {
             {
               label: "Extraire d'une ROM…",
               tip: "Visualiseur de tuiles sur une ROM : repérer des graphismes bruts et les envoyer dans une catégorie de ressource du projet",
-              action: () => setRipOpen(true),
+              action: () => setRipOpen("rom"),
+              disabled: !data,
+            },
+            {
+              label: "Extraire une musique…",
+              tip: "Depuis un instantané SPC : les instruments du morceau, et sa transcription en module jouable par le moteur",
+              action: () => setRipOpen("music"),
               disabled: !data,
             },
           ],
@@ -1894,6 +1902,7 @@ export default function App() {
       )}
       {ripOpen && data && (
         <RomRipModal
+          mode={ripOpen}
           root={data.root}
           assetPngs={[
             ...projectPictures(data.project).map(picPath),
@@ -1913,7 +1922,7 @@ export default function App() {
             if (ctx) void runImport(ctx, RESOURCES.music, { name: fileName, bytes: itBytes });
           }}
           setStatus={setStatus}
-          onClose={() => setRipOpen(false)}
+          onClose={() => setRipOpen(null)}
         />
       )}
       {transPick && data && (

@@ -130,9 +130,10 @@ use the emulator's "Save SPC" command (snes9x, Mesen-S and bsnes all have
 it). An SPC is a snapshot of the sound chip mid-song, so dump it while
 the track is actually playing.
 
-**2. Open it in Tools -> Ressources -> Extraire d'une ROM.** The window
-sees it is an SPC and switches to the Sons tab by itself. Two things
-appear at once:
+**2. Open it in Tools -> Ressources -> Extraire une musique.** That door
+asks for an `.spc` and nothing else, and lands straight in the extraction
+panel ("Extraire d'une ROM" takes one too, and drops its graphics side
+when it sees one). Two things appear at once:
 
 - **the verdict**: the directory's BRR total against the bytes a
   module gets. Read it before doing anything else. "Ne tiendra pas" means

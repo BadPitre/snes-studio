@@ -597,11 +597,18 @@ Not yet: autotile animation (water), gfx editing.
   shown. The category is a `cat` field in texts.json — editor only,
   datagen ignores it (the text_ids follow the file's order).
 
-## Tools -> Ressources -> Extraire d'une ROM (X1/X2)
+## Tools -> Ressources -> Extraire (X1/X2/X5)
 
 A tile viewer over a byte range, whose selection lands in a project
 resource category already validated. Design doc:
 `docs/PLANNING_EXTRACTION_ROM.md`.
+
+**Two doors into one window.** "Extraire d'une ROM…" opens on the cart
+and its tiles, with a Graphismes/Sons switch. "Extraire une musique…"
+asks for an `.spc` straight away and shows nothing but the audio panel —
+same component, but an SPC is 64 KB of *sound* RAM, so its graphics side
+is not hidden by policy, it simply does not exist. Both close with the ✕
+in the title bar.
 
 **Opening a file.** Any file, not just a `.sfc` — the ROM is a SOURCE and
 is never copied into the project. A copier header (512 bytes glued in
@@ -647,7 +654,12 @@ The extraction is written as an INDEXED PNG (`encodeIndexedPng` in
 survives: `gfx.rs` reads raw indices, and a windowskin is refused
 outright when any index exceeds 3.
 
-### The "Sons" tab (X3)
+### The audio panel (X3)
+
+Three columns, and the order is deliberate: what the song IS on the left
+(its name and the game's, then the technical facts as a label/value
+list), the instruments in the middle with a **play button on every row**,
+and what one can DO with it on the right.
 
 This is the part of the ripper that works BEST, and structurally rather
 than by luck. A BRR sample describes itself — 9-byte blocks, a range
@@ -659,16 +671,17 @@ coefficients as datagen's `brr_predict` (`tools/datagen/src/sfx.rs`) —
 that encoder and this decoder are two directions of one format.
 
 **From a ROM: scan.** "Blocs minimum" is the only knob; 16 blocks is
-about 8 ms. Every hit is listed with its offset, length, duration and
-loop flag; double-clicking plays it.
+about 8 ms. Every hit is listed with its address, duration, size and loop
+flag; the ▶ on its row plays it and selects it in one gesture.
 
 **From an `.spc`: read.** An SPC is a snapshot of a *running* sound chip
 — 64 KB of ARAM plus the DSP registers — and register `$5D` holds the
 page of the SAMPLE DIRECTORY. From an SPC the tool does not scan at all:
 it reads the table, with exact boundaries, true loop points and the
 instrument numbers of one specific song. Any emulator dumps an SPC in one
-keypress, so this is the source to prefer. The file is accepted by the
-same "Ouvrir" button, and the window switches to the Sons tab by itself.
+keypress, so this is the source to prefer. It is what "Extraire une
+musique…" asks for, and the "Extraire d'une ROM…" door accepts it too —
+the same "Ouvrir" button takes it and the window drops its graphics side.
 
 **The rate is a guess, by construction.** BRR carries no sample rate:
 pitch came from the driver's per-voice register at play time. 32000 Hz
@@ -700,7 +713,13 @@ modules together are concatenated into a soundbank, and past 32 KB smconv
 splits it across banks — snesbuild handles that transparently now, but
 the ROM cost is real.
 
-**"Transcrire le morceau"** (X5-c/X5-d) turns an `.spc` into an `.it`.
+**"▶ Jouer le morceau"** (X5-c/X5-d) turns an `.spc` into an `.it` and
+plays it, transcribing on the first click and turning into "⏸ Pause"
+while it sounds — through the same libopenmpt worklet as the resource
+manager's preview, on the bytes in memory, with nothing written to disk
+(`toggleBytes` in `AudioPreview.tsx`). One preview at a time still holds:
+starting a sample stops the module, and the other way round.
+
 There is no sequence parser behind it and there could not be — every
 studio invented its own format. Instead `spc700.ts` EMULATES the sound
 CPU and lets the game's own driver play, watching what it writes to the
@@ -717,6 +736,12 @@ samples — not a style choice: a sample-mode module is accepted by smconv,
 builds without a word, and plays absolute silence, because a pattern's
 instrument number resolves to nothing. Every module the engine plays is
 shaped that way; the transcription now matches them.
+
+**One verb for both exits.** "⬇ Envoyer l'instrument vers le projet" and
+"⬇ Envoyer le morceau vers le projet" — a sound and a song leaving by
+doors with different-sounding names is the kind of small confusion that
+costs an author ten minutes. Both go through `runImport`, so they inherit
+the resource manager's own validation.
 
 What comes out is a PERFORMANCE, not a score: one long flat sequence,
 no pattern structure, no clean loop points, and a quantised tempo. It is

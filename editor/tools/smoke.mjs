@@ -39,6 +39,9 @@ const WINDOWS = [
   { path: ["Tools", "Interface", "Dialogues et choix…"], cls: "uitheme" },
   { path: ["Tools", "Données", "Database…"], cls: "database" },
   { path: ["Tools", "Données", "Textes…"], cls: "textsmodal" },
+  // Only the ROM door: "Extraire une musique…" opens the native file
+  // picker on mount, which a headless run has no way to answer.
+  { path: ["Tools", "Ressources", "Extraire d'une ROM…"], cls: "romrip" },
 ];
 
 mkdirSync(OUT, { recursive: true });

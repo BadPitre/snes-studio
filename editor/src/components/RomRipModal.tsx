@@ -1,5 +1,13 @@
-// Tools -> Extraire d'une ROM (X1/X2): a tile viewer over a byte range,
-// whose selection lands in a project resource category already validated.
+// Tools -> Ressources -> Extraire (X1/X2/X5): a tile viewer over a byte
+// range, whose selection lands in a project resource category already
+// validated — and, for an .spc, the audio panel that reads its samples
+// and transcribes its song.
+//
+// Two doors into one window. "Extraire d'une ROM" opens on the cart and
+// its tiles; "Extraire une musique" asks for an .spc straight away and
+// shows nothing but the extraction panel. Same component either way:
+// an SPC is 64 KB of sound RAM, so its graphics side is not hidden by
+// policy, it simply does not exist.
 //
 // The window owns the interaction only. Decoding lives in rom.ts (pure),
 // and what happens after "Envoyer vers" lives in resources.ts — the same
@@ -96,6 +104,10 @@ function refusal(t: TargetDef, w: number, h: number, colors: number): string | n
 }
 
 interface Props {
+  // "rom" opens the tile viewer on a cart; "music" is the same window
+  // entered by its audio side — the author picks an .spc and lands
+  // straight in the extraction panel, with no graphics anywhere.
+  mode?: "rom" | "music";
   root: string;
   // Project PNGs, to borrow a palette the project already uses.
   assetPngs: string[];
@@ -116,6 +128,7 @@ interface Props {
 const ZOOMS = [1, 2, 3, 4, 6, 8];
 
 export default function RomRipModal(p: Props) {
+  const music = p.mode === "music";
   const [rom, setRom] = useState<Rom | null>(null);
   const [spc, setSpc] = useState<Spc | null>(null);
   const [tab, setTab] = useState<Tab>("gfx");
@@ -228,15 +241,23 @@ export default function RomRipModal(p: Props) {
   // there is, because the DSP registers point at a real sample directory.
   async function openRom() {
     const file = await pickFile(
-      "Ouvrir une ROM (SFC / SMC) ou un instantané SPC",
-      "ROM SNES / SPC",
-      ["sfc", "smc", "fig", "swc", "spc", "bin", "rom"]
+      music
+        ? "Ouvrir un instantané SPC"
+        : "Ouvrir une ROM (SFC / SMC) ou un instantané SPC",
+      music ? "Instantané SPC" : "ROM SNES / SPC",
+      music ? ["spc"] : ["sfc", "smc", "fig", "swc", "spc", "bin", "rom"]
     );
     if (!file) return;
     try {
       const bytes = await readBinaryFile(file);
       const base = file.split(/[\\/]/).pop() ?? "rom";
       const snap = loadSpc(bytes);
+      if (music && !snap) {
+        p.setStatus(
+          `${base} n'est pas un instantané SPC : un émulateur en produit un avec « Save SPC », pendant que le morceau joue.`
+        );
+        return;
+      }
       const r = snap ? loadRom(base, snap.aram) : loadRom(base, bytes);
       setRom(r);
       setSpc(snap);
@@ -256,6 +277,18 @@ export default function RomRipModal(p: Props) {
       p.setStatus(`Ouverture : ${e}`);
     }
   }
+
+  // Entered by "Extraire une musique" the window has exactly one thing to
+  // ask for, so it asks straight away instead of showing an empty shell
+  // with a button in it.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!music || asked.current) return;
+    asked.current = true;
+    void openRom();
+    // one shot on open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- palette -------------------------------------------------------
 
@@ -349,10 +382,19 @@ export default function RomRipModal(p: Props) {
   return (
     <div className="modal-backdrop" onClick={p.onClose}>
       <div className="modal romrip" onClick={(e) => e.stopPropagation()}>
-        <div className="panel-title">Extraire d'une ROM</div>
+        <div className="row romrip-title">
+          <div className="panel-title">
+            {music ? "Extraire une musique" : "Extraire d'une ROM"}
+          </div>
+          <button className="modal-x" title="Fermer" onClick={p.onClose}>
+            ✕
+          </button>
+        </div>
 
         <div className="row romrip-head">
-          <button onClick={() => void openRom()}>📂 Ouvrir une ROM…</button>
+          <button onClick={() => void openRom()}>
+            {music ? "📂 Ouvrir un .spc…" : "📂 Ouvrir une ROM…"}
+          </button>
           {rom ? (
             <>
               <span className="hint">
@@ -373,20 +415,24 @@ export default function RomRipModal(p: Props) {
                   </span>
                 </>
               )}
-              <span className="romrip-tabs">
-                <button
-                  className={tab === "gfx" ? "sel" : ""}
-                  onClick={() => setTab("gfx")}
-                >
-                  Graphismes
-                </button>
-                <button
-                  className={tab === "audio" ? "sel" : ""}
-                  onClick={() => setTab("audio")}
-                >
-                  Sons
-                </button>
-              </span>
+              {/* An SPC is 64 KB of sound RAM: there are no graphics in
+                  it to switch to, so the switch itself is not shown. */}
+              {!spc && (
+                <span className="romrip-tabs">
+                  <button
+                    className={tab === "gfx" ? "sel" : ""}
+                    onClick={() => setTab("gfx")}
+                  >
+                    Graphismes
+                  </button>
+                  <button
+                    className={tab === "audio" ? "sel" : ""}
+                    onClick={() => setTab("audio")}
+                  >
+                    Sons
+                  </button>
+                </span>
+              )}
             </>
           ) : (
             <span className="hint">
@@ -397,6 +443,15 @@ export default function RomRipModal(p: Props) {
         </div>
 
         {!rom ? (
+          music ? (
+            <div className="hint romrip-empty">
+              Un instantané SPC est une photographie du processeur sonore pendant que
+              la musique joue : les 64 Ko de RAM audio, les registres du DSP, et le
+              driver du jeu prêt à repartir. Les sets complets existent pour la
+              plupart des jeux SNES ; sinon, tout émulateur en produit un avec
+              « Save SPC » pendant que le morceau tourne.
+            </div>
+          ) : (
           <div className="hint romrip-empty">
             Un visualiseur de tuiles : on fait défiler l'offset jusqu'à voir apparaître
             des pixels, on corrige le format, on donne une palette, puis on sélectionne
@@ -405,7 +460,8 @@ export default function RomRipModal(p: Props) {
             de 1990-92 et les homebrews. Les sons, eux, se trouvent presque à coup
             sûr : un échantillon BRR se décrit lui-même.
           </div>
-        ) : tab === "audio" ? (
+          )
+        ) : tab === "audio" || spc ? (
           <RomAudioPanel
             bytes={rom.bytes}
             spc={spc}
@@ -666,10 +722,6 @@ export default function RomRipModal(p: Props) {
             </div>
           </div>
         )}
-
-        <div className="row">
-          <button onClick={p.onClose}>Fermer</button>
-        </div>
       </div>
     </div>
   );
