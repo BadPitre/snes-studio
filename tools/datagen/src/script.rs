@@ -275,9 +275,11 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "STAGECLOSE" => 3,
         // SLOTFX <slot 0-4> <fx 0-3> <dur> — palette effect on a slot
         "SLOTFX" => 4,
-        // VIGSHOW <slot 0-1> <vig> <x> <y> <anchor> — vignette
-        "VIGSHOW" => 6,
-        // VIGPLAY <slot 0-1> <mode 0-2> <speed> — animate it
+        // VIGSHOW <slot 0-7> <vig> <x> <y> <anchor> <flags> — vignette.
+        // flags (H2a, the pictures' pattern): bit0 = vig is a variable
+        // index, bit1 = x AND y are variable indices.
+        "VIGSHOW" => 7,
+        // VIGPLAY <slot 0-7> <mode 0-2> <speed> — animate it
         "VIGPLAY" => 4,
         // VIGHIDE <slot 0-1> — hide the vignette
         "VIGHIDE" => 2,
@@ -931,9 +933,14 @@ pub fn assemble(
             }
             // VIGSHOW/VIGPLAY/VIGHIDE — animated vignettes
             "VIGSHOW" => {
-                if argc != 5 { bail!("VIGSHOW <slot> <vig> <x> <y> <anchor>"); }
+                // flags (H2a): bit0 = vig from a variable, bit1 = x and
+                // y from variables. Optional for hand-written scripts.
+                if argc != 5 && argc != 6 {
+                    bail!("VIGSHOW <slot> <vig> <x> <y> <anchor> [flags]");
+                }
                 code.push(OP_VIGSHOW);
                 for t in args { code.push(parse_u8(t)?); }
+                if argc == 5 { code.push(0); }
             }
             "VIGPLAY" => {
                 if argc != 3 { bail!("VIGPLAY <slot> <mode> <speed>"); }

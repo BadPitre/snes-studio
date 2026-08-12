@@ -386,7 +386,7 @@ export type Command =
   // M7-B4 — an ANIMATED turn: the engine walks the steps itself, the
   // short way round. The step count buys resolution, this buys motion.
   | { c: "m7_turn"; step: number; frames: number; wait: boolean }
-  | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
+  | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero"; vig_var?: number; x_var?: number; y_var?: number }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
   // A1 — frame-by-frame animations. anchor "event" + event = -1 for
@@ -394,7 +394,7 @@ export type Command =
   // looping animation, which never ends).
   // x/y (V2): where a SCREEN-anchored animation lands (default 112,96,
   // the screen centre) — the combat library aims skills at their target.
-  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number }
+  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number; anim_var?: number; x_var?: number; y_var?: number }
   // G2 — there is no "Lancer un combat" command: a battle is a COMPOSED
   // SCREEN ("Aller à l'écran"), whose script names its monsters and
   // calls the project's library. The aftermath stays an AUTO page

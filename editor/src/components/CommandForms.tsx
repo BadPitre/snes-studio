@@ -2028,26 +2028,49 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
     <>
       <div className="row">
         <label>
-          Slot (1-2)
+          Slot (1-8)
           <select
             value={cmd.slot}
             onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
           >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
           </select>
         </label>
         <label>
           Vignette (bande de frames 32x32)
-          <select
-            value={cmd.vig}
-            onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
-          >
-            <option value="">(choisir une vignette…)</option>
-            {x.p.vigNames.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+          {cmd.vig_var === undefined ? (
+            <select
+              value={cmd.vig}
+              onChange={(e) => onChange({ ...cmd, vig: e.target.value })}
+            >
+              <option value="">(choisir une vignette…)</option>
+              {x.p.vigNames.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="number" min={0} max={255} value={cmd.vig_var}
+              title="Numéro de la vignette lu dans cette variable au moment de l'exécution"
+              onChange={(e) => onChange({ ...cmd, vig_var: Number(e.target.value) })}
+            />
+          )}
+        </label>
+        <label className="checkline" title="Le NUMÉRO de la vignette est lu dans une variable — la même commande affiche n'importe quel personnage (H2a)">
+          <input
+            type="checkbox"
+            checked={cmd.vig_var !== undefined}
+            onChange={(e) =>
+              onChange(
+                e.target.checked
+                  ? { ...cmd, vig_var: 0 }
+                  : (({ vig_var, ...rest }) => rest)(cmd) as typeof cmd
+              )
+            }
+          />
+          ⛓ par variable
         </label>
         <label>
           Ancrage
@@ -2084,9 +2107,11 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
         Petite image en SPRITE (32x32), affichée frame 1 — les
         personnages restent visibles (contrairement aux pictures).
         « Sur le héros » : la vignette le suit (émoticône « ! » :
-        X -8, Y -32). 2 vignettes à l'écran max. Marche sur la map
-        ET sur l'écran composé (animations d'attaque par-dessus
-        les monstres). Persiste entre les scènes.
+        X -8, Y -32). 8 vignettes à l'écran ; planches DISTINCTES :
+        2 en scène, 7 sur écran composé. Slots 5-8 : réservés à
+        l'écran composé (en scène ils rognent la météo, et btl_pose
+        partage leur VRAM — un seul système de battlers par combat).
+        Persiste entre les scènes.
       </span>
     </>
   );
@@ -2101,13 +2126,14 @@ export function formVigPlay(cmd: Extract<Command, { c: "vig_play" }>, x: FormCtx
     <>
       <div className="row">
         <label>
-          Slot (1-2)
+          Slot (1-8)
           <select
             value={cmd.slot}
             onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
           >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -2257,13 +2283,14 @@ export function formVigHide(cmd: Extract<Command, { c: "vig_hide" }>, x: FormCtx
   body = (
     <>
       <label>
-        Slot à cacher (1-2)
+        Slot à cacher (1-8)
         <select
           value={cmd.slot}
           onChange={(e) => onChange({ ...cmd, slot: Number(e.target.value) })}
         >
-          <option value={1}>1</option>
-          <option value={2}>2</option>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
         </select>
       </label>
     </>

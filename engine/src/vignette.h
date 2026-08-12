@@ -4,17 +4,25 @@
  * sparkles, and the ATTACK ANIMATIONS over the monsters of a composed
  * screen.
  *
- * 4 simultaneous slots (chars 384-447, OAM entries 96-99). Only the
- * CURRENT frame lives in VRAM: a frame change is 512 bytes of DMA. One
- * vignette is ONE 32x32 OAM entry (OBJ_LARGE).
+ * 8 simultaneous slots (H1). Slots 0-3: chars 384-447, OAM 96-99.
+ * Slots 4-7: chars 448-511, OAM 50-53 — free everywhere in OAM terms
+ * (actors end at 49), but their CHARS are shared ground, documented
+ * like the other collisions: in a SCENE, the weather's drops live at
+ * 484+ (rain or snow corrupts slots 4-7); on a COMPOSED SCREEN,
+ * btl_pose (V1) draws its static battlers there — a battle poses its
+ * party with vignettes OR btl_pose, never both at once. Only the
+ * CURRENT frame lives in VRAM: a frame change is 512 bytes of DMA.
+ * One vignette is ONE 32x32 OAM entry (OBJ_LARGE).
  *
- * OBJ palettes are the SCARCE resource: scene character sets take 0-4
- * and the weather takes 7, leaving TWO (5 and 6). They are therefore
- * allocated PER SHEET and not per slot: several slots showing the SAME
- * vignette share one palette. That is what makes animation layers free
- * in palette terms — the simultaneous cells of an animation all come
- * from its sheet. The accepted limit: 2 DISTINCT sheets on screen at
- * once; beyond that vig_show is ignored and anim_play refuses to start.
+ * OBJ palettes are the SCARCE resource — in a SCENE: character sets
+ * take 0-4 and the weather takes 7, leaving TWO (5 and 6). On a
+ * COMPOSED SCREEN only the popup digits' palette (4, btlprim.c) is
+ * spoken for, so SEVEN are in the pool. Palettes are allocated PER
+ * SHEET and not per slot: several slots showing the SAME vignette
+ * share one. That is what makes animation layers free in palette
+ * terms. The limit that remains: 2 DISTINCT sheets at once in a
+ * scene (7 on a composed screen); beyond it vig_show is ignored and
+ * anim_play refuses.
  *
  * Anchoring: the screen (fixed), the hero (follows the player, for
  * emotes), or an ACTOR (follows an event — how animations anchor).
@@ -32,8 +40,10 @@
 
 #include <snes.h>
 
-#define VIG_SLOTS 4
-#define VIG_PALS 2 /* OBJ palettes available (5 and 6) — see above */
+#define VIG_SLOTS 8
+#define VIG_PALS 8 /* OBJ palette TABLE size; the allowed POOL depends on
+                      context — 5-6 in a scene, all 8 on a composed
+                      screen (see pal_allowed in vignette.c) */
 
 #define VIG_ANC_SCREEN 0
 #define VIG_ANC_HERO 1

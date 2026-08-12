@@ -20,6 +20,7 @@
  */
 #include <snes.h>
 #include "vignette.h"
+#include "stage.h"
 #include "vbudget.h"
 #include "player.h"
 #include "actors.h"
@@ -32,8 +33,11 @@ extern const u8 vig_frames[];
 extern const u8 *const vig_chars[];
 extern const u16 *const vig_pals[];
 
-#define VIG_OAM(s) ((u16)(96 + (s)) << 2)
-#define VIG_CHAR(s) (384 + (s) * 4) /* the slot's 32x32 block */
+/* Slots 0-3: OAM 96-99, chars 384+. Slots 4-7 (H1): OAM 50-53 (free —
+   actors end at 49), chars 448+ (the weather's live at 484+ in scenes:
+   documented collision, vignette.h). */
+#define VIG_OAM(s) ((u16)((s) < 4 ? 96 + (s) : 50 + ((s) - 4)) << 2)
+#define VIG_CHAR(s) ((s) < 4 ? 384 + (s) * 4 : 448 + ((s) - 4) * 4)
 
 static u8 v_id[VIG_SLOTS]; /* 0xFF = empty slot */
 static u8 v_frame[VIG_SLOTS];
@@ -47,26 +51,44 @@ static u8 v_act[VIG_SLOTS];   /* actor followed (VIG_ANC_ACTOR) */
 static u8 v_own[VIG_SLOTS];   /* 1 = driven by the animation player */
 static u8 v_pi[VIG_SLOTS];    /* palette in use (0/1), 0xFF = none */
 static u8 v_off[VIG_SLOTS];   /* 1 = sprite hidden, slot still reserved */
-static u8 pal_vig[VIG_PALS];  /* vignette loaded in palette 5+p */
+static u8 pal_vig[VIG_PALS];  /* vignette loaded in OBJ palette p */
 static u8 pal_rc[VIG_PALS];   /* slots using it */
 static u8 v_dirty = 0;        /* bitmask: frame to transfer */
 static u8 v_pal = 0;          /* bitmask (per PALETTE): CGRAM to load */
 static u8 v_init = 0;         /* statics seeded (explicit tcc init) */
 
+/* Which OBJ palettes this context may touch. In a scene, character
+   sets hold 0-4 and the weather 7: only 5 and 6 are ours. On a
+   composed screen the sprites are hidden and the weather stopped, so
+   almost the whole set is in the pool — palette 4 excepted, it
+   belongs to the popup digits (btlprim.c), and a battle that cannot
+   pop its damage numbers is not a battle. That is what lets seven
+   DIFFERENT sheets stand in a fight. One documented exclusivity
+   remains: btl_pose (V1) draws its static battlers on the SAME chars
+   as slots 4-7 and on palettes 0-3 — a battle uses vignettes OR
+   btl_pose for its party, never both. */
+static u8 pal_allowed(u8 p)
+{
+  if (stage_active())
+    return p != 4;
+  return p == 5 || p == 6;
+}
+
 /* Reserves a palette for this sheet: the one already holding it, or an
-   unused one. 0xFF if both are taken by other sheets. */
+   allowed unused one. 0xFF when the pool is exhausted. p IS the OBJ
+   palette index (CGRAM 128 + p*16). */
 static u8 pal_acquire(u8 vig_id)
 {
   u8 p;
 
   for (p = 0; p < VIG_PALS; p++)
-    if (pal_rc[p] && pal_vig[p] == vig_id)
+    if (pal_rc[p] && pal_vig[p] == vig_id && pal_allowed(p))
     {
       pal_rc[p]++;
       return p;
     }
   for (p = 0; p < VIG_PALS; p++)
-    if (!pal_rc[p])
+    if (!pal_rc[p] && pal_allowed(p))
     {
       pal_vig[p] = vig_id;
       pal_rc[p] = 1;
@@ -116,7 +138,7 @@ u8 vig_pal_available(u8 vig_id)
 
   vig_init_once();
   for (p = 0; p < VIG_PALS; p++)
-    if (!pal_rc[p] || pal_vig[p] == vig_id)
+    if (pal_allowed(p) && (!pal_rc[p] || pal_vig[p] == vig_id))
       return 1;
   return 0;
 }
@@ -305,9 +327,9 @@ void vig_update(void)
     om[0] = sx;
     om[1] = sy;
     om[2] = (u8)(VIG_CHAR(s) - 256); /* chars 384+: 9th bit lives in attr */
-    /* the SHEET's palette (5 or 6), not the slot's: two layers of the
-       same animation share theirs */
-    om[3] = 0x30 | ((u8)(5 + v_pi[s]) << 1) | 1;
+    /* the SHEET's palette, not the slot's: two layers of the same
+       animation share theirs. v_pi IS the OBJ palette index. */
+    om[3] = 0x30 | ((u8)v_pi[s] << 1) | 1;
     oamSetEx(VIG_OAM(s), OBJ_LARGE, OBJ_SHOW); /* 32x32 + visible —
         reasserted every frame (a composed screen hides the whole OAM) */
   }
@@ -350,9 +372,9 @@ void vig_vblank(void)
       if (!vbl_take(2)) /* 1 call, 30 bytes */
         return;
       if (pal_rc[s])
-        /* OBJ palette 5+s (CGRAM 128 + (5+s)*16), colours 1-15 */
+        /* OBJ palette s (CGRAM 128 + s*16), colours 1-15 */
         dmaCopyCGram((u8 *)vig_pals[pal_vig[s]] + 2,
-                     (u16)(128 + ((u16)(5 + s) << 4) + 1), 30);
+                     (u16)(128 + ((u16)s << 4) + 1), 30);
       v_pal &= (u8)~(1 << s);
       return;
     }

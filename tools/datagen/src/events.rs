@@ -1506,33 +1506,59 @@ impl<'a> EventCompiler<'a> {
         Ok(())
     }
 
-    // Animated vignettes (32x32 sprites, 2 slots)
+    // Animated vignettes (32x32 sprites, 8 slots — H1)
     fn cmd_vig_show(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let slot = cmd["slot"]
             .as_u64()
-            .filter(|&v| (1..=2).contains(&v))
-            .with_context(|| "vig_show : slot 1-2".to_string())?;
-        let name = cmd["vig"].as_str().unwrap_or("");
-        let id = self
-            .vignettes
-            .iter()
-            .position(|v| v == name)
-            .with_context(|| {
-                format!(
-                    "vig_show : vignette '{}' introuvable \
-                     (supprimée ou renommée ?)",
-                    name
-                )
-            })?;
+            .filter(|&v| (1..=8).contains(&v))
+            .with_context(|| "vig_show : slot 1-8".to_string())?;
+        // The vignette from the list, OR a number read in a variable —
+        // the pictures' pattern (H2a): the engine learns indirection,
+        // never what the number means.
+        let mut flags: u8 = 0;
+        let id = match cmd["vig_var"].as_u64() {
+            Some(v) => {
+                if v > 255 {
+                    bail!("vig_show : vig_var = 0-255");
+                }
+                flags |= 1;
+                v as usize
+            }
+            None => {
+                let name = cmd["vig"].as_str().unwrap_or("");
+                self.vignettes
+                    .iter()
+                    .position(|v| v == name)
+                    .with_context(|| {
+                        format!(
+                            "vig_show : vignette '{}' introuvable \
+                             (supprimée ou renommée ?)",
+                            name
+                        )
+                    })?
+            }
+        };
         let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
             "hero" => 1u8,
             _ => 0,
         };
-        let x = cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
-        let y = cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0);
+        let (x, y) = match (cmd["x_var"].as_u64(), cmd["y_var"].as_u64()) {
+            (Some(xv), Some(yv)) => {
+                if xv > 255 || yv > 255 {
+                    bail!("vig_show : x_var/y_var = 0-255");
+                }
+                flags |= 2;
+                (xv as i64, yv as i64)
+            }
+            (None, None) => (
+                cmd["x"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0),
+                cmd["y"].as_i64().filter(|&v| (-128..=255).contains(&v)).unwrap_or(0),
+            ),
+            _ => bail!("vig_show : x_var et y_var vont ensemble"),
+        };
         out.push(format!(
-            "  VIGSHOW {} {} {} {} {}",
-            slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor
+            "  VIGSHOW {} {} {} {} {} {}",
+            slot - 1, id, (x as u8) as u8, (y as u8) as u8, anchor, flags
         ));
         Ok(())
     }
@@ -1540,8 +1566,8 @@ impl<'a> EventCompiler<'a> {
     fn cmd_vig_play(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let slot = cmd["slot"]
             .as_u64()
-            .filter(|&v| (1..=2).contains(&v))
-            .with_context(|| "vig_play : slot 1-2".to_string())?;
+            .filter(|&v| (1..=8).contains(&v))
+            .with_context(|| "vig_play : slot 1-8".to_string())?;
         let mode = match cmd["mode"].as_str().unwrap_or("loop") {
             "once" => 1u8,
             "stop" => 0,
@@ -1554,18 +1580,31 @@ impl<'a> EventCompiler<'a> {
 
     // Frame-by-frame animations; the cell sheet is a vignette
     fn cmd_anim_play(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
-        let name = cmd["anim"].as_str().unwrap_or("");
-        let id = self
-            .animations
-            .iter()
-            .position(|a| a == name)
-            .with_context(|| {
-                format!(
-                    "anim_play : animation '{}' introuvable \
-                     (supprimée ou renommée ?)",
-                    name
-                )
-            })?;
+        // The animation from the list, OR a number read in a variable
+        // (H2a) — same pattern as pictures and vignettes.
+        let mut vflags: u8 = 0;
+        let id = match cmd["anim_var"].as_u64() {
+            Some(v) => {
+                if v > 255 {
+                    bail!("anim_play : anim_var = 0-255");
+                }
+                vflags |= 2;
+                v as usize
+            }
+            None => {
+                let name = cmd["anim"].as_str().unwrap_or("");
+                self.animations
+                    .iter()
+                    .position(|a| a == name)
+                    .with_context(|| {
+                        format!(
+                            "anim_play : animation '{}' introuvable \
+                             (supprimée ou renommée ?)",
+                            name
+                        )
+                    })?
+            }
+        };
         // anchor: the screen (offsets around its centre), the
         // hero, or an event of the scene
         let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {
@@ -1582,13 +1621,29 @@ impl<'a> EventCompiler<'a> {
         } else {
             "0".to_string()
         };
-        let wait = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
+        let wait: u8 = if cmd["wait"].as_bool().unwrap_or(false) { 1 } else { 0 };
         // screen aim (V2): where a screen-anchored animation lands —
         // the composed-screen centre by default, a target's pixel when
         // the script says so (the library aims skills at monsters).
-        let x = cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112);
-        let y = cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96);
-        out.push(format!("  ANIMPLAY {} {} {} {} {} {}", id, anchor, target, wait, x, y));
+        // x_var/y_var (H2a): both coordinates read from variables.
+        let (x, y) = match (cmd["x_var"].as_u64(), cmd["y_var"].as_u64()) {
+            (Some(xv), Some(yv)) => {
+                if xv > 255 || yv > 255 {
+                    bail!("anim_play : x_var/y_var = 0-255");
+                }
+                vflags |= 4;
+                (xv, yv)
+            }
+            (None, None) => (
+                cmd["x"].as_u64().filter(|&v| v <= 255).unwrap_or(112),
+                cmd["y"].as_u64().filter(|&v| v <= 216).unwrap_or(96),
+            ),
+            _ => bail!("anim_play : x_var et y_var vont ensemble"),
+        };
+        out.push(format!(
+            "  ANIMPLAY {} {} {} {} {} {}",
+            id, anchor, target, wait | vflags, x, y
+        ));
         Ok(())
     }
 
@@ -1600,8 +1655,8 @@ impl<'a> EventCompiler<'a> {
     fn cmd_vig_hide(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         let slot = cmd["slot"]
             .as_u64()
-            .filter(|&v| (1..=2).contains(&v))
-            .with_context(|| "vig_hide : slot 1-2".to_string())?;
+            .filter(|&v| (1..=8).contains(&v))
+            .with_context(|| "vig_hide : slot 1-8".to_string())?;
         out.push(format!("  VIGHIDE {}", slot - 1));
         Ok(())
     }
