@@ -84,6 +84,14 @@ static u8 pr_id, pr_frame, pr_row; /* state the row was computed for */
 /* 1 << s, as data: tcc-816 compiles a variable shift into a loop —
    too slow for the paths that run inside the VBlank window. */
 static const u8 vig_bit[VIG_SLOTS] = { 1, 2, 4, 8, 16, 32, 64, 128 };
+
+/* Owned by the MAIN LOOP (main.c): 1 while the frame is in its pure
+   logic stretch or parked in WaitForVBlank — the regions that never
+   touch a DMA channel — 0 through the VBlank tail and the deferred
+   apply/warp/load block. vig_nmi only fires when this is 1: a DMA
+   started from the ISR in the middle of another dmaCopy's register
+   setup would corrupt both transfers. */
+u8 vig_fire_ok = 0;
 static u8 v_pal = 0;          /* bitmask (per PALETTE): CGRAM to load */
 static u8 v_init = 0;         /* statics seeded (explicit tcc init) */
 
@@ -422,6 +430,49 @@ void vig_update(void)
    loaded screen coalesces steps instead of corrupting. v_row
    remembers the next row so a cell interrupted mid-way resumes where
    it stopped — and restarts at 0 whenever a NEW cell is queued. */
+
+/* Fired from the VBlank ISR — main.c installs this with nmiSet. At
+   interrupt time the beam sits at the top of the window (~line 227,
+   after the ISR's own OAM transfer), no matter how late the frame's
+   logic runs — and that lateness is precisely what starved the tail
+   path: during an ATB charge the battle's parallel scripts end the
+   frame around line 250, vbl_open anchors on fumes, and the party
+   stood invisible until the first gauge filled (measured, twice).
+   From here the whole remaining cell (up to 4 rows, ~14 lines) always
+   fits: no budget, no probe, a bounded ISR cost instead.
+
+   Integrity rules, since the ISR can interrupt the main loop anywhere:
+   - the row is used only if vig_fire_ok says the main loop is in a
+     DMA-free stretch (see the flag's comment);
+   - pr_slot is the publication gate: vig_update writes it LAST when
+     preparing and vig_nmi consumes it, so a half-written prep is
+     never fired;
+   - the pr_id/pr_frame/pr_row compares drop a row whose slot moved
+     on (new show, animation step) between the prep and this NMI. */
+void vig_nmi(void)
+{
+  u8 s;
+
+  s = pr_slot;
+  if (s == 0xFF)
+    return;
+  if (!vig_fire_ok)
+    return; /* tail or loader running: their DMAs own the channel */
+  pr_slot = 0xFF; /* consumed either way: vig_update re-preps */
+  if (pr_id != v_id[s] || pr_frame != v_frame[s] || pr_row != v_row[s])
+    return;
+  if (!(v_dirty & vig_bit[s]))
+    return;
+  while (v_row[s] < 4)
+  {
+    dmaCopyVram((u8 *)pr_src, pr_base, 128);
+    pr_src += 128;
+    pr_base += 256; /* next name-grid row: 16 chars of 16 words */
+    v_row[s]++;
+  }
+  v_row[s] = 0;
+  v_dirty &= (u8)~vig_bit[s];
+}
 
 void vig_vblank(void)
 {

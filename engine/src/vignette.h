@@ -100,4 +100,11 @@ void vig_update(void);
 /* VRAM/CGRAM transfers of the frames marked dirty — VBlank. */
 void vig_vblank(void);
 
+/* The VBlank ISR fire of the prepared cell (main.c: nmiSet(vig_nmi)).
+   vig_fire_ok is OWNED by the main loop: 1 only through the frame's
+   DMA-free stretch (logic + parked in WaitForVBlank) — see the
+   comments in vignette.c and the flag writes in main.c. */
+void vig_nmi(void);
+extern u8 vig_fire_ok;
+
 #endif /* VIGNETTE_H */

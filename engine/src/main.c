@@ -240,6 +240,13 @@ int main(void)
      changes nothing for every ordinary scene. */
   m7_world_open(scene_ctx.scene_id, 0);
 
+  /* The vignette cell fires from the VBlank ISR: at interrupt time the
+     beam is at the top of the window no matter how late this loop runs
+     its tail — the only spot a loaded battle frame cannot starve
+     (vignette.c, vig_nmi). vig_fire_ok below marks the DMA-free
+     stretches where the ISR may take the channel. */
+  nmiSet(vig_nmi);
+
   while (1)
   {
     if (vm_active())
@@ -321,6 +328,11 @@ int main(void)
               (u8)((player.y + 8) >> 4), 1, 0);
     }
 
+    /* From here to WaitForVBlank the frame touches no DMA channel
+       (transfers are all deferred to the tail; the apply/warp/load
+       block above is over): the vignette ISR may fire. */
+    vig_fire_ok = 1;
+
     actors_update(); /* routes (even during a script — cutscenes) +
                         NPC wandering (frozen during scripts) */
     timer_tick();    /* the timer runs during dialogues too */
@@ -370,6 +382,7 @@ int main(void)
     audio_process(); /* music stream -> SPC */
 
     WaitForVBlank();
+    vig_fire_ok = 0; /* the tail's own DMAs begin */
 
     /* VRAM transfers + scroll registers: during the VBlank only. Picture
        showing (S3): BG1 carries the image, a 32x32 map scrolled to 0 —
@@ -407,8 +420,15 @@ int main(void)
       stage_vblank();    /* fixed scrolls + spread-out laying transfers */
       hdmafx_suspend();  /* wave/gradient/spotlight: map ambience */
       vbl_open();        /* stage_vblank is not counted either */
-      ui_screen_vblank();
+      /* Vignettes BEFORE the UI layer on a stage. A battle's gauges
+         redraw the UI every frame of an ATB charge; served last, the
+         vignette's 4-line row found the beam past its guard on nearly
+         every one of those frames and the party stood invisible until
+         the first gauge filled (measured, H-bugfix). The UI splits
+         itself and resumes — a text row landing one frame later is
+         invisible; a battler that never lands is not. */
       vig_vblank();      /* vignette frames (B5) */
+      ui_screen_vblank();
       btlprim_vblank();  /* battler cells + digits (V1), under the budget */
     }
     else
