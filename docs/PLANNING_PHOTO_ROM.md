@@ -121,7 +121,7 @@ shipped. The stock libretro API turns out to carry everything anyway:
 | Piece | Where | What it does |
 |---|---|---|
 | `snesphoto` (Rust sidecar, libloading) | `tools/snesphoto/` | runs the ROM headless in the stock core, writes `photo.state` (retro_serialize) + `photo.ppm`. Rust rather than the C harness so it builds wherever cargo builds — Windows included. ~750x real time measured. |
-| `s9xstate.ts` (pure TS) | `editor/src/` | mines the savestate: VRA block → VRAM, PPU block → CGRAM + OAM + OBJ/BG bases (offsets from snes9x's SnapPPU × SPPU, versions 7-12), SND block → APU state → a standard `.spc`, its write-only cells ($F1, $FA-$FC, $FD-$FF) rebuilt from the SMP registers. |
+| `s9xstate.ts` (pure TS) | `editor/src/` | mines the savestate: VRA block → VRAM, PPU block → CGRAM + OAM + OBJ/BG bases (offsets from snes9x's SnapPPU × SPPU; the layout is keyed on the PPU block's LENGTH, not the version — the libretro fork bumps versions for MSU-1 fields in a block we skip, and a version test wrongly refused its nightlies at v14), SND block → APU state → a standard `.spc`, its write-only cells ($F1, $FA-$FC, $FD-$FF) rebuilt from the SMP registers. |
 | The 📸 form, palettes, jumps, thumbnail | `RomRipModal.tsx`, `build.ts` | two controls, one button; the core found in `tools/regress/` or RetroArch's install dirs. |
 
 The regression harness (`harness.c`) is untouched: it is the regression

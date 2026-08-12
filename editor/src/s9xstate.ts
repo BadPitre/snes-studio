@@ -9,10 +9,11 @@
 //
 // The container is snes9x's own: "#!s9xsnp:VVVV\n", then blocks of
 // "NAM:%06d:" + payload. Struct blocks are packed big-endian in the
-// order of snes9x's field tables, filtered by version — so the offsets
-// below are not guesses, they are SnapPPU (snapshot.cpp) multiplied by
-// the field sizes of struct SPPU (ppu.h), for versions 7 through 12.
-// A version outside that range refuses loudly rather than misreading.
+// order of snes9x's field tables — so the offsets below are not
+// guesses, they are SnapPPU (snapshot.cpp) multiplied by the field
+// sizes of struct SPPU (ppu.h). Whether a given savestate matches that
+// layout is decided by the PPU block's LENGTH, not its version number:
+// see ppuLayout for why.
 //
 // The sound block is blargg's APU state: ARAM at 0, the SMP registers
 // as int32 LE from 65536, the 128 DSP registers right behind — enough
@@ -64,10 +65,26 @@ function blocks(b: Uint8Array): { version: number; map: Map<string, Block> } {
 }
 
 // Byte offsets inside the serialized PPU block. Field order and sizes
-// come from SnapPPU x struct SPPU; the only version-dependent field
-// before the ones we read is CGSavedByte (v11+), hence the single +1.
-function ppuLayout(version: number) {
-  const cgdata = 63 + (version >= 11 ? 1 : 0);
+// come from SnapPPU x struct SPPU; the only variable field before the
+// ones we read is CGSavedByte (v11+), hence the single +1.
+//
+// The layout is keyed on the BLOCK LENGTH, not the version number. The
+// libretro fork bumps the version for things that never touch the PPU
+// block (13 and 14 are both MSU-1 fields, in a block we skip), so a
+// version test refuses cores that are perfectly readable — the author
+// hit exactly that with a buildbot nightly at version 14. The block
+// length moves precisely when a PPU field is added or removed, which
+// is precisely when these offsets stop being true. 2652 bytes is the
+// v11+ layout, 2649 the pre-CGSavedByte/VRAMReadBuffer one.
+const PPU_LEN_V11 = 2652;
+const PPU_LEN_OLD = 2649;
+
+function ppuLayout(blockLen: number, version: number) {
+  if (blockLen !== PPU_LEN_V11 && blockLen !== PPU_LEN_OLD)
+    throw new Error(
+      `bloc PPU de ${blockLen} octets (savestate version ${version}) : disposition inconnue de ce lecteur — un champ PPU a bougé chez snes9x`
+    );
+  const cgdata = 63 + (blockLen === PPU_LEN_V11 ? 1 : 0);
   const obj = cgdata + 512; // CGDATA: 256 x uint16
   const objNameBase = obj + 128 * 11 + 3; // 128 sprites, then 3 window bools
   const oamData = objNameBase + 2 + 2 + 1 + 11; // bases, sizes, OAM addressing
@@ -142,10 +159,6 @@ function synthesizeSpc(snd: Uint8Array, title: string, game: string): Uint8Array
 
 export function parsePhoto(state: Uint8Array, title: string, game: string): S9xPhoto {
   const { version, map } = blocks(state);
-  if (version < 7 || version > 12)
-    throw new Error(
-      `savestate snes9x version ${version} : ce lecteur connaît les versions 7 à 12`
-    );
   const vra = map.get("VRA");
   const ppu = map.get("PPU");
   const snd = map.get("SND");
@@ -153,7 +166,7 @@ export function parsePhoto(state: Uint8Array, title: string, game: string): S9xP
   if (!ppu) throw new Error("bloc PPU absent");
   if (!snd || snd.len < DSP_REGS + 128) throw new Error("bloc SND absent ou tronqué");
 
-  const L = ppuLayout(version);
+  const L = ppuLayout(ppu.len, version);
   const p = state.subarray(ppu.off, ppu.off + ppu.len);
   const be16 = (o: number) => (p[o] << 8) | p[o + 1];
 

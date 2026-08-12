@@ -687,7 +687,10 @@ moment?" before any ripping starts.
 datagen) runs the ROM in a **stock snes9x libretro core** and asks it to
 serialize; `s9xstate.ts` mines the savestate — VRA block for VRAM, PPU
 block for CGRAM/OAM/bases (field offsets computed from snes9x's own
-snapshot tables, versions 7-12), SND block for the APU, from which a
+snapshot tables; whether a state matches that layout is decided by the
+PPU block's length, so version bumps that never touch it — the libretro
+fork's MSU-1 fields, for instance — pass through), SND block for the
+APU, from which a
 standard 66048-byte `.spc` is written, with the write-only cells
 ($F1, $FA-$FC) rebuilt from the SMP state. The core is NOT bundled
 (snes9x's licence is non-commercial): install it once via RetroArch's
