@@ -88,18 +88,49 @@ export default function SpriteExtractModal(props: Props) {
 
   const w = props.bmp.width;
   const h = props.bmp.height;
-  // zoom: starts on a comfortable automatic fit, then the ± buttons
+  // zoom: starts on a comfortable automatic fit, then Ctrl+wheel
   const [scale, setScale] = useState(() =>
     Math.max(1, Math.min(3, Math.floor(560 / props.bmp.width), Math.floor(380 / props.bmp.height)))
   );
 
+  // Ctrl+wheel zoom on the sheet. A NATIVE listener: React (and the
+  // browser) treat wheel events as passive, and a passive handler
+  // cannot preventDefault — the page would pinch-zoom instead.
+  const viewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = viewRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setScale((z) => Math.max(1, Math.min(8, z + (e.deltaY < 0 ? 1 : -1))));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   // the two mode buttons carry their state INLINE — the shared .active
   // class only styles tab bars, and an invisible mode is how "I picked
   // the colour and now the rectangles won't draw" happens
-  const modeStyle = (on: boolean): React.CSSProperties =>
-    on
-      ? { background: "var(--sel)", color: "var(--sel-text)", fontWeight: 700 }
-      : {};
+  const modeStyle = (on: boolean): React.CSSProperties => ({
+    fontSize: 16,
+    width: 36,
+    height: 30,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    ...(on ? { background: "var(--sel)", color: "var(--sel-text)", fontWeight: 700 } : {}),
+  });
+
+  // a pipette the emoji set does not have — a 14 px eyedropper
+  const Pipette = (
+    <svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">
+      <path
+        d="M13.6 1.4a2.2 2.2 0 0 0-3.1 0L8.6 3.3l-.7-.7-1.2 1.2.7.7-5.2 5.2-.9 2.9 2.9-.9 5.2-5.2.7.7 1.2-1.2-.7-.7 1.9-1.9a2.2 2.2 0 0 0 0-3.1zM3.5 11.2l-1 .3.3-1 4.8-4.8.7.7-4.8 4.8z"
+        fill="currentColor"
+      />
+    </svg>
+  );
 
   // source pixels, read once
   useEffect(() => {
@@ -232,26 +263,40 @@ export default function SpriteExtractModal(props: Props) {
         style={{ width: "min(96vw, 1180px)", maxWidth: "96vw", maxHeight: "94vh" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="panel-title">Extraire des sprites animés d'une planche</div>
+        <div className="row" style={{ alignItems: "center" }}>
+          <div className="panel-title" style={{ flex: 1 }}>
+            Extraire des sprites animés d'une planche
+          </div>
+          <button onClick={props.onClose} title="Fermer sans importer" style={{ width: 28 }}>
+            ✕
+          </button>
+        </div>
+        <div className="row" style={{ alignItems: "center", gap: 8 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Nom :
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="mon_sprite"
+              style={{ width: 160 }}
+            />
+          </label>
+        </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <button
             style={modeStyle(mode === "pipette")}
             onClick={() => setMode("pipette")}
-            title="Cliquer la couleur de fond à rendre transparente"
+            title="Couleur de transparence — cliquer la couleur de fond sur la planche"
           >
-            🖊 Couleur transparente
+            {Pipette}
           </button>
           <button
             style={modeStyle(mode === "rect")}
             onClick={() => setMode("rect")}
-            title="Tracer un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
+            title="Tracer les frames — un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
           >
-            ▭ Tracer les frames
+            ▭
           </button>
-          <span className="hint" style={{ marginLeft: 8 }}>Zoom :</span>
-          <button disabled={scale <= 1} onClick={() => setScale((z) => z - 1)}>−</button>
-          <span className="hint">×{scale}</span>
-          <button disabled={scale >= 8} onClick={() => setScale((z) => z + 1)}>+</button>
           <span
             style={{
               width: 18,
@@ -261,11 +306,27 @@ export default function SpriteExtractModal(props: Props) {
             }}
           />
           <span className="hint">
-            {trans ? `transparent : rgb(${trans[0]}, ${trans[1]}, ${trans[2]})` : "transparent : —"}
+            {trans
+              ? `transparence : rgb(${trans[0]}, ${trans[1]}, ${trans[2]})`
+              : "transparence : — (pipette, puis cliquer le fond)"}
           </span>
-          {trans && <button onClick={() => setTrans(null)}>✕</button>}
+          {trans && (
+            <button
+              onClick={() => setTrans(null)}
+              title="Retirer la couleur de transparence"
+              style={{ width: 24 }}
+            >
+              ✕
+            </button>
+          )}
+          <span className="hint" style={{ marginLeft: "auto" }}>
+            Ctrl + molette : zoom (×{scale})
+          </span>
         </div>
-        <div style={{ alignSelf: "center", maxWidth: "100%", maxHeight: "58vh", overflow: "auto" }}>
+        <div
+          ref={viewRef}
+          style={{ alignSelf: "center", maxWidth: "100%", maxHeight: "58vh", overflow: "auto" }}
+        >
           <canvas
             ref={canvasRef}
             width={w * scale}
@@ -306,43 +367,41 @@ export default function SpriteExtractModal(props: Props) {
             }}
           />
         </div>
-        <div className="row" style={{ alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span className="hint">
-            {rects.length
-              ? `${rects.length} frame(s) — la planche :`
-              : "Aucune frame — tracer des rectangles sur l'image (64 max)."}
-          </span>
-          {rects.map((r, i) => (
-            <button
-              key={i}
-              title={`Frame ${i + 1} : ${r.w}x${r.h} en (${r.x}, ${r.y}) — cliquer pour retirer`}
-              onClick={() => setRects((rs) => rs.filter((_, k) => k !== i))}
-            >
-              {i + 1} ✕
-            </button>
-          ))}
-        </div>
+        <span className="hint">
+          {rects.length
+            ? `${rects.length} frame(s) — la planche (✕ sur une frame pour la retirer) :`
+            : "Aucune frame — tracer des rectangles sur l'image (64 max)."}
+        </span>
         <div style={{ alignSelf: "center", maxWidth: "100%", overflowX: "auto" }}>
-          <canvas
-            ref={previewRef}
-            width={Math.max(1, rects.length) * CELL * 2}
-            height={CELL * 2}
-            style={{ border: "1px solid #000" }}
-          />
-        </div>
-        <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <label>
-            Nom :{" "}
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="mon_sprite"
-              style={{ width: 160 }}
+          <div style={{ position: "relative", width: Math.max(1, rects.length) * CELL * 2 }}>
+            <canvas
+              ref={previewRef}
+              width={Math.max(1, rects.length) * CELL * 2}
+              height={CELL * 2}
+              style={{ border: "1px solid #000", display: "block" }}
             />
-          </label>
-          <span className="hint">15 couleurs + la transparente, comme toute planche.</span>
+            {rects.map((r, i) => (
+              <button
+                key={i}
+                title={`Retirer la frame ${i + 1} (${r.w}x${r.h} en ${r.x}, ${r.y})`}
+                onClick={() => setRects((rs) => rs.filter((_, k) => k !== i))}
+                style={{
+                  position: "absolute",
+                  left: i * CELL * 2 + CELL * 2 - 18,
+                  top: 2,
+                  width: 16,
+                  height: 16,
+                  padding: 0,
+                  lineHeight: "14px",
+                  fontSize: 10,
+                }}
+              >
+                ✕
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="row">
+        <div className="row" style={{ alignItems: "center" }}>
           <button
             disabled={!rects.length || !name.trim()}
             onClick={() => {
@@ -363,7 +422,7 @@ export default function SpriteExtractModal(props: Props) {
           >
             Importer
           </button>
-          <button onClick={props.onClose}>Annuler</button>
+          <span className="hint">15 couleurs + la transparence, comme toute planche.</span>
         </div>
       </div>
     </div>
