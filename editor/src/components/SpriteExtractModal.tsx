@@ -259,7 +259,7 @@ export default function SpriteExtractModal(props: Props) {
   return (
     <div className="modal-backdrop transpick-top" onClick={props.onClose}>
       <div
-        className="modal transpick"
+        className="modal transpick sprx"
         style={{ width: "min(96vw, 1180px)", maxWidth: "96vw", maxHeight: "94vh" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -267,20 +267,13 @@ export default function SpriteExtractModal(props: Props) {
           <div className="panel-title" style={{ flex: 1 }}>
             Extraire des sprites animés d'une planche
           </div>
-          <button onClick={props.onClose} title="Fermer sans importer" style={{ width: 28 }}>
+          <button
+            onClick={props.onClose}
+            title="Fermer sans importer"
+            style={{ width: 26, height: 24, padding: 0, marginLeft: "auto" }}
+          >
             ✕
           </button>
-        </div>
-        <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            Nom :
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="mon_sprite"
-              style={{ width: 160 }}
-            />
-          </label>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <button
@@ -319,9 +312,6 @@ export default function SpriteExtractModal(props: Props) {
               ✕
             </button>
           )}
-          <span className="hint" style={{ marginLeft: "auto" }}>
-            Ctrl + molette : zoom (×{scale})
-          </span>
         </div>
         <div
           ref={viewRef}
@@ -401,7 +391,16 @@ export default function SpriteExtractModal(props: Props) {
             ))}
           </div>
         </div>
-        <div className="row" style={{ alignItems: "center" }}>
+        <div className="row" style={{ alignItems: "center", gap: 8 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Nom :
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="mon_sprite"
+              style={{ width: 160 }}
+            />
+          </label>
           <button
             disabled={!rects.length || !name.trim()}
             onClick={() => {
