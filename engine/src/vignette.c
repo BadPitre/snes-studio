@@ -328,6 +328,17 @@ void vig_update(void)
       continue;
     if (v_off[s])
       continue; /* animation layer empty this frame: slot kept */
+    if (v_pi[s] < VIG_PALS && (v_pal & vig_bit[v_pi[s]]))
+    {
+      /* The sheet's palette has not reached CGRAM yet: shown now, the
+         sprite would parade in whatever colours the palette slot last
+         held (seen at battle open once the NMI fire made the PIXELS
+         arrive first — the chars beat the colours by a few frames).
+         Hidden until the palette lands; it only happens when a sheet
+         APPEARS, a few frames at most. */
+      oamSetVisible(VIG_OAM(s), OBJ_HIDE);
+      continue;
+    }
     /* animation: one step every speed frames */
     if (v_mode[s] && --v_timer[s] == 0)
     {

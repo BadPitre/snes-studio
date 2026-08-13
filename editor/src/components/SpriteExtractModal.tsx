@@ -7,7 +7,7 @@
 //
 // Rules the tool enforces while you draw:
 //  - a rectangle is clamped to 32x32 (the cell size — see vignette.h);
-//  - at most 8 frames (datagen's strip limit);
+//  - at most 64 frames (one ROM bank of cells, datagen's ceiling);
 //  - each frame lands bottom-centred in its cell (feet on the ground,
 //    the charset helper's convention).
 
@@ -28,7 +28,7 @@ interface Props {
 }
 
 const CELL = 32;
-const MAX_FRAMES = 8;
+const MAX_FRAMES = 64; // one ROM bank of cells — datagen's own ceiling
 
 // The pure cut: source pixels -> strip pixels (n cells of 32x32, each
 // rectangle bottom-centred, the transparent colour punched to alpha 0).
@@ -310,7 +310,7 @@ export default function SpriteExtractModal(props: Props) {
           <span className="hint">
             {rects.length
               ? `${rects.length} frame(s) — la planche :`
-              : "Aucune frame — tracer des rectangles sur l'image (8 max)."}
+              : "Aucune frame — tracer des rectangles sur l'image (64 max)."}
           </span>
           {rects.map((r, i) => (
             <button
@@ -322,7 +322,7 @@ export default function SpriteExtractModal(props: Props) {
             </button>
           ))}
         </div>
-        <div style={{ alignSelf: "center" }}>
+        <div style={{ alignSelf: "center", maxWidth: "100%", overflowX: "auto" }}>
           <canvas
             ref={previewRef}
             width={Math.max(1, rects.length) * CELL * 2}

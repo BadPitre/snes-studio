@@ -194,8 +194,12 @@ impl IndexedImage {
             );
         }
         let frames = self.width / 32;
-        if frames > 8 {
-            bail!("sprite animé '{}' : {} frames (max 8)", name, frames);
+        // The real ceiling is the ROM bank: one sheet is one contiguous
+        // array (frames x 512 bytes) and a LoROM bank holds 32 KB — 64
+        // frames exactly. The engine's frame arithmetic (u16 offsets,
+        // u8 frame counters) is comfortable up to there.
+        if frames > 64 {
+            bail!("sprite animé '{}' : {} frames (max 64, une banque ROM)", name, frames);
         }
         if let Some(&mx) = self.pixels.iter().max() {
             if mx >= 16 {
