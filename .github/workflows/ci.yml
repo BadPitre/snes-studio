@@ -1,0 +1,129 @@
+# CI (T-CI) — the four local gates' push-time counterpart. Three jobs,
+# cheapest first, so a broken datagen test never waits on an engine
+# build:
+#
+#   rust    cargo test + release build of the three tools. The 41
+#           datagen tests used to run only when someone remembered —
+#           this job is why they now always run.
+#   editor  npm ci, tsc, the capability check, the vite build — the
+#           cheap half of gate-editor.sh (the Playwright half stays
+#           local: it needs a browser download and a preview server).
+#   engine  the expensive proof that a FRESH machine can build the ROM:
+#           PVSnesLib fetched like the release does, the snes9x core
+#           cached (never committed — its licence is non-commercial,
+#           docs/PLANNING_PHOTO_ROM.md), then the pixel regression,
+#           the savestate gate, and a check that datagen left the
+#           committed engine/src/data byte-identical.
+#
+# Stability: nothing here is version-pinned upstream (PVSnesLib has no
+# pin in the repo, the core comes from libretro's nightly), so both
+# downloads sit behind actions/cache with FIXED keys — the first
+# successful fetch is reused until someone bumps the key, which is the
+# pin. Bump `-v1` when an upgrade is wanted.
+
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools -> target
+      - name: datagen tests
+        run: cargo test --release --manifest-path tools/Cargo.toml
+      - name: tools build
+        run: cargo build --release --manifest-path tools/Cargo.toml
+
+  editor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - run: npm ci
+        working-directory: editor
+      - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: editor
+      - run: npm run check:caps
+        working-directory: editor
+      - run: npm run build
+        working-directory: editor
+
+  engine:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools -> target
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # PVSnesLib: same fetch as release.yml, behind a fixed-key cache
+      # (the key IS the pin — fetch-pvsneslib.mjs tracks upstream's
+      # latest release otherwise).
+      - name: Cache PVSnesLib
+        id: pvs
+        uses: actions/cache@v4
+        with:
+          path: .ci/pvsneslib
+          key: pvsneslib-linux-v1
+      - name: Fetch PVSnesLib
+        if: steps.pvs.outputs.cache-hit != 'true'
+        working-directory: editor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/fetch-pvsneslib.mjs --to "$GITHUB_WORKSPACE/.ci/pvsneslib"
+      - name: Locate PVSnesLib root
+        run: |
+          root="$(dirname "$(dirname "$(find .ci/pvsneslib -type d -name devkitsnes | head -1)")")"
+          [ -d "$root/devkitsnes" ] || root="$(dirname "$(find .ci/pvsneslib -type d -name devkitsnes | head -1)")"
+          echo "PVSNESLIB_HOME=$GITHUB_WORKSPACE/${root#./}" >> "$GITHUB_ENV"
+
+      # The snes9x core: cached under the same fixed-key rule, fetched
+      # from libretro's buildbot on a miss. The pixel references were
+      # blessed with Snes9x 1.63 — if a future core shifts pixels,
+      # re-bless locally and bump this key in the same commit.
+      - name: Cache snes9x core
+        id: core
+        uses: actions/cache@v4
+        with:
+          path: tools/regress/snes9x_libretro.so
+          key: snes9x-core-v1
+      - name: Fetch snes9x core
+        if: steps.core.outputs.cache-hit != 'true'
+        run: |
+          curl -fL -o /tmp/core.zip \
+            "https://buildbot.libretro.com/nightly/linux/x86_64/latest/snes9x_libretro.so.zip"
+          unzip -o /tmp/core.zip -d tools/regress/
+
+      - name: Pixel regression (datagen + make + 3 cases)
+        run: ./tools/regress.sh --build
+      - name: Savestate gate (battle + boot)
+        run: ./tools/gate-savestate.sh
+      - name: datagen output matches the committed data
+        run: git diff --exit-code -- engine/src/data
+
+      - name: Failure artifacts (produced frames and photos)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-test-output
+          path: |
+            tools/regress/out/
+            tools/savestate/out/*/photo.ppm
+          if-no-files-found: ignore

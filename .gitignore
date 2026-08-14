@@ -34,3 +34,4 @@ tools/regress/out/
 
 # captures du smoke test de l'editeur (tools/gate-editor.sh)
 editor/tools/smoke-out/
+tools/savestate/out/
