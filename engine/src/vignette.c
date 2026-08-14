@@ -508,6 +508,8 @@ void vig_update(void)
       v_dirty &= (u8)~vig_bit[vp_slot]; /* landed whole */
     vp_slot = 0xFF;
   }
+  if (v_dirty == 0)
+    return; /* idle fast path: no cell to publish — most frames */
   for (s = 0; s < VIG_SLOTS; s++)
   {
     if (!(v_dirty & vig_bit[s]))

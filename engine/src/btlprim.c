@@ -284,6 +284,14 @@ static void bp_prep(void)
   const u8 *src;
   u16 base;
 
+  /* Idle fast path — the common battle frame. The walk below is a
+     handful of long calls, and the choreography's iterations sit so
+     close to a whole-VBlank boundary that idle fat alone flipped
+     them from 1.73 to 2.0 VBlanks each (measured on the gobelin
+     popup window, PERF §8): pay for the walk only when something is
+     actually queued, in flight, or wanted. */
+  if (bp_pub == 0xFF && bp_q == 0 && (dig_want == 0 || dig_up != 0))
+    return;
   if (bp_pub != 0xFF)
   {
     if (vn_seq(VN_BP) != bp_seq)
@@ -398,6 +406,8 @@ void btlprim_vblank(void)
 
   if (!stage_active() || stage_busy())
     return; /* the stage's own transfers keep the bus */
+  if (bp_pal == 0 && (dig_want == 0 || dig_up != 1))
+    return; /* idle fast path: no palette pending — most frames */
   for (h = 0; h < 4; h++)
   {
     bit = (u8)(1 << h);

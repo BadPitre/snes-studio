@@ -137,12 +137,9 @@ static u8 vn_fire(u8 i, u8 budget)
 void vbl_nmi(void)
 {
   u8 i, left, fired;
-  u16 vin;
 
   if (!vbl_fire_ok)
     return; /* tail or loader running: their DMAs own channel 0 */
-  vbl_probe();
-  vin = vbl_v; /* entry line, kept only if something fires */
   left = VN_ISR_CAP;
   fired = 0;
   for (i = 0; i < VN_SLOTS; i++)
@@ -154,6 +151,14 @@ void vbl_nmi(void)
       vn_token[i] = 0; /* stale: the producer mutated underneath */
       continue;
     }
+    if (!fired)
+    {
+      /* entry line, probed LAZILY: an idle NMI (most of them) pays
+         the token walk and nothing else — the same boundary-flip
+         arithmetic as bp_prep's fast path (PERF §8). */
+      vbl_probe();
+      vn_v_in = vbl_v;
+    }
     left -= vn_fire(i, left);
     fired = 1;
     if (left < 3) /* below the cheapest row cost: done for this NMI */
@@ -161,7 +166,6 @@ void vbl_nmi(void)
   }
   if (fired)
   {
-    vn_v_in = vin;
     vbl_probe();
     vn_v_last = vbl_v; /* nobody reads vbl_v while vbl_fire_ok is 1 */
     if (vbl_v > vn_v_max)

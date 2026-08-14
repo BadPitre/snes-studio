@@ -314,3 +314,30 @@ frame N, both cases), so the references were re-blessed one frame
 later with the content unchanged. The same boundary will keep
 flipping on any future change of these frames' cost; content
 byte-identity is the test that matters.
+
+### The choreography lag session (V-NMI follow-up)
+
+Bertrand's report — gauges jumping, the damage popup rising in
+stutters — measured with the popup itself as the clock: pop_t ticks
+once per main-loop iteration, so the 48-tick popup lifetime in
+emulated VBlanks gives VBlanks-per-iteration on identical logical
+content across builds. Derived gobelin battle, first attack:
+
+    main        ~78 VBlanks   1.73 VBl/iter
+    V-NMI V1    ~78           1.73   (parity)
+    V-NMI V2    ~95           2.0    (+20% — Bertrand's regression)
+    tip + fix   ~82           1.74   (parity recovered)
+
+Two lessons. First: the battle choreography was NEVER 60 fps — 1.73
+means most iterations already take two VBlanks on main; the fluid
+battle is a future chantier (the anim/VM/widget main-loop cost, not
+the transfer pipeline). Second: those iterations sit ON the
+whole-VBlank boundary, so ~600 idle cycles of V2 bookkeeping
+(bp_prep's walk, the ISR's unconditional entry probe) flipped most
+of them from just-under to just-over — the d340 lesson again, in
+battle. The cure that recovered parity: IDLE FAST PATHS — bp_prep,
+btlprim_vblank, the vignette producer and the ISR walk all exit on
+a couple of compares when nothing is queued, in flight or wanted;
+the entry probe became lazy (paid only when a fire happens). The
+boundary sensitivity itself remains until the choreography frames
+get genuinely cheaper.
