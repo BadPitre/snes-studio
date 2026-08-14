@@ -36,6 +36,8 @@
 #include "player.h"
 #include "vram.h"
 #include "vblnmi.h"
+#include "vramjob.h"
+#include "vbudget.h"
 
 /* pictures register (data_pictures.c — always emitted) */
 extern const u8 pic_count;
@@ -54,7 +56,6 @@ extern u8 videoMode; /* PVSnesLib mirror of REG_TM */
 #define SG_TM 0x17        /* BG1 + BG2 + BG3 + OBJ (vignettes B5 — the
    scene's sprites are hidden on opening, the OAM is clean) */
 #define SG_TM_GAME 0x17
-#define SG_CHUNK 1024     /* bytes of chars per VBlank (S6 budget) */
 
 static u8 sg_on = 0;
 static u8 sg_req = 0; /* 0 nothing, 1 open, 2 close */
@@ -85,6 +86,21 @@ static u8 up_row = 0;   /* current row (clear/map) */
 static u8 up_rows = 0;  /* rows built in the buffer (0-2) */
 static u16 up_buf[64];  /* 2 map rows max */
 static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* region to erase */
+
+/* The laying transfers ride the DISPATCHER since V-NMI V4 (vblnmi.h,
+   slot VN_STG): the chars phase publishes one linear descriptor (512
+   byte sub-transfers the descriptor resumes across VBlanks), the map
+   phase publishes each built batch as ONE vramjob burst — composed
+   chars first, then the rows that reference them, never split across
+   NMIs. What stays in stage_tail is CGRAM (palettes) and the erase
+   fills, now METERED under the budget: the stage branch's ~20
+   unmetered lines were the V-NMI inventory's first exhibit. */
+static void sg_shadow_zero(void); /* defined with the erase code */
+
+static u8 sg_pub = 0;        /* 0 none, 1 chars run, 2 map batch */
+static u8 sg_pubseq = 0;     /* vn_seq(VN_STG) at publish */
+static u16 sg_pub_bytes = 0; /* chars bytes the flight covers */
+static u8 sg_pub_rows = 0;   /* map rows the flight covers */
 static u8 sg_relay = 0; /* bit s: slot to RE-LAY once up_act settles —
    erasing a cleared slot's rectangle wipes the composed cells that
    carried an overlapped neighbour's pixels (B3-overlap composes at
@@ -195,6 +211,9 @@ void stage_reset(void)
   sg_on = 0; /* scene_load (warp) reloads scenery, sprites and scrolls */
   up_act = 0;
   sg_req = 0;
+  sg_pub = 0;
+  vn_cancel(VN_STG); /* a laying flight must not land on whatever
+                        takes the display next (V4) */
   /* the vignettes shown during the screen are part of its staging: the
      close hides them (otherwise they float over the map) */
   vig_hide(0);
@@ -301,6 +320,8 @@ static void sg_open(void)
   up_act = 0;
   sg_next_char = 1;
   sg_relay = 0;
+  sg_pub = 0;
+  vn_cancel(VN_STG); /* fresh session: no stale flight (V4) */
   for (i = 0; i < STAGE_SLOTS; i++)
   {
     sl_pic[i] = 0xFF;
@@ -416,6 +437,9 @@ void stage_pose(u8 slot, u8 pic, u8 tx, u8 ty)
   {
     up_cw = pic_wt[sl_pic[slot]];
     up_ch = pic_ht[sl_pic[slot]];
+    sg_shadow_zero(); /* the WRAM shadow drops out of the window (V4):
+        zeroed HERE, in the main loop — its only reader (the compose
+        step) runs after the erase completes */
   }
   else
     up_ch = 0; /* nothing to erase */
@@ -517,6 +541,22 @@ static void sg_fx_step(void)
   }
 }
 
+/* Zeroes the WRAM shadow of the erase region (up_cx/cy/cw/ch) — the
+   main-loop half of the erase since V4; the VRAM fills follow in
+   stage_tail, metered. */
+static void sg_shadow_zero(void)
+{
+  u8 r, j;
+  u16 o;
+
+  for (r = 0; r < up_ch; r++)
+  {
+    o = (((u16)up_cy + r) << 5) + up_cx;
+    for (j = 0; j < up_cw; j++)
+      sg_map[o + j] = 0;
+  }
+}
+
 /* Marks every OTHER shown slot whose image intersects the region
    about to be erased (up_cx/cy/cw/ch): its overlapped pixels live in
    composed cells inside that region and vanish with it. Re-laying is
@@ -584,6 +624,7 @@ void stage_clear(u8 slot)
   up_slot = slot;
   up_row = 0;
   up_act = 5; /* erase only */
+  sg_shadow_zero(); /* main-loop half of the erase (V4) */
   sg_mark_uncovered(slot); /* the erase may uncover a neighbour */
   /* the slot keeps its char base: laying the same image again later will
      only cost the map */
@@ -666,11 +707,66 @@ void stage_update(void)
 {
   const u16 *src;
   u16 *q;
-  u16 base, under, entry;
-  u8 w, r, i, pal;
+  u16 base, under, entry, rest, addr, bytes;
+  u8 w, r, i, pal, n;
 
   if (sg_on)
     sg_fx_step(); /* per-slot palette effects (B4) */
+  /* The producer's half of the dispatcher contract (V4): read the
+     fate of the published flight, then prepare the next one. */
+  if (sg_pub)
+  {
+    if (vn_seq(VN_STG) != sg_pubseq)
+    {
+      vn_cancel(VN_STG); /* takeover or reset republishes from the
+                            up_sent/up_row truth below */
+      sg_pub = 0;
+    }
+    else if (vn_busy(VN_STG))
+      return; /* in flight: let it land */
+    else if (sg_pub == 1)
+    {
+      up_sent += sg_pub_bytes;
+      sg_pub = 0;
+      if (up_sent >= *pic_chars_sizes[up_pic])
+        up_act = 2; /* palette next (stage_tail) */
+    }
+    else
+    {
+      up_row += sg_pub_rows;
+      up_rows = 0;
+      sg_pub = 0;
+      if (up_row >= pic_ht[up_pic])
+      {
+        up_act = 0; /* lay finished — the VM resumes */
+        sg_relay_next();
+      }
+    }
+  }
+  if (up_act == 1)
+  {
+    /* chars phase: one linear descriptor per run — full 512-byte
+       sub-transfers first (the descriptor resumes across VBlanks),
+       then one short remainder run. */
+    rest = *pic_chars_sizes[up_pic] - up_sent;
+    addr = (u16)(VRAM_BG1_GFX + (sl_base[up_slot] << 4) + (up_sent >> 1));
+    if (rest >= 512)
+    {
+      n = (u8)(rest >> 9);
+      vn_publish(VN_STG, pic_chars[up_pic] + up_sent, addr,
+                 512, n, 256, 6);
+      sg_pub_bytes = (u16)n << 9;
+    }
+    else
+    {
+      vn_publish(VN_STG, pic_chars[up_pic] + up_sent, addr,
+                 rest, 1, 0, (u8)(2 + (rest >> 6)));
+      sg_pub_bytes = rest;
+    }
+    sg_pub = 1;
+    sg_pubseq = vn_seq(VN_STG);
+    return;
+  }
   if (up_act != 4 || up_rows)
     return;
   w = pic_wt[up_pic];
@@ -697,61 +793,115 @@ void stage_update(void)
     if (cp_n) /* composed chars pending: cap the batch at this row */
       break;
   }
+  if (!up_rows)
+    return;
+  /* Publish the batch as ONE burst: composed chars FIRST, then the
+     rows that reference them — atomic by construction (a burst fires
+     whole), which is the ordering rule V4 inherits from B3-overlap.
+     The WRAM sources (cp_buf, up_buf) are complete here and only
+     rebuilt after the batch lands: the publication discipline. */
+  n = 0;
+  for (r = 0; r < cp_n; r++)
+  {
+    vj_set((u16)(VJ_STAGE + n), cp_buf + ((u16)r << 5),
+           (u16)(VRAM_BG1_GFX + (cp_dst[r] << 4)), 32);
+    n++;
+  }
+  bytes = (u16)cp_n << 5;
+  cp_n = 0;
+  addr = SG_MAP_BG1 + ((u16)up_ty << 5) + up_tx + ((u16)up_row << 5);
+  for (r = 0; r < up_rows; r++)
+  {
+    vj_set((u16)(VJ_STAGE + n), (const u8 *)(up_buf + ((u16)r << 5)),
+           (u16)(addr + ((u16)r << 5)), (u16)((u16)w << 1));
+    n++;
+    bytes += (u16)((u16)w << 1);
+  }
+  vn_publish_burst(VN_STG, VJ_STAGE, n, VJ_INC1,
+                   (u8)(2 + n + (bytes >> 7)));
+  sg_pub = 2;
+  sg_pub_rows = up_rows;
+  sg_pubseq = vn_seq(VN_STG);
+  /* the shadow follows at PUBLISH: its only reader is the compose
+     step of the NEXT batch, which this producer only builds after
+     the flight lands */
+  for (r = 0; r < up_rows; r++)
+  {
+    base = (((u16)up_ty + up_row + r) << 5) + up_tx;
+    for (i = 0; i < w; i++)
+      sg_map[base + i] = up_buf[((u16)r << 5) + i];
+  }
 }
 
 void stage_vblank(void)
 {
+  /* Scrolls only since V4: registers are mandatory and uncounted
+     (vbudget.h's rule) — everything the stage used to TRANSFER here,
+     unmetered, either rides the dispatcher (chars runs, map batches:
+     stage_update publishes them) or moved to stage_tail below, under
+     the budget. The inventory's "~20 unmetered lines before vbl_open"
+     are gone. */
+  if (sg_on)
+  {
+    bgSetScroll(0, screenfx_shake_x(), 0);
+    bgSetScroll(1, screenfx_shake_x(), 0);
+  }
+}
+
+/* The stage's METERED tail — call after vbl_open: slot-fx palettes,
+   the lay palette, and the erase fills, each under take + probe. The
+   phases that used to live here as unmetered DMA (chars, map rows)
+   are descriptors now. */
+void stage_tail(void)
+{
   u16 n, addr;
   u8 r;
 
-  if (sg_on)
+  if (sg_on && fx_dirty)
   {
-    /* scrolls of the composed screen: fixed (+ scripted shake) */
-    bgSetScroll(0, screenfx_shake_x(), 0);
-    bgSetScroll(1, screenfx_shake_x(), 0);
-    /* palette effects (B4): ONE slot palette pushed per VBlank (30 bytes
-       — white while a flash runs, the shadow otherwise) */
-    if (fx_dirty)
-    {
-      for (n = 0; n < STAGE_SLOTS; n++)
-        if (fx_dirty & (1 << n))
-        {
-          dmaCopyCGram(fx_mode[(u8)n] == 1 ? (u8 *)sg_white
-                                           : (u8 *)sl_sh[(u8)n],
-                       (u16)(((2 + n) << 4) + 1), 30);
-          fx_dirty &= (u8)~(1 << n);
+    /* palette effects (B4): ONE slot palette per VBlank (30 bytes —
+       white while a flash runs, the shadow otherwise) */
+    for (n = 0; n < STAGE_SLOTS; n++)
+      if (fx_dirty & (1 << n))
+      {
+        if (!vbl_take(2))
           break;
-        }
-    }
+        vbl_probe();
+        if (vbl_v >= (u16)(VBL_LAST - 2))
+          break; /* dropped CGRAM reads as done — the black-digit
+                    lesson: defer instead */
+        dmaCopyCGram(fx_mode[(u8)n] == 1 ? (u8 *)sg_white
+                                         : (u8 *)sl_sh[(u8)n],
+                     (u16)(((2 + n) << 4) + 1), 30);
+        fx_dirty &= (u8)~(1 << n);
+        break;
+      }
   }
   switch (up_act)
   {
-  case 1: /* image chars, in 1 KB chunks */
-    n = *pic_chars_sizes[up_pic] - up_sent;
-    if (n > SG_CHUNK)
-      n = SG_CHUNK;
-    dmaCopyVram((u8 *)pic_chars[up_pic] + up_sent,
-                VRAM_BG1_GFX + (sl_base[up_slot] << 4) + (up_sent >> 1), n);
-    up_sent += n;
-    if (up_sent >= *pic_chars_sizes[up_pic])
-      up_act = 2;
-    break;
   case 2: /* slot palette (colours 1-15 of BG palette 2+slot) */
+    if (!vbl_take(2))
+      break;
+    vbl_probe();
+    if (vbl_v >= (u16)(VBL_LAST - 2))
+      break;
     dmaCopyCGram((u8 *)pic_pals[up_pic] + 2,
                  (u8)(((2 + up_slot) << 4) + 1), 30);
     up_act = 3;
     break;
-  case 3: /* erasing the old region (2 rows per VBlank) */
+  case 3: /* erasing the old region (up to 2 rows per VBlank) — the
+             WRAM shadow was zeroed at pose/clear time (main loop) */
   case 5:
-    for (r = 0; r < 2 && up_row < up_ch; r++, up_row++)
+    for (r = 0; r < 2 && up_row < up_ch; r++)
     {
-      u16 j, o;
-
+      if (!vbl_take(3))
+        break;
+      vbl_probe();
+      if (vbl_v >= (u16)(VBL_LAST - 3))
+        break;
       addr = SG_MAP_BG1 + ((u16)(up_cy + up_row) << 5) + up_cx;
       dmaFillVram16(&sg_zero, addr, up_cw);
-      o = (((u16)up_cy + up_row) << 5) + up_cx; /* shadow follows */
-      for (j = 0; j < up_cw; j++)
-        sg_map[o + j] = 0;
+      up_row++;
     }
     if (up_row >= up_ch)
     {
@@ -762,43 +912,10 @@ void stage_vblank(void)
       }
       else
       {
-        up_act = 4; /* now the map */
+        up_act = 4; /* now the map (stage_update publishes it) */
         up_row = 0;
         up_rows = 0;
       }
-    }
-    break;
-  case 4: /* map: the rows built by stage_update */
-    if (!up_rows)
-      break;
-    /* composed chars FIRST: the map rows below reference them */
-    for (r = 0; r < cp_n; r++)
-      dmaCopyVram(cp_buf + ((u16)r << 5),
-                  VRAM_BG1_GFX + (cp_dst[r] << 4), 32);
-    cp_n = 0;
-    addr = SG_MAP_BG1 + ((u16)up_ty << 5) + up_tx + ((u16)up_row << 5);
-    dmaCopyVram((u8 *)up_buf, addr, (u16)pic_wt[up_pic] << 1);
-    if (up_rows > 1)
-      dmaCopyVram((u8 *)(up_buf + 32), addr + 32,
-                  (u16)pic_wt[up_pic] << 1);
-    /* the shadow follows the truth, row by row */
-    {
-      u16 j, o;
-      u8 k;
-
-      for (k = 0; k < up_rows; k++)
-      {
-        o = (((u16)up_ty + up_row + k) << 5) + up_tx;
-        for (j = 0; j < pic_wt[up_pic]; j++)
-          sg_map[o + j] = up_buf[((u16)k << 5) + j];
-      }
-    }
-    up_row += up_rows;
-    up_rows = 0;
-    if (up_row >= pic_ht[up_pic])
-    {
-      up_act = 0; /* lay finished — the VM resumes */
-      sg_relay_next(); /* chain the next uncovered neighbour, if any */
     }
     break;
   }

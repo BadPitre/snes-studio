@@ -51,12 +51,15 @@
    lateness shows as garbage tiles; sprite cells recover invisibly
    (a frame late is a frame late) and the animated-tile step is the
    historical first sacrifice, so it walks last. */
-#define VN_MAPC 0 /* map column burst (map.c, V3) */
-#define VN_MAPR 1 /* map row burst */
-#define VN_VIG 2  /* vignette cell rows (vignette.c, V1) */
-#define VN_BP 3   /* battler cells + digit sheet (btlprim.c, V2) */
-#define VN_TA 4   /* animated-tile step (tileanim.c, V3) */
-#define VN_SLOTS 5
+#define VN_STG 0  /* stage laying: chars runs + map batches (V4) —
+                     first because a laying screen BLOCKS the script
+                     (stage_busy), so nothing may starve it */
+#define VN_MAPC 1 /* map column burst (map.c, V3) */
+#define VN_MAPR 2 /* map row burst */
+#define VN_VIG 3  /* vignette cell rows (vignette.c, V1) */
+#define VN_BP 4   /* battler cells + digit sheet (btlprim.c, V2) */
+#define VN_TA 5   /* animated-tile step (tileanim.c, V3) */
+#define VN_SLOTS 6
 
 /* Declared-line cap per NMI: 4 vignette rows of a 32x32 cell (the
    H-bugfix bound, cost 4 each) fit exactly; a 64x64 cell (rows of

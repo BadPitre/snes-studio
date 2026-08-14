@@ -419,9 +419,12 @@ int main(void)
     else if (stage_active())
     {
       screenfx_vblank(); /* tint/flash active on the composed screen */
-      stage_vblank();    /* fixed scrolls + spread-out laying transfers */
+      stage_vblank();    /* fixed scrolls only (V4) */
       hdmafx_suspend();  /* wave/gradient/spotlight: map ambience */
-      vbl_open();        /* stage_vblank is not counted either */
+      vbl_open();        /* registers above are uncounted; the stage's
+                            TRANSFERS finally are not (V4): laying
+                            rides the dispatcher, the rest is metered
+                            in stage_tail below */
       /* PALETTES first: 2-line atoms that GATE display (bp_have,
          dig_up, vig's v_pal). Served last, the digit palette starved
          behind the UI's message frames for entire popup lifetimes —
@@ -433,8 +436,11 @@ int main(void)
          tail's leftover rows close the frame. */
       vig_vblank();      /* vignette palettes (B5) */
       btlprim_vblank();  /* battler + digit palettes (V-NMI V2) */
+      stage_tail();      /* lay palette + erase fills + slot fx (V4) —
+                            in the palettes-first zone: they gate what
+                            the laying shows */
       ui_screen_vblank();
-      vbl_nmi_tail();    /* leftover cell rows, table order */
+      vbl_nmi_tail();    /* leftover cell rows and batches, table order */
     }
     else
     {

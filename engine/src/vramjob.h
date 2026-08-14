@@ -49,7 +49,11 @@
 #define VJ_MAP_COL 0   /* 8: 2 layers x 2 char columns x 2 segments */
 #define VJ_MAP_ROW 8   /* 8: the same, in rows */
 #define VJ_TILEANIM 16 /* 4 chars, merged into 1 to 4 transfers */
-#define VJ_MAX 20
+#define VJ_STAGE 20    /* 6: up to 4 composed chars + 2 map rows of a
+                          laying batch (stage.c, V-NMI V4) — the chars
+                          MUST precede the rows that reference them,
+                          which is why the batch is one atomic burst */
+#define VJ_MAX 26
 
 /* The queue. u16 throughout, the bank included: tcc-816 wraps every
    8-bit operation in a sep/rep pair, and the assembly reads the low
