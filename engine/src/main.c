@@ -29,6 +29,7 @@
 #include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
+#include "vblnmi.h"
 #include "anim.h"
 #include "vbudget.h"
 
@@ -240,12 +241,12 @@ int main(void)
      changes nothing for every ordinary scene. */
   m7_world_open(scene_ctx.scene_id, 0);
 
-  /* The vignette cell fires from the VBlank ISR: at interrupt time the
-     beam is at the top of the window no matter how late this loop runs
-     its tail — the only spot a loaded battle frame cannot starve
-     (vignette.c, vig_nmi). vig_fire_ok below marks the DMA-free
-     stretches where the ISR may take the channel. */
-  nmiSet(vig_nmi);
+  /* Published transfer descriptors fire from the VBlank ISR: at
+     interrupt time the beam is at the top of the window no matter how
+     late this loop runs its tail — the only spot a loaded battle
+     frame cannot starve (vblnmi.c). vbl_fire_ok below marks the
+     DMA-free stretches where the ISR may take the channel. */
+  nmiSet(vbl_nmi);
 
   while (1)
   {
@@ -330,8 +331,8 @@ int main(void)
 
     /* From here to WaitForVBlank the frame touches no DMA channel
        (transfers are all deferred to the tail; the apply/warp/load
-       block above is over): the vignette ISR may fire. */
-    vig_fire_ok = 1;
+       block above is over): the dispatcher's ISR lane may fire. */
+    vbl_fire_ok = 1;
 
     actors_update(); /* routes (even during a script — cutscenes) +
                         NPC wandering (frozen during scripts) */
@@ -382,7 +383,7 @@ int main(void)
     audio_process(); /* music stream -> SPC */
 
     WaitForVBlank();
-    vig_fire_ok = 0; /* the tail's own DMAs begin */
+    vbl_fire_ok = 0; /* the tail's own DMAs begin */
 
     /* VRAM transfers + scroll registers: during the VBlank only. Picture
        showing (S3): BG1 carries the image, a 32x32 map scrolled to 0 —
@@ -412,7 +413,8 @@ int main(void)
          there would corrupt the picture. */
       if (m7_world_active())
         ui_screen_vblank();
-      vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
+      vig_vblank();     /* vignette palettes (OBJ untouched by the plane) */
+      vbl_nmi_tail();   /* rows the ISR's cap left over */
     }
     else if (stage_active())
     {
@@ -427,7 +429,9 @@ int main(void)
          the first gauge filled (measured, H-bugfix). The UI splits
          itself and resumes — a text row landing one frame later is
          invisible; a battler that never lands is not. */
-      vig_vblank();      /* vignette frames (B5) */
+      vig_vblank();      /* vignette palettes (B5) */
+      vbl_nmi_tail();    /* vignette rows BEFORE the UI: the measured
+                            order (H-bugfix) kept through V-NMI */
       ui_screen_vblank();
       btlprim_vblank();  /* battler cells + digits (V1), under the budget */
     }
@@ -458,11 +462,13 @@ int main(void)
       if (vbl_turn())
       {
         tileanim_vblank(); /* one animated-tile step (4 chars) — T1 */
-        vig_vblank();      /* vignette frames (B5) */
+        vig_vblank();      /* vignette palettes (B5) */
+        vbl_nmi_tail();
       }
       else
       {
         vig_vblank();
+        vbl_nmi_tail();
         tileanim_vblank();
       }
     }
