@@ -270,25 +270,35 @@ export default function SpriteExtractModal(props: Props) {
           <button
             onClick={props.onClose}
             title="Fermer sans importer"
-            style={{ width: 26, height: 24, padding: 0, marginLeft: "auto" }}
+            style={{
+              width: 26,
+              height: 24,
+              padding: 0,
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
             ✕
           </button>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Nom :
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="mon_sprite"
+              style={{ width: 160 }}
+            />
+          </label>
           <button
-            style={modeStyle(mode === "pipette")}
+            style={{ ...modeStyle(mode === "pipette"), marginLeft: 10 }}
             onClick={() => setMode("pipette")}
             title="Couleur de transparence — cliquer la couleur de fond sur la planche"
           >
             {Pipette}
-          </button>
-          <button
-            style={modeStyle(mode === "rect")}
-            onClick={() => setMode("rect")}
-            title="Tracer les frames — un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
-          >
-            ▭
           </button>
           <span
             style={{
@@ -307,11 +317,25 @@ export default function SpriteExtractModal(props: Props) {
             <button
               onClick={() => setTrans(null)}
               title="Retirer la couleur de transparence"
-              style={{ width: 24 }}
+              style={{
+                width: 20,
+                height: 20,
+                padding: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
             >
               ✕
             </button>
           )}
+          <button
+            style={{ ...modeStyle(mode === "rect"), marginLeft: 10 }}
+            onClick={() => setMode("rect")}
+            title="Tracer les frames — un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
+          >
+            ▭
+          </button>
         </div>
         <div
           ref={viewRef}
@@ -392,15 +416,6 @@ export default function SpriteExtractModal(props: Props) {
           </div>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            Nom :
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="mon_sprite"
-              style={{ width: 160 }}
-            />
-          </label>
           <button
             disabled={!rects.length || !name.trim()}
             onClick={() => {

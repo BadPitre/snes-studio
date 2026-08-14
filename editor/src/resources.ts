@@ -349,15 +349,18 @@ const vignette: Resource = {
   list: (p) => p.vignettes ?? [],
   ...stringRegister("vignettes"),
   pickImport: () =>
-    pickPngFile("Importer une vignette (bande de frames 32x32, PNG à transparence)"),
+    pickPngFile("Importer un sprite animé (bande de frames 32x32, PNG à transparence)"),
   badSize: (b) =>
-    b.height !== 32 || b.width % 32 !== 0 || b.width === 0 || b.width > 256
-      ? `Vignette : attendu une bande 32 px de haut, largeur multiple de 32 (1-8 frames) — reçu ${b.width}x${b.height}`
+    /* 64 frames = one ROM bank of cells, datagen's own ceiling — the
+       editor gate used to stop at 8 and silently ate bigger imports
+       from the rectangle extractor (the status line hid behind it) */
+    b.height !== 32 || b.width % 32 !== 0 || b.width === 0 || b.width > 64 * 32
+      ? `Sprite animé : attendu une bande 32 px de haut, largeur multiple de 32 (1-64 frames) — reçu ${b.width}x${b.height}`
       : null,
-  exists: (s) => `Vignette « ${s} » : existe déjà`,
-  imported: (s, b) => `Vignette importée : ${s} (${b ? b.width / 32 : 0} frame(s))`,
-  importFailed: (e) => `Import vignette : ${e}`,
-  pickExport: "Exporter la vignette (PNG)",
+  exists: (s) => `Sprite animé « ${s} » : existe déjà`,
+  imported: (s, b) => `Sprite animé importé : ${s} (${b ? b.width / 32 : 0} frame(s))`,
+  importFailed: (e) => `Import sprite animé : ${e}`,
+  pickExport: "Exporter le sprite animé (PNG)",
   exported: (p) => `Vignette exportée : ${p}`,
   exportFailed: (e) => `Export : ${e}`,
   renameTaken: (s) => `Renommage : « ${s} » existe déjà`,
