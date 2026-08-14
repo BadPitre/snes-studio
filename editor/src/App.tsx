@@ -46,6 +46,7 @@ import RomRipModal, { type RipTarget } from "./components/RomRipModal";
 import { loadSpc } from "./brr";
 import { looksLikeState } from "./s9xstate";
 import { openProjectFolder, runImportCharset, runImportChipset } from "./build";
+import { readDir as tauriReadDir, readTextFile as readTextFileRaw } from "@tauri-apps/plugin-fs";
 import type { DrawMode, Tool } from "./state";
 import {
   addEvent,
@@ -334,6 +335,53 @@ export default function App() {
       setStatus(`Projet introuvable (retiré de la liste) : ${e}`);
       recentRemove(root);
     }
+  }
+
+  // The projects FOLDER: chosen once, remembered, and scanned on the
+  // front page — every sub-folder holding a project.json is a project,
+  // listed by its name. The list is therefore complete from the very
+  // first launch, no need to have opened anything before.
+  const [projectsDir, setProjectsDir] = useState<string | null>(
+    () => localStorage.getItem("snesstudio.projectsDir")
+  );
+  const [scanned, setScanned] = useState<{ root: string; name: string }[] | null>(null);
+  useEffect(() => {
+    if (!projectsDir || data) return;
+    let dead = false;
+    (async () => {
+      try {
+        const entries = await tauriReadDir(projectsDir);
+        const found: { root: string; name: string }[] = [];
+        for (const e of entries) {
+          if (!e.isDirectory) continue;
+          const root = `${projectsDir}/${e.name}`;
+          try {
+            const pj = JSON.parse(await readTextFileRaw(`${root}/project.json`));
+            found.push({ root, name: typeof pj.name === "string" ? pj.name : e.name });
+          } catch {
+            /* not a project folder */
+          }
+        }
+        found.sort((a, b) => a.name.localeCompare(b.name));
+        if (!dead) setScanned(found);
+      } catch (e) {
+        if (!dead) {
+          setScanned([]);
+          setStatus(`Dossier des projets illisible : ${e}`);
+        }
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [projectsDir, data]);
+
+  async function chooseProjectsDir() {
+    const dir = await pickProjectDir();
+    if (!dir) return;
+    localStorage.setItem("snesstudio.projectsDir", dir);
+    setProjectsDir(dir);
+    setScanned(null); /* the effect rescans */
   }
 
   // ---- Projet menu ---------------------------------------------------------
@@ -2018,7 +2066,30 @@ export default function App() {
       ) : (
         <div className="empty">
           <p>SNES Studio {__APP_VERSION__}</p>
-          {recent.length > 0 && (
+          {projectsDir && (
+            <div className="recent-list">
+              <div className="hint" style={{ marginBottom: 4 }}>
+                Projets dans {projectsDir} :
+              </div>
+              {(scanned ?? []).map((e) => (
+                <div key={e.root} className="recent-row">
+                  <button
+                    className="recent-open"
+                    title={e.root}
+                    onClick={() => void openRecent(e.root)}
+                  >
+                    <span className="recent-name">{e.name}</span>
+                    <span className="recent-path">{e.root}</span>
+                  </button>
+                </div>
+              ))}
+              {scanned && scanned.length === 0 && (
+                <div className="hint">Aucun projet trouvé dans ce dossier.</div>
+              )}
+              {!scanned && <div className="hint">Lecture du dossier…</div>}
+            </div>
+          )}
+          {!projectsDir && recent.length > 0 && (
             <div className="recent-list">
               <div className="hint" style={{ marginBottom: 4 }}>Projets récents :</div>
               {recent.map((e) => (
@@ -2042,7 +2113,19 @@ export default function App() {
               ))}
             </div>
           )}
-          <button onClick={openProject}>{recent.length ? "Ouvrir un autre projet…" : "Ouvrir un projet…"}</button>
+          <div className="row" style={{ gap: 8 }}>
+            <button onClick={openProject}>
+              {(projectsDir && (scanned?.length ?? 0) > 0) || recent.length
+                ? "Ouvrir un autre projet…"
+                : "Ouvrir un projet…"}
+            </button>
+            <button
+              onClick={() => void chooseProjectsDir()}
+              title="Le dossier qui contient tes projets SNES Studio — la page d'accueil le liste à chaque lancement"
+            >
+              {projectsDir ? "Changer le dossier des projets…" : "Choisir le dossier des projets…"}
+            </button>
+          </div>
         </div>
       )}
 
