@@ -512,6 +512,11 @@ static void sg_fx_step(void)
   {
     if (!fx_mode[s])
       continue;
+    if (fx_mode[s] == 1 && (fx_dirty & (u8)(1 << s)))
+      continue; /* the flash's WHITE has not landed yet (stage_tail
+          defers under a short window since V4): a flash that ages
+          while invisible comes out shaved — hold the countdown until
+          the push lands so the pulse keeps its full duration */
     fx_t[s]--;
     if (fx_mode[s] == 1)
     {
