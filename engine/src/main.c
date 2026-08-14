@@ -29,6 +29,7 @@
 #include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
+#include "vblnmi.h"
 #include "anim.h"
 #include "vbudget.h"
 
@@ -240,12 +241,12 @@ int main(void)
      changes nothing for every ordinary scene. */
   m7_world_open(scene_ctx.scene_id, 0);
 
-  /* The vignette cell fires from the VBlank ISR: at interrupt time the
-     beam is at the top of the window no matter how late this loop runs
-     its tail — the only spot a loaded battle frame cannot starve
-     (vignette.c, vig_nmi). vig_fire_ok below marks the DMA-free
-     stretches where the ISR may take the channel. */
-  nmiSet(vig_nmi);
+  /* Published transfer descriptors fire from the VBlank ISR: at
+     interrupt time the beam is at the top of the window no matter how
+     late this loop runs its tail — the only spot a loaded battle
+     frame cannot starve (vblnmi.c). vbl_fire_ok below marks the
+     DMA-free stretches where the ISR may take the channel. */
+  nmiSet(vbl_nmi);
 
   while (1)
   {
@@ -330,8 +331,8 @@ int main(void)
 
     /* From here to WaitForVBlank the frame touches no DMA channel
        (transfers are all deferred to the tail; the apply/warp/load
-       block above is over): the vignette ISR may fire. */
-    vig_fire_ok = 1;
+       block above is over): the dispatcher's ISR lane may fire. */
+    vbl_fire_ok = 1;
 
     actors_update(); /* routes (even during a script — cutscenes) +
                         NPC wandering (frozen during scripts) */
@@ -382,7 +383,7 @@ int main(void)
     audio_process(); /* music stream -> SPC */
 
     WaitForVBlank();
-    vig_fire_ok = 0; /* the tail's own DMAs begin */
+    vbl_fire_ok = 0; /* the tail's own DMAs begin */
 
     /* VRAM transfers + scroll registers: during the VBlank only. Picture
        showing (S3): BG1 carries the image, a 32x32 map scrolled to 0 —
@@ -412,7 +413,8 @@ int main(void)
          there would corrupt the picture. */
       if (m7_world_active())
         ui_screen_vblank();
-      vig_vblank();     /* vignettes play over the plane (OBJ untouched) */
+      vig_vblank();     /* vignette palettes (OBJ untouched by the plane) */
+      vbl_nmi_tail();   /* rows the ISR's cap left over */
     }
     else if (stage_active())
     {
@@ -420,16 +422,19 @@ int main(void)
       stage_vblank();    /* fixed scrolls + spread-out laying transfers */
       hdmafx_suspend();  /* wave/gradient/spotlight: map ambience */
       vbl_open();        /* stage_vblank is not counted either */
-      /* Vignettes BEFORE the UI layer on a stage. A battle's gauges
-         redraw the UI every frame of an ATB charge; served last, the
-         vignette's 4-line row found the beam past its guard on nearly
-         every one of those frames and the party stood invisible until
-         the first gauge filled (measured, H-bugfix). The UI splits
-         itself and resumes — a text row landing one frame later is
-         invisible; a battler that never lands is not. */
-      vig_vblank();      /* vignette frames (B5) */
+      /* PALETTES first: 2-line atoms that GATE display (bp_have,
+         dig_up, vig's v_pal). Served last, the digit palette starved
+         behind the UI's message frames for entire popup lifetimes —
+         and before the probe's wrap clamp it "landed" on a wrapped
+         beam and the damage numbers wore the charset's black. The
+         cells' fast lane is the ISR since V-NMI (the H-bugfix
+         vig-before-ui lesson now lives at line ~229); the UI keeps
+         first claim on the bulk budget and still splits itself; the
+         tail's leftover rows close the frame. */
+      vig_vblank();      /* vignette palettes (B5) */
+      btlprim_vblank();  /* battler + digit palettes (V-NMI V2) */
       ui_screen_vblank();
-      btlprim_vblank();  /* battler cells + digits (V1), under the budget */
+      vbl_nmi_tail();    /* leftover cell rows, table order */
     }
     else
     {
@@ -448,23 +453,20 @@ int main(void)
 
       vbl_open();   /* the registers are not counted: the budget
                        starts counting once they are written */
-      map_vblank(); /* screen edge coming into view: priority */
+      /* Every transfer is a descriptor since V3, and the SCENE order
+         holds through the two lanes: the map bursts walk FIRST in the
+         dispatcher's table and fit the ISR's cap, so a screen edge
+         still outranks everything (it fires at ~line 227); the UI
+         keeps its historical seat right after — first claim on the
+         tail's remainder, or the typewriter's bottom rows starve
+         behind the leftovers (seen on d340 the one build this order
+         was wrong); the tail drains what the cap left over LAST,
+         which keeps the animated-tile step the first sacrifice under
+         a short window (the vbl_turn rotation retired with it). */
       ui_screen_vblank(); /* UI layer (dialogue + HUD + timer, M1) —
                              splits into rows if the window is short */
-      /* Optional, in ROTATING priority. In a fixed chain the last one is
-         always the one sacrificed — and the vignettes failing is the
-         most invisible of all: an animation frame that does not move
-         looks like nothing in particular. */
-      if (vbl_turn())
-      {
-        tileanim_vblank(); /* one animated-tile step (4 chars) — T1 */
-        vig_vblank();      /* vignette frames (B5) */
-      }
-      else
-      {
-        vig_vblank();
-        tileanim_vblank();
-      }
+      vig_vblank();   /* vignette palettes (B5) */
+      vbl_nmi_tail(); /* map/cell/tile leftovers, table order */
     }
   }
   return 0;

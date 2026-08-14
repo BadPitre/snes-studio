@@ -19,9 +19,11 @@
  * source, size, VRAM address and the go bit remain.
  *
  * Each consumer owns a fixed SLICE of the queue: it fills it whenever it
- * likes, in its *_update, and the VBlank block only pulls the trigger.
- * No shared queue to contend for, no copying at the moment there is no
- * time for it.
+ * likes, in its *_update, and PUBLISHES a burst descriptor to the
+ * dispatcher (vblnmi.h, V-NMI V3) that fires it from the NMI ISR or
+ * the VBlank tail. The batch parameters below (vj_first/vj_n/vj_vmain/
+ * vj_ctrl) became the DISPATCHER'S SCRATCH: it is the only writer,
+ * setting them from the descriptor just before vram_burst.
  *
  * WHAT DID NOT MOVE HERE
  * Vignettes keep dmaCopyVram: their four transfers depend on the slot
@@ -57,7 +59,8 @@ extern u16 vj_bank[VJ_MAX]; /* source bank (low byte) */
 extern u16 vj_dst[VJ_MAX];  /* VRAM address, in WORDS */
 extern u16 vj_len[VJ_MAX];  /* bytes */
 
-/* Parameters of the batch to fire, set just before vram_burst(). */
+/* Parameters of the batch to fire, set just before vram_burst() —
+   by the DISPATCHER only since V-NMI V3 (vblnmi.c's burst kind). */
 extern u16 vj_first; /* first transfer of the slice */
 extern u16 vj_n;     /* how many to chain (0 does nothing) */
 extern u16 vj_vmain; /* VJ_INC1 or VJ_INC32, shared by the batch */

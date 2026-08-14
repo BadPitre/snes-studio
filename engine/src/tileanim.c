@@ -28,6 +28,7 @@
 #include "vbudget.h"
 #include "vram.h"
 #include "vramjob.h"
+#include "vblnmi.h"
 
 extern const u8 ta_first[];
 extern const u8 ta_ffirst[];
@@ -44,7 +45,10 @@ static u8 ta_n = 0;       /* active sequences of the current scene */
 static u8 ta_base = 0;    /* global index of the first */
 static u8 ta_cnt[TA_MAX]; /* countdown per sequence */
 static u8 ta_pos[TA_MAX]; /* position in the cycle */
-static u8 ta_pend = 0xFF; /* sequence whose step is waiting for the VBlank */
+static u8 ta_pend = 0xFF; /* sequence whose step is IN FLIGHT on the
+    dispatcher (V-NMI V3) — 0xFF free. One step at a time, as always;
+    the descriptor's token is the authority, this mirrors it so the
+    update loop knows when to arm the next step. */
 static u8 ta_pfrm = 0;    /* frame (global index) of the pending step */
 static u16 ta_njobs = 0;  /* transfers in the pending plan (1 to 4) */
 
@@ -63,6 +67,8 @@ void tileanim_init(u8 scene_id)
   }
   ta_pend = 0xFF; /* a step from the previous scene must never fire */
   ta_njobs = 0;
+  vn_cancel(VN_TA); /* including one already published: its gfx_chars
+                       source died with the scene */
 }
 
 /* Builds the transfer plan for the armed step. Called from
@@ -108,6 +114,8 @@ void tileanim_update(void)
 {
   u8 i, s, nf, cyc, f;
 
+  if (ta_pend != 0xFF && !vn_busy(VN_TA))
+    ta_pend = 0xFF; /* the step landed (either lane): free the seat */
   for (i = 0; i < ta_n; i++)
   {
     if (ta_cnt[i])
@@ -129,21 +137,11 @@ void tileanim_update(void)
     ta_pfrm = (u8)(ta_ffirst[s] + f);
     ta_cnt[i] = ta_speed[s];
     ta_plan();
+    /* Published, not fired: the dispatcher's lanes take it from here
+       (V-NMI V3). VN_TA walks LAST in the table — the animated tile
+       step keeps its historical role of first sacrifice under a
+       short window, and it retries as long as the token stands. */
+    vn_publish_burst(VN_TA, VJ_TILEANIM, ta_njobs, VJ_INC1,
+                     VBL_COST_BURST(ta_njobs, 128));
   }
-}
-
-void tileanim_vblank(void)
-{
-  if (ta_pend == 0xFF)
-    return;
-  /* An animated tile step is the first thing we sacrifice: it does not
-     show, and ta_pend stays armed so the step passes next frame. */
-  if (!vbl_take(VBL_COST_BURST(ta_njobs, 128)))
-    return;
-  vj_first = VJ_TILEANIM;
-  vj_n = ta_njobs;
-  vj_vmain = VJ_INC1;
-  vj_ctrl = VJ_CTRL_VRAM;
-  vram_burst();
-  ta_pend = 0xFF;
 }

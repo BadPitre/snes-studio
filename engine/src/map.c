@@ -22,6 +22,7 @@
 #include "vbudget.h"
 #include "vram.h"
 #include "vramjob.h"
+#include "vblnmi.h"
 #include "effectlayer.h"
 
 #define WIN_W 32     /* window in metatiles = one full SC_64x64 tilemap */
@@ -31,8 +32,10 @@
 /* BG priority bit of a map entry ($2105) — upper-layer tiles drawn in front */
 #define BG_PRIO 0x2000
 
-/* Transfer plans, built by map_queue_col/row and fired by map_vblank.
-   Defined further down, next to map_vblank. */
+/* Transfer plans, built by map_queue_col/row and PUBLISHED to the
+   dispatcher (vblnmi.h, V3): the burst descriptor carries the queue
+   slice and its $2115 mode, and fires from the NMI ISR (fast lane) or
+   the VBlank tail under the budget. Defined further down. */
 static void map_plan_col(u16 j, u16 base_vram, u16 bx, u16 *buf);
 static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf);
 
@@ -58,7 +61,6 @@ static u16 bg_map_buffer[4096];
    layer (lo = lower/BG2, up = upper/BG1). */
 static u16 col_lo[2][64], col_up[2][64];
 static u16 row_lo[2][64], row_up[2][64];
-static u8 col_pending, row_pending;
 static u16 col_vram_x; /* VRAM char column (even, 0..62) */
 static u16 row_vram_y; /* VRAM char row (even, 0..62) */
 
@@ -145,8 +147,9 @@ void map_init(void)
   lo_prio = effect_is_back() ? BG_PRIO : 0;
   win_x = map_win_target(camera.x, scene_ctx.map_w);
   win_y = map_win_target(camera.y, scene_ctx.map_h);
-  col_pending = 0;
-  row_pending = 0;
+  vn_cancel(VN_MAPC); /* a burst planned for the OLD scene must not
+                         land on the new one's freshly-filled maps */
+  vn_cancel(VN_MAPR);
 
   map_fill_layer(scene_ctx.tilemap, VRAM_BG2_MAP, 0);
   /* Effect layer: the BG1 map region carries the pattern. The upper
@@ -162,6 +165,10 @@ static void map_queue_col(u16 mx)
   const u8 *src = scene_ctx.tilemap + win_y * (u16)scene_ctx.map_w + mx;
   const u8 *usrc = scene_ctx.tilemap_upper + win_y * (u16)scene_ctx.map_w + mx;
 
+  /* The buffers below are the WRAM the published burst reads: kill an
+     in-flight descriptor BEFORE the first write (the ISR can interrupt
+     this very loop), then publish the fresh one LAST. */
+  vn_cancel(VN_MAPC);
   for (my = 0; my < WIN_H; my++)
   {
     const u16 *mt;
@@ -203,7 +210,16 @@ static void map_queue_col(u16 mx)
   map_plan_col(VJ_MAP_COL + 2, VRAM_BG2_MAP, col_vram_x + 1, col_lo[1]);
   map_plan_col(VJ_MAP_COL + 4, VRAM_BG1_MAP, col_vram_x, col_up[0]);
   map_plan_col(VJ_MAP_COL + 6, VRAM_BG1_MAP, col_vram_x + 1, col_up[1]);
-  col_pending = 1;
+  /* When the effect layer runs, the BG1 VRAM region carries the
+     pattern and not the upper layer: the plan's last four transfers
+     are exactly the BG1 ones, so the burst stops before them. The
+     state is per SCENE — stable between publish and fire. */
+  if (effect_active())
+    vn_publish_burst(VN_MAPC, VJ_MAP_COL, 4, VJ_INC32,
+                     VBL_COST_MAPHALF(4));
+  else
+    vn_publish_burst(VN_MAPC, VJ_MAP_COL, 8, VJ_INC32,
+                     VBL_COST_MAPHALF(8));
 }
 
 /* Prepares metatile row my (columns win_x..win_x+31), both layers */
@@ -213,6 +229,7 @@ static void map_queue_row(u16 my)
   const u8 *src = scene_ctx.tilemap + my * (u16)scene_ctx.map_w + win_x;
   const u8 *usrc = scene_ctx.tilemap_upper + my * (u16)scene_ctx.map_w + win_x;
 
+  vn_cancel(VN_MAPR); /* same WRAM rule as map_queue_col */
   for (mx = 0; mx < WIN_W; mx++)
   {
     const u16 *mt;
@@ -251,7 +268,12 @@ static void map_queue_row(u16 my)
   map_plan_row(VJ_MAP_ROW + 2, VRAM_BG2_MAP, row_vram_y + 1, row_lo[1]);
   map_plan_row(VJ_MAP_ROW + 4, VRAM_BG1_MAP, row_vram_y, row_up[0]);
   map_plan_row(VJ_MAP_ROW + 6, VRAM_BG1_MAP, row_vram_y + 1, row_up[1]);
-  row_pending = 1;
+  if (effect_active())
+    vn_publish_burst(VN_MAPR, VJ_MAP_ROW, 4, VJ_INC1,
+                     VBL_COST_MAPHALF(4));
+  else
+    vn_publish_burst(VN_MAPR, VJ_MAP_ROW, 8, VJ_INC1,
+                     VBL_COST_MAPHALF(8));
 }
 
 void map_update(void)
@@ -306,38 +328,11 @@ static void map_plan_row(u16 j, u16 base_vram, u16 by, u16 *buf)
   vj_set(j + 1, (const u8 *)&buf[32], base + (1 << 10), 32 * 2);
 }
 
-void map_vblank(void)
-{
-  u16 n;
-
-  /* Most frames have nothing to post: leave before even asking where
-     the effect layer stands. */
-  if (!col_pending && !row_pending)
-    return;
-  /* When the effect layer runs, the BG1 VRAM region carries the pattern
-     and not the upper layer. The plan's last four transfers are exactly
-     the BG1 ones, so it is enough to stop before them. */
-  n = effect_active() ? 4 : 8;
-
-  /* Column and row ask for their room separately: when the window is
-     short, posting one beats posting neither. What is not transferred
-     stays marked and comes back. */
-  if (col_pending && vbl_take(VBL_COST_MAPHALF(n)))
-  {
-    vj_first = VJ_MAP_COL;
-    vj_n = n;
-    vj_vmain = VJ_INC32;
-    vj_ctrl = VJ_CTRL_VRAM;
-    vram_burst();
-    col_pending = 0;
-  }
-  if (row_pending && vbl_take(VBL_COST_MAPHALF(n)))
-  {
-    vj_first = VJ_MAP_ROW;
-    vj_n = n;
-    vj_vmain = VJ_INC1;
-    vj_ctrl = VJ_CTRL_VRAM;
-    vram_burst();
-    row_pending = 0;
-  }
-}
+/* The bursts fire from the DISPATCHER since V-NMI V3 (vblnmi.c): the
+   map lanes walk FIRST in its table — a screen edge coming into view
+   is still the priority transfer — and a full column (cost 14) fits
+   the ISR's cap, so on most frames the edge lands at ~line 227
+   instead of fighting the tail's leftovers. Column and row are
+   separate descriptors: when the window is short, posting one beats
+   posting neither, and what is not transferred stays published and
+   comes back — the pending flags became the descriptors' tokens. */

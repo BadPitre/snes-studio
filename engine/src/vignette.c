@@ -26,6 +26,7 @@
 #include "actors.h"
 #include "camera.h"
 #include "vram.h"
+#include "vblnmi.h"
 #include "data/vidmap.h"
 
 /* generated register (data_vignettes.c — always emitted) */
@@ -79,39 +80,37 @@ static u8 v_shadow[VIG_SLOTS]; /* owner slot of the 64x64 QUAD covering
 static u8 pal_vig[VIG_PALS];  /* vignette loaded in OBJ palette p */
 static u8 pal_rc[VIG_PALS];   /* slots using it */
 static u8 v_dirty = 0;        /* bitmask: frame to transfer */
-static u8 v_row[VIG_SLOTS];   /* next cell row still to send
-                                 (0..vig_rows[size]) */
 
-/* The PREPARED row — computed in the main loop (vig_prep, called at
-   the end of vig_update), fired at the very top of vig_vblank.
-   Measured (H-bugfix): computing src and base inside the VBlank costs
-   ~14 scan lines of tcc-816 code between entry and the DMA; the
-   window often opens for us only around line 240-250, so a transfer
-   decided there never lands. Precomputed, the DMA fires within ~2
-   lines of entry. The pr_* copies double as a staleness check: if
-   the slot changed meanwhile (new show, new frame), the fire is
-   skipped and the next vig_prep recomputes. */
-static const u8 *pr_src;      /* row source (far pointer) */
-static u16 pr_base;           /* row VRAM word address */
-static u16 pr_len;            /* row length in bytes (vig_rowlen) */
-static u8 pr_rows;            /* rows in the cell (vig_rows) */
-static u8 pr_cost;            /* declared cost per row (vig_rowcost) */
-static u8 pr_slot = 0xFF;     /* slot owning the row, 0xFF = none */
-static u8 pr_id, pr_frame, pr_row; /* state the row was computed for */
+/* The cell's transfer lives in the DISPATCHER since V-NMI (vblnmi.c):
+   vig_update publishes ONE descriptor — src, VRAM base, the cell's
+   rows walking the 16-char name grid — and the dispatcher fires it
+   from the NMI ISR (fast lane, ~line 227) or from the tail under the
+   budget. The descriptor carries its own row progress, so v_row and
+   the pr_* statics of the H-bugfix era are gone; what remains here
+   is WHICH slot is in flight and the seq snapshot that lets the
+   producer tell "landed whole" from "cancelled under a mutation".
+   The measurements that shaped this contract (starved 15-line atoms,
+   ~14 lines of in-window tcc address computation, rows dropped past
+   the beam) are retold in vblnmi.h and PLANNING_VBLANK_UNIFIE.md. */
+static u8 vp_slot = 0xFF; /* slot whose cell is in flight, 0xFF none */
+static u8 vp_seq = 0;     /* vn_seq(VN_VIG) at publish time */
 
 /* 1 << s, as data: tcc-816 compiles a variable shift into a loop —
    too slow for the paths that run inside the VBlank window. */
 static const u8 vig_bit[VIG_SLOTS] = { 1, 2, 4, 8, 16, 32, 64, 128 };
 
-/* Owned by the MAIN LOOP (main.c): 1 while the frame is in its pure
-   logic stretch or parked in WaitForVBlank — the regions that never
-   touch a DMA channel — 0 through the VBlank tail and the deferred
-   apply/warp/load block. vig_nmi only fires when this is 1: a DMA
-   started from the ISR in the middle of another dmaCopy's register
-   setup would corrupt both transfers. */
-u8 vig_fire_ok = 0;
 static u8 v_pal = 0;          /* bitmask (per PALETTE): CGRAM to load */
 static u8 v_init = 0;         /* statics seeded (explicit tcc init) */
+
+/* Mutation notice to the dispatcher: any change under a published
+   cell (new show, frame step, hide, reload) makes the in-flight
+   descriptor stale. ONE seq for all slots — a mutation of slot B
+   restarts slot A's interrupted cell, a rare and harmless redundancy
+   that buys not carrying eight counters. */
+static void vig_touch(void)
+{
+  vn_bump(VN_VIG);
+}
 
 /* Which OBJ palettes this context may touch. In a scene, character
    sets hold 0-4: the pool is the generated pair {A, B} plus C, the
@@ -204,10 +203,10 @@ static void vig_init_once(void)
     v_act[i] = 0xFF;
     v_pi[i] = 0xFF;
     v_off[i] = 0;
-    v_row[i] = 0;
     v_shadow[i] = 0xFF;
   }
-  pr_slot = 0xFF;
+  vp_slot = 0xFF;
+  vn_cancel(VN_VIG);
   for (i = 0; i < VIG_PALS; i++)
   {
     pal_vig[i] = 0xFF;
@@ -281,7 +280,7 @@ void vig_show(u8 slot, u8 vig_id, u8 x, u8 y)
   v_x[slot] = x;
   v_y[slot] = y;
   v_off[slot] = 0;
-  v_row[slot] = 0;
+  vig_touch(); /* an in-flight cell for any slot is now stale */
   v_dirty |= (u8)(1 << slot);
 }
 
@@ -306,7 +305,7 @@ void vig_set_frame(u8 slot, u8 frame)
   if (frame >= vig_frames[v_id[slot]] || frame == v_frame[slot])
     return; /* same cell: no DMA (a frame = cell^2/2 bytes) */
   v_frame[slot] = frame;
-  v_row[slot] = 0; /* new cell: restart its rows */
+  vig_touch(); /* new cell: the published one is stale */
   v_dirty |= (u8)(1 << slot);
 }
 
@@ -366,6 +365,7 @@ void vig_hide(u8 slot)
   pal_release(slot);
   vig_oam_hide(slot); /* BEFORE v_id clears: it reads the size */
   quad_release(slot);
+  vig_touch(); /* an in-flight cell for this slot must not land */
   v_id[slot] = 0xFF;
   v_own[slot] = 0;
   v_dirty &= (u8)~(1 << slot);
@@ -377,10 +377,10 @@ void vig_reload(void)
 
   if (!v_init)
     return;
+  vig_touch(); /* whatever was in flight predates the reload */
   for (s = 0; s < VIG_SLOTS; s++)
     if (v_id[s] != 0xFF)
     {
-      v_row[s] = 0;
       v_dirty |= (u8)(1 << s);
       if (v_pi[s] < VIG_PALS)
         v_pal |= (u8)(1 << v_pi[s]);
@@ -426,7 +426,7 @@ void vig_update(void)
         }
         v_frame[s] = 0;
       }
-      v_row[s] = 0; /* new cell: restart its rows */
+      vig_touch(); /* new cell: the published one is stale */
       v_dirty |= (u8)(1 << s);
     }
     /* position: on screen, or pinned to the hero / an actor (signed
@@ -493,9 +493,23 @@ void vig_update(void)
       }
     }
   }
-  /* prepare the next row to transfer: all the slow bookkeeping runs
-     HERE, in the main loop, so the VBlank only has to fire it */
-  pr_slot = 0xFF;
+  /* The producer's half of the dispatcher contract (vblnmi.h): read
+     the fate of the cell in flight, then publish the next dirty one.
+     All the slow bookkeeping runs HERE, in the main loop — the lanes
+     only fire descriptors. */
+  if (vp_slot != 0xFF)
+  {
+    if (vn_seq(VN_VIG) != vp_seq)
+      vn_cancel(VN_VIG); /* mutated under the descriptor: the dirty
+          bit survives, the republish below reads the fresh state */
+    else if (vn_busy(VN_VIG))
+      return; /* still in flight, untouched: let it land */
+    else
+      v_dirty &= (u8)~vig_bit[vp_slot]; /* landed whole */
+    vp_slot = 0xFF;
+  }
+  if (v_dirty == 0)
+    return; /* idle fast path: no cell to publish — most frames */
   for (s = 0; s < VIG_SLOTS; s++)
   {
     if (!(v_dirty & vig_bit[s]))
@@ -505,118 +519,38 @@ void vig_update(void)
       v_dirty &= (u8)~vig_bit[s];
       continue;
     }
-    /* frame and row offsets per cell size — CONSTANT shifts in
-       branches (a variable shift is a tcc-816 loop): a frame is
-       cell^2/2 bytes (128/512/2048), a row cell*4 bytes. */
+    /* frame offset per cell size — CONSTANT shifts in branches (a
+       variable shift is a tcc-816 loop): a frame is cell^2/2 bytes
+       (128/512/2048). The descriptor starts at row 0 and carries its
+       own progress: an interrupted cell resumes from the descriptor,
+       on either lane, so no v_row lives here anymore. */
     {
+      const u8 *src;
+      u16 base;
       u8 sz = vig_size[v_id[s]];
 
       if (sz == 0)
-        pr_src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 7)
-                 + ((u16)v_row[s] << 6);
+        src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 7);
       else if (sz == 1)
-        pr_src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9)
-                 + ((u16)v_row[s] << 7);
+        src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 9);
       else
-        pr_src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 11)
-                 + ((u16)v_row[s] << 8);
-      pr_len = vig_rowlen[sz];
-      pr_rows = vig_rows[sz];
-      pr_cost = vig_rowcost[sz];
+        src = vig_chars[v_id[s]] + ((u16)v_frame[s] << 11);
+      base = VRAM_OBJ_GFX + ((u16)VIG_CHAR(s) << 4);
+      /* dst walks the 16-char name grid: 256 words per cell row */
+      vn_publish(VN_VIG, src, base, vig_rowlen[sz], vig_rows[sz],
+                 256, vig_rowcost[sz]);
     }
-    pr_base = VIG_CHAR(s) + ((u16)v_row[s] << 4); /* row's char index */
-    pr_base = VRAM_OBJ_GFX + (pr_base << 4);
-    pr_slot = s;
-    pr_id = v_id[s];
-    pr_frame = v_frame[s];
-    pr_row = v_row[s];
+    vp_slot = s;
+    vp_seq = vn_seq(VN_VIG);
     break;
   }
 }
 
-/* The transfer atom is one ROW of the cell (1 DMA, 128 bytes, 4 lines
-   declared), PREPARED in the main loop and FIRED here. It used to be
-   the whole cell (4 DMAs, 15 lines) computed in place, and that
-   failed twice over, both measured with the V counter on the showcase
-   gobelin battle (H-bugfix):
-
-   - the 15-line atom never fit a battle frame — after the NMI, the
-     stage registers and the battle UI, 6-11 real lines remain, so the
-     slot STARVED (sprites shown with empty chars: invisible until the
-     ATB gauges went quiet and stopped redrawing);
-   - when the ledger drifted optimistic it granted at line ~253, and
-     computing src and base in place added ~14 MORE lines of tcc-816
-     code before the first byte moved — the PPU silently dropped what
-     ran past the window (battlers cut in half).
-
-   Three answers, one per cause:
-   - the BUDGET meters the declared ledger (throughput fairness);
-   - a fresh COUNTER READ before each row (vbl_probe — the asm read,
-     free) rejects a row the ledger would have granted late: the
-     ledger drifts, the beam does not;
-   - the row's src and base are precomputed in vig_update (main loop,
-     where lines are free), so the fire itself is two compares and a
-     DMA — inside the window that the probe just confirmed.
-
-   A cell completes in 1-4 VBlanks depending on the frame's load. At
-   idle animation speeds that is invisible; a fast animation on a
-   loaded screen coalesces steps instead of corrupting. v_row
-   remembers the next row so a cell interrupted mid-way resumes where
-   it stopped — and restarts at 0 whenever a NEW cell is queued. */
-
-/* Fired from the VBlank ISR — main.c installs this with nmiSet. At
-   interrupt time the beam sits at the top of the window (~line 227,
-   after the ISR's own OAM transfer), no matter how late the frame's
-   logic runs — and that lateness is precisely what starved the tail
-   path: during an ATB charge the battle's parallel scripts end the
-   frame around line 250, vbl_open anchors on fumes, and the party
-   stood invisible until the first gauge filled (measured, twice).
-   From here the whole remaining cell (up to 4 rows, ~14 lines) always
-   fits: no budget, no probe, a bounded ISR cost instead.
-
-   Integrity rules, since the ISR can interrupt the main loop anywhere:
-   - the row is used only if vig_fire_ok says the main loop is in a
-     DMA-free stretch (see the flag's comment);
-   - pr_slot is the publication gate: vig_update writes it LAST when
-     preparing and vig_nmi consumes it, so a half-written prep is
-     never fired;
-   - the pr_id/pr_frame/pr_row compares drop a row whose slot moved
-     on (new show, animation step) between the prep and this NMI. */
-void vig_nmi(void)
-{
-  u8 s, n;
-
-  s = pr_slot;
-  if (s == 0xFF)
-    return;
-  if (!vig_fire_ok)
-    return; /* tail or loader running: their DMAs own the channel */
-  pr_slot = 0xFF; /* consumed either way: vig_update re-preps */
-  if (pr_id != v_id[s] || pr_frame != v_frame[s] || pr_row != v_row[s])
-    return;
-  if (!(v_dirty & vig_bit[s]))
-    return;
-  /* at most 4 rows per NMI: a 32x32 cell still lands whole (the ~14
-     lines this was sized for), a 64x64 (8 rows of 256 B, ~30 lines
-     with the per-row overhead) spreads over two VBlanks instead of
-     holding the ISR past the window. */
-  n = 4;
-  while (v_row[s] < pr_rows)
-  {
-    dmaCopyVram((u8 *)pr_src, pr_base, pr_len);
-    pr_src += pr_len;
-    pr_base += 256; /* next name-grid row: 16 chars of 16 words */
-    v_row[s]++;
-    n--;
-    if (n == 0)
-      break;
-  }
-  if (v_row[s] < pr_rows)
-    return; /* cell unfinished: dirty stays, vig_update re-preps */
-  v_row[s] = 0;
-  v_dirty &= (u8)~vig_bit[s];
-}
-
+/* The cell rows moved to the dispatcher (vblnmi.c) with V-NMI: the
+   ISR lane fires them at ~line 227 and the tail lane (vbl_nmi_tail,
+   called by main.c right after this) drains the rest under the
+   budget. What remains here is the CGRAM half — palettes are not
+   VRAM descriptors until the dispatcher grows a ctrl field (V3). */
 void vig_vblank(void)
 {
   u8 s;
@@ -643,35 +577,4 @@ void vig_vblank(void)
         return;
       }
   }
-  /* Fire the prepared row — the transfer is decided in two compares
-     and starts within ~2 lines of entry. The staleness gate re-checks
-     the slot against the state the row was computed for: a vig_show
-     or an animation step between the prep and this VBlank makes the
-     fire skip; the next vig_update prepares the fresh row. The
-     FOLLOWING rows of the same cell are pure increments (src += 128,
-     base += one grid row), so they chain in the same VBlank as long
-     as the budget and the beam both agree; the cell completes in 1-4
-     VBlanks depending on the frame's load. */
-  s = pr_slot;
-  if (s == 0xFF)
-    return;
-  pr_slot = 0xFF; /* consumed either way: vig_update re-preps */
-  if (pr_id != v_id[s] || pr_frame != v_frame[s] || pr_row != v_row[s])
-    return;
-  if (!(v_dirty & vig_bit[s]))
-    return;
-  while (v_row[s] < pr_rows)
-  {
-    if (!vbl_take(pr_cost))
-      return; /* no room: v_row and the dirty bit stay put */
-    vbl_probe();
-    if (vbl_v >= VBL_LAST - pr_cost)
-      return; /* the beam is past what the ledger believes */
-    dmaCopyVram((u8 *)pr_src, pr_base, pr_len);
-    pr_src += pr_len;
-    pr_base += 256; /* next name-grid row: 16 chars of 16 words */
-    v_row[s]++;
-  }
-  v_row[s] = 0;
-  v_dirty &= (u8)~vig_bit[s];
 }
