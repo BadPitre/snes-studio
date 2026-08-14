@@ -1446,41 +1446,45 @@ export default function App() {
     mutate((d) => ({ ...d, project: { ...d.project, boot_scene: name } }));
   }
 
+  // The stack pops live OUTSIDE the setData updater: an updater is
+  // double-invoked by StrictMode in dev, and a pop inside it undid TWO
+  // steps per Ctrl+Z while corrupting the redo stack. Plain
+  // setData(value) keeps the updater pure. (The keyboard effect
+  // re-registers every render, so the `data` closure stays fresh.)
   const doUndo = useCallback(() => {
-    setData((d) => {
-      if (!d) return d;
-      const prev = history.undo(d);
-      if (!prev) return d;
-      setDirty(true);
-      return prev;
-    });
-  }, [history]);
+    if (!data) return;
+    const prev = history.undo(data);
+    if (!prev) return;
+    setDirty(true);
+    setData(prev);
+  }, [data, history]);
 
   const doRedo = useCallback(() => {
-    setData((d) => {
-      if (!d) return d;
-      const next = history.redo(d);
-      if (!next) return d;
-      setDirty(true);
-      return next;
-    });
-  }, [history]);
+    if (!data) return;
+    const next = history.redo(data);
+    if (!next) return;
+    setDirty(true);
+    setData(next);
+  }, [data, history]);
 
   // keyboard shortcuts
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
-      if (e.key === "s") {
+      // normalised: with Shift held e.key is "Z", so the raw compare
+      // made Ctrl+Shift+Z dead code (and Caps Lock killed all three)
+      const k = e.key.toLowerCase();
+      if (k === "s") {
         e.preventDefault();
         void save();
-      } else if (e.key === "z" && !e.shiftKey) {
+      } else if (k === "z" && !e.shiftKey) {
         // no interception inside text fields (they handle their own undo)
         const t = e.target as HTMLElement;
         if (t.tagName === "TEXTAREA" || t.tagName === "INPUT") return;
         e.preventDefault();
         doUndo();
-      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
         const t = e.target as HTMLElement;
         if (t.tagName === "TEXTAREA" || t.tagName === "INPUT") return;
         e.preventDefault();
