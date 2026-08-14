@@ -49,8 +49,10 @@ u8 btlprim_target_end(void);
 void btlprim_target_tick(void); /* per-frame pulse/blink feedback */
 
 /* Main loop: OAM upkeep, the clock, session reset when the stage
-   closes. VBlank: spread battler-cell and digit-sheet uploads, in the
-   stage_active branch after vbl_open (the btl_vblank discipline). */
+   closes, and the descriptor publication toward the dispatcher — the
+   battler cells and the digit sheet fire from vblnmi.c's two lanes
+   since V-NMI. VBlank: the CGRAM half only (battler and digit
+   palettes), in the stage_active branch after vbl_open. */
 void btlprim_update(void);
 void btlprim_vblank(void);
 

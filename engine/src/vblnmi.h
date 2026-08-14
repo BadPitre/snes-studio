@@ -44,7 +44,8 @@
 /* Fixed slots, one per producer — table order is PRIORITY (fixed
    prefix; the rotating suffix arrives with V3's optional band). */
 #define VN_VIG 0
-#define VN_SLOTS 2 /* V2 adds the battler lane */
+#define VN_BP 1 /* battler cells + digit sheet (btlprim.c, V2) */
+#define VN_SLOTS 2
 
 /* Declared-line cap per NMI: 4 vignette rows of a 32x32 cell (the
    H-bugfix bound, cost 4 each) fit exactly; a 64x64 cell (rows of
@@ -74,5 +75,11 @@ void vbl_nmi_tail(void);
    stretch (logic + parked in WaitForVBlank) — see main.c's two write
    sites, which do not move. */
 extern u8 vbl_fire_ok;
+
+/* Measurement hooks (V-counter sessions, read via the .sym): the
+   beam after the ISR's last fire, and the highest ever. Fires on
+   forced-blank frames legitimately exceed VBL_LAST — see vblnmi.c. */
+extern u16 vn_v_last;
+extern u16 vn_v_max;
 
 #endif /* VBLNMI_H */

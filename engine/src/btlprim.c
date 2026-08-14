@@ -16,6 +16,7 @@
 #include "btlprim.h"
 #include "stage.h"
 #include "vbudget.h"
+#include "vblnmi.h"
 #include "vm.h"
 #include "vram.h"
 #include "data/vidmap.h"
@@ -46,9 +47,17 @@ static u8 bp_x[4];
 static u8 bp_y[4];
 static u8 bp_ent[4] = { 0, 0, 0, 0 }; /* db entry shown per slot
     (explicit: tcc-816 does not clear the BSS) */
-static u8 bp_q = 0;   /* upload queue, bit h (order: low bit first) */
-static u8 bp_up = 0;  /* slot being uploaded (when bp_q has its bit) */
-static u8 bp_row = 0; /* next 128-byte step of the current cell */
+static u8 bp_q = 0;   /* upload queue, bit h (order: low bit first;
+    the bit stays set until the PALETTE lands — btlprim_busy) */
+static u8 bp_pal = 0; /* bit h: cells landed, palette still to load */
+
+/* The cell and digit-sheet transfers travel as DESCRIPTORS on the
+   dispatcher's VN_BP slot since V-NMI (vblnmi.h): bp_prep publishes,
+   the ISR or the tail fires, and the descriptor carries its own row
+   progress — bp_up/bp_row are gone. What remains is WHAT is in
+   flight and the seq snapshot that tells "landed" from "cancelled". */
+static u8 bp_pub = 0xFF; /* 0-3 battler slot, 0xFE digit sheet */
+static u8 bp_seq = 0;    /* vn_seq(VN_BP) at publish time */
 
 /* ---- popup (POPUP) ---- */
 static u8 dig_want = 0; /* a popup asked for the digit sheet */
@@ -85,9 +94,13 @@ void btlprim_pose(u8 slot, u8 entry, u8 x, u8 y, u8 op)
     return; /* no such entry in the heroes table */
   if (bp_ent[slot] != entry)
   {
-    /* the slot changes character: its cells and palette are stale */
+    /* the slot changes character: its cells and palette are stale —
+       including a descriptor in flight for the OLD entry (vn_bump
+       drops it on both lanes; bp_prep republishes from bp_ent) */
     bp_ent[slot] = entry;
     bp_have &= (u8)~bit;
+    bp_pal &= (u8)~bit;
+    vn_bump(VN_BP);
   }
   bp_x[slot] = x;
   bp_y[slot] = y;
@@ -261,6 +274,61 @@ static void pop_oam(void)
     pop_t--; /* the timer only runs once the digits can show */
 }
 
+/* The producer's half of the dispatcher contract (vblnmi.h), run in
+   the MAIN LOOP where lines are free: read the fate of the published
+   descriptor, then publish the next transfer. Battler cells first —
+   a queued pose is a script WAITING — then the digit sheet. */
+static void bp_prep(void)
+{
+  u8 h, bit;
+  const u8 *src;
+  u16 base;
+
+  if (bp_pub != 0xFF)
+  {
+    if (vn_seq(VN_BP) != bp_seq)
+      vn_cancel(VN_BP); /* mutated underneath: republish fresh below */
+    else if (vn_busy(VN_BP))
+      return; /* still in flight: let it land */
+    else if (bp_pub == 0xFE)
+      dig_up = 1; /* sheet landed whole: palette next (the tail) */
+    else
+      bp_pal |= (u8)(1 << bp_pub); /* cells landed: palette next */
+    bp_pub = 0xFF;
+  }
+  if (stage_busy())
+    return; /* the laying owns the window — poses upload after it,
+               exactly the pre-V2 timing */
+  for (h = 0; h < 4; h++)
+  {
+    bit = (u8)(1 << h);
+    if (!(bp_q & bit) || (bp_pal & bit))
+      continue; /* nothing queued, or only the palette remains */
+    src = btl_battler_cells[bp_ent[h]];
+    base = BP_CHAR(h);
+    base <<= 4;
+    base += VRAM_OBJ_GFX;
+    /* 4 rows of 128 bytes walking the 16-char name grid — the same
+       row a 32x32 vignette transfers, at the same measured cost. */
+    vn_publish(VN_BP, src, base, 128, 4, 256, 4);
+    bp_pub = h;
+    bp_seq = vn_seq(VN_BP);
+    return;
+  }
+  if (dig_want && dig_up == 0)
+  {
+    /* the digit sheet: once the engine's largest ATOM (1536 bytes,
+       11 lines in one unprobed bite — dropped whole on a drifted
+       ledger), now 3 sub-transfers of 512 bytes the descriptor
+       resumes across VBlanks. */
+    vn_publish(VN_BP, btl_digit_cells,
+               (u16)(VRAM_OBJ_GFX + ((u16)BP_DIGCHAR << 4)),
+               512, 3, 256, 10);
+    bp_pub = 0xFE;
+    bp_seq = vn_seq(VN_BP);
+  }
+}
+
 void btlprim_update(void)
 {
   u8 i;
@@ -290,11 +358,21 @@ void btlprim_update(void)
       }
       pop_n = 0;
     }
-    /* the session's visual state dies with the screen */
+    /* the session's visual state dies with the screen — including
+       whatever descriptor was still in flight (once: this branch
+       runs EVERY map frame, and the demo's dialogue frames sit close
+       enough to the line that two long calls a frame moved the pixel
+       regression) */
+    if (bp_pub != 0xFF)
+    {
+      bp_pub = 0xFF;
+      vn_bump(VN_BP);
+      vn_cancel(VN_BP);
+    }
     bp_shown = 0;
     bp_have = 0;
     bp_q = 0;
-    bp_row = 0;
+    bp_pal = 0;
     dig_want = 0;
     dig_up = 0;
     pop_t = 0;
@@ -303,72 +381,50 @@ void btlprim_update(void)
   }
   bp_oam();
   pop_oam();
+  bp_prep();
 }
 
+/* PALETTES only since V-NMI: the cells and the digit sheet travel as
+   descriptors, fired by the dispatcher's two lanes. Pixels landing
+   before their colours is safe HERE because display is gated on the
+   palette's own flag (bp_have / dig_up == 2) — the OAM entry stays
+   hidden until both halves are in. The probe is the one this tail
+   never had: an unprobed take dropped the transfer silently on a
+   drifted ledger, the exact failure vignette.c documented. */
 void btlprim_vblank(void)
 {
-  const u8 *src;
+  u8 h, bit;
   u16 base, ofs;
 
   if (!stage_active() || stage_busy())
     return; /* the stage's own transfers keep the bus */
-  /* battler cells first: a queued pose is a script WAITING */
-  if (bp_q)
+  for (h = 0; h < 4; h++)
   {
-    if (!((bp_q >> bp_up) & 1))
-    {
-      for (bp_up = 0; bp_up < 4 && !((bp_q >> bp_up) & 1); bp_up++)
-      {
-      }
-      bp_row = 0;
-      return;
-    }
-    /* ONE 128-byte transfer per frame — a burst straddling the end of
-       the window lost its tail (the C1/C4 lesson, kept). */
-    if (bp_row < 4)
-    {
-      if (!vbl_take(6))
-        return;
-      src = btl_battler_cells[bp_ent[bp_up]];
-      ofs = bp_row;
-      ofs <<= 7;
-      src += ofs; /* the cell's 128-byte row */
-      base = BP_CHAR(bp_up);
-      base <<= 4;
-      base += VRAM_OBJ_GFX;
-      ofs = bp_row;
-      ofs <<= 8;
-      base += ofs; /* one name row = 16 chars = 256 words */
-      dmaCopyVram((u8 *)src, base, 128);
-      bp_row++;
-      return;
-    }
+    bit = (u8)(1 << h);
+    if (!(bp_pal & bit))
+      continue;
     if (!vbl_take(2))
       return;
+    vbl_probe();
+    if (vbl_v >= VBL_LAST - 2)
+      return; /* the beam is past what the ledger believes */
     /* palette of the ENTRY, into the SLOT's OBJ palette */
-    ofs = bp_ent[bp_up];
+    ofs = bp_ent[h];
     ofs <<= 4;
-    base = bp_up;
+    base = h;
     base <<= 4;
     dmaCopyCGram((u8 *)(btl_battler_pals + ofs), (u16)(128 + base), 32);
-    bp_have |= (u8)(1 << bp_up);
-    bp_q &= (u8)~(1 << bp_up);
-    bp_row = 0;
-    return;
-  }
-  /* then the digit sheet, once a popup wants it */
-  if (dig_want && dig_up == 0)
-  {
-    if (!vbl_take(11))
-      return;
-    dmaCopyVram((u8 *)btl_digit_cells,
-                (u16)(VRAM_OBJ_GFX + ((u16)BP_DIGCHAR << 4)), 1536);
-    dig_up = 1;
-    return;
+    bp_have |= bit;
+    bp_pal &= (u8)~bit;
+    bp_q &= (u8)~bit; /* the pose is DONE: btlprim_busy releases */
+    return; /* one palette a frame: they only move on a pose change */
   }
   if (dig_want && dig_up == 1)
   {
     if (!vbl_take(2))
+      return;
+    vbl_probe();
+    if (vbl_v >= VBL_LAST - 2)
       return;
     dmaCopyCGram((u8 *)btl_digit_pal, 128 + (VID_DIG_PAL << 4), 32);
     dig_up = 2;

@@ -240,3 +240,51 @@ Stated so nobody mistakes silence for zero:
 Settled since this list was written: `VBL_COST_VIG` (§4b, measured at 15
 and corrected) and the register block (§4b — it is the two `bgSetScroll`
 calls, ~2.5 lines each, caller-side argument pushing).
+
+---
+
+## 8. V-NMI dispatcher sessions (V1, V2)
+
+Hooks: `vn_v_last` / `vn_v_max` in `vblnmi.c` — the beam right after
+the ISR lane's last fire (a `vbl_probe` at the end of `vbl_nmi`), and
+the highest such reading since boot. Both readable from a savestate or
+a WRAM dump through the `.sym`. All numbers below are snes9x libretro,
+NTSC timing (VBlank lines ~225-261, `VBL_LAST` guard at 256).
+
+### V1 (vignette on the dispatcher)
+
+Scratch scene, one 16x16 vignette looping at speed 5 plus one 64x64
+(8 rows of cost 6 — always split across NMIs by the cap of 16):
+`vn_v_last = 246` at frame 240, screen on, fires every few frames all
+run long. Entry ~227 plus a capped fire session lands the beam where
+the design's arithmetic said it would. The 64x64 cell was delivered
+byte-exact — the descriptor resume across 3+ NMIs works under load.
+
+### V2 (btlprim on the dispatcher)
+
+Derived gobelin battle, one commanded attack (A at the menu, A on the
+target), 2400 frames: battler cells, the attack's vignette animation
+and the digit sheet (3 x 512 B, cost 10 each) all land byte-exact
+(`btl_digit_cells` compared against VRAM whole). The tail's palettes
+follow and `dig_up`/`bp_have` gate display, so colours still never
+trail pixels on screen.
+
+`vn_v_max = 258` — recorded during the battle OPENING (already at 258
+by frame 600, before any input; the demo map route never fires the
+ISR at all and reads 0). The opening lays the stage behind a wipe:
+fires there run with the screen dark, where the beam guard is
+meaningless and past-`VBL_LAST` readings are expected. 258 < 261
+either way — nothing was ever cut, and every delivery this session
+checks byte-exact.
+
+### Open for the next session (V3)
+
+- `vn_v_last` stuck at 258 through the whole battle suggests the
+  mid-battle fires either also end there (entry later than the ~227
+  assumption on loaded frames?) or mostly drain through the TAIL lane
+  (published after the frame's NMI already ran). Distinguishing needs
+  an entry-line hook (`vbl_probe` at `vbl_nmi` entry into a `vn_v_in`)
+  — one more u16, worth adding WITH the V3 work, not blind.
+- The ISR cap (16 declared) has never been observed to push a
+  screen-on fire past 250; the 2x margin to hardware VBlank end only
+  matters if entry drifts. Same hook answers it.

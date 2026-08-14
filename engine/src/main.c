@@ -433,7 +433,8 @@ int main(void)
       vbl_nmi_tail();    /* vignette rows BEFORE the UI: the measured
                             order (H-bugfix) kept through V-NMI */
       ui_screen_vblank();
-      btlprim_vblank();  /* battler cells + digits (V1), under the budget */
+      btlprim_vblank();  /* battler + digit PALETTES — the cells ride
+                            the dispatcher since V-NMI V2 */
     }
     else
     {

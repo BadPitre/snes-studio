@@ -29,10 +29,14 @@ static u8 vn_snap[VN_SLOTS] = { 0, 0 }; /* seq snapshot at publish */
 static u8 vn_token[VN_SLOTS] = { 0, 0 };
 static u8 vn_live[VN_SLOTS] = { 0, 0 }; /* producer seq counters */
 
-/* Where the beam stood after the ISR's last fire — the measurement
-   hook of the V-counter sessions (read from a savestate via the
-   .sym), and tomorrow a debug-menu line. */
+/* Where the beam stood after the ISR's last fire, and the highest it
+   ever stood — the measurement hooks of the V-counter sessions (read
+   from a savestate via the .sym), and tomorrow a debug-menu line.
+   Caveat when reading them: a fire on a FORCED-BLANK frame (a wipe,
+   a stage opening) legitimately lands past VBL_LAST — with the
+   screen off the beam does not matter, but the max remembers it. */
 u16 vn_v_last = 0;
+u16 vn_v_max = 0;
 
 void vn_publish(u8 i, const u8 *src, u16 dst, u16 len, u8 count,
                 u16 stride, u8 cost)
@@ -110,6 +114,8 @@ void vbl_nmi(void)
   {
     vbl_probe();
     vn_v_last = vbl_v; /* nobody reads vbl_v while vbl_fire_ok is 1 */
+    if (vbl_v > vn_v_max)
+      vn_v_max = vbl_v;
   }
 }
 
