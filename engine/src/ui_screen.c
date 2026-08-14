@@ -15,11 +15,14 @@
 u16 ui_map[32 * UI_ROWS];
 u8 ui_band_up = 0; /* EXPLICIT init: tcc-816 does not clear the BSS */
 static u8 ui_lo, ui_hi; /* dirty span — lo > hi means nothing to transfer */
-static u8 ui_flip = 0;  /* truncated slices alternate ends of the span:
-   widgets that re-mark the TOP every frame (ATB gauges) must not
-   starve an erase waiting at the BOTTOM ("Fuite" lingering after the
-   battle menu closed — the remnant only drains if the bottom gets
-   its turn) */
+static u8 ui_starv = 0; /* truncated slices in a row that served the
+   TOP of the span. Widgets that re-mark the top every frame (ATB
+   gauges) must not starve an erase waiting at the bottom ("Fuite"
+   lingering after the battle menu closed) — but plain alternation
+   made a hide vanish in out-of-order BANDS, which reads far worse
+   than a quick top-down wipe (seen and reported). So: top-down by
+   default, and the bottom takes one slice only after waiting out a
+   couple of truncated frames. */
 /* Where the VRAM map lives. Constant everywhere except on a Mode 7 world
    map, whose plane owns the low half of VRAM (vram.h). */
 static u16 ui_base = VRAM_BG3_MAP;
@@ -116,20 +119,27 @@ void ui_screen_vblank(void)
     return;
   if (fit < want)
     want = fit;
-  /* A truncated slice serves ALTERNATE ends of the span: rows the
-     widgets re-mark every frame sit at the top, and always starting
-     there starves whatever waits at the bottom. A full slice keeps
-     the plain top-down path. */
-  ui_flip ^= 1;
-  if (want < (u8)(ui_hi - ui_lo + 1) && ui_flip)
+  if (want < (u8)(ui_hi - ui_lo + 1))
   {
-    ofs = (u16)(ui_hi - want + 1) << 5; /* the span's tail */
-    dmaCopyVram((u8 *)ui_map + (ofs << 1), ui_base + ofs,
-                (u16)want << 6);
-    (void)vbl_take(VBL_COST_UI(want));
-    ui_hi -= want; /* lo <= hi still holds: want < span size */
-    return;
+    /* Truncated: top-down by default (a hide split over 2-3 frames
+       reads as one quick wipe), but after two slices in a row spent
+       on re-marked top rows, the BOTTOM takes this one — that is
+       what keeps a menu's erase from lingering under widgets that
+       redraw every frame. */
+    if (ui_starv >= 2)
+    {
+      ui_starv = 0;
+      ofs = (u16)(ui_hi - want + 1) << 5; /* the span's tail */
+      dmaCopyVram((u8 *)ui_map + (ofs << 1), ui_base + ofs,
+                  (u16)want << 6);
+      (void)vbl_take(VBL_COST_UI(want));
+      ui_hi -= want; /* lo <= hi still holds: want < span size */
+      return;
+    }
+    ui_starv++;
   }
+  else
+    ui_starv = 0;
   ofs = (u16)ui_lo << 5; /* 32 entries per row */
   dmaCopyVram((u8 *)ui_map + (ofs << 1), ui_base + ofs,
               (u16)want << 6);
