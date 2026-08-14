@@ -93,6 +93,24 @@ void ui_screen_vblank(void)
     return; /* nothing fits: the span stays dirty, we come back */
   if (fit < want)
     want = fit;
+  /* The beam guard this consumer never had (the V-NMI inventory
+     called it): the ledger can drift optimistic — and past line 261
+     the counter WRAPS, which vbl_probe now reads as 511 — while the
+     rows below advance ui_lo assuming the DMA landed. A dropped span
+     stayed grass-through-the-textbox until the next ui_mark. But a
+     SPLITTER's guard SIZES the slice, it does not reject the batch:
+     the first cut of this guard refused on the full span's cost, and
+     a dialogue opening (28 rows) with the beam at ~240 never drew
+     its textbox at all — the pixel regression caught the frozen
+     script within the hour. */
+  vbl_probe();
+  if (vbl_v >= (u16)(VBL_LAST - 3))
+    return; /* not even one row fits: the span stays dirty */
+  fit = VBL_UI_ROWS((u8)(VBL_LAST - vbl_v));
+  if (fit == 0)
+    return;
+  if (fit < want)
+    want = fit;
   ofs = (u16)ui_lo << 5; /* 32 entries per row */
   dmaCopyVram((u8 *)ui_map + (ofs << 1), ui_base + ofs,
               (u16)want << 6);

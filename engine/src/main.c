@@ -422,19 +422,19 @@ int main(void)
       stage_vblank();    /* fixed scrolls + spread-out laying transfers */
       hdmafx_suspend();  /* wave/gradient/spotlight: map ambience */
       vbl_open();        /* stage_vblank is not counted either */
-      /* Vignettes BEFORE the UI layer on a stage. A battle's gauges
-         redraw the UI every frame of an ATB charge; served last, the
-         vignette's 4-line row found the beam past its guard on nearly
-         every one of those frames and the party stood invisible until
-         the first gauge filled (measured, H-bugfix). The UI splits
-         itself and resumes — a text row landing one frame later is
-         invisible; a battler that never lands is not. */
+      /* PALETTES first: 2-line atoms that GATE display (bp_have,
+         dig_up, vig's v_pal). Served last, the digit palette starved
+         behind the UI's message frames for entire popup lifetimes —
+         and before the probe's wrap clamp it "landed" on a wrapped
+         beam and the damage numbers wore the charset's black. The
+         cells' fast lane is the ISR since V-NMI (the H-bugfix
+         vig-before-ui lesson now lives at line ~229); the UI keeps
+         first claim on the bulk budget and still splits itself; the
+         tail's leftover rows close the frame. */
       vig_vblank();      /* vignette palettes (B5) */
-      vbl_nmi_tail();    /* vignette rows BEFORE the UI: the measured
-                            order (H-bugfix) kept through V-NMI */
+      btlprim_vblank();  /* battler + digit palettes (V-NMI V2) */
       ui_screen_vblank();
-      btlprim_vblank();  /* battler + digit PALETTES — the cells ride
-                            the dispatcher since V-NMI V2 */
+      vbl_nmi_tail();    /* leftover cell rows, table order */
     }
     else
     {

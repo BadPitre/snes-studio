@@ -39,6 +39,22 @@ vbl_probe:
     lda.l $00213D ; OPVCT high byte — only bit 0 matters (261 max)
     and #$01
     sta.l vbl_v + 1
+    ; WRAP CLAMP: past line 261 the counter restarts at 0 — a small
+    ; read means display has RESUMED, not that the window is wide
+    ; open. Every guard in the engine compares vbl_v >= VBL_LAST-cost
+    ; and would happily grant a transfer the PPU silently drops (the
+    ; black-digit bug: a CGRAM load "succeeded" on a wrapped beam and
+    ; the popup wore the charset's black). vbl_read (vbl_open) has
+    ; known this since P5; the probe now says it to EVERY caller:
+    ; below 200 reads as 511, far past any guard.
+    rep #$20
+.accu 16
+    lda.l vbl_v
+    cmp #200
+    bcs _vp_ok
+    lda #$01FF
+    sta.l vbl_v
+_vp_ok:
     plp
 .accu 16
     rtl

@@ -85,6 +85,11 @@ static u8 up_row = 0;   /* current row (clear/map) */
 static u8 up_rows = 0;  /* rows built in the buffer (0-2) */
 static u16 up_buf[64];  /* 2 map rows max */
 static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* region to erase */
+static u8 sg_relay = 0; /* bit s: slot to RE-LAY once up_act settles —
+   erasing a cleared slot's rectangle wipes the composed cells that
+   carried an overlapped neighbour's pixels (B3-overlap composes at
+   LAY time only), so the survivors go back down. Seen on the gobelin
+   pair: kill the front one and the back one lost its shoulder. */
 static u16 sg_zero = 0; /* pattern for dmaFillVram16 (transparent entry) */
 
 /* Overlap COMPOSITION (B3-overlap). One tilemap carries every laid
@@ -295,6 +300,7 @@ static void sg_open(void)
   sg_on = 1;
   up_act = 0;
   sg_next_char = 1;
+  sg_relay = 0;
   for (i = 0; i < STAGE_SLOTS; i++)
   {
     sl_pic[i] = 0xFF;
@@ -511,6 +517,61 @@ static void sg_fx_step(void)
   }
 }
 
+/* Marks every OTHER shown slot whose image intersects the region
+   about to be erased (up_cx/cy/cw/ch): its overlapped pixels live in
+   composed cells inside that region and vanish with it. Re-laying is
+   map rows only — the survivor's chars and palette never left — and
+   re-laying over its own footprint allocates nothing: self-compose
+   short-circuits (kept == 0) and a composed under-cell falls back to
+   the plain entry. The same hole exists when stage_pose MOVES an
+   image off a neighbour; that path keeps it for now — the visible
+   case (V-NMI test session) was the cleared battler. */
+static void sg_mark_uncovered(u8 except)
+{
+  u8 s, w, h;
+
+  for (s = 0; s < STAGE_SLOTS; s++)
+  {
+    if (s == except)
+      continue;
+    if (!sl_shown[s])
+      continue;
+    if (sl_pic[s] == 0xFF)
+      continue;
+    w = pic_wt[sl_pic[s]];
+    h = pic_ht[sl_pic[s]];
+    if (sl_x[s] < (u8)(up_cx + up_cw) && (u8)(sl_x[s] + w) > up_cx &&
+        sl_y[s] < (u8)(up_cy + up_ch) && (u8)(sl_y[s] + h) > up_cy)
+      sg_relay |= sg_bit[s];
+  }
+}
+
+/* Pops the next marked slot into a map-only re-lay (up_act 4). Called
+   wherever up_act settles back to 0; stage_busy() stays up through
+   the chain, so a script waiting on the clear waits for the repair
+   too. */
+static void sg_relay_next(void)
+{
+  u8 s;
+
+  for (s = 0; s < STAGE_SLOTS; s++)
+  {
+    if (!(sg_relay & sg_bit[s]))
+      continue;
+    sg_relay &= (u8)~sg_bit[s];
+    if (!sl_shown[s] || sl_pic[s] == 0xFF)
+      continue;
+    up_slot = s;
+    up_pic = sl_pic[s];
+    up_tx = sl_x[s];
+    up_ty = sl_y[s];
+    up_row = 0;
+    up_rows = 0;
+    up_act = 4;
+    return;
+  }
+}
+
 void stage_clear(u8 slot)
 {
   if (!sg_on || up_act || slot >= STAGE_SLOTS || sl_pic[slot] == 0xFF)
@@ -523,6 +584,7 @@ void stage_clear(u8 slot)
   up_slot = slot;
   up_row = 0;
   up_act = 5; /* erase only */
+  sg_mark_uncovered(slot); /* the erase may uncover a neighbour */
   /* the slot keeps its char base: laying the same image again later will
      only cost the map */
 }
@@ -694,7 +756,10 @@ void stage_vblank(void)
     if (up_row >= up_ch)
     {
       if (up_act == 5)
+      {
         up_act = 0; /* erase only: done */
+        sg_relay_next(); /* uncovered neighbours go back down */
+      }
       else
       {
         up_act = 4; /* now the map */
@@ -731,7 +796,10 @@ void stage_vblank(void)
     up_row += up_rows;
     up_rows = 0;
     if (up_row >= pic_ht[up_pic])
+    {
       up_act = 0; /* lay finished — the VM resumes */
+      sg_relay_next(); /* chain the next uncovered neighbour, if any */
+    }
     break;
   }
 }
