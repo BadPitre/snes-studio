@@ -212,14 +212,48 @@ impl IndexedImage {
                 name, frames, max, cell, cell
             );
         }
-        if let Some(&mx) = self.pixels.iter().max() {
-            if mx >= 16 {
-                bail!(
-                    "sprite animé '{}' : index de couleur {} utilise (max 15 — \
-                     15 couleurs + transparence)",
-                    name, mx
-                );
+        // A sheet with more than 15 colours (an RGBA export from the
+        // rectangle extractor, an antialiased strip, an indexed PNG
+        // with scattered indices) used to be REFUSED here while the
+        // Mode 7 path quantises — same cure now: median-cut the OPAQUE
+        // pixels down to 15, index 0 staying the transparency, with a
+        // build note instead of an error.
+        if self.pixels.iter().any(|&p| p >= 16) {
+            let opaque: Vec<u16> = self
+                .pixels
+                .iter()
+                .filter(|&&p| p != 0)
+                .map(|&p| self.palette.get(p as usize).copied().unwrap_or(0))
+                .collect();
+            let distinct = opaque
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let (idx, pal) = crate::mode7::quantise(&opaque, 16);
+            let mut px = Vec::with_capacity(self.pixels.len());
+            let mut k = 0usize;
+            for &p in &self.pixels {
+                if p == 0 {
+                    px.push(0);
+                } else {
+                    px.push(idx[k]);
+                    k += 1;
+                }
             }
+            println!(
+                "  sprite animé '{}' : {} couleurs, réduites à 15 par \
+                 quantisation (l'import direct d'une bande indexée à 15 \
+                 couleurs évite la réduction)",
+                name, distinct
+            );
+            let reduced = IndexedImage {
+                width: self.width,
+                height: self.height,
+                pixels: px,
+                palette: pal,
+                palette_rgb: Vec::new(),
+            };
+            return reduced.to_vignette(name);
         }
         let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
         let mut chars: Vec<u8> = Vec::new();
@@ -726,4 +760,59 @@ pub fn solid_char(index: u8, cut: u8) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The reported case (O-C follow-up): an extractor export lands as
+    // an RGBA PNG, indexed on the fly with 33 distinct colours — the
+    // vignette path must QUANTISE to 15 + transparency, not refuse.
+    #[test]
+    fn vignette_with_33_colours_is_quantised() {
+        let mut pixels = vec![0u8; 32 * 32];
+        // 33 opaque colours painted in bands, index 0 (transparent)
+        // kept on the first row
+        for y in 1..32usize {
+            for x in 0..32usize {
+                pixels[y * 32 + x] = 1 + ((y * 32 + x) % 33) as u8;
+            }
+        }
+        let palette: Vec<u16> = (0..34).map(|i| (i * 71 & 0x7FFF) as u16).collect();
+        let img = IndexedImage {
+            width: 32,
+            height: 32,
+            pixels,
+            palette,
+            palette_rgb: Vec::new(),
+        };
+        let (chars, frames, pal, cell) = img.to_vignette("test").unwrap();
+        assert_eq!((frames, cell), (1, 32));
+        assert_eq!(chars.len(), 512);
+        assert_eq!(pal.len(), 16);
+        assert_eq!(pal[0], 0, "index 0 stays the transparency");
+    }
+
+    // Scattered indices under 15 distinct colours go through the same
+    // door and come out intact in count.
+    #[test]
+    fn vignette_with_scattered_indices_is_accepted() {
+        let mut pixels = vec![0u8; 16 * 16];
+        pixels[17] = 20;
+        pixels[18] = 33;
+        let mut palette = vec![0u16; 34];
+        palette[20] = 0x7C00;
+        palette[33] = 0x03E0;
+        let img = IndexedImage {
+            width: 16,
+            height: 16,
+            pixels,
+            palette,
+            palette_rgb: Vec::new(),
+        };
+        let (chars, frames, _pal, cell) = img.to_vignette("eparse").unwrap();
+        assert_eq!((frames, cell), (1, 16));
+        assert_eq!(chars.len(), 128);
+    }
 }
