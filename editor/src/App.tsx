@@ -2038,21 +2038,23 @@ export default function App() {
           <div className="modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
             <div className="panel-title">Importer un sprite animé</div>
             <button
+              title="Une bande 32x32 s'importe telle quelle ; toute autre planche s'ouvre dans l'extracteur à rectangles"
               onClick={() => {
                 setVigImportChoice(false);
                 void vignettePngImport();
               }}
             >
-              Depuis un fichier PNG… (bande 32x32 ou planche à découper)
+              Depuis un fichier PNG…
             </button>
             <button
               disabled={blockNames.length === 0}
+              title="Les 12 frames d'un personnage deviennent une planche de battler"
               onClick={() => {
                 setVigImportChoice(false);
                 vignetteCharsetPrompt();
               }}
             >
-              Depuis un charset du projet… (le personnage devient un battler)
+              Depuis un charset du projet…
             </button>
             <button onClick={() => setVigImportChoice(false)}>Annuler</button>
           </div>

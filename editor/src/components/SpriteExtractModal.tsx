@@ -263,23 +263,9 @@ export default function SpriteExtractModal(props: Props) {
         style={{ width: "min(96vw, 1180px)", maxWidth: "96vw", maxHeight: "94vh" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="row" style={{ alignItems: "center" }}>
-          <div className="panel-title" style={{ flex: 1 }}>
-            Extraire des sprites animés d'une planche
-          </div>
-          <button
-            onClick={props.onClose}
-            title="Fermer sans importer"
-            style={{
-              width: 26,
-              height: 24,
-              padding: 0,
-              marginLeft: "auto",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+        <div className="panel-title">
+          Extraire des sprites animés d'une planche
+          <button className="modal-x" title="Fermer sans importer" onClick={props.onClose}>
             ✕
           </button>
         </div>
