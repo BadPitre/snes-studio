@@ -386,7 +386,7 @@ export type Command =
   // M7-B4 — an ANIMATED turn: the engine walks the steps itself, the
   // short way round. The step count buys resolution, this buys motion.
   | { c: "m7_turn"; step: number; frames: number; wait: boolean }
-  | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero" }
+  | { c: "vig_show"; slot: number; vig: string; x: number; y: number; anchor: "screen" | "hero"; vig_var?: number; x_var?: number; y_var?: number }
   | { c: "vig_play"; slot: number; mode: "loop" | "once" | "stop"; speed?: number }
   | { c: "vig_hide"; slot: number }
   // A1 — frame-by-frame animations. anchor "event" + event = -1 for
@@ -394,7 +394,7 @@ export type Command =
   // looping animation, which never ends).
   // x/y (V2): where a SCREEN-anchored animation lands (default 112,96,
   // the screen centre) — the combat library aims skills at their target.
-  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number }
+  | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number; anim_var?: number; x_var?: number; y_var?: number }
   // G2 — there is no "Lancer un combat" command: a battle is a COMPOSED
   // SCREEN ("Aller à l'écran"), whose script names its monsters and
   // calls the project's library. The aftermath stays an AUTO page
@@ -803,6 +803,10 @@ export interface TextEntry {
 export interface Screen {
   backdrop: string; // stem of a picture, "" = a black background
   slots: ScreenSlot[];
+  // The standing cast (H3): vignettes posed with the mouse, unrolled by
+  // datagen into ordinary vig_show/vig_play/anim_play commands at the
+  // head of the automatic script.
+  vignettes?: ScreenVig[];
   // NAMED scripts: the FIRST runs on opening, the others are called
   // through "Appeler un script de l'écran" (unrolled inline)
   scripts: ScreenScript[];
@@ -824,6 +828,17 @@ export interface ScreenCond {
   on?: boolean; // switch
   op?: "==" | "!=" | ">="; // variable
   value?: number;
+}
+
+export interface ScreenVig {
+  name: string; // free label
+  slot: number; // 1-8
+  vig?: string; // a vignette strip (frame 0, or looped)...
+  anim?: string; // ...or an animation, played through the player
+  mode: "stop" | "loop" | "once";
+  speed?: number; // frames per cell when looping
+  x: number;
+  y: number;
 }
 
 export interface ScreenSlot {

@@ -253,7 +253,7 @@ export default function AnimationsModal(props: Props) {
   if (cur) {
     if (draft.filter((a) => a.name === cur.name).length > 1)
       problems.push(`Le nom « ${cur.name} » est utilisé par une autre animation.`);
-    if (!cur.vignette) problems.push("Aucune planche choisie (vignette du projet).");
+    if (!cur.vignette) problems.push("Aucune planche choisie (sprite animé du projet).");
     else if (!props.vigPaths[cur.vignette])
       problems.push(`La planche « ${cur.vignette} » n'existe plus dans le projet.`);
     if (cur.frames.length === 0) problems.push("Aucune frame — l'animation n'a rien à jouer.");
@@ -310,7 +310,7 @@ export default function AnimationsModal(props: Props) {
                 disabled={props.vigNames.length === 0}
                 title={
                   props.vigNames.length === 0
-                    ? "Aucune vignette dans le projet — importer d'abord une planche de cellules 32x32 (Gestionnaire de ressources)"
+                    ? "Aucun sprite animé dans le projet — importer d'abord une planche de cellules 32x32 (Gestionnaire de ressources)"
                     : "Ajouter une animation"
                 }
               >
@@ -364,7 +364,7 @@ export default function AnimationsModal(props: Props) {
             ) : (
               <>
                 <div className="row">
-                  <label title="La planche de cellules : une vignette du projet, bande horizontale de blocs 32x32 (16 couleurs).">
+                  <label title="La planche de cellules : un sprite animé du projet, bande horizontale de blocs 32x32 (16 couleurs).">
                     Planche (vignette)
                     <select
                       value={cur.vignette}

@@ -6,7 +6,7 @@
 // — the engine sees nothing new.
 
 import { useEffect, useRef, useState } from "react";
-import type { Scene, Screen, ScreenSlot } from "../types";
+import type { Scene, Screen, ScreenSlot, ScreenVig } from "../types";
 import type { Database } from "../db";
 import { CommandListEditor } from "./EventEditorModal";
 import { loadAssetPng } from "../io";
@@ -47,13 +47,15 @@ export default function ScreensModal(props: Props) {
   const [tab, setTab] = useState<"compo" | "script">("compo");
   const [bmps, setBmps] = useState<Record<string, ImageBitmap>>({});
   const [selSlot, setSelSlot] = useState<number | null>(null);
+  const [selVig, setSelVig] = useState<number | null>(null);
   const [selScript, setSelScript] = useState(0);
   const [renaming, setRenaming] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ slot: number; dx: number; dy: number } | null>(null);
+  const dragRef = useRef<{ kind: "slot" | "vig"; slot: number; dx: number; dy: number } | null>(null);
 
   const name = names[sel] as string | undefined;
   const cur = name ? draft[name] : undefined;
+  const vigs: ScreenVig[] = cur?.vignettes ?? [];
 
   const patch = (p: Partial<Screen>) => {
     if (!name) return;
@@ -71,7 +73,15 @@ export default function ScreensModal(props: Props) {
         .then((b) => setBmps((m) => ({ ...m, [stem]: b })))
         .catch(() => {});
     }
-  }, [cur, bmps, props.root, props.picturePaths]);
+    // vignette sheets, for the first-frame preview on the canvas
+    for (const v of vigs) {
+      if (!v.vig || bmps[`vig:${v.vig}`]) continue;
+      const stem = v.vig;
+      void loadAssetPng(props.root, `assets/vignettes/${stem}.png`)
+        .then((b) => setBmps((m) => ({ ...m, [`vig:${stem}`]: b })))
+        .catch(() => {});
+    }
+  }, [cur, vigs, bmps, props.root, props.picturePaths]);
 
   // canvas rendering (scale 2, like the console)
   useEffect(() => {
@@ -94,7 +104,31 @@ export default function ScreensModal(props: Props) {
       ctx.font = "12px system-ui";
       ctx.fillText(String(s.slot), s.x * 2 + 4, s.y * 2 + 14);
     }
-  }, [cur, bmps, selSlot, tab]);
+    // the standing cast (H3): first cell of each vignette, 32x32
+    for (const v of vigs) {
+      const b = v.vig ? bmps[`vig:${v.vig}`] : undefined;
+      if (b) ctx.drawImage(b, 0, 0, 32, 32, v.x * 2, v.y * 2, 64, 64);
+      else {
+        ctx.fillStyle = "rgba(160,80,220,.35)";
+        ctx.fillRect(v.x * 2, v.y * 2, 64, 64);
+      }
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = v.slot === selVig ? "#ffd24a" : "rgba(190,120,255,.8)";
+      ctx.strokeRect(v.x * 2 + 0.5, v.y * 2 + 0.5, 63, 63);
+      ctx.setLineDash([]);
+      ctx.fillStyle = v.slot === selVig ? "#ffd24a" : "rgba(220,190,255,.9)";
+      ctx.font = "11px system-ui";
+      ctx.fillText(v.name || (v.anim ? `anim ${v.anim}` : v.vig || ""), v.x * 2 + 3, v.y * 2 + 61);
+    }
+  }, [cur, vigs, bmps, selSlot, selVig, tab]);
+
+  const hitVig = (px: number, py: number): ScreenVig | null => {
+    for (let i = vigs.length - 1; i >= 0; i--) {
+      const v = vigs[i];
+      if (px >= v.x && px < v.x + 32 && py >= v.y && py < v.y + 32) return v;
+    }
+    return null;
+  };
 
   const hit = (px: number, py: number): ScreenSlot | null => {
     if (!cur) return null;
@@ -235,7 +269,15 @@ export default function ScreensModal(props: Props) {
                         const py = Math.floor((e.clientY - r.top) / 2);
                         const s = hit(px, py);
                         setSelSlot(s ? s.slot : null);
-                        if (s) dragRef.current = { slot: s.slot, dx: px - s.x, dy: py - s.y };
+                        const v = hitVig(px, py);
+                        if (v) {
+                          setSelVig(v.slot);
+                          setSelSlot(null);
+                          dragRef.current = { kind: "vig", slot: v.slot, dx: px - v.x, dy: py - v.y };
+                          return;
+                        }
+                        setSelVig(null);
+                        if (s) dragRef.current = { kind: "slot", slot: s.slot, dx: px - s.x, dy: py - s.y };
                       }}
                       onMouseMove={(e) => {
                         const d = dragRef.current;
@@ -243,6 +285,17 @@ export default function ScreensModal(props: Props) {
                         const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
                         const px = Math.floor((e.clientX - r.left) / 2);
                         const py = Math.floor((e.clientY - r.top) / 2);
+                        if (d.kind === "vig") {
+                          patch({
+                            vignettes: vigs.map((v) => {
+                              if (v.slot !== d.slot) return v;
+                              const nx = Math.max(0, Math.min(256 - 32, (px - d.dx) & ~7));
+                              const ny = Math.max(0, Math.min(224 - 32, (py - d.dy) & ~7));
+                              return { ...v, x: nx, y: ny };
+                            }),
+                          });
+                          return;
+                        }
                         patch({
                           slots: cur.slots.map((s) => {
                             if (s.slot !== d.slot) return s;
@@ -271,6 +324,141 @@ export default function ScreensModal(props: Props) {
                           ))}
                         </select>
                       </label>
+                      <div className="compo-imgs-head">
+                        <span className="palette-title" style={{ margin: 0 }}>Sprites animés (32×32)</span>
+                        <button
+                          disabled={vigs.length >= 8 || (props.vigNames.length === 0 && props.animNames.length === 0)}
+                          title="Poser un sprite animé — le casting de l'écran (glisser ensuite à la souris)"
+                          onClick={() => {
+                            let slot = 1;
+                            while (vigs.some((v) => v.slot === slot) && slot <= 8) slot++;
+                            if (slot > 8) return;
+                            patch({
+                              vignettes: [
+                                ...vigs,
+                                {
+                                  name: `sprite${slot}`,
+                                  slot,
+                                  vig: props.vigNames[0] ?? undefined,
+                                  anim: props.vigNames.length ? undefined : props.animNames[0],
+                                  mode: "loop",
+                                  x: 64,
+                                  y: 96,
+                                },
+                              ],
+                            });
+                            setSelVig(slot);
+                          }}
+                        >
+                          ＋
+                        </button>
+                      </div>
+                      <div className="compo-imgs">
+                        {vigs.map((v) => (
+                          <div
+                            key={v.slot}
+                            className={"compo-img" + (v.slot === selVig ? " active" : "")}
+                            onClick={() => { setSelVig(v.slot); setSelSlot(null); }}
+                          >
+                            <div className="row" style={{ gap: 4, alignItems: "center" }}>
+                              <span className="varlist-num">{v.slot}</span>
+                              <input
+                                value={v.name}
+                                placeholder="nom…"
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  patch({
+                                    vignettes: vigs.map((x) =>
+                                      x.slot === v.slot ? { ...x, name: e.target.value } : x
+                                    ),
+                                  })
+                                }
+                              />
+                              <button
+                                className="danger"
+                                title="Retirer ce sprite animé"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  patch({ vignettes: vigs.filter((x) => x.slot !== v.slot) });
+                                  if (selVig === v.slot) setSelVig(null);
+                                }}
+                              >
+                                🗑
+                              </button>
+                            </div>
+                            <select
+                              value={v.anim ? `a:${v.anim}` : `v:${v.vig ?? ""}`}
+                              onClick={(e) => e.stopPropagation()}
+                              title="Une VIGNETTE (bande de frames, jouée sur place) ou une ANIMATION (timeline : cellules, positions, sons)"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                patch({
+                                  vignettes: vigs.map((x) =>
+                                    x.slot !== v.slot
+                                      ? x
+                                      : val.startsWith("a:")
+                                        ? { ...x, anim: val.slice(2), vig: undefined }
+                                        : { ...x, vig: val.slice(2), anim: undefined }
+                                  ),
+                                });
+                              }}
+                            >
+                              {props.vigNames.length > 0 && (
+                                <optgroup label="Sprites animés">
+                                  {props.vigNames.map((n) => (
+                                    <option key={`v:${n}`} value={`v:${n}`}>{n}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {props.animNames.length > 0 && (
+                                <optgroup label="Animations">
+                                  {props.animNames.map((n) => (
+                                    <option key={`a:${n}`} value={`a:${n}`}>{n}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+                            {!v.anim && (
+                              <div className="row" style={{ gap: 4 }}>
+                                <select
+                                  value={v.mode}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="stop : frame 1 figée. boucle : la bande tourne (respiration, idle). une fois : jouée puis cachée."
+                                  onChange={(e) =>
+                                    patch({
+                                      vignettes: vigs.map((x) =>
+                                        x.slot === v.slot
+                                          ? { ...x, mode: e.target.value as "stop" | "loop" | "once" }
+                                          : x
+                                      ),
+                                    })
+                                  }
+                                >
+                                  <option value="loop">boucle</option>
+                                  <option value="stop">frame 1 figée</option>
+                                  <option value="once">une fois</option>
+                                </select>
+                                {v.mode !== "stop" && (
+                                  <input
+                                    type="number" min={1} max={60}
+                                    style={{ width: 52 }}
+                                    value={v.speed ?? 8}
+                                    title="Frames d'écran par case de la bande (8 = ~7 img/s)"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      patch({
+                                        vignettes: vigs.map((x) =>
+                                          x.slot === v.slot ? { ...x, speed: Number(e.target.value) } : x
+                                        ),
+                                      })
+                                    }
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                       <div className="compo-imgs-head">
                         <span className="palette-title" style={{ margin: 0 }}>Images</span>
                         <button

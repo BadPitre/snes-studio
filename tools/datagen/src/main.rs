@@ -258,18 +258,18 @@ fn main() -> Result<()> {
         let stem = Path::new(rel)
             .file_stem()
             .and_then(|s| s.to_str())
-            .with_context(|| format!("vignette '{}' : nom illisible", rel))?
+            .with_context(|| format!("sprite animé '{}' : nom illisible", rel))?
             .to_string();
         if vig_names.contains(&stem) {
-            bail!("vignette '{}' : stem en double", stem);
+            bail!("sprite animé '{}' : stem en double", stem);
         }
         let img = gfx::load_indexed_png(&proj_dir.join(rel))
-            .with_context(|| format!("vignette '{}'", rel))?;
+            .with_context(|| format!("sprite animé '{}'", rel))?;
         vig_data.push(img.to_vignette(&stem)?);
         vig_names.push(stem);
     }
     if vig_names.len() > 32 {
-        bail!("{} vignettes (max 32)", vig_names.len());
+        bail!("{} sprites animés (max 32)", vig_names.len());
     }
 
     // Composed screens: loaded and validated by screens.rs, unrolled into

@@ -47,6 +47,8 @@ interface Props {
   // the eight register-backed categories, in one call
   onRes: (kind: ResKind, act: ResAct, rel?: string, name?: string) => void;
   onImportCharset: () => void;
+  // H4: builds a 12-frame vignette strip from a charset block.
+  onVignetteImport: () => void; // unified import (PNG auto-routed / charset)
   onImportChipset: () => void;
   onImportTilesetPng: () => void; // a free PNG grid (not an RM2003 chipset)
   onExportCharset: (b: number) => void;
@@ -141,11 +143,11 @@ const CATS: CatDef[] = [
   {
     cat: "vignette",
     kind: "vignette",
-    label: "Vignette (Animations)",
+    label: "Sprite animé (32×32)",
     bullet: "▦",
     items: (p) => p.vignettes,
     deleteTitle: () =>
-      "Supprimer la vignette et son fichier (le build signale les « Afficher une vignette » orphelins)",
+      "Supprimer le sprite animé et son fichier (le build signale les « Afficher un sprite animé » orphelins)",
   },
   {
     cat: "mode7",
@@ -298,7 +300,7 @@ export default function ResourceManagerModal(p: Props) {
       }
     } else if (cat === "vignette" && bmp) {
       const n = bmp.width / 32;
-      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer la vignette »`, 8, 12);
+      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer le sprite animé »`, 8, 12);
       for (let i = 0; i < n; i++) {
         ctx.drawImage(bmp, i * 32, 0, 32, 32, 8 + i * 74, 22, 64, 64);
         ctx.fillText(String(i + 1), 34 + i * 74, 96);
@@ -416,7 +418,9 @@ export default function ResourceManagerModal(p: Props) {
                   ? p.onImportCharset()
                   : cat === "chipset"
                     ? p.onImportChipset()
-                    : p.onRes(def!.kind, "import")
+                    : cat === "vignette"
+                      ? p.onVignetteImport()
+                      : p.onRes(def!.kind, "import")
               }
             >
               {cat === "chipset" ? "Chipset RM2003…" : "Importer…"}

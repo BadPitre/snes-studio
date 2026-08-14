@@ -38,7 +38,9 @@
  ],
  "vignettes": [
   "assets/vignettes/exclam.png",
-  "assets/vignettes/coup.png"
+  "assets/vignettes/coup.png",
+  "assets/vignettes/heros_battler.png",
+  "assets/vignettes/villageois_battler.png"
  ],
  "charsets": [
   "Heros",
@@ -732,22 +734,6 @@
      "text": "La colonne de l'equipe (X 200, un rang de 32 px par heros)"
     },
     {
-     "c": "btl_pose",
-     "x": 200,
-     "y": 40,
-     "show": true,
-     "slot": 0,
-     "entry_var": 60
-    },
-    {
-     "c": "btl_pose",
-     "x": 200,
-     "y": 72,
-     "show": true,
-     "slot": 1,
-     "entry_var": 61
-    },
-    {
      "c": "clock",
      "base": 100,
      "lanes": 4
@@ -1016,20 +1002,12 @@
      "on": false
     },
     {
-     "c": "btl_pose",
-     "x": 200,
-     "y": 40,
-     "show": false,
-     "slot": 0,
-     "entry_var": 60
+     "c": "vig_hide",
+     "slot": 5
     },
     {
-     "c": "btl_pose",
-     "x": 200,
-     "y": 72,
-     "show": false,
-     "slot": 1,
-     "entry_var": 61
+     "c": "vig_hide",
+     "slot": 6
     },
     {
      "c": "switch",
@@ -1634,8 +1612,66 @@
                "dst": 93
               },
               {
+               "c": "if_var",
+               "n": 90,
+               "op": "==",
+               "value": 0,
+               "left": {
+                "from": "var",
+                "value": 90
+               },
+               "right": {
+                "value": 0
+               },
+               "then": [
+                {
+                 "c": "vig_play",
+                 "slot": 5,
+                 "mode": "loop",
+                 "speed": 3
+                }
+               ],
+               "else": [
+                {
+                 "c": "vig_play",
+                 "slot": 6,
+                 "mode": "loop",
+                 "speed": 3
+                }
+               ]
+              },
+              {
                "c": "call",
                "n": 11
+              },
+              {
+               "c": "if_var",
+               "n": 90,
+               "op": "==",
+               "value": 0,
+               "left": {
+                "from": "var",
+                "value": 90
+               },
+               "right": {
+                "value": 0
+               },
+               "then": [
+                {
+                 "c": "vig_play",
+                 "slot": 5,
+                 "mode": "loop",
+                 "speed": 24
+                }
+               ],
+               "else": [
+                {
+                 "c": "vig_play",
+                 "slot": 6,
+                 "mode": "loop",
+                 "speed": 24
+                }
+               ]
               },
               {
                "c": "break"
@@ -1715,8 +1751,66 @@
                "dst": 93
               },
               {
+               "c": "if_var",
+               "n": 90,
+               "op": "==",
+               "value": 0,
+               "left": {
+                "from": "var",
+                "value": 90
+               },
+               "right": {
+                "value": 0
+               },
+               "then": [
+                {
+                 "c": "vig_play",
+                 "slot": 5,
+                 "mode": "loop",
+                 "speed": 3
+                }
+               ],
+               "else": [
+                {
+                 "c": "vig_play",
+                 "slot": 6,
+                 "mode": "loop",
+                 "speed": 3
+                }
+               ]
+              },
+              {
                "c": "call",
                "n": 11
+              },
+              {
+               "c": "if_var",
+               "n": 90,
+               "op": "==",
+               "value": 0,
+               "left": {
+                "from": "var",
+                "value": 90
+               },
+               "right": {
+                "value": 0
+               },
+               "then": [
+                {
+                 "c": "vig_play",
+                 "slot": 5,
+                 "mode": "loop",
+                 "speed": 24
+                }
+               ],
+               "else": [
+                {
+                 "c": "vig_play",
+                 "slot": 6,
+                 "mode": "loop",
+                 "speed": 24
+                }
+               ]
               },
               {
                "c": "break"
@@ -1919,8 +2013,66 @@
              "else": []
             },
             {
+             "c": "if_var",
+             "n": 90,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 90
+             },
+             "right": {
+              "value": 0
+             },
+             "then": [
+              {
+               "c": "vig_play",
+               "slot": 5,
+               "mode": "loop",
+               "speed": 3
+              }
+             ],
+             "else": [
+              {
+               "c": "vig_play",
+               "slot": 6,
+               "mode": "loop",
+               "speed": 3
+              }
+             ]
+            },
+            {
              "c": "call",
              "n": 11
+            },
+            {
+             "c": "if_var",
+             "n": 90,
+             "op": "==",
+             "value": 0,
+             "left": {
+              "from": "var",
+              "value": 90
+             },
+             "right": {
+              "value": 0
+             },
+             "then": [
+              {
+               "c": "vig_play",
+               "slot": 5,
+               "mode": "loop",
+               "speed": 24
+              }
+             ],
+             "else": [
+              {
+               "c": "vig_play",
+               "slot": 6,
+               "mode": "loop",
+               "speed": 24
+              }
+             ]
             },
             {
              "c": "rem",
@@ -2139,7 +2291,7 @@
          "value": 100,
          "value_var": 84,
          "x": 196,
-         "y": 48
+         "y": 120
         },
         {
          "c": "if_var",
@@ -2155,11 +2307,8 @@
          },
          "then": [
           {
-           "c": "btl_pose",
-           "hero": 0,
-           "x": 200,
-           "y": 40,
-           "show": false
+           "c": "vig_hide",
+           "slot": 5
           }
          ],
          "else": []
@@ -2256,8 +2405,8 @@
          "c": "popup",
          "value": 100,
          "value_var": 84,
-         "x": 196,
-         "y": 80
+         "x": 212,
+         "y": 152
         },
         {
          "c": "if_var",
@@ -2273,11 +2422,8 @@
          },
          "then": [
           {
-           "c": "btl_pose",
-           "hero": 1,
-           "x": 200,
-           "y": 72,
-           "show": false
+           "c": "vig_hide",
+           "slot": 6
           }
          ],
          "else": []
@@ -3787,11 +3933,17 @@
        ]
       },
       {
+       "c": "vig_play",
+       "slot": 5,
+       "mode": "loop",
+       "speed": 2
+      },
+      {
        "c": "popup",
        "value": 100,
        "value_var": 93,
        "x": 196,
-       "y": 48
+       "y": 120
       },
       {
        "c": "if_var",
@@ -3807,14 +3959,17 @@
        },
        "then": [
         {
-         "c": "btl_pose",
-         "hero": 0,
-         "x": 200,
-         "y": 40,
-         "show": false
+         "c": "vig_hide",
+         "slot": 5
         }
        ],
        "else": []
+      },
+      {
+       "c": "vig_play",
+       "slot": 5,
+       "mode": "loop",
+       "speed": 24
       }
      ],
      "else": [
@@ -3850,11 +4005,17 @@
        ]
       },
       {
+       "c": "vig_play",
+       "slot": 6,
+       "mode": "loop",
+       "speed": 2
+      },
+      {
        "c": "popup",
        "value": 100,
        "value_var": 93,
-       "x": 196,
-       "y": 80
+       "x": 212,
+       "y": 152
       },
       {
        "c": "if_var",
@@ -3870,14 +4031,17 @@
        },
        "then": [
         {
-         "c": "btl_pose",
-         "hero": 1,
-         "x": 200,
-         "y": 72,
-         "show": false
+         "c": "vig_hide",
+         "slot": 6
         }
        ],
        "else": []
+      },
+      {
+       "c": "vig_play",
+       "slot": 6,
+       "mode": "loop",
+       "speed": 24
       }
      ]
     }

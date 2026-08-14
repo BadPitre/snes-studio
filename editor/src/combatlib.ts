@@ -137,19 +137,15 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
    },
    {
     "c": "rem",
-    "text": "La colonne de l'equipe (le 2e heros se pose tout seul s'il existe)"
-   },
-   {
-    "c": "btl_pose",
-    "slot": 0,
-    "x": 200,
-    "y": 40,
-    "show": true,
-    "entry_var": 60
+    "text": "L'equipe est posee par l'ECRAN lui-meme (Tools > Ecrans >"
    },
    {
     "c": "rem",
-    "text": "2e equipier : dupliquer cette ligne en emplacement 2, variable 61."
+    "text": "combat_slimes, section Sprites animes) : le heros y respire en boucle."
+   },
+   {
+    "c": "rem",
+    "text": "2e equipier : ajouter son sprite animé (emplacement 6) dans l'ecran."
    },
    {
     "c": "switch",
@@ -397,12 +393,12 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
     "on": false
    },
    {
-    "c": "btl_pose",
-    "slot": 0,
-    "x": 200,
-    "y": 40,
-    "show": false,
-    "entry_var": 60
+    "c": "vig_hide",
+    "slot": 5
+   },
+   {
+    "c": "vig_hide",
+    "slot": 6
    },
    {
     "c": "stage_close",
@@ -597,8 +593,70 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
           ]
          },
          {
+          "c": "rem",
+          "text": "La fioriture : l'attaquant s'anime vite le temps du coup"
+         },
+         {
+          "c": "if_var",
+          "n": 90,
+          "op": "==",
+          "value": 0,
+          "left": {
+           "from": "var",
+           "value": 90
+          },
+          "right": {
+           "value": 0
+          },
+          "then": [
+           {
+            "c": "vig_play",
+            "slot": 5,
+            "mode": "loop",
+            "speed": 3
+           }
+          ],
+          "else": [
+           {
+            "c": "vig_play",
+            "slot": 6,
+            "mode": "loop",
+            "speed": 3
+           }
+          ]
+         },
+         {
           "c": "call",
           "n": 3
+         },
+         {
+          "c": "if_var",
+          "n": 90,
+          "op": "==",
+          "value": 0,
+          "left": {
+           "from": "var",
+           "value": 90
+          },
+          "right": {
+           "value": 0
+          },
+          "then": [
+           {
+            "c": "vig_play",
+            "slot": 5,
+            "mode": "loop",
+            "speed": 24
+           }
+          ],
+          "else": [
+           {
+            "c": "vig_play",
+            "slot": 6,
+            "mode": "loop",
+            "speed": 24
+           }
+          ]
          },
          {
           "c": "break"
@@ -1640,6 +1698,16 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       ]
      },
      {
+      "c": "rem",
+      "text": "Le recul : le sprite animé accelere le temps de l'impact"
+     },
+     {
+      "c": "vig_play",
+      "slot": 5,
+      "mode": "loop",
+      "speed": 2
+     },
+     {
       "c": "popup",
       "value": 100,
       "value_var": 93,
@@ -1660,14 +1728,17 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       },
       "then": [
        {
-        "c": "btl_pose",
-        "slot": 0,
-        "x": 200,
-        "y": 40,
-        "show": false
+        "c": "vig_hide",
+        "slot": 5
        }
       ],
       "else": []
+     },
+     {
+      "c": "vig_play",
+      "slot": 5,
+      "mode": "loop",
+      "speed": 24
      }
     ],
     "else": [
@@ -1703,6 +1774,12 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       ]
      },
      {
+      "c": "vig_play",
+      "slot": 6,
+      "mode": "loop",
+      "speed": 2
+     },
+     {
       "c": "popup",
       "value": 100,
       "value_var": 93,
@@ -1723,14 +1800,17 @@ export const COMBAT_COMMON_EVENTS: CommonEvent[] = [
       },
       "then": [
        {
-        "c": "btl_pose",
-        "slot": 1,
-        "x": 200,
-        "y": 72,
-        "show": false
+        "c": "vig_hide",
+        "slot": 6
        }
       ],
       "else": []
+     },
+     {
+      "c": "vig_play",
+      "slot": 6,
+      "mode": "loop",
+      "speed": 24
      }
     ]
    }

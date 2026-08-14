@@ -1,55 +1,75 @@
 {
- "backdrop": "fond_prairie",
- "slots": [
-  {
-   "slot": 1,
-   "pic": "gobelin",
-   "x": 32,
-   "y": 40,
-   "name": "gobelin_g"
-  },
-  {
-   "slot": 2,
-   "pic": "gobelin",
-   "x": 64,
-   "y": 64,
-   "name": "gobelin_d"
-  }
- ],
- "scripts": [
-  {
-   "name": "principal",
-   "trigger": "auto",
-   "commands": [
+  "backdrop": "fond_prairie",
+  "slots": [
     {
-     "c": "rem",
-     "text": "Combat : deux gobelins. Poser/deplacer les monstres = glisser sur le canvas."
+      "slot": 1,
+      "pic": "gobelin",
+      "x": 32,
+      "y": 40,
+      "name": "gobelin_g"
     },
     {
-     "c": "rem",
-     "text": "Les monstres de l'ecran, nommes pour la bibliotheque (var 252+)."
-    },
-    {
-     "c": "db_entry",
-     "table": "monsters",
-     "entry": "gobelin",
-     "dst": 252
-    },
-    {
-     "c": "db_entry",
-     "table": "monsters",
-     "entry": "gobelin",
-     "dst": 253
-    },
-    {
-     "c": "rem",
-     "text": "...puis la bibliotheque prend le combat (combat_tour)."
-    },
-    {
-     "c": "call",
-     "n": 7
+      "slot": 2,
+      "pic": "gobelin",
+      "x": 64,
+      "y": 64,
+      "name": "gobelin_d"
     }
-   ]
-  }
- ]
+  ],
+  "scripts": [
+    {
+      "name": "principal",
+      "trigger": "auto",
+      "commands": [
+        {
+          "c": "rem",
+          "text": "Combat : deux gobelins. Poser/deplacer les monstres = glisser sur le canvas."
+        },
+        {
+          "c": "rem",
+          "text": "Les monstres de l'ecran, nommes pour la bibliotheque (var 252+)."
+        },
+        {
+          "c": "db_entry",
+          "table": "monsters",
+          "entry": "gobelin",
+          "dst": 252
+        },
+        {
+          "c": "db_entry",
+          "table": "monsters",
+          "entry": "gobelin",
+          "dst": 253
+        },
+        {
+          "c": "rem",
+          "text": "...puis la bibliotheque prend le combat (combat_tour)."
+        },
+        {
+          "c": "call",
+          "n": 7
+        }
+      ]
+    }
+  ],
+  "vignettes": [
+    {
+      "name": "heros",
+      "slot": 5,
+      "vig": "heros_battler",
+      "mode": "loop",
+      "speed": 24,
+      "x": 192,
+      "y": 112
+    },
+    {
+      "name": "compagnon",
+      "slot": 6,
+      "vig": "villageois_battler",
+      "mode": "loop",
+      "speed": 28,
+      "x": 208,
+      "y": 144
+    }
+  ]
 }

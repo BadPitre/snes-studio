@@ -81,7 +81,7 @@ const TARGETS: TargetDef[] = [
         : null,
   },
   { id: "iconset", label: "Planche d'icônes", maxColors: 16 },
-  { id: "vignette", label: "Vignette", maxColors: 16 },
+  { id: "vignette", label: "Sprite animé", maxColors: 16 },
   { id: "font", label: "Fonte", maxColors: 4 },
   { id: "windowskin", label: "Windowskin", maxColors: 4 },
   { id: "mode7", label: "Image zoomable (Mode 7)", maxColors: 256 },

@@ -29,6 +29,7 @@ pub fn load(proj_dir: &Path, names: &[String], pic_names: &[String]) -> Result<V
         }
         normalise_scripts(&mut def, name)?;
         check_pictures(&def, name, pic_names)?;
+        check_vignettes(&def, name)?;
         screens.push(def);
     }
     Ok(screens)
@@ -84,6 +85,28 @@ fn check_pictures(def: &ScreenDef, name: &str, pic_names: &[String]) -> Result<(
             "écran '{}' : fond '{}' introuvable (supprimé ou renommé ?)",
             name, def.backdrop
         );
+    }
+    Ok(())
+}
+
+/// Structural checks on the posed vignettes (H3). Name resolution
+/// (vignette / animation registers) happens at unroll time in
+/// events.rs, which owns those registers and the richer errors.
+fn check_vignettes(def: &crate::project::ScreenDef, name: &str) -> Result<()> {
+    let mut seen = HashSet::new();
+    for v in &def.vignettes {
+        if !(1..=8).contains(&v.slot) {
+            bail!("écran '{}' : sprite animé '{}' — slot 1-8", name, v.name);
+        }
+        if !seen.insert(v.slot) {
+            bail!("écran '{}' : slot de sprite animé {} en double", name, v.slot);
+        }
+        if v.vig.is_empty() == v.anim.is_empty() {
+            bail!(
+                "écran '{}' : sprite animé '{}' — une planche OU une animation",
+                name, v.name
+            );
+        }
     }
     Ok(())
 }

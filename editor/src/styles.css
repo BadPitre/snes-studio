@@ -229,6 +229,9 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 .row > button.browse { flex: 0 0 auto; padding: 3px 9px; }
+/* RM-extract: compact rows — the global .row > * flex:1 stretches every
+   control into a bar (the close cross became a banner). */
+.sprx .row > * { flex: 0 0 auto; }
 
 /* Pied de fenêtre : boutons OK/Annuler compacts, alignés à droite */
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

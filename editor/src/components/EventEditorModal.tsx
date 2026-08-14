@@ -337,13 +337,13 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "stage_clear":
       return `Retirer l'image du slot ${c.slot}`;
     case "vig_show":
-      return `Vignette « ${c.vig} » (slot ${c.slot}${c.anchor === "hero" ? ", sur le héros" : ""})`;
+      return `Sprite animé « ${c.vig} » (slot ${c.slot}${c.anchor === "hero" ? ", sur le héros" : ""})`;
     case "vig_play":
       return c.mode === "stop"
-        ? `Vignette ${c.slot} : figer`
-        : `Vignette ${c.slot} : ${c.mode === "once" ? "jouer une fois" : "boucler"} (${c.speed ?? 8}f/img)`;
+        ? `Sprite animé ${c.slot} : figer`
+        : `Sprite animé ${c.slot} : ${c.mode === "once" ? "jouer une fois" : "boucler"} (${c.speed ?? 8}f/img)`;
     case "vig_hide":
-      return `Cacher la vignette ${c.slot}`;
+      return `Cacher le sprite animé ${c.slot}`;
     case "anim_play": {
       const ou =
         c.anchor === "hero"
@@ -466,9 +466,9 @@ function cmdTitle(c: Command["c"]): string {
     stage_pose: "Poser une image (slot)",
     stage_clear: "Retirer une image (slot)",
     slot_fx: "Effet sur une image (slot)",
-    vig_show: "Afficher une vignette",
-    vig_play: "Animer la vignette",
-    vig_hide: "Cacher la vignette",
+    vig_show: "Afficher un sprite animé",
+    vig_play: "Animer le sprite animé",
+    vig_hide: "Cacher le sprite animé",
     anim_play: "Jouer une animation",
     anim_stop: "Arrêter les animations",
     stage_close: "Fermer l'écran composé",

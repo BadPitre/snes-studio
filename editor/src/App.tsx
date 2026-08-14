@@ -94,6 +94,7 @@ import NewSceneModal from "./components/NewSceneModal";
 import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
 import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
+import SpriteExtractModal from "./components/SpriteExtractModal";
 import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
@@ -160,6 +161,10 @@ export default function App() {
   const [charsetImport, setCharsetImport] = useState<{ path: string; bmp: ImageBitmap } | null>(
     null
   );
+  // sprite-animé extraction from a PNG sheet (RM-extract)
+  const [spriteExtract, setSpriteExtract] = useState<ImageBitmap | null>(null);
+  // unified sprite-animé import: the small source chooser
+  const [vigImportChoice, setVigImportChoice] = useState(false);
   // resource manager (RM2003 style)
   const [showResources, setShowResources] = useState(false);
   // Aide > À propos menu
@@ -925,6 +930,68 @@ export default function App() {
     } catch (e) {
       setStatus(`Ouverture : ${e}`);
     }
+  }
+
+  // H4 — a charset block becomes a vignette strip: the 12 frames
+  // (4 directions x 3 steps, the charset's own order) each centred in a
+  // 32x32 cell, feet on the cell's bottom edge. The result goes through
+  // the ordinary vignette import, so it is validated and recorded like
+  // any hand-made sheet.
+  async function vignetteFromCharset(block: number, nm: string) {
+    if (!sprites) return;
+    const cv = new OffscreenCanvas(12 * 32, 32);
+    const ctx2 = cv.getContext("2d")!;
+    for (let i = 0; i < 12; i++)
+      ctx2.drawImage(sprites, (block * 12 + i) * 16, 0, 16, 24, i * 32 + 8, 8, 16, 24);
+    const blob = await cv.convertToBlob({ type: "image/png" });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const ctx = resCtx();
+    if (ctx)
+      await runImport(ctx, RESOURCES.vignette, {
+        name: `${nm.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.png`,
+        bytes,
+      });
+  }
+
+  // Unified sprite-animé import (the RM's single Importer button): a
+  // PNG that is ALREADY a strip (32 px high, width a multiple of 32)
+  // imports directly; anything else opens the rectangle extractor.
+  async function vignettePngImport() {
+    if (!data) return;
+    const file = await pickPngFile("Sprite animé : une bande 32x32 ou une planche à découper (PNG)");
+    if (!file) return;
+    try {
+      const bmp = await loadPngBitmap(file);
+      if (bmp.height === 32 && bmp.width % 32 === 0 && bmp.width <= 64 * 32) {
+        const bytes = await readBinaryFile(file);
+        const ctx = resCtx();
+        if (ctx)
+          await runImport(ctx, RESOURCES.vignette, {
+            name: file.split(/[\\/]/).pop()!,
+            bytes,
+          });
+        return;
+      }
+      setSpriteExtract(bmp); /* not a strip: the extractor takes over */
+    } catch (e) {
+      setStatus(`Planche illisible : ${e}`);
+    }
+  }
+
+  // The charset route of the same button (H4): pick the block, name it.
+  function vignetteCharsetPrompt() {
+    if (blockNames.length === 0) return;
+    const pick = prompt(
+      "Numéro du charset (1-" + blockNames.length + ") :\n" +
+        blockNames.map((n, i) => `${i + 1}. ${n}`).join("\n")
+    );
+    const b = pick === null ? NaN : Number(pick) - 1;
+    if (!Number.isInteger(b) || b < 0 || b >= blockNames.length) return;
+    const nm = prompt(
+      "Nom du sprite animé :",
+      (blockNames[b] || "battler").toLowerCase().replace(/[^a-z0-9_]/g, "_")
+    );
+    if (nm) void vignetteFromCharset(b, nm);
   }
 
   // An extraction from the ROM ripper (X2). The register categories go
@@ -1966,6 +2033,44 @@ export default function App() {
           }}
         />
       )}
+      {vigImportChoice && data && (
+        <div className="modal-backdrop transpick-top" onClick={() => setVigImportChoice(false)}>
+          <div className="modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">Importer un sprite animé</div>
+            <button
+              title="Une bande 32x32 s'importe telle quelle ; toute autre planche s'ouvre dans l'extracteur à rectangles"
+              onClick={() => {
+                setVigImportChoice(false);
+                void vignettePngImport();
+              }}
+            >
+              Depuis un fichier PNG…
+            </button>
+            <button
+              disabled={blockNames.length === 0}
+              title="Les 12 frames d'un personnage deviennent une planche de battler"
+              onClick={() => {
+                setVigImportChoice(false);
+                vignetteCharsetPrompt();
+              }}
+            >
+              Depuis un charset du projet…
+            </button>
+            <button onClick={() => setVigImportChoice(false)}>Annuler</button>
+          </div>
+        </div>
+      )}
+      {spriteExtract && data && (
+        <SpriteExtractModal
+          bmp={spriteExtract}
+          onOk={(name, bytes) => {
+            setSpriteExtract(null);
+            const ctx = resCtx();
+            if (ctx) void runImport(ctx, RESOURCES.vignette, { name, bytes });
+          }}
+          onClose={() => setSpriteExtract(null)}
+        />
+      )}
       {transPick && data && (
         <TransparencyPickModal
           bmp={transPick.bmp}
@@ -1979,6 +2084,7 @@ export default function App() {
       {showResources && data && (
         <ResourceManagerModal
           root={data.root}
+          onVignetteImport={() => setVigImportChoice(true)}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}

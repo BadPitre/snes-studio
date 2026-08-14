@@ -788,13 +788,26 @@ static void vm_step(void)
       stage_slotfx(var, val, fetch8());
       break;
 
-    case VM_OP_VIGSHOW: /* vignette (B5) — NON blocking. anchor through a
-                           second call (tcc workaround: 3 u8 max) */
+    case VM_OP_VIGSHOW: /* vignette (B5) — NON blocking. flags (H2a),
+                           the pictures' pattern: bit0 = the vignette id
+                           is a VARIABLE index, bit1 = x and y are. The
+                           engine resolves indirection and learns nothing
+                           about what the numbers mean. */
       var = fetch8();   /* slot */
-      val = fetch8();   /* vig */
-      idx16 = fetch8(); /* x */
-      vig_show(var, val, (u8)idx16, fetch8());
-      vig_anchor(var, fetch8());
+      val = fetch8();   /* vig, or variable index */
+      idx16 = fetch8(); /* x, or variable index */
+      ofs = fetch8();   /* y, or variable index */
+      op = fetch8();    /* anchor */
+      val16 = fetch8(); /* flags */
+      if (val16 & 1)
+        val = (u8)vm.vars16[val];
+      if (val16 & 2)
+      {
+        idx16 = (u8)vm.vars16[(u8)idx16];
+        ofs = (u8)vm.vars16[(u8)ofs];
+      }
+      vig_show(var, val, (u8)idx16, (u8)ofs);
+      vig_anchor(var, op);
       break;
 
     case VM_OP_VIGPLAY: /* animation of the vignette — NON blocking */
@@ -808,16 +821,26 @@ static void vm_step(void)
       break;
 
     case VM_OP_ANIMPLAY: /* frame-by-frame animation (A1) — blocking
-                            only if bit 0 of the flags is set */
-      var = fetch8();   /* animation */
+                            only if bit 0 of the flags is set. Flags
+                            bit1: the animation id is a VARIABLE index;
+                            bit2: the aim point is (H2a). */
+      var = fetch8();   /* animation, or variable index */
       val = fetch8();   /* anchor */
       idx16 = fetch8(); /* target (actor), 0xFF = the script's event */
       if (val == ANIM_ANC_ACTOR && (u8)idx16 == 0xFF)
         idx16 = vm.script_actor;
-      op = fetch8();  /* flags */
-      ofs = fetch8(); /* screen-anchor aim point (V2) — the event
-                         library lands skills ON their target */
-      anim_screen_at((u8)ofs, fetch8());
+      op = fetch8();    /* flags */
+      ofs = fetch8();   /* aim x, or variable index (V2) — the event
+                           library lands skills ON their target */
+      val16 = fetch8(); /* aim y, or variable index */
+      if (op & 2)
+        var = (u8)vm.vars16[var];
+      if (op & 4)
+      {
+        ofs = (u8)vm.vars16[(u8)ofs];
+        val16 = (u8)vm.vars16[(u8)val16];
+      }
+      anim_screen_at((u8)ofs, (u8)val16);
       anim_play(var, val, (u8)idx16);
       if (op & 1)
         vm.wait_mode = VM_WAIT_ANIM; /* anim_busy ignores loops */

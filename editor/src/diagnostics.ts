@@ -129,7 +129,7 @@ export function checkProject(data: ProjectData, blockCount: number): Diag[] {
     if (seenAnim.has(a.name)) err(`« ${a.name} » : nom en double`);
     seenAnim.add(a.name);
     if (!a.vignette || !vigStems.has(a.vignette))
-      err(`« ${a.name} » : planche « ${a.vignette} » introuvable dans les vignettes du projet`);
+      err(`« ${a.name} » : planche « ${a.vignette} » introuvable dans les sprites animés du projet`);
     if (a.frames.length === 0) err(`« ${a.name} » : aucune frame`);
     const nl = Math.max(1, Math.min(4, a.layers ?? 1));
     if ((a.layers ?? 1) < 1 || (a.layers ?? 1) > 4)

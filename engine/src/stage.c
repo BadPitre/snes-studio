@@ -86,6 +86,36 @@ static u16 up_buf[64];  /* 2 map rows max */
 static u8 up_cx = 0, up_cy = 0, up_cw = 0, up_ch = 0; /* region to erase */
 static u16 sg_zero = 0; /* pattern for dmaFillVram16 (transparent entry) */
 
+/* Overlap COMPOSITION (B3-overlap). One tilemap carries every laid
+   image, so two images that overlap used to fight for the map cell:
+   the front one's rectangle replaced the back one's entries, blank
+   tiles included, and the backdrop showed through the hole. The FF6
+   answer, adopted here: when a laid cell lands on an OCCUPIED cell,
+   merge the two chars pixel by pixel (front wins, its transparent
+   pixels reveal the back) into a freshly allocated char. The merged
+   tile takes the FRONT slot's palette — exact when the two images
+   share colours (a formation of the same monster), an assumed
+   approximation otherwise, same as FF6.
+
+   sg_map is the WRAM shadow of the BG1 map — the truth the compose
+   step reads (VRAM cannot be read with the display on). Blank front
+   cells keep the back entry outright, fully covering front cells
+   write plainly; only true pixel mixes cost a char. Composed chars
+   are flagged in sg_cflag: a THIRD image landing on a composed cell
+   falls back to the plain overwrite (its sources are no longer in
+   ROM), and the chars are only reclaimed when the screen closes —
+   endlessly re-laying overlapped slots can exhaust the 511-char
+   budget until then. */
+#define SG_COMP_MAX 4 /* composed chars per VBlank batch: 4 x 32 B of
+   extra uncounted DMA (~8 lines worst) on top of the laying chunk */
+static u16 sg_map[32 * 28];    /* shadow of SG_MAP_BG1 (rows seen) */
+static u8 sg_cflag[64];        /* bit c: char c is a composed char */
+static u8 cp_buf[SG_COMP_MAX * 32]; /* merged pixels, built in the
+                                       main loop, sent at VBlank */
+static u16 cp_dst[SG_COMP_MAX];     /* their char indexes */
+static u8 cp_n = 0;
+static const u8 sg_bit[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };
+
 /* Per-slot effects (B4): manipulating the PALETTE of the laid image
    — white flash, fade to black (death), darken, restore. One WRAM
    SHADOW per slot (the 15 useful colours): the fade halves it in
@@ -269,6 +299,16 @@ static void sg_open(void)
     fx_mode[i] = 0; /* palette effects (B4) reset */
   }
   fx_dirty = 0;
+  /* overlap composition: fresh shadow map, no composed chars */
+  {
+    u16 j;
+
+    for (j = 0; j < 32 * 28; j++)
+      sg_map[j] = 0;
+    for (j = 0; j < 64; j++)
+      sg_cflag[j] = 0;
+  }
+  cp_n = 0;
   /* the scene's sprites are hidden (hero, NPCs, weather) — the loop's
      *_draw calls are frozen while the screen is up */
   for (i = 0; i < 128; i++)
@@ -484,13 +524,84 @@ void stage_clear(u8 slot)
      only cost the map */
 }
 
+/* Merges one laid cell over one occupied cell (B3-overlap): the
+   front's pixels win, its transparent pixels keep the back's. Returns
+   the map entry to write — a plain overwrite when the mix costs
+   nothing (blank front cell -> the back entry stays; fully covering
+   front cell, exhausted char budget, back cell already composed ->
+   the front entry), a freshly composed char otherwise. */
+static u16 sg_compose(u16 over_entry, u16 under, u8 pal)
+{
+  const u8 *op, *upx;
+  u8 *d;
+  u16 uc, ub;
+  u8 uslot, y, cover, kept;
+
+  uc = under & 0x03FF;
+  if (sg_cflag[uc >> 3] & sg_bit[uc & 7])
+    return over_entry; /* three deep: the middle char's pixels are no
+                          longer in ROM — plain overwrite */
+  uslot = (u8)(((under >> 10) & 7) - 2);
+  if (uslot >= STAGE_SLOTS || sl_pic[uslot] == 0xFF)
+    return over_entry;
+  if (cp_n >= SG_COMP_MAX || sg_next_char >= 512)
+    return over_entry; /* batch full or budget out */
+  op = pic_chars[up_pic] + (((over_entry & 0x03FF) - sl_base[up_slot]) << 5);
+  upx = pic_chars[sl_pic[uslot]] + ((uc - sl_base[uslot]) << 5);
+  d = cp_buf + ((u16)cp_n << 5);
+  cover = 0xFF; /* front opaque everywhere so far */
+  kept = 0;     /* back pixels that survive */
+  for (y = 0; y < 8; y++)
+  {
+    u8 m, im;
+
+    m = (u8)(op[y << 1] | op[(y << 1) + 1] |
+             op[16 + (y << 1)] | op[16 + (y << 1) + 1]);
+    im = (u8)~m;
+    cover &= m;
+    d[y << 1] = (u8)(op[y << 1] | (upx[y << 1] & im));
+    d[(y << 1) + 1] = (u8)(op[(y << 1) + 1] | (upx[(y << 1) + 1] & im));
+    d[16 + (y << 1)] = (u8)(op[16 + (y << 1)] | (upx[16 + (y << 1)] & im));
+    d[16 + (y << 1) + 1] =
+        (u8)(op[16 + (y << 1) + 1] | (upx[16 + (y << 1) + 1] & im));
+    kept |= (u8)(d[y << 1] ^ op[y << 1]);
+    kept |= (u8)(d[(y << 1) + 1] ^ op[(y << 1) + 1]);
+    kept |= (u8)(d[16 + (y << 1)] ^ op[16 + (y << 1)]);
+    kept |= (u8)(d[16 + (y << 1) + 1] ^ op[16 + (y << 1) + 1]);
+  }
+  if (cover == 0xFF || !kept)
+    return over_entry; /* the front covers everything visible */
+  ub = sg_next_char++;
+  sg_cflag[ub >> 3] |= sg_bit[ub & 7];
+  cp_dst[cp_n] = ub;
+  cp_n++;
+  return ub | ((u16)pal << 10);
+}
+
+/* Is this cell of the laid image entirely transparent? (all four
+   plane bytes of every row zero — 32 ROM bytes checked) */
+static u8 sg_cell_blank(u16 over_entry)
+{
+  const u8 *op;
+  u8 k, acc;
+
+  op = pic_chars[up_pic] + (((over_entry & 0x03FF) - sl_base[up_slot]) << 5);
+  acc = 0;
+  for (k = 0; k < 32; k++)
+    acc |= op[k];
+  return acc == 0;
+}
+
 /* builds up to 2 map rows into up_buf (main loop — never at VBlank: it
-   rewrites char+palette for w entries per row) */
+   rewrites char+palette for w entries per row). Overlap composition
+   happens HERE, where scan lines are free; the VBlank only fires the
+   result. A batch that composes stops at one row so its extra chars
+   stay inside the SG_COMP_MAX transfer cap. */
 void stage_update(void)
 {
   const u16 *src;
   u16 *q;
-  u16 base;
+  u16 base, under, entry;
   u8 w, r, i, pal;
 
   if (sg_on)
@@ -505,8 +616,21 @@ void stage_update(void)
     src = pic_maps[up_pic] + ((u16)(up_row + r) << 5);
     q = up_buf + ((u16)r << 5); /* row 1 at +32 (the VBlank's stride) */
     for (i = 0; i < w; i++)
-      *q++ = ((*src++ & 0x03FF) + base) | ((u16)pal << 10);
+    {
+      entry = ((*src++ & 0x03FF) + base) | ((u16)pal << 10);
+      under = sg_map[(((u16)up_ty + up_row + r) << 5) + up_tx + i];
+      if (under & 0x03FF)
+      {
+        if (sg_cell_blank(entry))
+          entry = under; /* blank front cell: the back one stays */
+        else
+          entry = sg_compose(entry, under, pal);
+      }
+      *q++ = entry;
+    }
     up_rows++;
+    if (cp_n) /* composed chars pending: cap the batch at this row */
+      break;
   }
 }
 
@@ -556,8 +680,13 @@ void stage_vblank(void)
   case 5:
     for (r = 0; r < 2 && up_row < up_ch; r++, up_row++)
     {
+      u16 j, o;
+
       addr = SG_MAP_BG1 + ((u16)(up_cy + up_row) << 5) + up_cx;
       dmaFillVram16(&sg_zero, addr, up_cw);
+      o = (((u16)up_cy + up_row) << 5) + up_cx; /* shadow follows */
+      for (j = 0; j < up_cw; j++)
+        sg_map[o + j] = 0;
     }
     if (up_row >= up_ch)
     {
@@ -574,11 +703,28 @@ void stage_vblank(void)
   case 4: /* map: the rows built by stage_update */
     if (!up_rows)
       break;
+    /* composed chars FIRST: the map rows below reference them */
+    for (r = 0; r < cp_n; r++)
+      dmaCopyVram(cp_buf + ((u16)r << 5),
+                  VRAM_BG1_GFX + (cp_dst[r] << 4), 32);
+    cp_n = 0;
     addr = SG_MAP_BG1 + ((u16)up_ty << 5) + up_tx + ((u16)up_row << 5);
     dmaCopyVram((u8 *)up_buf, addr, (u16)pic_wt[up_pic] << 1);
     if (up_rows > 1)
       dmaCopyVram((u8 *)(up_buf + 32), addr + 32,
                   (u16)pic_wt[up_pic] << 1);
+    /* the shadow follows the truth, row by row */
+    {
+      u16 j, o;
+      u8 k;
+
+      for (k = 0; k < up_rows; k++)
+      {
+        o = (((u16)up_ty + up_row + k) << 5) + up_tx;
+        for (j = 0; j < pic_wt[up_pic]; j++)
+          sg_map[o + j] = up_buf[((u16)k << 5) + j];
+      }
+    }
     up_row += up_rows;
     up_rows = 0;
     if (up_row >= pic_ht[up_pic])
