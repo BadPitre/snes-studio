@@ -26,6 +26,11 @@ extern u8 ui_band_up;
 /* Clears the buffer AND the whole VRAM map — screen off only. */
 void ui_screen_init(void);
 
+/* Publishes the dirty span's head to the dispatcher (V-NMI V5) —
+   call at the END of the frame's logic, after every ui_map writer;
+   ui_screen_vblank resolves the flight the same frame. */
+void ui_screen_prep(void);
+
 /* Moves the VRAM map and writes the buffer out to it — screen off only.
    A world map's plane owns the low half of VRAM, so the UI layer lives
    somewhere else while one is up (vram.h). The BUFFER is untouched. */

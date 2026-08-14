@@ -58,8 +58,10 @@
 #define VN_MAPR 2 /* map row burst */
 #define VN_VIG 3  /* vignette cell rows (vignette.c, V1) */
 #define VN_BP 4   /* battler cells + digit sheet (btlprim.c, V2) */
-#define VN_TA 5   /* animated-tile step (tileanim.c, V3) */
-#define VN_SLOTS 6
+#define VN_UI 5   /* head of the UI dirty span (ui_screen.c, V5) */
+#define VN_TA 6   /* animated-tile step (tileanim.c, V3) — still last:
+                     the historical first sacrifice */
+#define VN_SLOTS 7
 
 /* Declared-line cap per NMI: 4 vignette rows of a 32x32 cell (the
    H-bugfix bound, cost 4 each) fit exactly; a 64x64 cell (rows of

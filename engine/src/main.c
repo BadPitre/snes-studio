@@ -379,6 +379,8 @@ int main(void)
                       the player sets cell and position, the vignette
                       writes the OAM shadow */
     vig_update(); /* vignettes (B5) — on the map AND the composed screen */
+    ui_screen_prep(); /* LAST: every ui_map writer has run — the span's
+                         head rides the ISR next NMI (V5) */
 
     audio_process(); /* music stream -> SPC */
 

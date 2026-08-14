@@ -363,3 +363,21 @@ frames. vn_v_max reads 511 after a session: that is the probe's wrap
 clamp recorded during the screen-off opening, where the beam guard
 is meaningless — a 511 in the max means "some fire ended on a
 forced-blank or wrapped frame", not an overrun.
+
+### V5 (ui_screen on the dispatcher)
+
+The UI gains its fixed-chunk ISR lane: ui_screen_prep publishes the
+dirty span's HEAD (up to 4 rows, 256 bytes, cost 4) at the end of
+the frame's logic — after every ui_map writer ran — and the same
+frame's tail resolves the flight (landed: the span advances;
+leftover: cancelled, the splitter owns the span again). The flight
+never exists while widgets write, so the WRAM publication discipline
+holds by construction and no writer needed a clearing hook — a
+simplification over the plan's "ui_mark clears the token".
+
+Demo dialogue route, which never armed the ISR before V5: vn_v_in =
+235, vn_v_last = 245, vn_v_max = 247 — the typewriter's rows now
+land at ~line 235 through the fast lane, before the tail's
+contention exists. Battle scenario unchanged: choreography ~1.75
+VBl/iter (parity within sampling noise), popup white, menus clean.
+Pixel regression 3/3 with no re-bless needed this time.
