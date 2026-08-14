@@ -1,18 +1,25 @@
 /*
  * vignette.h — animated vignettes: small SPRITE images played from
- * strips of 32x32 frames — emotes above heads ("!", "?"), held items,
+ * strips of square frames — emotes above heads ("!", "?"), held items,
  * sparkles, and the ATTACK ANIMATIONS over the monsters of a composed
- * screen.
+ * screen. The CELL SIZE is a property of the sheet since O-C: 16x16,
+ * 32x32 or 64x64 (the strip PNG's height).
  *
- * 8 simultaneous slots (H1). Slots 0-3: chars 384-447, OAM 96-99.
- * Slots 4-7: chars 448-511, OAM 50-53 — free everywhere in OAM terms
- * (actors end at 49), but their CHARS are shared ground, documented
- * like the other collisions: in a SCENE, the weather's drops live at
- * 484+ (rain or snow corrupts slots 4-7); on a COMPOSED SCREEN,
- * btl_pose (V1) draws its static battlers there — a battle poses its
- * party with vignettes OR btl_pose, never both at once. Only the
- * CURRENT frame lives in VRAM: a frame change is 512 bytes of DMA.
- * One vignette is ONE 32x32 OAM entry (OBJ_LARGE).
+ * 8 simultaneous slots (H1); char and OAM bases come from the
+ * generated video map (data/vidmap.h). Slots 4-7 are free everywhere
+ * in OAM terms (actors end at 49), but their CHARS are shared ground,
+ * documented like the other collisions: in a SCENE, the weather's
+ * drops live in their band (rain or snow corrupts slots 4-7); on a
+ * COMPOSED SCREEN, btl_pose (V1) draws its static battlers there — a
+ * battle poses its party with vignettes OR btl_pose, never both at
+ * once. Only the CURRENT frame lives in VRAM: a frame change is
+ * cell^2/2 bytes of DMA (128/512/2048).
+ *
+ * A 16x16 or 32x32 vignette is ONE OAM entry (OBJ_SMALL/OBJ_LARGE —
+ * the two sizes OBJSEL enables; player.c). A 64x64 cell is FOUR
+ * 32x32 OBJs: it only lives in slot 0 or 2, and while shown it
+ * FREEZES slots {s+1, s+4, s+5}, whose char blocks and OAM entries
+ * display the other three quadrants (vignette.c, v_shadow).
  *
  * OBJ palettes are the SCARCE resource — in a SCENE: character sets
  * take 0-4 and the weather takes 7, leaving TWO (5 and 6). On a

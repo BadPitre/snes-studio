@@ -59,7 +59,11 @@ export default function AnimationsModal(props: Props) {
   const cur = draft[sel] as AnimationDef | undefined;
   const nl = Math.max(1, Math.min(ANIM_LAYERS_MAX, cur?.layers ?? 1));
   const sheet = cur ? bmps[cur.vignette] : undefined;
-  const cells = sheet ? Math.max(1, Math.floor(sheet.width / 32)) : 0;
+  // O-C: the cell size IS the sheet PNG's height (16 or 32 for
+  // animations — datagen refuses 64x64 sheets here, the player cannot
+  // borrow the quad slots they need)
+  const cell = sheet ? sheet.height : 32;
+  const cells = sheet ? Math.max(1, Math.floor(sheet.width / cell)) : 0;
   const frame = cur?.frames[fsel] as AnimFrame | undefined;
   const posed = frame ? animFrameCells(frame, nl) : [];
   const lay = Math.min(lsel, nl - 1);
@@ -154,8 +158,11 @@ export default function AnimationsModal(props: Props) {
         ctx.fillRect(HERO_X * 2, (HERO_Y - OVERLAP) * 2, 32, 48);
       }
     }
-    // anchor cross
-    const [ax, ay] = ref === "hero" ? [HERO_X, HERO_Y] : [SCR_X + 16, SCR_Y + 16];
+    // anchor cross — the screen aim stays the 32-cell centre (112,96):
+    // datagen compiles that default whatever the sheet size, so the
+    // cross marks the cell's middle from there
+    const [ax, ay] =
+      ref === "hero" ? [HERO_X, HERO_Y] : [SCR_X + cell / 2, SCR_Y + cell / 2];
     ctx.strokeStyle = "rgba(255,210,74,.6)";
     ctx.beginPath();
     ctx.moveTo(ax * 2 - 12, ay * 2 + 0.5);
@@ -171,13 +178,13 @@ export default function AnimationsModal(props: Props) {
       const [cx, cy] = cellPos(c, ref);
       if (sheet && c.cell < cells) {
         ctx.globalAlpha = l === lay ? 1 : 0.55;
-        ctx.drawImage(sheet, c.cell * 32, 0, 32, 32, cx * 2, cy * 2, 64, 64);
+        ctx.drawImage(sheet, c.cell * cell, 0, cell, cell, cx * 2, cy * 2, cell * 2, cell * 2);
         ctx.globalAlpha = 1;
       }
       ctx.strokeStyle = l === lay ? "rgba(255,210,74,.9)" : "rgba(255,255,255,.3)";
-      ctx.strokeRect(cx * 2 + 0.5, cy * 2 + 0.5, 63, 63);
+      ctx.strokeRect(cx * 2 + 0.5, cy * 2 + 0.5, cell * 2 - 1, cell * 2 - 1);
     });
-  }, [cur, frame, posed, sheet, cells, ref, lay, props.sprites]);
+  }, [cur, frame, posed, sheet, cell, cells, ref, lay, props.sprites]);
 
   const clamp = (v: number) => Math.max(-128, Math.min(127, v));
 
@@ -439,7 +446,7 @@ export default function AnimationsModal(props: Props) {
                         const c = posed[l];
                         if (c.cell < 0) continue;
                         const [cx, cy] = cellPos(c, ref);
-                        if (px < cx || px >= cx + 32 || py < cy || py >= cy + 32) continue;
+                        if (px < cx || px >= cx + cell || py < cy || py >= cy + cell) continue;
                         stopPlay();
                         setLsel(l);
                         dragRef.current = { layer: l, dx: px - cx, dy: py - cy };
@@ -684,7 +691,7 @@ export default function AnimationsModal(props: Props) {
   );
 }
 
-// Thumbnail of a cell (32x32 scaled down) — timeline and inspector grid
+// Thumbnail of a cell (scaled to 32x32) — timeline and inspector grid
 function CellThumb(props: { sheet: ImageBitmap | undefined; cell: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -693,8 +700,9 @@ function CellThumb(props: { sheet: ImageBitmap | undefined; cell: number }) {
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, 32, 32);
-    if (props.cell >= 0 && props.sheet && props.cell * 32 < props.sheet.width)
-      ctx.drawImage(props.sheet, props.cell * 32, 0, 32, 32, 0, 0, 32, 32);
+    const c = props.sheet ? props.sheet.height : 32; /* cell = PNG height */
+    if (props.cell >= 0 && props.sheet && props.cell * c < props.sheet.width)
+      ctx.drawImage(props.sheet, props.cell * c, 0, c, c, 0, 0, 32, 32);
   }, [props.sheet, props.cell]);
   return <canvas ref={ref} width={32} height={32} className="anim-thumb" />;
 }

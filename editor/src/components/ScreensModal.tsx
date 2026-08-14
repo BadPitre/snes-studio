@@ -104,28 +104,36 @@ export default function ScreensModal(props: Props) {
       ctx.font = "12px system-ui";
       ctx.fillText(String(s.slot), s.x * 2 + 4, s.y * 2 + 14);
     }
-    // the standing cast (H3): first cell of each vignette, 32x32
+    // the standing cast (H3): first cell of each vignette — the cell
+    // size IS the sheet PNG's height (16/32/64, O-C)
     for (const v of vigs) {
       const b = v.vig ? bmps[`vig:${v.vig}`] : undefined;
-      if (b) ctx.drawImage(b, 0, 0, 32, 32, v.x * 2, v.y * 2, 64, 64);
+      const c = b ? b.height : 32;
+      if (b) ctx.drawImage(b, 0, 0, c, c, v.x * 2, v.y * 2, c * 2, c * 2);
       else {
         ctx.fillStyle = "rgba(160,80,220,.35)";
-        ctx.fillRect(v.x * 2, v.y * 2, 64, 64);
+        ctx.fillRect(v.x * 2, v.y * 2, c * 2, c * 2);
       }
       ctx.setLineDash([4, 3]);
       ctx.strokeStyle = v.slot === selVig ? "#ffd24a" : "rgba(190,120,255,.8)";
-      ctx.strokeRect(v.x * 2 + 0.5, v.y * 2 + 0.5, 63, 63);
+      ctx.strokeRect(v.x * 2 + 0.5, v.y * 2 + 0.5, c * 2 - 1, c * 2 - 1);
       ctx.setLineDash([]);
       ctx.fillStyle = v.slot === selVig ? "#ffd24a" : "rgba(220,190,255,.9)";
       ctx.font = "11px system-ui";
-      ctx.fillText(v.name || (v.anim ? `anim ${v.anim}` : v.vig || ""), v.x * 2 + 3, v.y * 2 + 61);
+      ctx.fillText(v.name || (v.anim ? `anim ${v.anim}` : v.vig || ""), v.x * 2 + 3, v.y * 2 + c * 2 - 3);
     }
   }, [cur, vigs, bmps, selSlot, selVig, tab]);
+
+  const vigCellOf = (v: ScreenVig): number => {
+    const b = v.vig ? bmps[`vig:${v.vig}`] : undefined;
+    return b ? b.height : 32;
+  };
 
   const hitVig = (px: number, py: number): ScreenVig | null => {
     for (let i = vigs.length - 1; i >= 0; i--) {
       const v = vigs[i];
-      if (px >= v.x && px < v.x + 32 && py >= v.y && py < v.y + 32) return v;
+      const c = vigCellOf(v);
+      if (px >= v.x && px < v.x + c && py >= v.y && py < v.y + c) return v;
     }
     return null;
   };
@@ -289,8 +297,9 @@ export default function ScreensModal(props: Props) {
                           patch({
                             vignettes: vigs.map((v) => {
                               if (v.slot !== d.slot) return v;
-                              const nx = Math.max(0, Math.min(256 - 32, (px - d.dx) & ~7));
-                              const ny = Math.max(0, Math.min(224 - 32, (py - d.dy) & ~7));
+                              const c = vigCellOf(v);
+                              const nx = Math.max(0, Math.min(256 - c, (px - d.dx) & ~7));
+                              const ny = Math.max(0, Math.min(224 - c, (py - d.dy) & ~7));
                               return { ...v, x: nx, y: ny };
                             }),
                           });

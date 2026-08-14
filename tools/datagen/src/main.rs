@@ -253,7 +253,7 @@ fn main() -> Result<()> {
     // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
     // reference them by stem
     let mut vig_names: Vec<String> = Vec::new();
-    let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>)> = Vec::new();
+    let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>, usize)> = Vec::new();
     for rel in &project.vignettes {
         let stem = Path::new(rel)
             .file_stem()
@@ -298,6 +298,24 @@ fn main() -> Result<()> {
     // Frame-by-frame animations (A1): the frame track and its tables.
     // The format and the checks live in anim.rs.
     let vig_cells: Vec<usize> = vig_data.iter().map(|v| v.1).collect();
+    let vig_sizes: Vec<u8> = vig_data.iter().map(|v| v.3 as u8).collect();
+    // O-C: the frame-by-frame player borrows FREE slots from the top
+    // down, and a 64x64 sheet only lives in slots 1/3 (it composes four
+    // 32x32 OBJs over three neighbours' chars) — the two schemes cannot
+    // meet. 16 and 32 animate; 64 is for posed vignettes.
+    for a in &project.animations {
+        if let Some(i) = vig_names.iter().position(|n| *n == a.vignette) {
+            if vig_data[i].3 == 64 {
+                bail!(
+                    "animation '{}' : la planche '{}' est en 64x64 — les \
+                     animations utilisent des cellules 16x16 ou 32x32 (un \
+                     sprite 64x64 s'affiche via « Afficher un sprite animé », \
+                     emplacement 1 ou 3)",
+                    a.name, a.vignette
+                );
+            }
+        }
+    }
     let anims = anim::compile(&project.animations, &vig_names, &vig_cells, &sound_ids)?;
     anim::report(&anims);
     let music_names: Vec<String> = project
@@ -352,6 +370,7 @@ fn main() -> Result<()> {
             };
             let mut ec = events::EventCompiler::new(&mut texts);
             ec.set_mode7(&m7_img_names, &m7_ramps);
+            ec.set_vig_sizes(&vig_sizes);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -1654,10 +1673,10 @@ fn gen_asset_tables(
 /// data_vignettes.c, the registry indexed by vig_id — ALWAYS emitted.
 fn gen_vignette_files(
     names: &[String],
-    vigs: &[(Vec<u8>, usize, Vec<u16>)],
+    vigs: &[(Vec<u8>, usize, Vec<u16>, usize)],
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    for (i, (chars, _frames, pal)) in vigs.iter().enumerate() {
+    for (i, (chars, _frames, pal, _cell)) in vigs.iter().enumerate() {
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str(&format!("/* vignette « {} » */\n", names[i]));
@@ -1679,6 +1698,17 @@ fn gen_vignette_files(
     s.push_str(&format!("const u8 vig_frames[{}] = {{ ", n));
     for i in 0..n {
         s.push_str(&format!("{}, ", vigs.get(i).map(|v| v.1).unwrap_or(0)));
+    }
+    // O-C: the cell size as an INDEX (0 = 16x16, 1 = 32x32, 2 = 64x64)
+    // into the engine's row/length/cost tables (vignette.c).
+    s.push_str(&format!("}};\n\nconst u8 vig_size[{}] = {{ ", n));
+    for i in 0..n {
+        let sz = match vigs.get(i).map(|v| v.3).unwrap_or(32) {
+            16 => 0,
+            64 => 2,
+            _ => 1,
+        };
+        s.push_str(&format!("{}, ", sz));
     }
     s.push_str(&format!("}};\n\nconst u8 *const vig_chars[{}] = {{ ", n));
     for i in 0..n {

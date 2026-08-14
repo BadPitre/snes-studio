@@ -65,6 +65,8 @@ pub struct EventCompiler<'a> {
     musics: Vec<String>,
     /// Project vignettes (stems), resolved to vig_id.
     vignettes: Vec<String>,
+    /// Cell size in pixels per vignette (16/32/64) — O-C validation.
+    vig_sizes: Vec<u8>,
     /// Project animations (names), resolved to anim_id.
     animations: Vec<String>,
     /// Mode 7 images (stems), resolved to ids, and the DISTINCT zoom
@@ -119,6 +121,7 @@ impl<'a> EventCompiler<'a> {
             sounds: Vec::new(),
             musics: Vec::new(),
             vignettes: Vec::new(),
+            vig_sizes: Vec::new(),
             animations: Vec::new(),
             m7_images: Vec::new(),
             m7_ramps: Vec::new(),
@@ -568,6 +571,12 @@ impl<'a> EventCompiler<'a> {
     pub fn set_mode7(&mut self, images: &[String], ramps: &[crate::mode7::Ramp]) {
         self.m7_images = images.to_vec();
         self.m7_ramps = ramps.to_vec();
+    }
+
+    /// Cell size in pixels per vignette (O-C) — same recipe as
+    /// set_mode7: project-wide, set once.
+    pub fn set_vig_sizes(&mut self, sizes: &[u8]) {
+        self.vig_sizes = sizes.to_vec();
     }
 
     /// reads it at offset 0 of the script block.
@@ -1555,7 +1564,8 @@ impl<'a> EventCompiler<'a> {
             }
             None => {
                 let name = cmd["vig"].as_str().unwrap_or("");
-                self.vignettes
+                let id = self
+                    .vignettes
                     .iter()
                     .position(|v| v == name)
                     .with_context(|| {
@@ -1564,7 +1574,21 @@ impl<'a> EventCompiler<'a> {
                              (supprimée ou renommée ?)",
                             name
                         )
-                    })?
+                    })?;
+                // O-C: a 64x64 cell composes four 32x32 OBJs over the
+                // chars of slots {s, s+1, s+4, s+5} — only slots 1 and
+                // 3 have those neighbours to claim (vignette.c).
+                if self.vig_sizes.get(id).copied().unwrap_or(32) == 64
+                    && slot != 1 && slot != 3
+                {
+                    bail!(
+                        "vig_show : '{}' est en 64x64 — emplacement 1 ou 3 \
+                         uniquement (la cellule occupe aussi les chars de \
+                         trois emplacements voisins)",
+                        name
+                    );
+                }
+                id
             }
         };
         let anchor = match cmd["anchor"].as_str().unwrap_or("screen") {

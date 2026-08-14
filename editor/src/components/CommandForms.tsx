@@ -2048,7 +2048,7 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
           </select>
         </label>
         <label>
-          Vignette (bande de frames 32x32)
+          Vignette (bande de frames 16/32/64)
           {cmd.vig_var === undefined ? (
             <select
               value={cmd.vig}
@@ -2113,7 +2113,8 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
         </label>
       </div>
       <span className="hint">
-        Petite image en SPRITE (32x32), affichée frame 1 — les
+        Petite image en SPRITE (16x16, 32x32 ou 64x64 — la hauteur
+        de la planche), affichée frame 1 — les
         personnages restent visibles (contrairement aux pictures).
         « Sur le héros » : la vignette le suit (émoticône « ! » :
         X -8, Y -32). 8 vignettes à l'écran ; planches DISTINCTES :
@@ -2260,7 +2261,7 @@ export function formAnimPlay(cmd: Extract<Command, { c: "anim_play" }>, x: FormC
         </span>
       )}
       <span className="hint">
-        Suite de cellules 32x32 avec position et son par image
+        Suite de cellules (16 ou 32) avec position et son par image
         (Tools → Animations…). Passe PAR-DESSUS le décor et les
         personnages. Posée sur le héros ou sur un event, elle le
         SUIT s'il se déplace. Sans « attendre la fin », le script

@@ -1,17 +1,20 @@
 // Sprite-animé extraction (RM-extract): a PNG sheet is shown, you pick
 // the transparent colour with the pipette, then DRAW RECTANGLES over
-// the frames to extract — each rectangle becomes one 32x32 cell of the
+// the frames to extract — each rectangle becomes one CELL of the
 // resulting strip, in drawing order. The strip goes through the
 // ordinary sprite-animé import, so it is validated and recorded like a
 // hand-made sheet.
 //
 // Rules the tool enforces while you draw:
-//  - a rectangle is clamped to 32x32 (the cell size — see vignette.h);
-//  - at most 64 frames (one ROM bank of cells, datagen's ceiling);
+//  - the cell size is picked in the header (16/32/64 — O-C) and a
+//    rectangle is clamped to it (vignette.h);
+//  - the frame ceiling is one ROM bank of cells (datagen's rule:
+//    255 / 64 / 16 frames for 16 / 32 / 64);
 //  - each frame lands bottom-centred in its cell (feet on the ground,
 //    the charset helper's convention).
 
 import { useEffect, useRef, useState } from "react";
+import { VIG_CELLS, vigMaxFrames } from "../resources";
 import type { Rgb } from "./TransparencyPickModal";
 
 export interface ExtractRect {
@@ -27,16 +30,14 @@ interface Props {
   onClose: () => void;
 }
 
-const CELL = 32;
-const MAX_FRAMES = 64; // one ROM bank of cells — datagen's own ceiling
-
-// The pure cut: source pixels -> strip pixels (n cells of 32x32, each
+// The pure cut: source pixels -> strip pixels (n square cells, each
 // rectangle bottom-centred, the transparent colour punched to alpha 0).
 // Kept free of canvas state so it can be tested off the DOM.
 export function buildStrip(
   src: ImageData,
   rects: ExtractRect[],
-  trans: Rgb | null
+  trans: Rgb | null,
+  CELL: number = 32
 ): ImageData {
   const out = new ImageData(rects.length * CELL, CELL);
   const s = src.data;
@@ -81,6 +82,11 @@ export default function SpriteExtractModal(props: Props) {
   const [rects, setRects] = useState<ExtractRect[]>([]);
   const [drag, setDrag] = useState<ExtractRect | null>(null);
   const [name, setName] = useState("");
+  // O-C: the target cell size (16/32/64). Changing it clears the drawn
+  // rectangles — they were clamped to the old cell.
+  const [cell, setCell] = useState(32);
+  const CELL = cell;
+  const MAX_FRAMES = vigMaxFrames(cell);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const dataRef = useRef<ImageData | null>(null);
@@ -212,11 +218,11 @@ export default function SpriteExtractModal(props: Props) {
     ctx.clearRect(0, 0, cv.width, cv.height);
     const n = Math.max(1, rects.length);
     for (let i = 0; i < n; i++)
-      for (let cy = 0; cy < 4; cy++)
-        for (let cx = 0; cx < 4; cx++)
+      for (let cy = 0; cy < CELL / 8; cy++)
+        for (let cx = 0; cx < CELL / 8; cx++)
           checker(ctx, (i * CELL + cx * 8) * 2, cy * 8 * 2, 16);
     if (!rects.length) return;
-    const strip = buildStrip(dd, rects, trans);
+    const strip = buildStrip(dd, rects, trans, CELL);
     const tmp = document.createElement("canvas");
     tmp.width = strip.width;
     tmp.height = strip.height;
@@ -318,10 +324,26 @@ export default function SpriteExtractModal(props: Props) {
           <button
             style={{ ...modeStyle(mode === "rect"), marginLeft: 10 }}
             onClick={() => setMode("rect")}
-            title="Tracer les frames — un rectangle (32x32 max) autour de chaque frame, dans l'ordre"
+            title={`Tracer les frames — un rectangle (${cell}x${cell} max) autour de chaque frame, dans l'ordre`}
           >
             ▭
           </button>
+          <select
+            style={{ flex: "0 0 auto", marginLeft: 6 }}
+            value={cell}
+            title="Taille de cellule du sprite animé"
+            onChange={(e) => {
+              setCell(Number(e.target.value));
+              setRects([]); /* clamped to the old cell: start over */
+              setDrag(null);
+            }}
+          >
+            {VIG_CELLS.map((c) => (
+              <option key={c} value={c}>
+                {c}×{c}
+              </option>
+            ))}
+          </select>
         </div>
         <div
           ref={viewRef}
@@ -407,7 +429,7 @@ export default function SpriteExtractModal(props: Props) {
             onClick={() => {
               const dd = dataRef.current;
               if (!dd) return;
-              const strip = buildStrip(dd, rects, trans);
+              const strip = buildStrip(dd, rects, trans, CELL);
               const cv = document.createElement("canvas");
               cv.width = strip.width;
               cv.height = strip.height;

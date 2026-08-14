@@ -13,6 +13,8 @@ const u8 vig_count = 2;
 
 const u8 vig_frames[2] = { 2, 4, };
 
+const u8 vig_size[2] = { 1, 1, };
+
 const u8 *const vig_chars[2] = { vig0_chars, vig1_chars, };
 
 const u16 *const vig_pals[2] = { vig0_pal, vig1_pal, };

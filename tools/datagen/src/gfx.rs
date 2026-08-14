@@ -180,26 +180,37 @@ impl IndexedImage {
     /// With `trans`, the tilemap entries take BG palette 7, which is kept
     /// free for this: the scenery keeps palettes 0-6, so the map layer
     /// showing through stays correct.
-    /// Vignette: a horizontal strip of 32x32 frames (width a multiple of
-    /// 32, height 32, 1 to 8 frames), at most 15 colours plus transparent
-    /// index 0. Each frame is emitted as 16 OBJ 4bpp chars, row by row —
-    /// 4 rows of 4 chars, which is 4 DMA transfers of 128 bytes when the
-    /// frame changes. Returns chars, frame count and a 16-colour palette.
-    pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>)> {
-        if self.height != 32 || self.width == 0 || self.width % 32 != 0 {
+    /// Vignette: a horizontal strip of square frames — the PNG height IS
+    /// the cell size (16, 32 or 64 since O-C; width a multiple of it),
+    /// at most 15 colours plus transparent index 0. Each frame is
+    /// emitted row-major over the FULL cell width (cell/8 chars per
+    /// row): the engine transfers a cell as `cell/8` DMA rows, and for
+    /// a 64x64 the four 32x32 OBJ quadrants fall exactly on the char
+    /// blocks of vignette slots {s, s+1, s+4, s+5} (vignette.c).
+    /// Returns chars, frame count, a 16-colour palette and the cell.
+    pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>, usize)> {
+        let cell = self.height;
+        if !(cell == 16 || cell == 32 || cell == 64)
+            || self.width == 0 || self.width % cell != 0
+        {
             bail!(
-                "sprite animé '{}' : attendu une bande de frames 32x32 \
-                 (hauteur 32, largeur multiple de 32), recu {}x{}",
+                "sprite animé '{}' : attendu une bande de frames carrées \
+                 (hauteur 16, 32 ou 64 = la taille de cellule, largeur \
+                 multiple de la hauteur), recu {}x{}",
                 name, self.width, self.height
             );
         }
-        let frames = self.width / 32;
+        let frames = self.width / cell;
         // The real ceiling is the ROM bank: one sheet is one contiguous
-        // array (frames x 512 bytes) and a LoROM bank holds 32 KB — 64
-        // frames exactly. The engine's frame arithmetic (u16 offsets,
-        // u8 frame counters) is comfortable up to there.
-        if frames > 64 {
-            bail!("sprite animé '{}' : {} frames (max 64, une banque ROM)", name, frames);
+        // array (frames x cell^2/2 bytes) and a LoROM bank holds 32 KB —
+        // 64 frames of 32x32, 16 of 64x64; 16x16 hits the u8 frame
+        // counter (255) before the bank (256).
+        let max = (32768 / (cell * cell / 2)).min(255);
+        if frames > max {
+            bail!(
+                "sprite animé '{}' : {} frames (max {} en {}x{} — une banque ROM)",
+                name, frames, max, cell, cell
+            );
         }
         if let Some(&mx) = self.pixels.iter().max() {
             if mx >= 16 {
@@ -212,18 +223,19 @@ impl IndexedImage {
         }
         let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
         let mut chars: Vec<u8> = Vec::new();
+        let n = cell / 8;
         for f in 0..frames {
-            for row in 0..4 {
-                for col in 0..4 {
+            for row in 0..n {
+                for col in 0..n {
                     let ch =
-                        self.char4bpp_mapped(f * 32 + col * 8, row * 8, &identity);
+                        self.char4bpp_mapped(f * cell + col * 8, row * 8, &identity);
                     chars.extend_from_slice(&ch);
                 }
             }
         }
         let mut pal: Vec<u16> = self.palette.iter().copied().take(16).collect();
         pal.resize(16, 0);
-        Ok((chars, frames, pal))
+        Ok((chars, frames, pal, cell))
     }
 
     pub fn to_picture(&self, trans: bool) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {

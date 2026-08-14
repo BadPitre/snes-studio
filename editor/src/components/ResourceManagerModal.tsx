@@ -38,7 +38,7 @@ interface Props {
   pictures: string[]; // S3 images (PNG <= 16 colours, <= 256x224)
   sounds: string[]; // WAV sounds (B1) — assets/sounds/*.wav paths
   musics: string[]; // IT music — assets/music/*.it paths
-  vignettes: string[]; // strips of 32x32 frames (B5)
+  vignettes: string[]; // strips of square frames, cell = PNG height (B5, O-C)
   mode7Images: string[]; // Mode 7 images (M7) — assets/mode7/*.png
   // resource -> the scenes using it (to block deletion)
   usedCharsets: Record<number, string[]>;
@@ -143,7 +143,7 @@ const CATS: CatDef[] = [
   {
     cat: "vignette",
     kind: "vignette",
-    label: "Sprite animé (32×32)",
+    label: "Sprite animé (16/32/64)",
     bullet: "▦",
     items: (p) => p.vignettes,
     deleteTitle: () =>
@@ -299,11 +299,13 @@ export default function ResourceManagerModal(p: Props) {
         ctx.fillText("aperçu en cours…", 8 + half + 12, 24);
       }
     } else if (cat === "vignette" && bmp) {
-      const n = bmp.width / 32;
-      ctx.fillText(`${n} frame(s) 32x32 — jouées par « Animer le sprite animé »`, 8, 12);
+      const c = bmp.height; /* cell = PNG height (16/32/64, O-C) */
+      const n = bmp.width / c;
+      ctx.fillText(`${n} frame(s) ${c}x${c} — jouées par « Animer le sprite animé »`, 8, 12);
+      const step = c * 2 + 10;
       for (let i = 0; i < n; i++) {
-        ctx.drawImage(bmp, i * 32, 0, 32, 32, 8 + i * 74, 22, 64, 64);
-        ctx.fillText(String(i + 1), 34 + i * 74, 96);
+        ctx.drawImage(bmp, i * c, 0, c, c, 8 + i * step, 22, c * 2, c * 2);
+        ctx.fillText(String(i + 1), 8 + c - 4 + i * step, 22 + c * 2 + 10);
       }
     } else if (cat === "sound") {
       ctx.fillText(`♪ ${p.sounds.length} son(s) — WAV converti en BRR 8 kHz au build`, 8, 14);
