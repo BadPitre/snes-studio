@@ -39,22 +39,19 @@
    a small one per transfer, plus the throughput. */
 #define VBL_COST_BURST(n, bytes) ((u8)(2 + (n) + ((bytes) >> 7)))
 #define VBL_COST_MAPHALF(n) VBL_COST_BURST(n, (u16)(n) << 6)
-#define VBL_COST_VIG_ROW 4 /* ONE row of a vignette cell: 1 call +
-                            128 B. Derived from the A10 measurement of
-                            the whole cell (4 calls + 512 B = 14.3
-                            lines average, 15 peak — PERF_MEASUREMENTS
-                            §4): a quarter of it, rounded up. The cell
-                            stopped being the transfer atom on H1's
-                            battle screens: after the NMI, the stage
-                            registers and the battle UI, the window
-                            holds 6-11 real lines — a 15-line atom
-                            never fits and the slot starves (measured
-                            with the V counter: vig entered at line
-                            250 with 9 declared left, every frame).
-                            Rows fit; a cell completes over 1-4
-                            VBlanks. Vignettes still do not move to
-                            bursts — the row that passes is chosen
-                            INSIDE the VBlank. */
+/* The vignette ROW costs live in vignette.c since O-C (vig_rowcost:
+   3/4/6 lines for the 64/128/256-byte rows of a 16/32/64 cell). The
+   32x32 figure derives from the A10 measurement of the whole cell
+   (4 calls + 512 B = 14.3 lines average, 15 peak — PERF_MEASUREMENTS
+   §4): a quarter of it, rounded up; the others scale with the DMA
+   length around the same per-call overhead. The cell stopped being
+   the transfer atom on H1's battle screens: after the NMI, the stage
+   registers and the battle UI, the window holds 6-11 real lines — a
+   15-line atom never fits and the slot starves (measured with the V
+   counter: vig entered at line 250 with 9 declared left, every
+   frame). Rows fit; a cell completes over 1-4 VBlanks (up to 2 NMIs
+   for a 64x64). Vignettes still do not move to bursts — the row that
+   passes is chosen INSIDE the VBlank. */
 #define VBL_COST_UI(rows) ((u8)(2 + ((rows) >> 1))) /* 1 call + rows*64 B */
 /* How many UI rows fit in `lines` lines — the inverse. */
 #define VBL_UI_ROWS(lines) ((u8)((lines) <= 2 ? 0 : ((lines) - 2) << 1))

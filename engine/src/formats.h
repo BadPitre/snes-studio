@@ -136,9 +136,10 @@
                               vars16[dst] = vars16[dst] OP value(src).
                               op: 0 =, 1 +, 2 -, 3 *, 4 /, 5 mod,
                               6 random 0..value (inclusive).
-                              src_type: 0 constant, 1 variable[src],
-                              2 hero X (tiles), 3 hero Y (tiles),
-                              4 timer (seconds left).
+                              src_type: VARSRC_* (8 = vars16[vars16[src]],
+                              the O-B read indirection — served by
+                              varop_src, so CALLF arguments, SETLOC and
+                              both sides of JCMP16 get it too).
                               division and mod by zero give 0. */
 #define VM_OP_TIMER   0x15 /* op (u8): 0 set and start (val = seconds),
                               1 stop, 2 show, 3 hide; val (u16) */
@@ -201,7 +202,10 @@
 
 /* Database reads (docs/PLANNING_SYSTEME_DATABASE.md) */
 #define VM_OP_DBREAD  0x23 /* table (u8, index into the db_tables[] registry),
-                              entry src (u8: 0 constant, 1 variable),
+                              mode (u8, a BITFIELD since O-B: bit 0 =
+                              entry is a variable index — the historic
+                              0/1 byte, value-compatible; bit 1 = dst is
+                              INDIRECT, vars16[(u8)vars16[dst]]),
                               entry (u8), field offset (u8), size
                               (u8: 1 or 2), dst var (u8) —
                               vars16[dst] = the field; out of range (an
@@ -216,9 +220,15 @@
                               10 R, 11 Select, 12 Start; 0 = none).
                               wait = 1 blocks until a FRESH press of a
                               key in the mask */
-/* 0x26 was VM_OP_SYSMENU — freed in M2: the System menu became the
-   project's event library (PLANNING_MENU_EN_EVENTS.md); saving goes
-   through VM_OP_SRAM. */
+#define VM_OP_VAROPI  0x26 /* dstv (u8), op (u8), src_type (u8), src (u16)
+                              — VAROP with an INDIRECT destination:
+                              vars16[(u8)vars16[dstv]] = ... (O-B). Same
+                              wire size and arithmetic as VAROP; a
+                              separate opcode so the common case stays
+                              6 bytes and its decoder untouched. Number
+                              0x26 was VM_OP_SYSMENU, freed in M2 (the
+                              System menu became the project's event
+                              library; saving goes through VM_OP_SRAM). */
 #define VM_OP_DLGSTYLE 0x27 /* style (u8, 0 = default) — dialogue box
                                of the next MSG/CHOICE: window, windowskin
                                and font per style (the ui_styles.c
@@ -494,6 +504,9 @@
 #define VARSRC_SCENE 5 /* index of the current scene */
 #define VARSRC_PARAM 6 /* parameter n of the FUNCTION in progress */
 #define VARSRC_RET 7   /* value returned by the last CALLF */
+#define VARSRC_VARVAR 8 /* vars16[vars16[src]] — read indirection (O-B);
+                           the (u8) truncation of the inner value IS the
+                           range check, 256 variables exist */
 
 /* Budgets: 512 switches (64 bytes of bits), 256 16-bit variables. Both
    persist across scenes and are saved to SRAM (spec §4bis). */

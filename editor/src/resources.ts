@@ -340,6 +340,14 @@ const music: Resource = {
   deleted: (s) => `Supprimé : ${s}`,
 };
 
+// O-C: legal sprite-animé cell sizes and the per-size frame ceiling
+// (one ROM bank of cells: 32768 / (cell²/2), capped at 255 for the u8
+// frame counter — datagen's own rule, gfx.rs).
+export const VIG_CELLS = [16, 32, 64];
+export function vigMaxFrames(cell: number): number {
+  return Math.min(255, Math.floor(32768 / ((cell * cell) / 2)));
+}
+
 const vignette: Resource = {
   kind: "vignette",
   dir: "assets/vignettes",
@@ -349,16 +357,18 @@ const vignette: Resource = {
   list: (p) => p.vignettes ?? [],
   ...stringRegister("vignettes"),
   pickImport: () =>
-    pickPngFile("Importer un sprite animé (bande de frames 32x32, PNG à transparence)"),
+    pickPngFile("Importer un sprite animé (bande de frames carrées 16/32/64, PNG à transparence)"),
   badSize: (b) =>
-    /* 64 frames = one ROM bank of cells, datagen's own ceiling — the
-       editor gate used to stop at 8 and silently ate bigger imports
-       from the rectangle extractor (the status line hid behind it) */
-    b.height !== 32 || b.width % 32 !== 0 || b.width === 0 || b.width > 64 * 32
-      ? `Sprite animé : attendu une bande 32 px de haut, largeur multiple de 32 (1-64 frames) — reçu ${b.width}x${b.height}`
+    /* O-C: the PNG's height IS the cell size (16/32/64) and the frame
+       ceiling is one ROM bank of cells (datagen's own rule: 32768 /
+       (cell²/2), capped at 255 for the u8 frame counter) */
+    !VIG_CELLS.includes(b.height) || b.width % b.height !== 0 ||
+    b.width === 0 || b.width / b.height > vigMaxFrames(b.height)
+      ? `Sprite animé : attendu une bande de frames carrées — hauteur 16, 32 ou 64 (la taille de cellule), largeur multiple de la hauteur (max ${b.height > 0 && VIG_CELLS.includes(b.height) ? vigMaxFrames(b.height) : "255/64/16"} frames) — reçu ${b.width}x${b.height}`
       : null,
   exists: (s) => `Sprite animé « ${s} » : existe déjà`,
-  imported: (s, b) => `Sprite animé importé : ${s} (${b ? b.width / 32 : 0} frame(s))`,
+  imported: (s, b) =>
+    `Sprite animé importé : ${s} (${b ? b.width / b.height : 0} frame(s) de ${b?.height ?? 32}x${b?.height ?? 32})`,
   importFailed: (e) => `Import sprite animé : ${e}`,
   pickExport: "Exporter le sprite animé (PNG)",
   exported: (p) => `Vignette exportée : ${p}`,

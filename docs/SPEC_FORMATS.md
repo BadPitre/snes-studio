@@ -369,6 +369,24 @@ variable operands — scripted step-by-step NPC movement arrives with the
 VM_WAIT_CHOICE, and the NPC being talked to turns towards the hero (an RM2003
 reflex, engine side).*
 
+*The table above stops at v0.6; the opcodes added since (0x0C-0x4B) are
+specified by their comments in `engine/src/formats.h`, which is the
+authoritative list — extending this table has drifted for sixty opcodes
+and pretending otherwise would be worse than saying so.*
+
+**O-B — indirection.** Three additions for data-driven scripts (a party
+loop reads "hero N's stats" without unrolling per hero):
+- `VARSRC_VARVAR` (source type 8): `vars16[vars16[src]]`, accepted
+  everywhere a value source is decoded (`varop_src`): VAROP, SETLOC,
+  CALLF arguments, RETF, both sides of JCMP16.
+- `VAROPI` (0x26, the number SYSMENU freed): VAROP with an indirect
+  destination — `vars16[(u8)vars16[dstv]] = ... OP value(src)`. Same
+  6-byte shape; a separate opcode keeps the common case's decoder
+  untouched.
+- `DBREAD`'s entry-source byte becomes a mode BITFIELD: bit 0 = entry is
+  a variable index (the historic 0/1, value-compatible), bit 1 = the
+  destination is indirect (`vars16[(u8)vars16[dst]]`).
+
 **Texts (v0.7):** bank $86, at $86:8000, strings compressed with a
 **bigram dictionary (DTE)**:
 
@@ -662,7 +680,14 @@ per char column; rows: +1 word, 2 segments per row).
 
 ## 4. Engine VRAM layout (v0)
 
-An engine choice, not a data one — documented here for reference:
+The BG side below is an engine choice, not a data one — documented here
+for reference. The OBJ side (vignette/battler chars, digit sheet,
+weather blocks, their OAM entries and palettes) is GENERATED per
+project since O-A: datagen computes `engine/src/data/vidmap.h` from
+what the project's events actually use, and checks the scene sprite
+sets and screen backdrops against it (PLANNING_VIDMAP.md). The numbers
+quoted for those systems elsewhere in this document are the canonical
+values the map emits when the system is in use.
 
 | VRAM address (words) | Content |
 |----------------------|---------|

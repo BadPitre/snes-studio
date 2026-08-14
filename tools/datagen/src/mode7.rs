@@ -195,8 +195,9 @@ fn resample(img: &IndexedImage, w: usize, h: usize) -> Vec<u16> {
 /// Median cut down to `max` colours, then nearest-representative
 /// mapping. Deterministic: the boxes are split on a fixed rule and the
 /// histogram is ordered, so the same PNG always gives the same bytes —
-/// gate-datagen.sh depends on it.
-fn quantise(rgb: &[u16], max: usize) -> (Vec<u8>, Vec<u16>) {
+/// gate-datagen.sh depends on it. Index 0 is reserved (black here,
+/// transparency for the vignette path that borrows this — gfx.rs).
+pub(crate) fn quantise(rgb: &[u16], max: usize) -> (Vec<u8>, Vec<u16>) {
     let mut hist: BTreeMap<u16, u32> = BTreeMap::new();
     for &c in rgb {
         *hist.entry(c).or_insert(0) += 1;

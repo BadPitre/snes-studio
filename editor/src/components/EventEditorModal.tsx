@@ -179,6 +179,7 @@ function picDurLabel(dur?: number, fade?: boolean): string {
 function srcLabel(v: { from?: VarSource; value: number }): string {
   switch (v.from) {
     case "var": return `variable [${v.value}]`;
+    case "var_var": return `variable pointée [V[${v.value}]]`;
     case "hero_x": return "X du héros";
     case "hero_y": return "Y du héros";
     case "timer": return "timer";
@@ -212,7 +213,9 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "var": {
       const src = srcLabel(c);
       const dst =
-        c.dst === "local" ? `Locale ${c.n + 1}` : `Variable [${c.n}]`;
+        c.dst === "local" ? `Locale ${c.n + 1}`
+        : c.dst === "indirect" ? `Variable pointée [V[${c.n}]]`
+        : `Variable [${c.n}]`;
       return c.op === "rand"
         ? `${dst} = hasard 0..${src}`
         : `${dst} ${c.op}= ${src}`;
@@ -420,7 +423,9 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     case "ret_fn":
       return `Retourner ${srcLabel(c)}`;
     case "db_read":
-      return `Variable [${c.dst}] = ${c.table}[${
+      return `${
+        c.dst_from === "var" ? `Variable pointée [V[${c.dst}]]` : `Variable [${c.dst}]`
+      } = ${c.table}[${
         c.from === "var" ? `variable [${c.entry}]` : c.entry}].${c.field}`;
     case "db_entry":
       return `Variable [${c.dst}] = n° de ${c.table}[${c.entry}]`;
@@ -1473,6 +1478,7 @@ export function ValueSourceFields(props: {
         >
           <option value="const">Constante</option>
           <option value="var">Une variable</option>
+          <option value="var_var">Une variable pointée (V[V[n]])</option>
           <option value="hero_x">X du héros (tiles)</option>
           <option value="hero_y">Y du héros (tiles)</option>
           <option value="timer">Timer (secondes)</option>
@@ -1496,9 +1502,9 @@ export function ValueSourceFields(props: {
             ))}
           </select>
         </label>
-      ) : from === "var" ? (
+      ) : from === "var" || from === "var_var" ? (
         <label>
-          Variable
+          {from === "var_var" ? "Variable pointeur" : "Variable"}
           <span className="row" style={{ gap: 4 }}>
             <input
               type="number" min={0} max={255} value={v.value}
@@ -1511,7 +1517,11 @@ export function ValueSourceFields(props: {
                 }>…</button>
             )}
           </span>
-          <span className="hint">{props.varNames?.[v.value] || ""}</span>
+          <span className="hint">
+            {from === "var_var"
+              ? `lit V[valeur de V[${v.value}]]`
+              : props.varNames?.[v.value] || ""}
+          </span>
         </label>
       ) : numeric ? (
         <label>

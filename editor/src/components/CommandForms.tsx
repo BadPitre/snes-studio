@@ -241,27 +241,32 @@ export function formVar(cmd: Extract<Command, { c: "var" }>, x: FormCtx): FormBo
     // lines pushes its field down and the row goes stair-stepped —
     // which is what happened to "N° de variable source"
     <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-      {/* F2b — the destination can be a LOCAL variable of the
-          current function. Offered only when there are some:
-          elsewhere it would name a frame that does not exist. */}
-      {(x.p.fnLocals?.length ?? 0) > 0 && (
-        <label style={{ flex: "0 0 auto" }}>
-          Destination
-          <select
-            value={cmd.dst ?? "global"}
-            onChange={(e) =>
-              onChange({
-                ...cmd,
-                dst: e.target.value === "local" ? "local" : undefined,
-                n: 0,
-              })
-            }
-          >
-            <option value="global">Variable du projet</option>
+      {/* F2b — the destination can be a LOCAL variable of the current
+          function (offered only when there are some: elsewhere it would
+          name a frame that does not exist) — or, since O-B, INDIRECT:
+          the variable named here holds the destination's number. */}
+      <label style={{ flex: "0 0 auto" }}>
+        Destination
+        <select
+          value={cmd.dst ?? "global"}
+          onChange={(e) =>
+            onChange({
+              ...cmd,
+              dst:
+                e.target.value === "local" || e.target.value === "indirect"
+                  ? (e.target.value as "local" | "indirect")
+                  : undefined,
+              n: 0,
+            })
+          }
+        >
+          <option value="global">Variable du projet</option>
+          {(x.p.fnLocals?.length ?? 0) > 0 && (
             <option value="local">Variable locale</option>
-          </select>
-        </label>
-      )}
+          )}
+          <option value="indirect">Variable pointée par une variable</option>
+        </select>
+      </label>
       {cmd.dst === "local" ? (
         <label>
           Variable locale
@@ -278,7 +283,7 @@ export function formVar(cmd: Extract<Command, { c: "var" }>, x: FormCtx): FormBo
         </label>
       ) : (
       <label>
-        Variable
+        {cmd.dst === "indirect" ? "Variable pointeur" : "Variable"}
         <span className="row" style={{ gap: 4 }}>
           <input
             type="number" min={0} max={255} value={cmd.n} autoFocus
@@ -287,7 +292,11 @@ export function formVar(cmd: Extract<Command, { c: "var" }>, x: FormCtx): FormBo
           <button className="browse" title="Choisir dans la liste"
             onClick={() => x.p.onPickVar("var", cmd.n, (n) => onChange({ ...cmd, n }))}>…</button>
         </span>
-        <span className="hint">{x.p.varNames[cmd.n] || ""}</span>
+        <span className="hint">
+          {cmd.dst === "indirect"
+            ? `écrit dans V[valeur de V[${cmd.n}]]`
+            : x.p.varNames[cmd.n] || ""}
+        </span>
       </label>
       )}
       <label>
@@ -2039,7 +2048,7 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
           </select>
         </label>
         <label>
-          Vignette (bande de frames 32x32)
+          Vignette (bande de frames 16/32/64)
           {cmd.vig_var === undefined ? (
             <select
               value={cmd.vig}
@@ -2104,7 +2113,8 @@ export function formVigShow(cmd: Extract<Command, { c: "vig_show" }>, x: FormCtx
         </label>
       </div>
       <span className="hint">
-        Petite image en SPRITE (32x32), affichée frame 1 — les
+        Petite image en SPRITE (16x16, 32x32 ou 64x64 — la hauteur
+        de la planche), affichée frame 1 — les
         personnages restent visibles (contrairement aux pictures).
         « Sur le héros » : la vignette le suit (émoticône « ! » :
         X -8, Y -32). 8 vignettes à l'écran ; planches DISTINCTES :
@@ -2251,7 +2261,7 @@ export function formAnimPlay(cmd: Extract<Command, { c: "anim_play" }>, x: FormC
         </span>
       )}
       <span className="hint">
-        Suite de cellules 32x32 avec position et son par image
+        Suite de cellules (16 ou 32) avec position et son par image
         (Tools → Animations…). Passe PAR-DESSUS le décor et les
         personnages. Posée sur le héros ou sur un event, elle le
         SUIT s'il se déplace. Sans « attendre la fin », le script
@@ -2815,7 +2825,23 @@ export function formDbRead(cmd: Extract<Command, { c: "db_read" }>, x: FormCtx):
           </select>
         </label>
         <label>
-          → Variable destination
+          Destination
+          <select
+            value={cmd.dst_from ?? "const"}
+            onChange={(e) => {
+              const dst_from = e.target.value as "const" | "var";
+              onChange({
+                ...cmd,
+                dst_from: dst_from === "const" ? undefined : dst_from,
+              });
+            }}
+          >
+            <option value="const">Fixe (choisir)</option>
+            <option value="var">Pointée par une variable</option>
+          </select>
+        </label>
+        <label>
+          {cmd.dst_from === "var" ? "→ Variable pointeur" : "→ Variable destination"}
           <span className="row" style={{ gap: 4 }}>
             <input
               type="number" min={0} max={255} value={cmd.dst}
@@ -2824,14 +2850,19 @@ export function formDbRead(cmd: Extract<Command, { c: "db_read" }>, x: FormCtx):
             <button className="browse" title="Choisir dans la liste"
               onClick={() => x.p.onPickVar("var", cmd.dst, (n) => onChange({ ...cmd, dst: n }))}>…</button>
           </span>
-          <span className="hint">{x.p.varNames[cmd.dst] || ""}</span>
+          <span className="hint">
+            {cmd.dst_from === "var"
+              ? `écrit dans V[valeur de V[${cmd.dst}]]`
+              : x.p.varNames[cmd.dst] || ""}
+          </span>
         </label>
       </div>
       <span className="hint">
         Copie la valeur du champ dans la variable (flags8 : l'octet des
         bits ; ref : l'index de la fiche visée ; « depuis une
         variable » : le n° de fiche est lu dans la variable, hors
-        table → 0).
+        table → 0 ; destination « pointée » : la variable indiquée
+        contient le n° de la variable à écrire).
       </span>
     </>
   );

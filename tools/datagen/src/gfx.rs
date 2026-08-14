@@ -180,50 +180,96 @@ impl IndexedImage {
     /// With `trans`, the tilemap entries take BG palette 7, which is kept
     /// free for this: the scenery keeps palettes 0-6, so the map layer
     /// showing through stays correct.
-    /// Vignette: a horizontal strip of 32x32 frames (width a multiple of
-    /// 32, height 32, 1 to 8 frames), at most 15 colours plus transparent
-    /// index 0. Each frame is emitted as 16 OBJ 4bpp chars, row by row —
-    /// 4 rows of 4 chars, which is 4 DMA transfers of 128 bytes when the
-    /// frame changes. Returns chars, frame count and a 16-colour palette.
-    pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>)> {
-        if self.height != 32 || self.width == 0 || self.width % 32 != 0 {
+    /// Vignette: a horizontal strip of square frames — the PNG height IS
+    /// the cell size (16, 32 or 64 since O-C; width a multiple of it),
+    /// at most 15 colours plus transparent index 0. Each frame is
+    /// emitted row-major over the FULL cell width (cell/8 chars per
+    /// row): the engine transfers a cell as `cell/8` DMA rows, and for
+    /// a 64x64 the four 32x32 OBJ quadrants fall exactly on the char
+    /// blocks of vignette slots {s, s+1, s+4, s+5} (vignette.c).
+    /// Returns chars, frame count, a 16-colour palette and the cell.
+    pub fn to_vignette(&self, name: &str) -> Result<(Vec<u8>, usize, Vec<u16>, usize)> {
+        let cell = self.height;
+        if !(cell == 16 || cell == 32 || cell == 64)
+            || self.width == 0 || self.width % cell != 0
+        {
             bail!(
-                "sprite animé '{}' : attendu une bande de frames 32x32 \
-                 (hauteur 32, largeur multiple de 32), recu {}x{}",
+                "sprite animé '{}' : attendu une bande de frames carrées \
+                 (hauteur 16, 32 ou 64 = la taille de cellule, largeur \
+                 multiple de la hauteur), recu {}x{}",
                 name, self.width, self.height
             );
         }
-        let frames = self.width / 32;
+        let frames = self.width / cell;
         // The real ceiling is the ROM bank: one sheet is one contiguous
-        // array (frames x 512 bytes) and a LoROM bank holds 32 KB — 64
-        // frames exactly. The engine's frame arithmetic (u16 offsets,
-        // u8 frame counters) is comfortable up to there.
-        if frames > 64 {
-            bail!("sprite animé '{}' : {} frames (max 64, une banque ROM)", name, frames);
+        // array (frames x cell^2/2 bytes) and a LoROM bank holds 32 KB —
+        // 64 frames of 32x32, 16 of 64x64; 16x16 hits the u8 frame
+        // counter (255) before the bank (256).
+        let max = (32768 / (cell * cell / 2)).min(255);
+        if frames > max {
+            bail!(
+                "sprite animé '{}' : {} frames (max {} en {}x{} — une banque ROM)",
+                name, frames, max, cell, cell
+            );
         }
-        if let Some(&mx) = self.pixels.iter().max() {
-            if mx >= 16 {
-                bail!(
-                    "sprite animé '{}' : index de couleur {} utilise (max 15 — \
-                     15 couleurs + transparence)",
-                    name, mx
-                );
+        // A sheet with more than 15 colours (an RGBA export from the
+        // rectangle extractor, an antialiased strip, an indexed PNG
+        // with scattered indices) used to be REFUSED here while the
+        // Mode 7 path quantises — same cure now: median-cut the OPAQUE
+        // pixels down to 15, index 0 staying the transparency, with a
+        // build note instead of an error.
+        if self.pixels.iter().any(|&p| p >= 16) {
+            let opaque: Vec<u16> = self
+                .pixels
+                .iter()
+                .filter(|&&p| p != 0)
+                .map(|&p| self.palette.get(p as usize).copied().unwrap_or(0))
+                .collect();
+            let distinct = opaque
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let (idx, pal) = crate::mode7::quantise(&opaque, 16);
+            let mut px = Vec::with_capacity(self.pixels.len());
+            let mut k = 0usize;
+            for &p in &self.pixels {
+                if p == 0 {
+                    px.push(0);
+                } else {
+                    px.push(idx[k]);
+                    k += 1;
+                }
             }
+            println!(
+                "  sprite animé '{}' : {} couleurs, réduites à 15 par \
+                 quantisation (l'import direct d'une bande indexée à 15 \
+                 couleurs évite la réduction)",
+                name, distinct
+            );
+            let reduced = IndexedImage {
+                width: self.width,
+                height: self.height,
+                pixels: px,
+                palette: pal,
+                palette_rgb: Vec::new(),
+            };
+            return reduced.to_vignette(name);
         }
         let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
         let mut chars: Vec<u8> = Vec::new();
+        let n = cell / 8;
         for f in 0..frames {
-            for row in 0..4 {
-                for col in 0..4 {
+            for row in 0..n {
+                for col in 0..n {
                     let ch =
-                        self.char4bpp_mapped(f * 32 + col * 8, row * 8, &identity);
+                        self.char4bpp_mapped(f * cell + col * 8, row * 8, &identity);
                     chars.extend_from_slice(&ch);
                 }
             }
         }
         let mut pal: Vec<u16> = self.palette.iter().copied().take(16).collect();
         pal.resize(16, 0);
-        Ok((chars, frames, pal))
+        Ok((chars, frames, pal, cell))
     }
 
     pub fn to_picture(&self, trans: bool) -> Result<(Vec<u8>, Vec<u16>, Vec<u16>)> {
@@ -714,4 +760,59 @@ pub fn solid_char(index: u8, cut: u8) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The reported case (O-C follow-up): an extractor export lands as
+    // an RGBA PNG, indexed on the fly with 33 distinct colours — the
+    // vignette path must QUANTISE to 15 + transparency, not refuse.
+    #[test]
+    fn vignette_with_33_colours_is_quantised() {
+        let mut pixels = vec![0u8; 32 * 32];
+        // 33 opaque colours painted in bands, index 0 (transparent)
+        // kept on the first row
+        for y in 1..32usize {
+            for x in 0..32usize {
+                pixels[y * 32 + x] = 1 + ((y * 32 + x) % 33) as u8;
+            }
+        }
+        let palette: Vec<u16> = (0..34).map(|i| (i * 71 & 0x7FFF) as u16).collect();
+        let img = IndexedImage {
+            width: 32,
+            height: 32,
+            pixels,
+            palette,
+            palette_rgb: Vec::new(),
+        };
+        let (chars, frames, pal, cell) = img.to_vignette("test").unwrap();
+        assert_eq!((frames, cell), (1, 32));
+        assert_eq!(chars.len(), 512);
+        assert_eq!(pal.len(), 16);
+        assert_eq!(pal[0], 0, "index 0 stays the transparency");
+    }
+
+    // Scattered indices under 15 distinct colours go through the same
+    // door and come out intact in count.
+    #[test]
+    fn vignette_with_scattered_indices_is_accepted() {
+        let mut pixels = vec![0u8; 16 * 16];
+        pixels[17] = 20;
+        pixels[18] = 33;
+        let mut palette = vec![0u16; 34];
+        palette[20] = 0x7C00;
+        palette[33] = 0x03E0;
+        let img = IndexedImage {
+            width: 16,
+            height: 16,
+            pixels,
+            palette,
+            palette_rgb: Vec::new(),
+        };
+        let (chars, frames, _pal, cell) = img.to_vignette("eparse").unwrap();
+        assert_eq!((frames, cell), (1, 16));
+        assert_eq!(chars.len(), 128);
+    }
 }

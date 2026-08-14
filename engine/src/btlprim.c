@@ -3,10 +3,9 @@
  *
  * The C1/C4 recipes, lifted out of btl.c's machine and put behind
  * event commands so the project's OWN scripts can run a battle:
- * battler pose (chars 448+, OAM 104-107), damage popup (digit sheet
- * on chars 336+, OAM 100-103), the gauge clock, the target cursor.
- * Same VRAM/OAM territory as btl.c on purpose — a scripted battle and
- * a BATTLE-opcode battle never share a stage.
+ * battler pose, damage popup (digit sheet), the gauge clock, the
+ * target cursor. Chars, OAM entries and palettes come from the
+ * GENERATED video map (data/vidmap.h, PLANNING_VIDMAP.md).
  *
  * Visual state (poses, popup, uploads) belongs to the stage SESSION:
  * when the composed screen goes down, everything is forgotten. The
@@ -19,22 +18,26 @@
 #include "vbudget.h"
 #include "vm.h"
 #include "vram.h"
+#include "data/vidmap.h"
 
 /* data_battle.c — always emitted, zeroed without battle data */
 extern const u8 btl_battler_count; /* entries of the `heroes` db table */
 extern const u8 *const btl_battler_cells[];
 extern const u16 btl_battler_pals[]; /* 16 colours per entry, flat */
-extern const u8 btl_digit_cells[]; /* 32 chars: 0-9 on the even ones */
-extern const u16 btl_digit_pal[];  /* white + shadow, OBJ palette 4 */
+extern const u8 btl_digit_cells[]; /* 48 chars: 3 name rows, 0-9 on the
+    even columns, 8 and 9 in the bottom half (battle.rs) */
+extern const u16 btl_digit_pal[];  /* white + shadow, the digit palette */
 
-/* Four battler SLOTS: OBJ char rows 28-31 (448 + slot*4, a 32x32 cell
-   each) and OBJ palettes 0-3 (CGRAM 128 + slot*16). The slot count is
-   what VRAM allows; WHICH database entry a slot shows is the script's
-   business (bp_ent) — that is how a party is swapped. */
-#define BP_CHAR(h) (448 + (h) * 4)
-#define BP_OAM(h) ((u16)(104 + (h)) << 2)
-#define BP_DIGCHAR 336
-#define BP_POPOAM(i) ((u16)(100 + (i)) << 2)
+/* Four battler SLOTS (a 32x32 cell each) and OBJ palettes 0-3 (CGRAM
+   128 + slot*16). Char and OAM bases come from the GENERATED video map
+   (data/vidmap.h): the cells alias vignette slots 4-7 by design — the
+   documented exclusivity in vignette.h. The slot count is what VRAM
+   allows; WHICH database entry a slot shows is the script's business
+   (bp_ent) — that is how a party is swapped. */
+#define BP_CHAR(h) (VID_BP_CHAR_BASE + (h) * 4)
+#define BP_OAM(h) ((u16)(VID_BP_OAM_BASE + (h)) << 2)
+#define BP_DIGCHAR VID_DIG_CHAR
+#define BP_POPOAM(i) ((u16)(VID_POP_OAM_BASE + (i)) << 2)
 
 /* ---- poses (BTLPOSE) ---- */
 static u8 bp_shown = 0; /* bit h: battler posed */
@@ -250,7 +253,8 @@ static void pop_oam(void)
     om[2] = (u8)(pop_d[i] < 8
                      ? BP_DIGCHAR - 256 + (pop_d[i] << 1)
                      : BP_DIGCHAR - 256 + ((pop_d[i] - 8) << 1) + 16);
-    om[3] = 0x39; /* prio 3, OBJ palette 4, char bit 8 */
+    om[3] = 0x30 | (VID_DIG_PAL << 1) | 1; /* prio 3, digit palette,
+        char bit 8 (folded to a constant at compile time) */
     oamSetEx(BP_POPOAM(i), OBJ_SMALL, OBJ_SHOW);
   }
   if (pop_t && dig_up == 2)
@@ -366,7 +370,7 @@ void btlprim_vblank(void)
   {
     if (!vbl_take(2))
       return;
-    dmaCopyCGram((u8 *)btl_digit_pal, 192, 32); /* OBJ palette 4 */
+    dmaCopyCGram((u8 *)btl_digit_pal, 128 + (VID_DIG_PAL << 4), 32);
     dig_up = 2;
   }
 }

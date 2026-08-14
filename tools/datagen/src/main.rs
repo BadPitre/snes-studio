@@ -26,6 +26,7 @@ mod sfx;
 mod tidy;
 mod tileset;
 mod ui;
+mod vidmap;
 
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -243,9 +244,8 @@ fn main() -> Result<()> {
     // next to the graphics, and it means a command hidden inside a
     // condition, a loop or a screen script is found without anyone
     // maintaining a list of the places to look.
-    let m7_ramps = mode7::collect_ramps(
-        &project_json_roots(&proj_dir)?.iter().collect::<Vec<_>>(),
-    );
+    let json_roots = project_json_roots(&proj_dir)?;
+    let m7_ramps = mode7::collect_ramps(&json_roots.iter().collect::<Vec<_>>());
     if !m7_ramps.is_empty() {
         println!("  mode7 : {} rampe(s) de zoom distincte(s)", m7_ramps.len());
     }
@@ -253,7 +253,7 @@ fn main() -> Result<()> {
     // Vignettes: strips of 32x32 OBJ sprite frames; vig_show commands
     // reference them by stem
     let mut vig_names: Vec<String> = Vec::new();
-    let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>)> = Vec::new();
+    let mut vig_data: Vec<(Vec<u8>, usize, Vec<u16>, usize)> = Vec::new();
     for rel in &project.vignettes {
         let stem = Path::new(rel)
             .file_stem()
@@ -298,6 +298,24 @@ fn main() -> Result<()> {
     // Frame-by-frame animations (A1): the frame track and its tables.
     // The format and the checks live in anim.rs.
     let vig_cells: Vec<usize> = vig_data.iter().map(|v| v.1).collect();
+    let vig_sizes: Vec<u8> = vig_data.iter().map(|v| v.3 as u8).collect();
+    // O-C: the frame-by-frame player borrows FREE slots from the top
+    // down, and a 64x64 sheet only lives in slots 1/3 (it composes four
+    // 32x32 OBJs over three neighbours' chars) — the two schemes cannot
+    // meet. 16 and 32 animate; 64 is for posed vignettes.
+    for a in &project.animations {
+        if let Some(i) = vig_names.iter().position(|n| *n == a.vignette) {
+            if vig_data[i].3 == 64 {
+                bail!(
+                    "animation '{}' : la planche '{}' est en 64x64 — les \
+                     animations utilisent des cellules 16x16 ou 32x32 (un \
+                     sprite 64x64 s'affiche via « Afficher un sprite animé », \
+                     emplacement 1 ou 3)",
+                    a.name, a.vignette
+                );
+            }
+        }
+    }
     let anims = anim::compile(&project.animations, &vig_names, &vig_cells, &sound_ids)?;
     anim::report(&anims);
     let music_names: Vec<String> = project
@@ -352,6 +370,7 @@ fn main() -> Result<()> {
             };
             let mut ec = events::EventCompiler::new(&mut texts);
             ec.set_mode7(&m7_img_names, &m7_ramps);
+            ec.set_vig_sizes(&vig_sizes);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -940,6 +959,35 @@ fn main() -> Result<()> {
         scenes.len(),
         sprite_blocks
     );
+
+    // The OBJ video map (PLANNING_VIDMAP.md): scan what the project
+    // engages, check the real footprints against the map, emit it as
+    // data/vidmap.h. The scene check is an ERROR — a set overflowing a
+    // reserved region used to corrupt it silently; the screen check is
+    // advisory (which screens pop damage is a runtime question).
+    {
+        let usage = vidmap::scan(&json_roots, &screens);
+        let scene_chars: Vec<(String, usize)> = scenes
+            .iter()
+            .enumerate()
+            .map(|(i, sc)| {
+                let set = &sprite_sets[sprite_set_ids[i] as usize];
+                (sc.name.clone(), set.0.len() / 32)
+            })
+            .collect();
+        vidmap::check_scenes(&usage, &scene_chars)?;
+        let backdrops: Vec<(String, String, usize)> = screens
+            .iter()
+            .filter(|s| !s.backdrop.is_empty())
+            .filter_map(|s| {
+                pic_names.iter().position(|p| *p == s.backdrop).map(|i| {
+                    (s.name.clone(), s.backdrop.clone(), pic_data[i].0.len() / 32)
+                })
+            })
+            .collect();
+        vidmap::warn_screens(&usage, &backdrops);
+        write_out(&out_dir, "vidmap.h", vidmap::header(&usage))?;
+    }
 
     // A WORLD MAP ships NO grids in scenes.bin: its block map lives in
     // ROM (m7w{i}_map, or 64-row slices past 16384 cells) and the engine
@@ -1625,10 +1673,10 @@ fn gen_asset_tables(
 /// data_vignettes.c, the registry indexed by vig_id — ALWAYS emitted.
 fn gen_vignette_files(
     names: &[String],
-    vigs: &[(Vec<u8>, usize, Vec<u16>)],
+    vigs: &[(Vec<u8>, usize, Vec<u16>, usize)],
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    for (i, (chars, _frames, pal)) in vigs.iter().enumerate() {
+    for (i, (chars, _frames, pal, _cell)) in vigs.iter().enumerate() {
         let mut s = String::from(emit::HEADER);
         s.push_str("#include <snes.h>\n\n");
         s.push_str(&format!("/* vignette « {} » */\n", names[i]));
@@ -1650,6 +1698,17 @@ fn gen_vignette_files(
     s.push_str(&format!("const u8 vig_frames[{}] = {{ ", n));
     for i in 0..n {
         s.push_str(&format!("{}, ", vigs.get(i).map(|v| v.1).unwrap_or(0)));
+    }
+    // O-C: the cell size as an INDEX (0 = 16x16, 1 = 32x32, 2 = 64x64)
+    // into the engine's row/length/cost tables (vignette.c).
+    s.push_str(&format!("}};\n\nconst u8 vig_size[{}] = {{ ", n));
+    for i in 0..n {
+        let sz = match vigs.get(i).map(|v| v.3).unwrap_or(32) {
+            16 => 0,
+            64 => 2,
+            _ => 1,
+        };
+        s.push_str(&format!("{}, ", sz));
     }
     s.push_str(&format!("}};\n\nconst u8 *const vig_chars[{}] = {{ ", n));
     for i in 0..n {

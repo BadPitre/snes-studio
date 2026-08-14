@@ -41,7 +41,7 @@ import {
   writeProjectText,
 } from "./io";
 import type { ResCtx, ResKind } from "./resources";
-import { RESOURCES, runDelete, runExport, runImport, runRename } from "./resources";
+import { RESOURCES, VIG_CELLS, runDelete, runExport, runImport, runRename, vigMaxFrames } from "./resources";
 import RomRipModal, { type RipTarget } from "./components/RomRipModal";
 import { loadSpc } from "./brr";
 import { looksLikeState } from "./s9xstate";
@@ -1035,15 +1035,16 @@ export default function App() {
   }
 
   // Unified sprite-animé import (the RM's single Importer button): a
-  // PNG that is ALREADY a strip (32 px high, width a multiple of 32)
+  // PNG that is ALREADY a strip (square frames, height 16/32/64)
   // imports directly; anything else opens the rectangle extractor.
   async function vignettePngImport() {
     if (!data) return;
-    const file = await pickPngFile("Sprite animé : une bande 32x32 ou une planche à découper (PNG)");
+    const file = await pickPngFile("Sprite animé : une bande de frames carrées (16/32/64) ou une planche à découper (PNG)");
     if (!file) return;
     try {
       const bmp = await loadPngBitmap(file);
-      if (bmp.height === 32 && bmp.width % 32 === 0 && bmp.width <= 64 * 32) {
+      if (VIG_CELLS.includes(bmp.height) && bmp.width % bmp.height === 0 &&
+          bmp.width / bmp.height <= vigMaxFrames(bmp.height)) {
         const bytes = await readBinaryFile(file);
         const ctx = resCtx();
         if (ctx)
