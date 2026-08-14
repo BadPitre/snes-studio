@@ -289,6 +289,7 @@ export default function App() {
     setPassMode(false);
     setDirty(false);
     history.reset();
+    recentAdd(root, d.project.name);
     return d;
   }
 
@@ -300,6 +301,38 @@ export default function App() {
       setStatus(`Projet « ${d.project.name} » — ${d.project.scenes.length} scènes`);
     } catch (e) {
       setStatus(`Erreur d'ouverture : ${e}`);
+    }
+  }
+
+  // ---- Recent projects (the front page's list) -----------------------------
+  // A small MRU in localStorage: every successful load pushes its root to
+  // the front, a click reopens it, a dead path removes itself.
+  function recentLoad(): { root: string; name: string }[] {
+    try {
+      const v = JSON.parse(localStorage.getItem("snesstudio.recent") ?? "[]");
+      return Array.isArray(v) ? v.filter((e) => e && typeof e.root === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  const [recent, setRecent] = useState<{ root: string; name: string }[]>(recentLoad);
+  function recentAdd(root: string, name: string) {
+    const list = [{ root, name }, ...recentLoad().filter((e) => e.root !== root)].slice(0, 8);
+    localStorage.setItem("snesstudio.recent", JSON.stringify(list));
+    setRecent(list);
+  }
+  function recentRemove(root: string) {
+    const list = recentLoad().filter((e) => e.root !== root);
+    localStorage.setItem("snesstudio.recent", JSON.stringify(list));
+    setRecent(list);
+  }
+  async function openRecent(root: string) {
+    try {
+      const d = await reloadProject(root);
+      setStatus(`Projet « ${d.project.name} » — ${d.project.scenes.length} scènes`);
+    } catch (e) {
+      setStatus(`Projet introuvable (retiré de la liste) : ${e}`);
+      recentRemove(root);
     }
   }
 
@@ -1985,7 +2018,31 @@ export default function App() {
       ) : (
         <div className="empty">
           <p>SNES Studio {__APP_VERSION__}</p>
-          <button onClick={openProject}>Ouvrir un projet…</button>
+          {recent.length > 0 && (
+            <div className="recent-list">
+              <div className="hint" style={{ marginBottom: 4 }}>Projets récents :</div>
+              {recent.map((e) => (
+                <div key={e.root} className="recent-row">
+                  <button
+                    className="recent-open"
+                    title={e.root}
+                    onClick={() => void openRecent(e.root)}
+                  >
+                    <span className="recent-name">{e.name || e.root.split(/[\\/]/).pop()}</span>
+                    <span className="recent-path">{e.root}</span>
+                  </button>
+                  <button
+                    className="recent-del"
+                    title="Retirer de la liste (le projet n'est pas supprimé)"
+                    onClick={() => recentRemove(e.root)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={openProject}>{recent.length ? "Ouvrir un autre projet…" : "Ouvrir un projet…"}</button>
         </div>
       )}
 

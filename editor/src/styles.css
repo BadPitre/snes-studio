@@ -790,3 +790,11 @@ button.active { background: #cce4f7; box-shadow: inset 0 0 0 1px #005a9e; paddin
   width: 100%; max-width: 210px; image-rendering: pixelated;
   border: 1px solid var(--dark);
 }
+
+/* Front page: the recent-projects list (MRU, localStorage) */
+.recent-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 14px; min-width: 340px; }
+.recent-row { display: flex; gap: 4px; align-items: stretch; }
+.recent-open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 10px; text-align: left; }
+.recent-name { font-weight: 700; }
+.recent-path { font-size: 10px; opacity: 0.65; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-del { flex: 0 0 auto; width: 24px; }
