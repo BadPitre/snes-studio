@@ -26,6 +26,7 @@
 #include "actors.h"
 #include "camera.h"
 #include "vram.h"
+#include "data/vidmap.h"
 
 /* generated register (data_vignettes.c — always emitted) */
 extern const u8 vig_count;
@@ -33,20 +34,16 @@ extern const u8 vig_frames[];
 extern const u8 *const vig_chars[];
 extern const u16 *const vig_pals[];
 
-/* Slots 0-3: OAM 96-99, chars 384+. Slots 4-7 (H1): OAM 50-53 (free —
-   actors end at 49), chars 448+ (the weather's live at 484+ in scenes:
-   documented collision, vignette.h). TABLES, not conditionals: tcc-816
-   miscompiles a ?: inside a compound shift expression — with the macro
-   form of these, vig_vblank's VRAM address lost its final << 4 and
-   every slot 4-7 cell landed on chars 28-31 (seen on a savestate dump:
-   OAM correct, chars 448+ empty, the battler's bytes sitting in the
-   sprite-set region). */
-static const u16 vig_oam[VIG_SLOTS] = {
-  96 << 2, 97 << 2, 98 << 2, 99 << 2, 50 << 2, 51 << 2, 52 << 2, 53 << 2
-};
-static const u16 vig_char[VIG_SLOTS] = {
-  384, 388, 392, 396, 448, 452, 456, 460
-};
+/* Slot OAM entries and char bases come from the GENERATED video map
+   (data/vidmap.h — datagen computes it per project and checks the
+   sprite sets against it, PLANNING_VIDMAP.md). TABLES, not
+   conditionals: tcc-816 miscompiles a ?: inside a compound shift
+   expression — with the macro form of these, vig_vblank's VRAM address
+   lost its final << 4 and every slot 4-7 cell landed on chars 28-31
+   (seen on a savestate dump: OAM correct, chars 448+ empty, the
+   battler's bytes sitting in the sprite-set region). */
+static const u16 vig_oam[VIG_SLOTS] = VID_VIG_OAMS;
+static const u16 vig_char[VIG_SLOTS] = VID_VIG_CHARS;
 #define VIG_OAM(s) (vig_oam[(s)])
 #define VIG_CHAR(s) (vig_char[(s)])
 
@@ -96,20 +93,22 @@ static u8 v_pal = 0;          /* bitmask (per PALETTE): CGRAM to load */
 static u8 v_init = 0;         /* statics seeded (explicit tcc init) */
 
 /* Which OBJ palettes this context may touch. In a scene, character
-   sets hold 0-4 and the weather 7: only 5 and 6 are ours. On a
-   composed screen the sprites are hidden and the weather stopped, so
-   almost the whole set is in the pool — palette 4 excepted, it
-   belongs to the popup digits (btlprim.c), and a battle that cannot
-   pop its damage numbers is not a battle. That is what lets seven
-   DIFFERENT sheets stand in a fight. One documented exclusivity
+   sets hold 0-4: the pool is the generated pair {A, B} plus C, the
+   weather's palette, which datagen frees (7) when no weather command
+   exists in the project and seals (0xFF, never matches) otherwise.
+   On a composed screen the sprites are hidden and the weather
+   stopped, so almost the whole set is in the pool — the digit palette
+   excepted, it belongs to the popups (btlprim.c), and a battle that
+   cannot pop its damage numbers is not a battle. That is what lets
+   seven DIFFERENT sheets stand in a fight. One documented exclusivity
    remains: btl_pose (V1) draws its static battlers on the SAME chars
    as slots 4-7 and on palettes 0-3 — a battle uses vignettes OR
    btl_pose for its party, never both. */
 static u8 pal_allowed(u8 p)
 {
   if (stage_active())
-    return p != 4;
-  return p == 5 || p == 6;
+    return p != VID_DIG_PAL;
+  return p == VID_VIG_PAL_A || p == VID_VIG_PAL_B || p == VID_VIG_PAL_C;
 }
 
 /* Reserves a palette for this sheet: the one already holding it, or an

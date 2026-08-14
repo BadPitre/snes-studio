@@ -662,7 +662,14 @@ per char column; rows: +1 word, 2 segments per row).
 
 ## 4. Engine VRAM layout (v0)
 
-An engine choice, not a data one — documented here for reference:
+The BG side below is an engine choice, not a data one — documented here
+for reference. The OBJ side (vignette/battler chars, digit sheet,
+weather blocks, their OAM entries and palettes) is GENERATED per
+project since O-A: datagen computes `engine/src/data/vidmap.h` from
+what the project's events actually use, and checks the scene sprite
+sets and screen backdrops against it (PLANNING_VIDMAP.md). The numbers
+quoted for those systems elsewhere in this document are the canonical
+values the map emits when the system is in use.
 
 | VRAM address (words) | Content |
 |----------------------|---------|

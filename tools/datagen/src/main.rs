@@ -26,6 +26,7 @@ mod sfx;
 mod tidy;
 mod tileset;
 mod ui;
+mod vidmap;
 
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -243,9 +244,8 @@ fn main() -> Result<()> {
     // next to the graphics, and it means a command hidden inside a
     // condition, a loop or a screen script is found without anyone
     // maintaining a list of the places to look.
-    let m7_ramps = mode7::collect_ramps(
-        &project_json_roots(&proj_dir)?.iter().collect::<Vec<_>>(),
-    );
+    let json_roots = project_json_roots(&proj_dir)?;
+    let m7_ramps = mode7::collect_ramps(&json_roots.iter().collect::<Vec<_>>());
     if !m7_ramps.is_empty() {
         println!("  mode7 : {} rampe(s) de zoom distincte(s)", m7_ramps.len());
     }
@@ -940,6 +940,35 @@ fn main() -> Result<()> {
         scenes.len(),
         sprite_blocks
     );
+
+    // The OBJ video map (PLANNING_VIDMAP.md): scan what the project
+    // engages, check the real footprints against the map, emit it as
+    // data/vidmap.h. The scene check is an ERROR — a set overflowing a
+    // reserved region used to corrupt it silently; the screen check is
+    // advisory (which screens pop damage is a runtime question).
+    {
+        let usage = vidmap::scan(&json_roots, &screens);
+        let scene_chars: Vec<(String, usize)> = scenes
+            .iter()
+            .enumerate()
+            .map(|(i, sc)| {
+                let set = &sprite_sets[sprite_set_ids[i] as usize];
+                (sc.name.clone(), set.0.len() / 32)
+            })
+            .collect();
+        vidmap::check_scenes(&usage, &scene_chars)?;
+        let backdrops: Vec<(String, String, usize)> = screens
+            .iter()
+            .filter(|s| !s.backdrop.is_empty())
+            .filter_map(|s| {
+                pic_names.iter().position(|p| *p == s.backdrop).map(|i| {
+                    (s.name.clone(), s.backdrop.clone(), pic_data[i].0.len() / 32)
+                })
+            })
+            .collect();
+        vidmap::warn_screens(&usage, &backdrops);
+        write_out(&out_dir, "vidmap.h", vidmap::header(&usage))?;
+    }
 
     // A WORLD MAP ships NO grids in scenes.bin: its block map lives in
     // ROM (m7w{i}_map, or 64-row slices past 16384 cells) and the engine

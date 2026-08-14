@@ -5,14 +5,15 @@
  * front of clouds). GLOBAL state: persists across scenes until the
  * next change, like the tint.
  *
- * Reserved resources, never used elsewhere:
+ * Reserved resources — all from the GENERATED video map (data/vidmap.h):
  *  - OAM: entries 100-123 (the player takes 0-1, the actors 2-49);
- *  - OBJ chars: 16x16 blocks at the END of the region ($4000) — rain at
- *    char 484, snow at 486, the low rows of the second name table. The
- *    per-scene sprite sets cap out around 360 chars, so there is no
- *    collision. A 16x16 block is chars c, c+1, c+16, c+17;
- *  - OBJ palette 7 (CGRAM 240-243) — datagen already warns if a set
- *    occupies it, the same rule as BG palette 7 for pictures.
+ *  - OBJ chars: two 16x16 blocks (c, c+1, c+16, c+17 each) near the
+ *    END of the region. datagen CHECKS the scene sprite sets against
+ *    them (vidmap.rs) — an earlier comment here claimed sets "cap out
+ *    around 360 chars, so there is no collision", which was wrong: a
+ *    legal 5-charset scene is 512 chars;
+ *  - one OBJ palette — datagen already warns if a set occupies it,
+ *    the same rule as BG palette 7 for pictures.
  *
  * The chars come from data_weather.c, ALWAYS emitted by datagen (no
  * data hardcoded in the engine), reloaded at every scene_load and after
@@ -25,6 +26,7 @@
 #include <snes.h>
 #include "weather.h"
 #include "vram.h"
+#include "data/vidmap.h"
 
 /* data_weather.c: 2 planar 4bpp 16x16 blocks (TL,TR then BL,BR) plus
    4 palette colours */
@@ -33,9 +35,9 @@ extern const u8 wea_snow[128];
 extern const u16 wea_pal[4];
 
 #define WEA_MAX 24
-#define WEA_OAM(i) ((u16)(100 + (i)) << 2) /* OAM entries 100-123 */
-#define WEA_CHAR_RAIN 484
-#define WEA_CHAR_SNOW 486
+#define WEA_OAM(i) ((u16)(VID_WEA_OAM_BASE + (i)) << 2)
+#define WEA_CHAR_RAIN VID_WEA_CHAR_RAIN
+#define WEA_CHAR_SNOW VID_WEA_CHAR_SNOW
 #define WEA_PRIO 3 /* in front of everything, the effect layer included (BG1H) */
 
 static u8 w_type = 0;  /* 0 none, 1 rain, 2 snow */
@@ -63,7 +65,7 @@ void weather_load(void)
   dmaCopyVram((u8 *)wea_snow, VRAM_OBJ_GFX + WEA_CHAR_SNOW * 16, 64);
   dmaCopyVram((u8 *)wea_snow + 64,
               VRAM_OBJ_GFX + (WEA_CHAR_SNOW + 16) * 16, 64);
-  dmaCopyCGram((u8 *)wea_pal, 240, 8); /* OBJ palette 7 */
+  dmaCopyCGram((u8 *)wea_pal, 128 + (VID_WEA_PAL << 4), 8);
 }
 
 void weather_set(u8 type, u8 pow)
@@ -111,8 +113,9 @@ void weather_draw(void)
      (vhoo pppc: priority 3, palette 7, 9th char bit) */
   w_frm++;
   chlo = w_type == 1 ? (u8)WEA_CHAR_RAIN : (u8)WEA_CHAR_SNOW;
-  attr = 0x30 | (7 << 1) | 1; /* prio 3, pal 7, char 256+ */
-  om = oamMemory + ((u16)100 << 2);
+  attr = 0x30 | (VID_WEA_PAL << 1) | 1; /* prio 3, weather palette,
+      char 256+ (constant-folded) */
+  om = oamMemory + ((u16)VID_WEA_OAM_BASE << 2);
   px = wx;
   py = wy;
   pv = wv;
