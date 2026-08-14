@@ -194,7 +194,12 @@ non-repeating routes end, and `{"c":"wait","frames":n}` pauses. Assembly:
 
 **v0.13**: `{"c":"var"}` gains the full arithmetic (`op`: `=`, `+`, `-`,
 `*`, `/`, `%`, `rand`) and several sources (`from`: `const` (default),
-`var` (value = the source variable number), `hero_x`, `hero_y`, `timer`);
+`var` (value = the source variable number), `hero_x`, `hero_y`, `timer`;
+since O-B also `var_var` — the POINTED variable, `vars16[vars16[value]]`,
+usable wherever a value source is: var, ret_fn, call_fn arguments,
+if_var). O-B also adds the indirect DESTINATION: `"dst":"indirect"`
+makes `n` the variable HOLDING the destination number (assembly
+`VAROPI`, opcode 0x26, same 6-byte shape as VAROP);
 `{"c":"timer","op":"start|stop|show|hide","secs":n}` (an "M:SS" display in
 the top-right corner); `{"c":"campan","x","y","speed":1-8}`
 (non-blocking), `{"c":"cam_return","speed"}`, `{"c":"wait_cam"}`.
@@ -302,11 +307,14 @@ name.
 
 **v0.17 (reading the database from events)**:
 `{"c":"db_read","table":"stats","from":"const"|"var","entry":"slime"|
-<variable number>,"field":"attack","dst":n}` — `vars16[dst]` = the
-record's field; `from:"var"` reads the record number from a variable
-(outside the table → 0). events.rs resolves the symbolic table, entry and
-field into the assembly `DBREAD <table> <src> <entry> <ofs> <size> <dst>`
-(spec §2). flags8: the byte of bits; ref: the index of the target record.
+<variable number>,"field":"attack","dst":n,"dst_from":"const"|"var"}` —
+`vars16[dst]` = the record's field; `from:"var"` reads the record number
+from a variable (outside the table → 0); `dst_from:"var"` (O-B) makes the
+destination INDIRECT — `dst` names the variable holding the destination
+number. events.rs resolves the symbolic table, entry and field into the
+assembly `DBREAD <table> <mode> <entry> <ofs> <size> <dst>` (spec §2; mode
+is a bitfield — bit 0 entry from variable, bit 1 indirect destination).
+flags8: the byte of bits; ref: the index of the target record.
 
 **Phase 12 (UI widget visibility)**:
 `{"c":"ui_show","widget":"<a layout root id>","on":true|false}` — shows or

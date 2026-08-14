@@ -156,6 +156,7 @@ impl<'a> EventCompiler<'a> {
             // signature is known, that a local's name becomes an index.
             "local" => "param",
             "ret" => "ret",
+            "var_var" => "varvar", /* vars16[vars16[n]] (O-B) */
             o => bail!("{} : source inconnue « {} »", who, o),
         };
         let mut val = cmd["value"]
@@ -1091,6 +1092,10 @@ impl<'a> EventCompiler<'a> {
                 st,
                 val
             ));
+        } else if cmd["dst"].as_str() == Some("indirect") {
+            // O-B: n names the variable HOLDING the destination number
+            let n = Self::idx_field(cmd, "n", 256)?;
+            out.push(format!("  VAROPI {} {} {} {}", n, op, st, val));
         } else {
             let n = Self::idx_field(cmd, "n", 256)?;
             // the old 16-bit set/add also go through VAROP
@@ -2139,9 +2144,18 @@ impl<'a> EventCompiler<'a> {
             ),
             o => bail!("db_read : source inconnue « {} » (const, var)", o),
         };
+        // O-B: dst_from "var" makes the destination INDIRECT — dst
+        // names the variable holding the destination number. The mode
+        // byte is a bitfield (bit 0 = entry from variable, bit 1 =
+        // indirect destination); plain 0/1 stays value-compatible.
+        let mode = match cmd["dst_from"].as_str().unwrap_or("const") {
+            "const" => esrc,
+            "var" => esrc | 2,
+            o => bail!("db_read : dst_from inconnu « {} » (const, var)", o),
+        };
         out.push(format!(
             "  DBREAD {} {} {} {} {} {}",
-            ti, esrc, entry, ofs, size, dst
+            ti, mode, entry, ofs, size, dst
         ));
         Ok(())
     }

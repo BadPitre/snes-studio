@@ -450,6 +450,10 @@ static u16 varop_src(u8 src_type, u16 src)
     return vm.frame[(u8)(vm.frame_base + (u8)src) & (VM_FRAME_SLOTS - 1)];
   case VARSRC_RET:
     return vm.retval;
+  case VARSRC_VARVAR:
+    /* vars16[vars16[src]] (O-B). The (u8) truncation of the inner
+       value is the range check — 256 variables exist. */
+    return vm.vars16[(u8)vm.vars16[src & 255]];
   default:
     return src;
   }
@@ -635,6 +639,15 @@ static void vm_step(void)
 
     case VM_OP_VAROP: /* advanced operations (v0.13) */
       var = fetch8();          /* destination variable */
+      val = fetch8();          /* operation */
+      idx16 = fetch8();        /* source type */
+      val16 = varop_src((u8)idx16, fetch16());
+      vm.vars16[var] = varop_apply(vm.vars16[var], val, val16);
+      break;
+
+    case VM_OP_VAROPI: /* VAROP, destination POINTED by a variable (O-B) */
+      var = fetch8();          /* variable holding the destination */
+      var = (u8)vm.vars16[var];
       val = fetch8();          /* operation */
       idx16 = fetch8();        /* source type */
       val16 = varop_src((u8)idx16, fetch16());
@@ -1057,13 +1070,24 @@ static void vm_step(void)
 
     case VM_OP_DBREAD: /* vars16[dst] = a database field (v0.17) */
       var = fetch8();   /* table (db_tables[] register) */
-      val = fetch8();   /* entry source: 0 constant, 1 variable */
+      val = fetch8();   /* mode bits (O-B): 1 = entry is a variable
+                           index (the historic 0/1 byte), 2 = indirect
+                           destination */
       idx16 = fetch8(); /* entry (or variable number) */
-      if (val)
+      if (val & 1)
         idx16 = vm.vars16[idx16 & 255];
       ofs = fetch8();   /* field offset */
+      if (val & 2)
+        ofs |= 0x8000; /* park the dst-indirect flag in the offset's
+                          unused high bit: `val` holds the SIZE next
+                          and no u8 local is spare */
       val = fetch8();   /* size: 1 or 2 bytes */
       op = fetch8();    /* destination variable */
+      if (ofs & 0x8000)
+      {
+        ofs &= 0x7FFF;
+        op = (u8)vm.vars16[op]; /* dst = vars16[dstv] */
+      }
       if (var >= DB_TABLE_COUNT || idx16 >= db_table_counts[var])
         val16 = 0; /* dynamic entry outside the table: 0, never a wild
                       read (the constants are validated by datagen) */

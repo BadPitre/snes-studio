@@ -369,6 +369,24 @@ variable operands — scripted step-by-step NPC movement arrives with the
 VM_WAIT_CHOICE, and the NPC being talked to turns towards the hero (an RM2003
 reflex, engine side).*
 
+*The table above stops at v0.6; the opcodes added since (0x0C-0x4B) are
+specified by their comments in `engine/src/formats.h`, which is the
+authoritative list — extending this table has drifted for sixty opcodes
+and pretending otherwise would be worse than saying so.*
+
+**O-B — indirection.** Three additions for data-driven scripts (a party
+loop reads "hero N's stats" without unrolling per hero):
+- `VARSRC_VARVAR` (source type 8): `vars16[vars16[src]]`, accepted
+  everywhere a value source is decoded (`varop_src`): VAROP, SETLOC,
+  CALLF arguments, RETF, both sides of JCMP16.
+- `VAROPI` (0x26, the number SYSMENU freed): VAROP with an indirect
+  destination — `vars16[(u8)vars16[dstv]] = ... OP value(src)`. Same
+  6-byte shape; a separate opcode keeps the common case's decoder
+  untouched.
+- `DBREAD`'s entry-source byte becomes a mode BITFIELD: bit 0 = entry is
+  a variable index (the historic 0/1, value-compatible), bit 1 = the
+  destination is indirect (`vars16[(u8)vars16[dst]]`).
+
 **Texts (v0.7):** bank $86, at $86:8000, strings compressed with a
 **bigram dictionary (DTE)**:
 

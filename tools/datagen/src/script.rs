@@ -70,6 +70,7 @@ const OP_RET: u8 = 0x22;
 const OP_DBREAD: u8 = 0x23;
 const OP_SHOWUI: u8 = 0x24;
 const OP_KEYIN: u8 = 0x25;
+const OP_VAROPI: u8 = 0x26; /* VAROP, indirect destination (O-B) */
 const OP_DLGSTYLE: u8 = 0x27;
 const OP_SHOWPIC: u8 = 0x28;
 const OP_HIDEPIC: u8 = 0x29;
@@ -242,6 +243,7 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "WAITROUTE" => 1,
         "WAIT" => 2,
         "VAROP" => 6,
+        "VAROPI" => 6,
         "TIMER" => 4,
         "CAMPAN" => 4,
         "CAMRET" => 2,
@@ -424,8 +426,10 @@ fn parse_varsrc(tok: &str) -> Result<u8> {
         "scene" => 5,
         "param" => 6,
         "ret" => 7,
+        "varvar" => 8, /* vars16[vars16[n]] — read indirection (O-B) */
         o => bail!(
-            "source inconnue '{}' (const, var, hx, hy, timer, scene, param, ret)",
+            "source inconnue '{}' (const, var, hx, hy, timer, scene, param, \
+             ret, varvar)",
             o
         ),
     })
@@ -606,8 +610,8 @@ pub fn assemble(
                 code.extend_from_slice(&label_of(args[5])?.to_le_bytes());
             }
             // VAROP <dst> <=|+|-|*|/|%|rand> <const|var|hx|hy|timer> <src>
-            "VAROP" => {
-                if argc != 4 { bail!("VAROP <dst> <op> <src_type> <src>"); }
+            "VAROP" | "VAROPI" => {
+                if argc != 4 { bail!("{} <dst> <op> <src_type> <src>", op); }
                 let dst: u8 = args[0].parse()
                     .with_context(|| format!("variable invalide : '{}'", args[0]))?;
                 let opb = parse_varop(args[1])?;
@@ -615,9 +619,9 @@ pub fn assemble(
                 let src: i32 = args[3].parse()
                     .with_context(|| format!("valeur invalide : '{}'", args[3]))?;
                 if !(-32768..=65535).contains(&src) {
-                    bail!("VAROP : valeur hors limite : {}", src);
+                    bail!("{} : valeur hors limite : {}", op, src);
                 }
-                code.push(OP_VAROP);
+                code.push(if op == "VAROPI" { OP_VAROPI } else { OP_VAROP });
                 code.push(dst);
                 code.push(opb);
                 code.push(st);

@@ -279,9 +279,11 @@ export type Command =
   // F2b — "dst" picks the destination space: a project global variable
   // (default), or a LOCAL variable of the current function, in which
   // case "n" is the local's index and not a global's.
+  // dst "indirect" (O-B): n names the variable HOLDING the destination
+  // number — vars16[vars16[n]] is written.
   | {
       c: "var";
-      dst?: "global" | "local";
+      dst?: "global" | "local" | "indirect";
       n: number;
       op: VarOp;
       from?: VarSource;
@@ -445,8 +447,10 @@ export type Command =
   | { c: "call_fn"; n: number; args: ValueSrc[]; dst?: number }
   | { c: "ret_fn"; from?: VarSource; value: number }
   // v0.17 — read a Database field into a 16-bit variable.
-  // entry: a symbolic id (from const) or a variable number (from var)
-  | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number }
+  // entry: a symbolic id (from const) or a variable number (from var).
+  // dst_from "var" (O-B): dst names the variable holding the
+  // destination number (indirect write).
+  | { c: "db_read"; table: string; from?: "const" | "var"; entry: string | number; field: string; dst: number; dst_from?: "const" | "var" }
   // The NUMBER of a database entry, into a variable — the generic way
   // to name a table row in a script (which monster a screen poses,
   // which hero a party slot holds). Resolved at build time, so the
@@ -493,9 +497,10 @@ export interface FnSig {
 export type VarOp = "=" | "+" | "-" | "*" | "/" | "%" | "rand";
 // F1: "param" = parameter n of the current function (inside a function
 // body only), "ret" = the value returned by the last call.
+// O-B: "var_var" = vars16[vars16[n]], the pointed variable's value.
 export type VarSource =
   | "const" | "var" | "hero_x" | "hero_y" | "timer" | "scene"
-  | "param" | "local" | "ret";
+  | "param" | "local" | "ret" | "var_var";
 
 // An input value, the same everywhere: source + number. The number is a
 // constant, a variable number or a parameter number depending on source.
