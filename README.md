@@ -151,23 +151,36 @@ ROM next to the sources. The ROM lands in `<project>/.build/engine/`.
 
 ---
 
-## Before you push: four gates
+## Before you push: five gates
 
 Each one exists because something got through without it. They are cheap
 to run and they are the reason a refactor here is safe.
 
 ```bash
 ./tools/regress.sh --build    # engine: pixel regression, 3 cases
+./tools/gate-savestate.sh     # engine: OAM/VRAM/CGRAM facts (battle + boot)
 ./tools/gate-datagen.sh check # datagen: output identical byte for byte
 ./tools/gate-editor.sh        # editor: tsc + build + windows, forms, resources
 ./tools/gate-snesbuild.sh     # build driver: same ROM as make, byte for byte
 ```
+
+CI (`.github/workflows/ci.yml`) runs the push-time subset on every push
+and pull request: the datagen tests, the editor's tsc + build, the pixel
+regression and the savestate gate on a fresh Ubuntu runner — the two
+before/after comparators (`gate-datagen`, `gate-snesbuild`) stay local by
+design.
 
 - **`regress.sh`** runs the demo ROM in a libretro snes9x core for a fixed
   number of frames with a fixed key sequence, and compares the frame to a
   committed reference. It caught a tcc-816 bug where declaring a variable
   inside a `case` corrupted the HUD's row of hearts — invisible on review.
   The core is not in the repo; see `tools/regress/README.md`.
+- **`gate-savestate.sh`** photographs the ROM headless (snesphoto) and
+  checks SEMANTIC facts in the savestate: the battle screen's posed
+  battlers are where the screen says, their chars carry pixels, their
+  palettes carry colours. Every assertion encodes a shipped bug the
+  pixel cases missed (H-bugfix: battlers invisible until the first ATB
+  fill). Assertions, not golden bytes — art changes never trip it.
 - **`gate-datagen.sh`** snapshots datagen's output, re-runs it and diffs.
   A translator that changes one byte has changed the game, even if it
   compiles. Take the snapshot *before* touching the code.
