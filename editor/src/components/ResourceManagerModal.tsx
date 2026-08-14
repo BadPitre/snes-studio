@@ -48,8 +48,7 @@ interface Props {
   onRes: (kind: ResKind, act: ResAct, rel?: string, name?: string) => void;
   onImportCharset: () => void;
   // H4: builds a 12-frame vignette strip from a charset block.
-  onVignetteFromCharset: (block: number, name: string) => void;
-  onVignetteExtract: () => void; // rectangle extraction from a PNG sheet (RM-extract)
+  onVignetteImport: () => void; // unified import (PNG auto-routed / charset)
   onImportChipset: () => void;
   onImportTilesetPng: () => void; // a free PNG grid (not an RM2003 chipset)
   onExportCharset: (b: number) => void;
@@ -419,41 +418,13 @@ export default function ResourceManagerModal(p: Props) {
                   ? p.onImportCharset()
                   : cat === "chipset"
                     ? p.onImportChipset()
-                    : p.onRes(def!.kind, "import")
+                    : cat === "vignette"
+                      ? p.onVignetteImport()
+                      : p.onRes(def!.kind, "import")
               }
             >
               {cat === "chipset" ? "Chipset RM2003…" : "Importer…"}
             </button>
-            {cat === "vignette" && (
-              <button
-                disabled={!p.canWrite || p.blockCount === 0}
-                title="Fabriquer une planche de sprite animé 32x32 à partir des 12 frames d'un personnage (4 directions x 3 pas) — un personnage de carte devient un battler en un clic"
-                onClick={() => {
-                  const pick = prompt(
-                    "Numéro du charset (1-" + p.blockCount + ") :\n" +
-                      p.blockNames.map((n, i) => `${i + 1}. ${n}`).join("\n")
-                  );
-                  const b = pick === null ? NaN : Number(pick) - 1;
-                  if (!Number.isInteger(b) || b < 0 || b >= p.blockCount) return;
-                  const nm = prompt(
-                    "Nom du sprite animé :",
-                    (p.blockNames[b] || "battler").toLowerCase().replace(/[^a-z0-9_]/g, "_")
-                  );
-                  if (nm) p.onVignetteFromCharset(b, nm);
-                }}
-              >
-                Depuis un charset…
-              </button>
-            )}
-            {cat === "vignette" && (
-              <button
-                disabled={!p.canWrite}
-                title="Extraire les frames d'une planche PNG : couleur transparente à la pipette, puis un rectangle (32x32 max) par frame"
-                onClick={() => p.onVignetteExtract()}
-              >
-                Depuis une planche…
-              </button>
-            )}
             {cat === "chipset" && (
               <button
                 disabled={!p.canWrite}

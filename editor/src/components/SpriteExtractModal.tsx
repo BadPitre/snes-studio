@@ -284,7 +284,7 @@ export default function SpriteExtractModal(props: Props) {
           </button>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
             Nom :
             <input
               value={name}

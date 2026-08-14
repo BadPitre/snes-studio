@@ -163,6 +163,8 @@ export default function App() {
   );
   // sprite-animé extraction from a PNG sheet (RM-extract)
   const [spriteExtract, setSpriteExtract] = useState<ImageBitmap | null>(null);
+  // unified sprite-animé import: the small source chooser
+  const [vigImportChoice, setVigImportChoice] = useState(false);
   // resource manager (RM2003 style)
   const [showResources, setShowResources] = useState(false);
   // Aide > À propos menu
@@ -951,17 +953,45 @@ export default function App() {
       });
   }
 
-  // RM-extract: pick the sheet, then the rectangle modal takes over —
-  // the strip it builds goes through the ordinary sprite-animé import.
-  async function vignetteExtractOpen() {
+  // Unified sprite-animé import (the RM's single Importer button): a
+  // PNG that is ALREADY a strip (32 px high, width a multiple of 32)
+  // imports directly; anything else opens the rectangle extractor.
+  async function vignettePngImport() {
     if (!data) return;
-    const file = await pickPngFile("Planche de sprites (PNG)");
+    const file = await pickPngFile("Sprite animé : une bande 32x32 ou une planche à découper (PNG)");
     if (!file) return;
     try {
-      setSpriteExtract(await loadPngBitmap(file));
+      const bmp = await loadPngBitmap(file);
+      if (bmp.height === 32 && bmp.width % 32 === 0 && bmp.width <= 64 * 32) {
+        const bytes = await readBinaryFile(file);
+        const ctx = resCtx();
+        if (ctx)
+          await runImport(ctx, RESOURCES.vignette, {
+            name: file.split(/[\\/]/).pop()!,
+            bytes,
+          });
+        return;
+      }
+      setSpriteExtract(bmp); /* not a strip: the extractor takes over */
     } catch (e) {
       setStatus(`Planche illisible : ${e}`);
     }
+  }
+
+  // The charset route of the same button (H4): pick the block, name it.
+  function vignetteCharsetPrompt() {
+    if (blockNames.length === 0) return;
+    const pick = prompt(
+      "Numéro du charset (1-" + blockNames.length + ") :\n" +
+        blockNames.map((n, i) => `${i + 1}. ${n}`).join("\n")
+    );
+    const b = pick === null ? NaN : Number(pick) - 1;
+    if (!Number.isInteger(b) || b < 0 || b >= blockNames.length) return;
+    const nm = prompt(
+      "Nom du sprite animé :",
+      (blockNames[b] || "battler").toLowerCase().replace(/[^a-z0-9_]/g, "_")
+    );
+    if (nm) void vignetteFromCharset(b, nm);
   }
 
   // An extraction from the ROM ripper (X2). The register categories go
@@ -2003,6 +2033,31 @@ export default function App() {
           }}
         />
       )}
+      {vigImportChoice && data && (
+        <div className="modal-backdrop transpick-top" onClick={() => setVigImportChoice(false)}>
+          <div className="modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">Importer un sprite animé</div>
+            <button
+              onClick={() => {
+                setVigImportChoice(false);
+                void vignettePngImport();
+              }}
+            >
+              Depuis un fichier PNG… (bande 32x32 ou planche à découper)
+            </button>
+            <button
+              disabled={blockNames.length === 0}
+              onClick={() => {
+                setVigImportChoice(false);
+                vignetteCharsetPrompt();
+              }}
+            >
+              Depuis un charset du projet… (le personnage devient un battler)
+            </button>
+            <button onClick={() => setVigImportChoice(false)}>Annuler</button>
+          </div>
+        </div>
+      )}
       {spriteExtract && data && (
         <SpriteExtractModal
           bmp={spriteExtract}
@@ -2027,8 +2082,7 @@ export default function App() {
       {showResources && data && (
         <ResourceManagerModal
           root={data.root}
-          onVignetteFromCharset={(block, nm) => void vignetteFromCharset(block, nm)}
-          onVignetteExtract={() => void vignetteExtractOpen()}
+          onVignetteImport={() => setVigImportChoice(true)}
           tilesetNames={tilesetNames}
           tilesets={tilesets}
           sprites={sprites}
