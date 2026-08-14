@@ -14,11 +14,12 @@
 /* Loads the scene's sequences (at the end of scene_load). */
 void tileanim_init(u8 scene_id);
 
-/* Counters and frame selection (main loop, outside stage/picture). */
+/* Counters, frame selection and the step's publication toward the
+   dispatcher (main loop, outside stage/picture). The step fires from
+   vblnmi.c's lanes since V-NMI V3 — no tileanim_vblank anymore. The
+   composed screen reuses the tileset char region: every display
+   takeover calls vn_cancel_scene (vblnmi.h) so a stale step never
+   lands there. */
 void tileanim_update(void);
-
-/* Pushes the pending step. VBlank, normal path only — the composed
-   screen reuses the tileset char region. */
-void tileanim_vblank(void);
 
 #endif /* TILEANIM_H */

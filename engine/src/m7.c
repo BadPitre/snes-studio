@@ -40,6 +40,7 @@
 #include "textbox.h"
 #include "ui_screen.h"
 #include "vram.h"
+#include "vblnmi.h"
 
 /* mode 7 register (data_mode7.c — always emitted) */
 extern const u8 m7_img_count;
@@ -1251,6 +1252,7 @@ static void m7_open(void)
   setScreenOff();
   picture_reset(); /* an image is showing: Mode 7 takes over */
   stage_reset();   /* likewise a composed screen */
+  vn_cancel_scene(); /* same rule as the world map below (V-NMI V3) */
   m7_on = 1;
   m7_world = 0; /* an image is shown FLAT and zoomed, never pitched */
   rp_id = 0xFF;
@@ -1322,6 +1324,8 @@ u8 m7_world_open(u8 scene_id, u8 dur)
   setScreenOff();
   picture_reset();
   stage_reset();
+  vn_cancel_scene(); /* the plane owns VRAM now: no stale map burst or
+      tile step from the scene left behind (V-NMI V3) */
   m7_on = 1;
   m7_world = 1;
   rp_id = 0xFF;

@@ -35,6 +35,7 @@
 #include "vignette.h"
 #include "player.h"
 #include "vram.h"
+#include "vblnmi.h"
 
 /* pictures register (data_pictures.c — always emitted) */
 extern const u8 pic_count;
@@ -289,6 +290,8 @@ static void sg_open(void)
   if (sg_req_trans == 2)
     REG_MOSAIC = 0; /* the closing mosaic must not stick to the screen */
   picture_reset(); /* an image is showing: the composed screen takes over */
+  vn_cancel_scene(); /* a pending map row or tile step must never land
+      on the screen's layout — its BG regions are ours now (V-NMI V3) */
   sg_on = 1;
   up_act = 0;
   sg_next_char = 1;

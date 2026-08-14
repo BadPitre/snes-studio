@@ -12,22 +12,26 @@
 #include <snes.h>
 #include "vblnmi.h"
 #include "vbudget.h"
+#include "vramjob.h"
 
 u8 vbl_fire_ok = 0;
 
 /* The descriptor table. Parallel arrays, not a struct array: tcc-816
    indexes flat arrays far better than struct members (one long
    indirect per field either way, but no multiply on the index). All
-   explicitly initialised — .bss is garbage (ENGINE_CONSTRAINTS 1.2). */
+   explicitly initialised — .bss is garbage (ENGINE_CONSTRAINTS 1.2).
+   For a BURST descriptor (vn_kind 1) the fields are repurposed:
+   vn_dst = vj_first, vn_len = vj_n, vn_stride = the $2115 mode. */
 static const u8 *vn_src[VN_SLOTS];
-static u16 vn_dst[VN_SLOTS] = { 0, 0 };
-static u16 vn_len[VN_SLOTS] = { 0, 0 };
-static u16 vn_stride[VN_SLOTS] = { 0, 0 };
-static u8 vn_count[VN_SLOTS] = { 0, 0 };
-static u8 vn_cost[VN_SLOTS] = { 0, 0 };
-static u8 vn_snap[VN_SLOTS] = { 0, 0 }; /* seq snapshot at publish */
-static u8 vn_token[VN_SLOTS] = { 0, 0 };
-static u8 vn_live[VN_SLOTS] = { 0, 0 }; /* producer seq counters */
+static u16 vn_dst[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u16 vn_len[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u16 vn_stride[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u8 vn_kind[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u8 vn_count[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u8 vn_cost[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u8 vn_snap[VN_SLOTS] = { 0, 0, 0, 0, 0 }; /* seq at publish */
+static u8 vn_token[VN_SLOTS] = { 0, 0, 0, 0, 0 };
+static u8 vn_live[VN_SLOTS] = { 0, 0, 0, 0, 0 }; /* producer seqs */
 
 /* Where the beam stood after the ISR's last fire, and the highest it
    ever stood — the measurement hooks of the V-counter sessions (read
@@ -35,6 +39,7 @@ static u8 vn_live[VN_SLOTS] = { 0, 0 }; /* producer seq counters */
    Caveat when reading them: a fire on a FORCED-BLANK frame (a wipe,
    a stage opening) legitimately lands past VBL_LAST — with the
    screen off the beam does not matter, but the max remembers it. */
+u16 vn_v_in = 0;
 u16 vn_v_last = 0;
 u16 vn_v_max = 0;
 
@@ -42,6 +47,7 @@ void vn_publish(u8 i, const u8 *src, u16 dst, u16 len, u8 count,
                 u16 stride, u8 cost)
 {
   vn_token[i] = 0; /* close the gate while the fields move */
+  vn_kind[i] = 0;
   vn_src[i] = src;
   vn_dst[i] = dst;
   vn_len[i] = len;
@@ -50,6 +56,19 @@ void vn_publish(u8 i, const u8 *src, u16 dst, u16 len, u8 count,
   vn_cost[i] = cost;
   vn_snap[i] = vn_live[i];
   vn_token[i] = 1; /* publication gate: LAST write */
+}
+
+void vn_publish_burst(u8 i, u16 first, u16 n, u16 vmain, u8 cost)
+{
+  vn_token[i] = 0;
+  vn_kind[i] = 1;
+  vn_dst[i] = first;
+  vn_len[i] = n;
+  vn_stride[i] = vmain;
+  vn_count[i] = 1; /* atomic: the batch shape IS the saving */
+  vn_cost[i] = cost;
+  vn_snap[i] = vn_live[i];
+  vn_token[i] = 1;
 }
 
 u8 vn_busy(u8 i) { return vn_token[i]; }
@@ -65,6 +84,16 @@ void vn_cancel(u8 i)
   vn_token[i] = 0;
 }
 
+/* The scene lanes die with the scene's display: called by every
+   takeover that does not go through scene_load (stage open, picture
+   show, world map) — vblnmi.h tells the corruption story. */
+void vn_cancel_scene(void)
+{
+  vn_token[VN_MAPC] = 0;
+  vn_token[VN_MAPR] = 0;
+  vn_token[VN_TA] = 0;
+}
+
 /* Fires up to `budget` declared lines from slot i's descriptor,
    advancing it in place; clears the token when the count is done.
    Returns the lines spent. Shared by both lanes — the beam guard is
@@ -75,10 +104,27 @@ static u8 vn_fire(u8 i, u8 budget)
 
   while (vn_count[i] && vn_cost[i] <= (u8)(budget - spent))
   {
-    dmaCopyVram((u8 *)vn_src[i], vn_dst[i], vn_len[i]);
-    vn_src[i] += vn_len[i];
-    vn_dst[i] += vn_stride[i];
-    vn_count[i]--;
+    if (vn_kind[i])
+    {
+      /* vramjob burst: the vj_* globals are the dispatcher's SCRATCH
+         since V3 — both lanes run with the other one excluded (the
+         ISR by vbl_fire_ok, the tail by running after the NMI), so
+         the singleton stopped being contended the day its two
+         writers became one. */
+      vj_first = vn_dst[i];
+      vj_n = vn_len[i];
+      vj_vmain = vn_stride[i];
+      vj_ctrl = VJ_CTRL_VRAM;
+      vram_burst();
+      vn_count[i] = 0;
+    }
+    else
+    {
+      dmaCopyVram((u8 *)vn_src[i], vn_dst[i], vn_len[i]);
+      vn_src[i] += vn_len[i];
+      vn_dst[i] += vn_stride[i];
+      vn_count[i]--;
+    }
     spent += vn_cost[i];
   }
   if (vn_count[i] == 0)
@@ -91,9 +137,12 @@ static u8 vn_fire(u8 i, u8 budget)
 void vbl_nmi(void)
 {
   u8 i, left, fired;
+  u16 vin;
 
   if (!vbl_fire_ok)
     return; /* tail or loader running: their DMAs own channel 0 */
+  vbl_probe();
+  vin = vbl_v; /* entry line, kept only if something fires */
   left = VN_ISR_CAP;
   fired = 0;
   for (i = 0; i < VN_SLOTS; i++)
@@ -112,6 +161,7 @@ void vbl_nmi(void)
   }
   if (fired)
   {
+    vn_v_in = vin;
     vbl_probe();
     vn_v_last = vbl_v; /* nobody reads vbl_v while vbl_fire_ok is 1 */
     if (vbl_v > vn_v_max)

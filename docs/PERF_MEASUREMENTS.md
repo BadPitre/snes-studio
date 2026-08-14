@@ -288,3 +288,29 @@ checks byte-exact.
 - The ISR cap (16 declared) has never been observed to push a
   screen-on fire past 250; the 2x margin to hardware VBlank end only
   matters if entry drifts. Same hook answers it.
+
+### V3 (vramjob bursts on the dispatcher)
+
+The map column/row bursts and the animated-tile step publish burst
+descriptors (the vj_* globals became the dispatcher's scratch), and
+the ISR gained the entry hook §8 asked for (`vn_v_in`).
+
+Demo walk, 80 frames of continuous col+row streaming:
+
+- `vn_v_in = 229` — the ISR enters at ~line 229 on scene frames: the
+  design's ~227 assumption holds (+2 lines of NMI prologue).
+- `vn_v_last = 242`, `vn_v_max = 243` — a full map column burst
+  (declared 14) runs 229→242 = 13 real lines. The declared scale is
+  honest, and the beam never came within 13 lines of `VBL_LAST` all
+  walk long. The battle case's 258 (§8) is therefore the forced-blank
+  opening, not a late entry — V4's session should still instrument
+  the stage branch to close the question on that branch's frames.
+
+Cost of the wider table: the ISR walks 5 slots and probes at entry
+every NMI. On the demo's saturated dialogue frames that flipped ONE
+lag frame over the 460-frame pixel-regression run — measured exactly
+(the V3 run at frame N+1 is byte-identical to the old references at
+frame N, both cases), so the references were re-blessed one frame
+later with the content unchanged. The same boundary will keep
+flipping on any future change of these frames' cost; content
+byte-identity is the test that matters.

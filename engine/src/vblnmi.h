@@ -33,19 +33,30 @@
  *    mutation of the underlying state (vn_bump); a descriptor whose
  *    snapshot no longer matches is dropped, both lanes.
  *
- * V1 carries VRAM transfers only (dmaCopyVram, INC1); per-entry
- * vmain/ctrl arrive with the vramjob generalisation (V3).
+ * Two descriptor KINDS since V3:
+ *  - linear (vn_publish): count sub-transfers of len bytes, INC1 —
+ *    the vignette/battler cell shape;
+ *  - burst (vn_publish_burst): a vramjob queue slice fired whole by
+ *    vram_burst, with its own $2115 mode — the map column/row and
+ *    animated-tile shape. The vj_* globals became the dispatcher's
+ *    scratch: it is the only writer left.
  */
 #ifndef VBLNMI_H
 #define VBLNMI_H
 
 #include <snes.h>
 
-/* Fixed slots, one per producer — table order is PRIORITY (fixed
-   prefix; the rotating suffix arrives with V3's optional band). */
-#define VN_VIG 0
-#define VN_BP 1 /* battler cells + digit sheet (btlprim.c, V2) */
-#define VN_SLOTS 2
+/* Fixed slots, one per producer — table order is PRIORITY. Map bursts
+   lead: a screen edge coming into view is the one transfer whose
+   lateness shows as garbage tiles; sprite cells recover invisibly
+   (a frame late is a frame late) and the animated-tile step is the
+   historical first sacrifice, so it walks last. */
+#define VN_MAPC 0 /* map column burst (map.c, V3) */
+#define VN_MAPR 1 /* map row burst */
+#define VN_VIG 2  /* vignette cell rows (vignette.c, V1) */
+#define VN_BP 3   /* battler cells + digit sheet (btlprim.c, V2) */
+#define VN_TA 4   /* animated-tile step (tileanim.c, V3) */
+#define VN_SLOTS 5
 
 /* Declared-line cap per NMI: 4 vignette rows of a 32x32 cell (the
    H-bugfix bound, cost 4 each) fit exactly; a 64x64 cell (rows of
@@ -60,11 +71,26 @@
 void vn_publish(u8 i, const u8 *src, u16 dst, u16 len, u8 count,
                 u16 stride, u8 cost);
 
+/* Publishes a vramjob BURST on slot i (V3): the descriptor carries
+   the queue slice (vj_first = first, vj_n = n) and the $2115 mode;
+   the fire sets the vj_* globals — the dispatcher's scratch since V3
+   — and calls vram_burst. Fired WHOLE under one cost, never split:
+   the batch shape is the whole point of the burst (vramjob.h). */
+void vn_publish_burst(u8 i, u16 first, u16 n, u16 vmain, u8 cost);
+
 /* Producer-side observation and control. */
 u8 vn_busy(u8 i);   /* 1 while the descriptor is in flight */
 u8 vn_seq(u8 i);    /* the slot's live seq counter */
 void vn_bump(u8 i); /* mutation notice: in-flight descriptor is stale */
 void vn_cancel(u8 i);
+
+/* Cancels the SCENE lanes (map bursts, tileanim) in one call — for
+   every display takeover that does not reload the scene: a composed
+   screen opening, a full-screen picture, a world map. A stale map row
+   firing into a freshly-laid stage (or a picture's borrowed BG1 map)
+   is exactly the corruption the per-branch tail calls used to make
+   impossible by never running. */
+void vn_cancel_scene(void);
 
 /* The two lanes (main.c installs vbl_nmi with nmiSet; the tail call
    sites follow each branch's register writes). */
@@ -77,8 +103,11 @@ void vbl_nmi_tail(void);
 extern u8 vbl_fire_ok;
 
 /* Measurement hooks (V-counter sessions, read via the .sym): the
-   beam after the ISR's last fire, and the highest ever. Fires on
+   beam at the ISR's entry when it fired (vn_v_in — answers "when
+   does the ISR really start" on loaded frames, the §8 open
+   question), after its last fire, and the highest ever. Fires on
    forced-blank frames legitimately exceed VBL_LAST — see vblnmi.c. */
+extern u16 vn_v_in;
 extern u16 vn_v_last;
 extern u16 vn_v_max;
 

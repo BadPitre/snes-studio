@@ -37,8 +37,8 @@ void map_init(void);
    Call during the active frame, after camera_update(). */
 void map_update(void);
 
-/* Transfers the pending columns and rows. Call just after
-   WaitForVBlank(). */
-void map_vblank(void);
+/* The pending columns and rows travel as burst DESCRIPTORS on the
+   dispatcher since V-NMI V3 (vblnmi.h): map_update publishes them,
+   the two lanes fire them — there is no map_vblank anymore. */
 
 #endif /* MAP_H */

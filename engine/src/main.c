@@ -453,25 +453,20 @@ int main(void)
 
       vbl_open();   /* the registers are not counted: the budget
                        starts counting once they are written */
-      map_vblank(); /* screen edge coming into view: priority */
+      /* Every transfer is a descriptor since V3, and the SCENE order
+         holds through the two lanes: the map bursts walk FIRST in the
+         dispatcher's table and fit the ISR's cap, so a screen edge
+         still outranks everything (it fires at ~line 227); the UI
+         keeps its historical seat right after — first claim on the
+         tail's remainder, or the typewriter's bottom rows starve
+         behind the leftovers (seen on d340 the one build this order
+         was wrong); the tail drains what the cap left over LAST,
+         which keeps the animated-tile step the first sacrifice under
+         a short window (the vbl_turn rotation retired with it). */
       ui_screen_vblank(); /* UI layer (dialogue + HUD + timer, M1) —
                              splits into rows if the window is short */
-      /* Optional, in ROTATING priority. In a fixed chain the last one is
-         always the one sacrificed — and the vignettes failing is the
-         most invisible of all: an animation frame that does not move
-         looks like nothing in particular. */
-      if (vbl_turn())
-      {
-        tileanim_vblank(); /* one animated-tile step (4 chars) — T1 */
-        vig_vblank();      /* vignette palettes (B5) */
-        vbl_nmi_tail();
-      }
-      else
-      {
-        vig_vblank();
-        vbl_nmi_tail();
-        tileanim_vblank();
-      }
+      vig_vblank();   /* vignette palettes (B5) */
+      vbl_nmi_tail(); /* map/cell/tile leftovers, table order */
     }
   }
   return 0;
