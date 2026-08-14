@@ -14,6 +14,13 @@ legal, the build is green, and the output is wrong.
 The engine is compiled by `816-tcc`, a small C compiler. It is correct
 often enough to be trusted and wrong often enough to be dangerous.
 
+Since K9 the correctness entries of this section are GUARDED:
+`engine/src/canary.c` replays each pattern at boot with fold-proof
+inputs and parks one result byte per canary in WRAM, where
+`tools/gate-savestate.sh` (and the CI) compares them against the
+healthy values. A compiler update or a re-imported pattern that
+regresses turns the build red instead of opening a savestate hunt.
+
 ### 1.1 Declaring a variable inside a `case` block corrupts the output
 
 ```c
@@ -107,6 +114,33 @@ essentially all of it on the caller side.
 
 A `static` becomes `tccs_{file}_{name}`; a non-static keeps its plain
 name. Matters when reading `engine/snesstudio.sym` against a WRAM dump.
+
+### 1.11 A variable shift chained with `||` takes the wrong branch
+
+```c
+if (!((shown >> h) & 1) || !((have >> h) & 1))   /* NO */
+```
+
+The natural form of "skip unless both bits are set". Miscompiled: the
+branch was taken with BOTH masks at zero, parading four garbage
+battlers at (0x55, 0x55) over every battle (`btlprim.c`, bp_oam —
+measured with counters: 112 shows, 0 hides, `bp_shown == 0`). Split
+into single mask tests and nested `if`s. Guarded by canary 1 — which
+caught the LIVE bug on its first flight (2 instead of the correct 6),
+so the canary pins the broken value: it fires when the compiler
+changes in either direction, fix included.
+
+### 1.12 A `?:` inside a compound shift expression drops the shift
+
+```c
+base = (u16)((s < 4 ? 384 + x : 448 + y) << 4);   /* NO */
+```
+
+The macro form of the vignette char bases lost its final `<< 4` and
+sent every slot 4-7 cell to chars 28-31 (seen on a savestate dump: OAM
+correct, chars 448+ empty, the cell's bytes sitting in the sprite-set
+region). Use lookup TABLES for anything the size or the slot selects
+(`vig_char[]`, `vig_rows[]`). Guarded by canary 3.
 
 ---
 

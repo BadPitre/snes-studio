@@ -29,6 +29,7 @@
 #include "btlprim.h"
 #include "m7.h"
 #include "vignette.h"
+#include "canary.h"
 #include "anim.h"
 #include "vbudget.h"
 
@@ -202,6 +203,9 @@ int main(void)
   u8 vm_was_active = 0;
 
   /* consoleInit() is already called by the PVSnesLib crt0 before main(). */
+
+  canary_run(); /* tcc-816 codegen canaries (K9): a few hundred cycles
+                   once, read back by the savestate gate */
 
   audio_init(); /* boot the SPC700 first (it takes time) */
 

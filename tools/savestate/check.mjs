@@ -9,7 +9,7 @@
 // first ATB fill, cut in half by dropped DMA rows, wearing another
 // sheet's palette).
 //
-//   node check.mjs boot   <photo_dir>
+//   node check.mjs boot   <photo_dir> <snesstudio.sym>
 //   node check.mjs battle <photo_dir> <screen.json>
 //
 // Self-contained on purpose (node builtins only): the gate must run on
@@ -36,7 +36,9 @@ function parseState(buf) {
   }
   const vra = map.get("VRA");
   const ppu = map.get("PPU");
-  if (!vra || !ppu) throw new Error("blocs VRA/PPU absents — pas une savestate snes9x ?");
+  const ram = map.get("RAM");
+  if (!vra || !ppu || !ram)
+    throw new Error("blocs VRA/PPU/RAM absents — pas une savestate snes9x ?");
   // PPU offsets keyed on the BLOCK LENGTH (2652 = v11+, 2649 = older):
   // CGDATA after 63(+1) bytes, then the OBJ array, then OAMData.
   if (ppu.len !== 2652 && ppu.len !== 2649)
@@ -48,16 +50,31 @@ function parseState(buf) {
     vram: buf.subarray(vra.off, vra.off + vra.len),
     cgram: buf.subarray(cgdata, cgdata + 512), // 256 x u16le
     oam: buf.subarray(oamData, oamData + 544),
+    ram: buf.subarray(ram.off, ram.off + ram.len), // WRAM, $7E0000-based
   };
+}
+
+// WRAM address of a symbol, from the linker's .sym file: the statics
+// move on every build, the .sym is the only truth (ENGINE_CONSTRAINTS
+// §1.10 for the naming). $7E offsets map straight into the RAM block,
+// $7F offsets sit 64 KB further in.
+function symAddr(symFile, name) {
+  const txt = readFileSync(symFile, "utf8");
+  const re = new RegExp(`^00(7[ef])([0-9a-f]{4}) (?:\\S+_)?${name}$`, "mi");
+  const m = txt.match(re);
+  if (!m) throw new Error(`symbole '${name}' absent de ${symFile}`);
+  return parseInt(m[2], 16) + (m[1].toLowerCase() === "7f" ? 0x10000 : 0);
 }
 
 const st = (() => {
   const [, , kase, dir] = process.argv;
   if (!kase || !dir) {
-    console.error("usage: node check.mjs <boot|battle> <photo_dir> [screen.json]");
+    console.error(
+      "usage: node check.mjs boot <photo_dir> <sym> | battle <photo_dir> <screen.json>"
+    );
     process.exit(2);
   }
-  return { kase, dir, screen: process.argv[4] };
+  return { kase, dir, aux: process.argv[4] };
 })();
 
 const photo = parseState(new Uint8Array(readFileSync(st.dir + "/photo.state")));
@@ -115,6 +132,35 @@ if (st.kase === "boot") {
   };
   check(!pBlank(top.char), `chars du joueur non vides (char ${top.char})`);
   check(!palBlank(top.pal), `palette du joueur chargée (palette ${top.pal})`);
+
+  // The tcc-816 codegen canaries (K9, engine/src/canary.c): one byte
+  // per known miscompilation pattern, computed at boot in the REAL
+  // pipeline. The healthy values are the canary.c comments; the
+  // pattern names echo docs/ENGINE_CONSTRAINTS.md §1.
+  // canari 1 : la valeur épinglée est celle du BUG CONNU (le C correct
+  // dirait 6) — le canari détecte le compilateur qui CHANGE, dans les
+  // deux sens. S'il lit 6 un jour, tcc-816 est réparé : ré-auditer les
+  // contournements de ENGINE_CONSTRAINTS §1.11 avant de ré-épingler.
+  const CANARIES = [
+    [0xc3, "shifts variables (compilés en boucles)"],
+    [2, "shifts variables enchaînés par || — valeur du bug connu (bp_oam)"],
+    [0xab, "déclaration dans un case (cœurs fantômes)"],
+    [96, "?: dans une expression à décalage (bases vignettes)"],
+    [6, "paire de paramètres (u8, u16)"],
+    [26, "statics initialisés chargés (.data)"],
+  ];
+  const sym = st.aux;
+  if (!sym) {
+    console.error("cas boot : chemin du .sym manquant (canaris)");
+    process.exit(2);
+  }
+  const res = symAddr(sym, "cn_res");
+  const done = symAddr(sym, "cn_done");
+  check(photo.ram[done] === 0xc4, `canaris exécutés (cn_done = 0x${photo.ram[done].toString(16)})`);
+  CANARIES.forEach(([want, label], i) => {
+    const got = photo.ram[res + i];
+    check(got === want, `canari ${i} — ${label} (${got} / attendu ${want})`);
+  });
 } else if (st.kase === "battle") {
   // The posed battlers of a composed screen: for every vignette the
   // screen declares, the OAM entry the engine owns for that slot shows
@@ -124,10 +170,10 @@ if (st.kase === "boot") {
   // engine breaking does. Slot maps: the canonical vidmap layout.
   const OAMS = [96, 97, 98, 99, 50, 51, 52, 53];
   const CHARS = [384, 388, 392, 396, 448, 452, 456, 460];
-  const def = JSON.parse(readFileSync(st.screen, "utf8"));
+  const def = JSON.parse(readFileSync(st.aux, "utf8"));
   const vigs = (def.vignettes ?? []).filter((v) => v.vig);
   if (!vigs.length) {
-    console.error(`écran sans sprites animés posés : ${st.screen}`);
+    console.error(`écran sans sprites animés posés : ${st.aux}`);
     process.exit(2);
   }
   for (const v of vigs) {

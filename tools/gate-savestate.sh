@@ -77,8 +77,8 @@ node "$KIT/derive-battle.mjs" "$ROOT/showcase" "$OUT/battleproj"
 build_and_shoot "$OUT/battleproj" 600 "$OUT/battle"
 node "$KIT/check.mjs" battle "$OUT/battle" "$ROOT/showcase/screens/combat_gobelins.json"
 
-echo "  case boot (demo)"
+echo "  case boot (demo + canaris tcc-816)"
 build_and_shoot "$ROOT/demo" 240 "$OUT/boot"
-node "$KIT/check.mjs" boot "$OUT/boot"
+node "$KIT/check.mjs" boot "$OUT/boot" "$ROOT/engine/snesstudio.sym"
 
 echo "savestate gate: OK"
