@@ -16,8 +16,6 @@
 //! Also here: the damage popups' digit sheet, the other fixed sprite
 //! asset the primitives need.
 
-use std::path::Path;
-
 use anyhow::{bail, Context, Result};
 
 use crate::db::Db;

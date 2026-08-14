@@ -22,6 +22,8 @@ use anyhow::{bail, Context, Result};
 use libloading::Library;
 use std::ffi::{c_char, c_uint, c_void, CString};
 use std::io::Write;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 // ---- the slice of libretro.h this needs ------------------------------
 
@@ -47,20 +49,25 @@ struct GameInfo {
 // ---- state shared with the C callbacks -------------------------------
 //
 // libretro is a single-threaded callback API: the core calls back into
-// us from inside retro_run. Plain statics, no locking — same shape as
-// the harness.
+// us from inside retro_run. The harness (C) uses plain statics; Rust
+// 2024 retires `static mut`, so the scalars are atomics and the frame
+// buffer sits behind a Mutex — uncontended, one lock per video frame,
+// nothing on the per-pixel path.
 
-static mut FRAME: Vec<u16> = Vec::new();
-static mut FRAME_W: usize = 0;
-static mut FRAME_H: usize = 0;
-static mut PIXFMT: c_uint = PIXFMT_0RGB1555;
-static mut PAD: u32 = 0;
+struct Frame {
+    px: Vec<u16>,
+    w: usize,
+    h: usize,
+}
+static FRAME: Mutex<Frame> = Mutex::new(Frame { px: Vec::new(), w: 0, h: 0 });
+static PIXFMT: AtomicU32 = AtomicU32::new(PIXFMT_0RGB1555);
+static PAD: AtomicU32 = AtomicU32::new(0);
 static DOT: &[u8] = b".\0";
 
 unsafe extern "C" fn env_cb(cmd: c_uint, data: *mut c_void) -> bool {
     match cmd {
         ENV_SET_PIXEL_FORMAT => {
-            PIXFMT = *(data as *const c_uint);
+            PIXFMT.store(*(data as *const c_uint), Ordering::Relaxed);
             true
         }
         ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
@@ -79,12 +86,14 @@ unsafe extern "C" fn video_cb(data: *const c_void, w: c_uint, h: c_uint, pitch: 
     if data.is_null() {
         return;
     }
-    FRAME_W = w as usize;
-    FRAME_H = h as usize;
-    FRAME.resize(FRAME_W * FRAME_H, 0);
-    for y in 0..FRAME_H {
+    let mut f = FRAME.lock().unwrap();
+    f.w = w as usize;
+    f.h = h as usize;
+    let (fw, fh) = (f.w, f.h);
+    f.px.resize(fw * fh, 0);
+    for y in 0..fh {
         let row = (data as *const u8).add(y * pitch) as *const u16;
-        std::ptr::copy_nonoverlapping(row, FRAME.as_mut_ptr().add(y * FRAME_W), FRAME_W);
+        std::ptr::copy_nonoverlapping(row, f.px.as_mut_ptr().add(y * fw), fw);
     }
 }
 
@@ -95,7 +104,7 @@ unsafe extern "C" fn audio_batch_cb(_d: *const i16, frames: usize) -> usize {
 unsafe extern "C" fn input_poll_cb() {}
 unsafe extern "C" fn input_state_cb(port: c_uint, device: c_uint, _index: c_uint, id: c_uint) -> i16 {
     if port == 0 && device == DEVICE_JOYPAD {
-        unsafe { ((PAD >> id) & 1) as i16 }
+        ((PAD.load(Ordering::Relaxed) >> id) & 1) as i16
     } else {
         0
     }
@@ -170,10 +179,11 @@ fn main() -> Result<()> {
         for i in 0..frames {
             // A press is a press, not a tap: held ~a quarter second so
             // even a title that polls lazily sees it.
-            PAD = match start_at {
+            let pad = match start_at {
                 Some(f) if i >= f && i < f + 15 => 1 << JOYPAD_START,
                 _ => 0,
             };
+            PAD.store(pad, Ordering::Relaxed);
             run();
         }
 
@@ -188,14 +198,16 @@ fn main() -> Result<()> {
         std::fs::write(out_dir.join("photo.state"), &state)?;
         println!("state: {} octets", size);
 
-        let mut ppm = Vec::with_capacity(FRAME_W * FRAME_H * 3 + 32);
-        write!(ppm, "P6\n{} {}\n255\n", FRAME_W, FRAME_H)?;
-        for px in FRAME.iter() {
-            let (r, g, b) = rgb(*px, PIXFMT);
+        let f = FRAME.lock().unwrap();
+        let fmt = PIXFMT.load(Ordering::Relaxed);
+        let mut ppm = Vec::with_capacity(f.w * f.h * 3 + 32);
+        write!(ppm, "P6\n{} {}\n255\n", f.w, f.h)?;
+        for px in f.px.iter() {
+            let (r, g, b) = rgb(*px, fmt);
             ppm.extend_from_slice(&[r, g, b]);
         }
         std::fs::write(out_dir.join("photo.ppm"), &ppm)?;
-        println!("ecran: {}x{}", FRAME_W, FRAME_H);
+        println!("ecran: {}x{}", f.w, f.h);
     }
     println!("ok");
     Ok(())

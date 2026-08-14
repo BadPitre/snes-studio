@@ -1027,11 +1027,11 @@ pub const ROT_STEPS: usize = 16;
 /// Step counts an author may pick — finer steps buy smoothness with ROM.
 pub const ROT_CHOICES: [u8; 3] = [16, 32, 64];
 
-/// One HDMA table: two continuous blocks of 112 lines plus a terminator.
-/// MUST match the engine's own layout (`engine/src/m7.c`), which builds
-/// the same thing at run time for the no-rotation case.
+/// Every HDMA table here is TWO continuous blocks of this many lines
+/// plus a terminator — the split MUST match the engine's own layout
+/// (`engine/src/m7.c`), which builds the same shape at run time for
+/// the no-rotation case.
 const TAB_HALF: usize = 112;
-pub const TAB_LEN: usize = 2 + TAB_HALF * 4 + 1;
 
 /// A PAIRED table: transfer mode 3 writes TWO adjacent double-write
 /// registers per line — M7A+M7B ($211B/$211C) or M7C+M7D ($211D/$211E)
