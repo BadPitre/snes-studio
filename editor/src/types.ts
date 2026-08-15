@@ -22,6 +22,12 @@ export interface Project {
   tilesets?: string[]; // 16x16 .png paths, the order gives the tileset_ids
   charsets?: string[]; // names of the character blocks (editor only,
   // ignored by datagen) — index = block of the sprite sheet
+  // CH1b (editor only, ignored by datagen) — per block: the frame POOL
+  // extracted at import (a 16x24 strip under assets/charsets/) and the
+  // 12-cell walk layout picking from it (Tools > Charsets). The baked
+  // result lives in the sprite sheet as always: the engine and datagen
+  // never read this. null = an RM2003 import, no pool to re-lay.
+  charset_pools?: (CharsetPool | null)[];
   prefabs?: EventPrefab[]; // event prefabs (editor only)
   switches?: string[]; // switch names (editor only, index = n)
   variables?: string[]; // names of the 16-bit variables (editor only)
@@ -50,6 +56,14 @@ export interface Project {
   tileset_defs?: TilesetDef[];
   // named tint presets (S12b — editor only, see TintPreset)
   tint_presets?: TintPreset[];
+}
+
+// CH1b — a charset's frame pool + walk layout (see Project.charset_pools).
+// cells[dir*3 + step] (formats.h order: down/up/left/right x idle/A/B);
+// flip mirrors the pool frame so one drawn side serves left AND right.
+export interface CharsetPool {
+  sheet: string; // assets/charsets/<name>.png — strip of 16x24 frames
+  cells: ({ f: number; flip?: boolean } | null)[]; // 12 entries
 }
 
 // One LAID cell (A1-e): what the LAYER shows on this frame.

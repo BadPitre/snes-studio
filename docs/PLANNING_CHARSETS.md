@@ -83,29 +83,33 @@ scene's set is a build error naming the animation.
 
 ### CH1 — the import extractor (editor only)
 
-The charset route becomes the sprite-animé route:
+**Revised after Bertrand's first test** (the first shape put the 12
+labeled slots inside the import modal; he asked for the split below,
+plus mirroring). The charset route becomes the sprite-animé route, in
+TWO stages:
 
 - ONE import behaviour: an RM2003 sheet (288x256 or 72x128) keeps
   today's fast path — grid pick, automatic slicing. Any OTHER png opens
-  the new extractor instead of being rejected.
-- `CharsetExtractModal`, patterned on SpriteExtractModal: same pipette,
-  same zoom, same rectangle gesture — but the target is the 12 LABELED
-  SLOTS (Bas/Haut/Gauche/Droite x Repos/Pas A/Pas B) instead of an
-  open-ended strip. The next empty slot is highlighted; each rectangle
-  (clamped to 16x24) lands bottom-centred in its slot, buildStrip's
-  convention; a ✕ per slot redoes one. An empty slot imports blank —
-  a two-direction character is legal, if ugly.
-- The preview is the 12-slot grid PLUS a small walking loop (0/A/0/B
-  per direction): a swapped step A/B is invisible in a grid and
-  obvious in motion.
-- Output: the editor composes the 72x128 RM2003 layout in memory —
-  exportCharset (App.tsx:698) already proves the composition both
-  ways — with transparency punched to alpha, and feeds the EXISTING
-  `datagen import-charset` and the existing block/name flow.
+  the extractor instead of being rejected.
+- `CharsetExtractModal` ONLY PICKS THE FRAMES: pipette, zoom, ordered
+  rectangles clamped to 16x24, each bottom-centred — buildStrip's
+  gestures exactly. The result is the charset's frame POOL, saved to
+  `assets/charsets/<name>.png` and registered per block in
+  project.json (`charset_pools`, editor-only — datagen never reads
+  it). The import also bakes a BLANK block so the block exists
+  (spriteBlockCount reads the sprite sheet's width).
+- **Tools > Charsets** is where the walk is LAID: each of the 12 cells
+  (Bas/Haut/Gauche/Droite x Repos/Pas A/Pas B) picks a pool frame,
+  optionally MIRRORED — one drawn side serves left AND right — with
+  one-click "Droite = Gauche en miroir" fills, a walking preview
+  (0/A/0/B per direction), and « Appliquer » baking the composed
+  72x128 RM2003 sheet through the EXISTING `datagen import-charset`.
+  The layout is re-editable forever without re-extracting; this window
+  is CH3's future home (custom animations live where the walk lives).
 
 Zero datagen change, zero engine change, zero ROM risk. The 15 colours
-+ transparency rule applies as on every sheet. Cost: one modal and its
-wiring — one session.
++ transparency rule applies as on every sheet (checked at build, like
+every import). Cost: two modals and their wiring — one session.
 
 ### CH2 — base animations per charset (walk and idle)
 

@@ -1,144 +1,37 @@
-// Charset extraction (CH1): the sprite-animé extractor's gestures —
-// pipette for the transparent colour, rectangles drawn over a free-form
-// PNG sheet — pointed at the charset's 12 LABELED SLOTS (4 directions x
-// 3 steps) instead of an open-ended strip. The next empty slot is the
-// target; clicking a cell of the grid retargets it, so any frame can be
-// redone. An empty slot imports blank — a two-direction character is
-// legal.
-//
-// Rules the tool enforces while you draw:
-//  - a rectangle is clamped to a frame (16x24, formats.h);
-//  - each frame lands bottom-centred in its slot (feet on the ground,
-//    the charset convention shared with buildStrip);
-//  - the preview WALKS (0/A/0/B per direction): a swapped step A/B is
-//    invisible in a grid and obvious in motion.
-//
-// The output is the 72x128 RM2003 sheet `datagen import-charset`
-// already accepts — the composition mirrors charset.rs (RM_ROW/RM_COL,
-// the 16x24 frame at +4,+8 of its 24x32 cell), so this modal changes
-// nothing downstream: the block/name window and the CLI stay as they
-// are.
+// Charset extraction (CH1b): the import ONLY PICKS THE FRAMES — the
+// sprite-animé gestures (pipette for the transparent colour, rectangles
+// drawn over a free-form PNG sheet, each clamped to 16x24 and landing
+// bottom-centred) build a frame POOL, in drawing order. Laying the walk
+// (which frame is "Bas — Pas A", which side is mirrored) is NOT done
+// here: that lives in Tools > Charsets, where the pool can be re-laid
+// at any time without re-extracting. First shape had the 12 labeled
+// slots in this modal; Bertrand asked for the split.
 
 import { useEffect, useRef, useState } from "react";
+import {
+  FRAME_W,
+  FRAME_H,
+  POOL_MAX,
+  buildPoolStrip,
+  drawCell,
+  type ExtractRect,
+} from "../charset";
 import type { Rgb } from "./TransparencyPickModal";
-
-export interface ExtractRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-export const FRAME_W = 16;
-export const FRAME_H = 24;
-
-// Slot order is the ENGINE's block order (formats.h DIR_*): frame =
-// dir*3 + step. The labels are what the author reads.
-const DIRS = ["Bas", "Haut", "Gauche", "Droite"];
-const STEPS = ["Repos", "Pas A", "Pas B"];
-
-// Our block order to the RM2003 sheet — the same tables as
-// tools/datagen/src/charset.rs and exportCharset (App.tsx), so the
-// round trip through import-charset is exact.
-const RM_ROW = [2, 0, 3, 1];
-const RM_COL = [1, 0, 2];
-
-// The pure composition: source pixels + the 12 slot rectangles -> the
-// 72x128 RM2003 sheet (each rectangle bottom-centred in its 16x24
-// frame, pasted at the +4,+8 crop point of its 24x32 RM cell; the
-// picked colour punched to alpha 0). Kept free of canvas state, like
-// buildStrip.
-export function buildCharsetSheet(
-  src: ImageData,
-  slots: (ExtractRect | null)[],
-  trans: Rgb | null
-): ImageData {
-  const out = new ImageData(72, 128);
-  const s = src.data;
-  const d = out.data;
-  for (let dir = 0; dir < 4; dir++)
-    for (let st = 0; st < 3; st++) {
-      const r = slots[dir * 3 + st];
-      if (!r) continue;
-      const ox = RM_COL[st] * 24 + 4 + ((FRAME_W - r.w) >> 1);
-      const oy = RM_ROW[dir] * 32 + 8 + (FRAME_H - r.h);
-      for (let y = 0; y < r.h; y++)
-        for (let x = 0; x < r.w; x++) {
-          const si = ((r.y + y) * src.width + r.x + x) * 4;
-          if (s[si + 3] < 128) continue; // already a hole
-          if (
-            trans &&
-            s[si] === trans[0] &&
-            s[si + 1] === trans[1] &&
-            s[si + 2] === trans[2]
-          )
-            continue; // the picked colour is the sheet's background
-          const di = ((oy + y) * out.width + ox + x) * 4;
-          d[di] = s[si];
-          d[di + 1] = s[si + 1];
-          d[di + 2] = s[si + 2];
-          d[di + 3] = 255;
-        }
-    }
-  return out;
-}
-
-function checker(ctx: CanvasRenderingContext2D, w: number, h: number, s: number) {
-  for (let y = 0; y < h; y += s)
-    for (let x = 0; x < w; x += s) {
-      ctx.fillStyle = ((x ^ y) / s) & 1 ? "#666" : "#9a9a9a";
-      ctx.fillRect(x, y, s, s);
-    }
-}
-
-// Draws slot rectangle r punched of its transparency, scaled by z, at
-// the bottom-centre of a FRAME_W x FRAME_H canvas — the shared cell
-// renderer of the grid and the walking preview.
-function drawSlot(
-  ctx: CanvasRenderingContext2D,
-  src: ImageData,
-  r: ExtractRect | null,
-  trans: Rgb | null,
-  z: number
-) {
-  checker(ctx, FRAME_W * z, FRAME_H * z, 4);
-  if (!r) return;
-  const s = src.data;
-  const ox = (FRAME_W - r.w) >> 1;
-  const oy = FRAME_H - r.h;
-  for (let y = 0; y < r.h; y++)
-    for (let x = 0; x < r.w; x++) {
-      const si = ((r.y + y) * src.width + r.x + x) * 4;
-      if (s[si + 3] < 128) continue;
-      if (
-        trans &&
-        s[si] === trans[0] &&
-        s[si + 1] === trans[1] &&
-        s[si + 2] === trans[2]
-      )
-        continue;
-      ctx.fillStyle = `rgb(${s[si]},${s[si + 1]},${s[si + 2]})`;
-      ctx.fillRect((ox + x) * z, (oy + y) * z, z, z);
-    }
-}
 
 interface Props {
   bmp: ImageBitmap;
-  onOk: (bytes: Uint8Array) => void;
+  onOk: (name: string, bytes: Uint8Array) => void;
   onClose: () => void;
 }
 
 export default function CharsetExtractModal(props: Props) {
   const [mode, setMode] = useState<"pipette" | "rect">("pipette");
   const [trans, setTrans] = useState<Rgb | null>(null);
-  const [slots, setSlots] = useState<(ExtractRect | null)[]>(() =>
-    Array.from({ length: 12 }, () => null)
-  );
-  const [cur, setCur] = useState(0);
+  const [rects, setRects] = useState<ExtractRect[]>([]);
   const [drag, setDrag] = useState<ExtractRect | null>(null);
+  const [name, setName] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cellRefs = useRef<(HTMLCanvasElement | null)[]>([]);
-  const walkRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const frameRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const dataRef = useRef<ImageData | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -235,52 +128,34 @@ export default function CharsetExtractModal(props: Props) {
     const ctx = cv.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(base, 0, 0, w * scale, h * scale);
-    const drawRect = (r: ExtractRect, label: string, live: boolean) => {
+    const drawRect = (r: ExtractRect, n: number, live: boolean) => {
       ctx.strokeStyle = live ? "#ffd24a" : "#7a5cff";
       ctx.lineWidth = 2;
       ctx.strokeRect(r.x * scale + 0.5, r.y * scale + 0.5, r.w * scale - 1, r.h * scale - 1);
       if (!live) {
         ctx.fillStyle = "#7a5cff";
-        ctx.fillRect(r.x * scale, r.y * scale, 8 + label.length * 6, 12);
+        ctx.fillRect(r.x * scale, r.y * scale, 16, 12);
         ctx.fillStyle = "#fff";
         ctx.font = "10px monospace";
-        ctx.fillText(label, r.x * scale + 4, r.y * scale + 10);
+        ctx.fillText(String(n + 1), r.x * scale + 5, r.y * scale + 10);
       }
     };
-    slots.forEach((r, n) => {
-      if (r) drawRect(r, `${DIRS[n / 3 | 0]} ${STEPS[n % 3]}`, false);
-    });
-    if (drag) drawRect(drag, "", true);
-  }, [redraw, slots, drag, scale, w, h]);
+    rects.forEach((r, n) => drawRect(r, n, false));
+    if (drag) drawRect(drag, rects.length, true);
+  }, [redraw, rects, drag, scale, w, h]);
 
-  // the 12-slot grid, one small canvas per cell
+  // the resulting pool, one cell canvas per frame
   useEffect(() => {
     const dd = dataRef.current;
     if (!dd) return;
-    for (let n = 0; n < 12; n++) {
-      const cv = cellRefs.current[n];
+    for (let n = 0; n < rects.length; n++) {
+      const cv = frameRefs.current[n];
       if (!cv) continue;
-      drawSlot(cv.getContext("2d")!, dd, slots[n], trans, 2);
+      const cell = buildPoolStrip(dd, [rects[n]], trans);
+      const ctx = cv.getContext("2d")!;
+      drawCell(ctx, cell, { f: 0 }, 2);
     }
-  }, [slots, trans, redraw]);
-
-  // the walking preview: 4 canvases cycling 0/A/0/B at the engine's
-  // pace (a step every 8 display frames — 7.5 steps per second)
-  useEffect(() => {
-    let phase = 0;
-    const timer = window.setInterval(() => {
-      const dd = dataRef.current;
-      if (!dd) return;
-      phase = (phase + 1) & 3;
-      const step = phase & 1 ? 1 + (phase >> 1) : 0;
-      for (let dir = 0; dir < 4; dir++) {
-        const cv = walkRefs.current[dir];
-        if (!cv) continue;
-        drawSlot(cv.getContext("2d")!, dd, slots[dir * 3 + step], trans, 2);
-      }
-    }, 133);
-    return () => window.clearInterval(timer);
-  }, [slots, trans]);
+  }, [rects, trans, redraw]);
 
   const pixelAt = (e: React.MouseEvent) => {
     const cv = canvasRef.current!;
@@ -307,8 +182,6 @@ export default function CharsetExtractModal(props: Props) {
     return { x, y, w: rw, h: rh };
   };
 
-  const filled = slots.filter(Boolean).length;
-
   return (
     <div className="modal-backdrop transpick-top" onClick={props.onClose}>
       <div
@@ -317,14 +190,23 @@ export default function CharsetExtractModal(props: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="panel-title">
-          Extraire un charset d'une planche
+          Extraire les frames d'un charset
           <button className="modal-x" title="Fermer sans importer" onClick={props.onClose}>
             ✕
           </button>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
+          <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+            Nom :
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="mon_perso"
+              style={{ width: 160 }}
+            />
+          </label>
           <button
-            style={modeStyle(mode === "pipette")}
+            style={{ ...modeStyle(mode === "pipette"), marginLeft: 10 }}
             onClick={() => setMode("pipette")}
             title="Couleur de transparence — cliquer la couleur de fond sur la planche"
           >
@@ -362,18 +244,14 @@ export default function CharsetExtractModal(props: Props) {
           <button
             style={{ ...modeStyle(mode === "rect"), marginLeft: 10 }}
             onClick={() => setMode("rect")}
-            title={`Tracer les frames — un rectangle (${FRAME_W}x${FRAME_H} max) par case, la case cible est surlignée`}
+            title={`Tracer les frames — un rectangle (${FRAME_W}x${FRAME_H} max) par frame, dans l'ordre`}
           >
             ▭
           </button>
-          <span className="hint">
-            case cible : <b>{DIRS[cur / 3 | 0]} — {STEPS[cur % 3]}</b> (cliquer une case de la
-            grille pour la refaire)
-          </span>
         </div>
         <div
           ref={viewRef}
-          style={{ alignSelf: "center", maxWidth: "100%", maxHeight: "48vh", overflow: "auto" }}
+          style={{ alignSelf: "center", maxWidth: "100%", maxHeight: "54vh", overflow: "auto" }}
         >
           <canvas
             ref={canvasRef}
@@ -393,6 +271,7 @@ export default function CharsetExtractModal(props: Props) {
                 }
                 return;
               }
+              if (rects.length >= POOL_MAX) return;
               dragStart.current = p;
               setDrag({ x: p.x, y: p.y, w: 1, h: 1 });
             }}
@@ -403,23 +282,7 @@ export default function CharsetExtractModal(props: Props) {
               setDrag(clampRect(st.x, st.y, p.x, p.y));
             }}
             onMouseUp={() => {
-              if (drag && drag.w > 1 && drag.h > 1) {
-                const d2 = drag;
-                setSlots((sl) => {
-                  const next = sl.slice();
-                  next[cur] = d2;
-                  return next;
-                });
-                // advance to the NEXT empty slot; stay put when the
-                // grid is full (the author is redoing cells by click)
-                setCur((c) => {
-                  for (let k = 1; k <= 12; k++) {
-                    const n = (c + k) % 12;
-                    if (!slots[n] && n !== c) return n;
-                  }
-                  return c;
-                });
-              }
+              if (drag && drag.w > 1 && drag.h > 1) setRects((r) => [...r, drag]);
               dragStart.current = null;
               setDrag(null);
             }}
@@ -429,112 +292,62 @@ export default function CharsetExtractModal(props: Props) {
             }}
           />
         </div>
-        <div className="row" style={{ alignItems: "flex-start", gap: 24, alignSelf: "center" }}>
-          <div>
-            <span className="hint">Les 12 cases (✕ pour en vider une) :</span>
-            <table style={{ borderSpacing: 4 }}>
-              <thead>
-                <tr>
-                  <th />
-                  {DIRS.map((d) => (
-                    <th key={d} className="hint" style={{ fontWeight: 400 }}>
-                      {d}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {STEPS.map((st, s) => (
-                  <tr key={st}>
-                    <td className="hint" style={{ textAlign: "right" }}>{st}</td>
-                    {DIRS.map((_, d) => {
-                      const n = d * 3 + s;
-                      return (
-                        <td key={n} style={{ position: "relative", padding: 0 }}>
-                          <canvas
-                            ref={(el) => { cellRefs.current[n] = el; }}
-                            width={FRAME_W * 2}
-                            height={FRAME_H * 2}
-                            title={`${DIRS[d]} — ${st}`}
-                            onClick={() => setCur(n)}
-                            style={{
-                              display: "block",
-                              cursor: "pointer",
-                              border: n === cur ? "2px solid #ffd24a" : "2px solid #000",
-                            }}
-                          />
-                          {slots[n] && (
-                            <button
-                              title="Vider la case"
-                              onClick={() =>
-                                setSlots((sl) => {
-                                  const next = sl.slice();
-                                  next[n] = null;
-                                  return next;
-                                })
-                              }
-                              style={{
-                                position: "absolute",
-                                right: 0,
-                                top: 0,
-                                width: 14,
-                                height: 14,
-                                padding: 0,
-                                lineHeight: "12px",
-                                fontSize: 9,
-                              }}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div>
-            <span className="hint">La marche (0/A/0/B) :</span>
-            <div className="row" style={{ gap: 8, marginTop: 4 }}>
-              {DIRS.map((d, i) => (
-                <div key={d} style={{ textAlign: "center" }}>
-                  <canvas
-                    ref={(el) => { walkRefs.current[i] = el; }}
-                    width={FRAME_W * 2}
-                    height={FRAME_H * 2}
-                    style={{ display: "block", border: "1px solid #000" }}
-                  />
-                  <span className="hint">{d}</span>
-                </div>
-              ))}
-            </div>
+        <span className="hint">
+          {rects.length
+            ? `${rects.length} frame(s) — le vivier (✕ sur une frame pour la retirer) :`
+            : `Aucune frame — tracer des rectangles sur l'image (${POOL_MAX} max). La pose de la marche se fait ensuite dans Tools → Charsets.`}
+        </span>
+        <div style={{ alignSelf: "center", maxWidth: "100%", overflowX: "auto" }}>
+          <div className="row" style={{ gap: 2, width: "max-content" }}>
+            {rects.map((r, i) => (
+              <div key={i} style={{ position: "relative" }}>
+                <canvas
+                  ref={(el) => { frameRefs.current[i] = el; }}
+                  width={FRAME_W * 2}
+                  height={FRAME_H * 2}
+                  title={`Frame ${i + 1} (${r.w}x${r.h} en ${r.x}, ${r.y})`}
+                  style={{ display: "block", border: "1px solid #000" }}
+                />
+                <button
+                  title={`Retirer la frame ${i + 1}`}
+                  onClick={() => setRects((rs) => rs.filter((_, k) => k !== i))}
+                  style={{
+                    position: "absolute",
+                    right: 1,
+                    top: 1,
+                    width: 14,
+                    height: 14,
+                    padding: 0,
+                    lineHeight: "12px",
+                    fontSize: 9,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         </div>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <button
-            disabled={!filled}
+            disabled={!rects.length || !name.trim()}
             onClick={() => {
               const dd = dataRef.current;
               if (!dd) return;
-              const sheet = buildCharsetSheet(dd, slots, trans);
+              const strip = buildPoolStrip(dd, rects, trans);
               const cv = document.createElement("canvas");
-              cv.width = sheet.width;
-              cv.height = sheet.height;
-              cv.getContext("2d")!.putImageData(sheet, 0, 0);
+              cv.width = strip.width;
+              cv.height = strip.height;
+              cv.getContext("2d")!.putImageData(strip, 0, 0);
               cv.toBlob(async (blob) => {
                 if (!blob) return;
-                props.onOk(new Uint8Array(await blob.arrayBuffer()));
+                props.onOk(name.trim(), new Uint8Array(await blob.arrayBuffer()));
               }, "image/png");
             }}
           >
-            Importer
+            Importer le vivier
           </button>
-          <span className="hint">
-            {filled}/12 case(s) remplie(s) — une case vide reste transparente. 15 couleurs + la
-            transparence, comme toute planche.
-          </span>
+          <span className="hint">15 couleurs + la transparence, comme toute planche.</span>
         </div>
       </div>
     </div>

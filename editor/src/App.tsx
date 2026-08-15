@@ -97,6 +97,7 @@ import ResourceManagerModal from "./components/ResourceManagerModal";
 import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
 import SpriteExtractModal from "./components/SpriteExtractModal";
 import CharsetExtractModal from "./components/CharsetExtractModal";
+import CharsetsModal from "./components/CharsetsModal";
 import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
@@ -167,6 +168,8 @@ export default function App() {
   const [spriteExtract, setSpriteExtract] = useState<ImageBitmap | null>(null);
   // charset extraction from a free-form PNG sheet (CH1)
   const [charsetExtract, setCharsetExtract] = useState<ImageBitmap | null>(null);
+  // Tools > Charsets window (CH1b) — the number is the block to select
+  const [charsetsOpen, setCharsetsOpen] = useState<number | null>(null);
   // unified sprite-animé import: the small source chooser
   const [vigImportChoice, setVigImportChoice] = useState(false);
   // resource manager (RM2003 style)
@@ -670,22 +673,96 @@ export default function App() {
     }
   }
 
-  // The extractor's output is the 72x128 RM2003 sheet import-charset
-  // already accepts (transparency punched to alpha): written to the
-  // same scratch file as the RM2003 path, then the ordinary block/name
-  // window finishes — the CLI and datagen see nothing new.
-  async function charsetExtractOk(bytes: Uint8Array) {
+  // The extractor's output is a frame POOL (CH1b): saved under
+  // assets/charsets/, registered on a NEW block whose 12 frames start
+  // blank in the sprite sheet — laying the walk happens in Tools >
+  // Charsets, which opens right away on the new charset. The blank
+  // block is baked immediately because a block only EXISTS through
+  // sprites.png (spriteBlockCount reads its width).
+  async function charsetExtractOk(name: string, bytes: Uint8Array) {
     if (!data) return;
     setCharsetExtract(null);
+    const root = data.root;
+    const scene = sceneName;
+    const block = spriteBlocks;
     try {
-      await ensureProjectDir(data.root, "assets/charsets");
-      const tmp = `${data.root}/assets/charsets/_charset_import.png`;
-      await writeBinaryFile(tmp, bytes);
-      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
-      setCharsetImport({ path: tmp, bmp });
+      const slug = name.toLowerCase().replace(/[^a-z0-9_]/g, "_") || "charset";
+      const rel = `assets/charsets/${slug}.png`;
+      await ensureProjectDir(root, "assets/charsets");
+      await writeBinaryFile(`${root}/${rel}`, bytes);
+      const charsets = Array.from(
+        { length: block + 1 },
+        (_, i) => data.project.charsets?.[i] ?? (i === 0 ? "Héros" : `Bloc ${i}`)
+      );
+      charsets[block] = name;
+      const pools = Array.from(
+        { length: block + 1 },
+        (_, i) => data.project.charset_pools?.[i] ?? null
+      );
+      pools[block] = { sheet: rel, cells: Array.from({ length: 12 }, () => null) };
+      const d2 = {
+        ...data,
+        project: { ...data.project, charsets, charset_pools: pools },
+      };
+      await saveProject(d2);
+      setStatus("Import du vivier…");
+      // the blank block: an all-transparent RM2003 sheet (a fresh
+      // canvas is transparent), so the block exists and the Charsets
+      // window can select it
+      const cv = document.createElement("canvas");
+      cv.width = 72;
+      cv.height = 128;
+      const blankBlob: Blob | null = await new Promise((res) => cv.toBlob(res, "image/png"));
+      if (!blankBlob) return;
+      const tmp = `${root}/assets/charsets/_charset_import.png`;
+      await writeBinaryFile(tmp, new Uint8Array(await blankBlob.arrayBuffer()));
+      const res = await runImportCharset(root, tmp, 0, block);
+      if (!res.ok) {
+        setStatus(`Import charset : ${res.output.slice(-300)}`);
+        return;
+      }
+      await reloadProject(root, scene);
+      setCharsetsOpen(block);
+      setStatus(`Vivier importé : « ${name} » (bloc ${block}) — poser la marche dans Charsets`);
     } catch (e) {
       setStatus(`Import charset : ${e}`);
     }
+  }
+
+  // Tools > Charsets: bake the composed RM2003 sheet of a block through
+  // the ordinary import-charset flow (CH1b — the pool and the cell
+  // layout are editor metadata; the ROM only sees the baked sheet).
+  async function charsetBake(block: number, bytes: Uint8Array) {
+    if (!data) return;
+    const root = data.root;
+    const scene = sceneName;
+    try {
+      await saveProject(data); // the CLI reads project.json on disk
+      const tmp = `${root}/assets/charsets/_charset_import.png`;
+      await writeBinaryFile(tmp, bytes);
+      const res = await runImportCharset(root, tmp, 0, block);
+      if (!res.ok) {
+        setStatus(`Charset : ${res.output.slice(-300)}`);
+        return;
+      }
+      await reloadProject(root, scene);
+      setStatus(`Charset « ${blockNames[block] ?? block} » appliqué à la feuille de sprites.`);
+    } catch (e) {
+      setStatus(`Charset : ${e}`);
+    }
+  }
+
+  function setCharsetCells(block: number, cells: ({ f: number; flip?: boolean } | null)[]) {
+    mutate((d) => {
+      const pools = Array.from(
+        { length: Math.max(d.project.charset_pools?.length ?? 0, block + 1) },
+        (_, i) => d.project.charset_pools?.[i] ?? null
+      );
+      const cur = pools[block];
+      if (!cur) return d;
+      pools[block] = { ...cur, cells };
+      return { ...d, project: { ...d.project, charset_pools: pools } };
+    });
   }
 
   async function doImportCharset(perso: number, bloc: number, name: string) {
@@ -1755,6 +1832,12 @@ export default function App() {
           disabled: !data,
           sub: [
             {
+              label: "Charsets…",
+              tip: "Poser la marche d'un charset depuis son vivier de frames (miroir gauche/droite compris) — et bientôt ses animations",
+              action: () => setCharsetsOpen(0),
+              disabled: !data,
+            },
+            {
               label: "Extraire d'une ROM…",
               tip: "Visualiseur de tuiles sur une ROM : repérer des graphismes bruts et les envoyer dans une catégorie de ressource du projet",
               action: () => setRipOpen("rom"),
@@ -2242,8 +2325,20 @@ export default function App() {
       {charsetExtract && data && (
         <CharsetExtractModal
           bmp={charsetExtract}
-          onOk={(bytes) => void charsetExtractOk(bytes)}
+          onOk={(name, bytes) => void charsetExtractOk(name, bytes)}
           onClose={() => setCharsetExtract(null)}
+        />
+      )}
+      {charsetsOpen !== null && data && (
+        <CharsetsModal
+          root={data.root}
+          blockNames={blockNames}
+          pools={Array.from({ length: spriteBlocks }, (_, b) => data.project.charset_pools?.[b] ?? null)}
+          sprites={sprites}
+          initialBlock={charsetsOpen}
+          onCells={setCharsetCells}
+          onBake={charsetBake}
+          onClose={() => setCharsetsOpen(null)}
         />
       )}
       {transPick && data && (
