@@ -56,6 +56,11 @@ void stage_reset(void);
 
 /* One step of the spread-out transfers (main loop) plus VBlank writes */
 void stage_update(void);
-void stage_vblank(void);
+void stage_vblank(void); /* scrolls only since V-NMI V4 — before
+                            vbl_open, uncounted like every register */
+void stage_tail(void);   /* palettes + erase fills, METERED — call
+                            after vbl_open; the chars and map batches
+                            ride the dispatcher (stage_update
+                            publishes them) */
 
 #endif /* STAGE_H */

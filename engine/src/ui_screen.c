@@ -11,6 +11,7 @@
 #include "vram.h"
 #include "ui_screen.h"
 #include "vbudget.h"
+#include "vblnmi.h"
 
 u16 ui_map[32 * UI_ROWS];
 u8 ui_band_up = 0; /* EXPLICIT init: tcc-816 does not clear the BSS */
@@ -26,6 +27,14 @@ static u8 ui_starv = 0; /* truncated slices in a row that served the
 /* Where the VRAM map lives. Constant everywhere except on a Mode 7 world
    map, whose plane owns the low half of VRAM (vram.h). */
 static u16 ui_base = VRAM_BG3_MAP;
+
+/* Rows of the span's head published to the dispatcher (V5), 0 none.
+   The flight only lives from the END of the frame's logic
+   (ui_screen_prep, after every ui_map writer ran) to the SAME
+   frame's tail (ui_screen_vblank resolves it) — never while widgets
+   write, so the WRAM discipline holds by construction and no writer
+   needs a clearing hook. */
+static u8 ui_pub = 0;
 
 static void ui_blit_all(void)
 {
@@ -83,11 +92,54 @@ u8 ui_dirty_overlap(u8 row, u8 h)
   return 1;
 }
 
+/* End of the frame's LOGIC (main.c, after the last ui_map writer):
+   publish the span's head so the ISR can land up to 4 rows at ~line
+   229 — the typewriter's fast lane. The tail below resolves the
+   flight the same frame. */
+void ui_screen_prep(void)
+{
+  u8 n;
+  u16 ofs;
+
+  if (vn_busy(VN_UI))
+    vn_cancel(VN_UI); /* a branch without the ui tail (picture, flat
+        m7) never resolved it: kill it before the buffer moves */
+  ui_pub = 0;
+  if (ui_lo > ui_hi)
+    return;
+  n = (u8)(ui_hi - ui_lo + 1);
+  if (n > 4)
+    n = 4;
+  ofs = (u16)ui_lo << 5;
+  vn_publish(VN_UI, (const u8 *)ui_map + (ofs << 1),
+             (u16)(ui_base + ofs), (u16)((u16)n << 6), 1, 0,
+             VBL_COST_UI(n));
+  ui_pub = n;
+}
+
 void ui_screen_vblank(void)
 {
   u16 ofs;
   u8 want, fit;
 
+  /* Resolve the ISR flight first: landed means the span's head went
+     out at ~line 229; a leftover (the cap went to higher slots) is
+     cancelled so the splitter below owns the whole span again —
+     either way nothing stays in flight past this point. */
+  if (ui_pub)
+  {
+    if (!vn_busy(VN_UI))
+      ui_lo += ui_pub;
+    else
+      vn_cancel(VN_UI);
+    ui_pub = 0;
+    if (ui_lo > ui_hi)
+    {
+      ui_lo = 255;
+      ui_hi = 0;
+      return;
+    }
+  }
   if (ui_lo > ui_hi)
     return;
   /* The only consumer that had NO ceiling: a dialogue repainting the

@@ -23,15 +23,15 @@ u8 vbl_fire_ok = 0;
    For a BURST descriptor (vn_kind 1) the fields are repurposed:
    vn_dst = vj_first, vn_len = vj_n, vn_stride = the $2115 mode. */
 static const u8 *vn_src[VN_SLOTS];
-static u16 vn_dst[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u16 vn_len[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u16 vn_stride[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u8 vn_kind[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u8 vn_count[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u8 vn_cost[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u8 vn_snap[VN_SLOTS] = { 0, 0, 0, 0, 0 }; /* seq at publish */
-static u8 vn_token[VN_SLOTS] = { 0, 0, 0, 0, 0 };
-static u8 vn_live[VN_SLOTS] = { 0, 0, 0, 0, 0 }; /* producer seqs */
+static u16 vn_dst[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u16 vn_len[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u16 vn_stride[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u8 vn_kind[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u8 vn_count[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u8 vn_cost[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u8 vn_snap[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 }; /* seq at publish */
+static u8 vn_token[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 };
+static u8 vn_live[VN_SLOTS] = { 0, 0, 0, 0, 0, 0, 0 }; /* producer seqs */
 
 /* Where the beam stood after the ISR's last fire, and the highest it
    ever stood — the measurement hooks of the V-counter sessions (read
