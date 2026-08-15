@@ -96,6 +96,7 @@ import CharsetImportModal from "./components/CharsetImportModal";
 import ResourceManagerModal from "./components/ResourceManagerModal";
 import TransparencyPickModal, { applyTransparency } from "./components/TransparencyPickModal";
 import SpriteExtractModal from "./components/SpriteExtractModal";
+import CharsetExtractModal from "./components/CharsetExtractModal";
 import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
@@ -164,6 +165,8 @@ export default function App() {
   );
   // sprite-animé extraction from a PNG sheet (RM-extract)
   const [spriteExtract, setSpriteExtract] = useState<ImageBitmap | null>(null);
+  // charset extraction from a free-form PNG sheet (CH1)
+  const [charsetExtract, setCharsetExtract] = useState<ImageBitmap | null>(null);
   // unified sprite-animé import: the small source chooser
   const [vigImportChoice, setVigImportChoice] = useState(false);
   // resource manager (RM2003 style)
@@ -641,25 +644,45 @@ export default function App() {
     }
   }
 
-  // Import of an RPG Maker 2003 charset: file choice, then a preview modal
-  // (character + destination block) -> datagen import-charset
+  // Unified charset import (CH1, the sprite-animé model): an RM2003
+  // sheet (288x256 or 72x128) keeps the fast path — transparency pick,
+  // then the character/block window; ANY other PNG opens the rectangle
+  // extractor instead of being rejected.
   async function importCharset() {
     if (!data) return;
-    const file = await pickPngFile("Importer un charset RPG Maker 2003 (288x256 ou 72x128)");
+    const file = await pickPngFile(
+      "Charset : une planche RM2003 (288x256 / 72x128) ou toute planche à découper (PNG)"
+    );
     if (!file) return;
     try {
       const bmp = await loadPngBitmap(file);
-      const ok =
+      const rm2003 =
         (bmp.width === 288 && bmp.height === 256) ||
         (bmp.width === 72 && bmp.height === 128);
-      if (!ok) {
-        setStatus(
-          `Import charset : attendu 288x256 (8 personnages) ou 72x128 (recu ${bmp.width}x${bmp.height})`
-        );
+      if (!rm2003) {
+        setCharsetExtract(bmp); /* free-form: the extractor takes over */
         return;
       }
       const bytes = await readBinaryFile(file);
       setTransPick({ kind: "charset", file, bytes, bmp });
+    } catch (e) {
+      setStatus(`Import charset : ${e}`);
+    }
+  }
+
+  // The extractor's output is the 72x128 RM2003 sheet import-charset
+  // already accepts (transparency punched to alpha): written to the
+  // same scratch file as the RM2003 path, then the ordinary block/name
+  // window finishes — the CLI and datagen see nothing new.
+  async function charsetExtractOk(bytes: Uint8Array) {
+    if (!data) return;
+    setCharsetExtract(null);
+    try {
+      await ensureProjectDir(data.root, "assets/charsets");
+      const tmp = `${data.root}/assets/charsets/_charset_import.png`;
+      await writeBinaryFile(tmp, bytes);
+      const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
+      setCharsetImport({ path: tmp, bmp });
     } catch (e) {
       setStatus(`Import charset : ${e}`);
     }
@@ -2214,6 +2237,13 @@ export default function App() {
             if (ctx) void runImport(ctx, RESOURCES.vignette, { name, bytes });
           }}
           onClose={() => setSpriteExtract(null)}
+        />
+      )}
+      {charsetExtract && data && (
+        <CharsetExtractModal
+          bmp={charsetExtract}
+          onOk={(bytes) => void charsetExtractOk(bytes)}
+          onClose={() => setCharsetExtract(null)}
         />
       )}
       {transPick && data && (
