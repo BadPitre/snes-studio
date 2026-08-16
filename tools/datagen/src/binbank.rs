@@ -65,6 +65,7 @@ pub fn build_scene_bank(
     set_ids: &[u8],
     sprite_set_ids: &[u8],
     sprite_remaps: &[HashMap<u8, u8>],
+    slot_anims: &[[u8; 5]],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
@@ -140,10 +141,10 @@ pub fn build_scene_bank(
         grids_raw += 3 * w * h;
         grids_rle += rle_lower.len() + rle_upper.len() + rle_col.len();
 
-        // Scene layout: 28-byte header, then the lower tilemap RLE, the
+        // Scene layout: 33-byte header, then the lower tilemap RLE, the
         // upper tilemap RLE, the collision RLE, actors (8 B), warps (8 B)
         // and scripts.
-        let chunk_len = 28
+        let chunk_len = 33
             + rle_lower.len() + rle_upper.len() + rle_col.len()
             + sc.actors.len() * 16 + sc.warps.len() * 8
             + asm.bytecode.len();
@@ -168,15 +169,15 @@ pub fn build_scene_bank(
             .copy_from_slice(&(BANK_BASE + header_ofs as u16).to_le_bytes());
 
         let blob = pool.blobs.last_mut().unwrap();
-        let tilemap_ofs = header_ofs + 28;
+        let tilemap_ofs = header_ofs + 33;
         let upper_ofs = tilemap_ofs + rle_lower.len();
         let collision_ofs = upper_ofs + rle_upper.len();
         let actors_ofs = collision_ofs + rle_col.len();
         let warps_ofs = actors_ofs + sc.actors.len() * 16;
         let scripts_ofs = warps_ofs + sc.warps.len() * 8;
 
-        // Scene Header (spec §1.2 v0.3 — 28 bytes)
-        let mut header = [0u8; 28];
+        // Scene Header (spec §1.2 — 33 bytes since CH2)
+        let mut header = [0u8; 33];
         header[0] = 0x01; // scene_type TOP_DOWN
         header[1] = set_ids[i]; // gfx_set_id (v0.4 — gfx compilés par scène)
         header[2] = sc.width;
@@ -198,6 +199,9 @@ pub fn build_scene_bank(
         header[23] = sc.warps.len() as u8;
         write_far(&mut header[24..27], cpu_bank, upper_ofs);
         header[27] = sprite_set_ids[i]; // sprite_set_id (v0.5)
+        // CH2 — walk anim per sprite slot: bits 0-6 step length,
+        // bit 7 stepping idle (walk in place while standing)
+        header[28..33].copy_from_slice(&slot_anims[i]);
         blob.extend_from_slice(&header);
 
         blob.extend_from_slice(&rle_lower);

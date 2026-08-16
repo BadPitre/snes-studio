@@ -22,6 +22,11 @@ export interface Project {
   tilesets?: string[]; // 16x16 .png paths, the order gives the tileset_ids
   charsets?: string[]; // names of the character blocks (editor only,
   // ignored by datagen) — index = block of the sprite sheet
+  // CH2 — per-block walk animation, READ BY DATAGEN (mirrored in
+  // project.rs): baked into each scene header as one byte per sprite
+  // slot. speed = anim step length 1-63 (default 8), idle = 1 for a
+  // stepping idle (the charset walks in place while standing).
+  charset_anims?: (CharsetAnim | null)[];
   // CH1b (editor only, ignored by datagen) — per block: the frame POOL
   // extracted at import (a 16x24 strip under assets/charsets/) and the
   // 12-cell walk layout picking from it (Tools > Charsets). The baked
@@ -56,6 +61,12 @@ export interface Project {
   tileset_defs?: TilesetDef[];
   // named tint presets (S12b — editor only, see TintPreset)
   tint_presets?: TintPreset[];
+}
+
+// CH2 — a charset's base walk animation (see Project.charset_anims).
+export interface CharsetAnim {
+  speed?: number; // anim step length 1-63; absent/0 = the default 8
+  idle?: number; // 1 = stepping idle (walk in place while standing)
 }
 
 // CH1b — a charset's frame pool + walk layout (see Project.charset_pools).

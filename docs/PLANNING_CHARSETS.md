@@ -124,15 +124,25 @@ fields, old projects load unchanged):
   — a torch bearer, a bird) — or a named custom animation once CH3
   exists.
 
-Datagen emits a per-slot table in the scene set (speed byte + idle
-mode byte). The engine's two steppers read it instead of their
-constants — player.c and actors.c only; the computed frame keeps
-feeding the caches, actorsfast.asm does not change. The editor
-surfaces the two fields in the Resource Manager's charset panel.
+Datagen bakes one byte per sprite SLOT into the scene header (bytes
+28-32, spec §1.2: bits 0-6 the step length, bit 7 the stepping idle),
+unpacked at scene load (scn_aspd/scn_aidle). The engine's two steppers
+read them instead of their constants; the computed frame keeps feeding
+the caches. The editor surfaces the two fields in Tools > Charsets.
 
-Cost: engine small (two steppers), datagen small (two bytes per slot),
-editor small. Risk: low — the change is upstream of the caches. One
-session including the savestate gate.
+**As built**: the hero counts display frames; an NPC counts PIXELS
+walked (a per-slot countdown replacing the hardwired `(step & 7) == 0`
+— byte-identical at the default 8, proven by the pixel regression on
+wandering NPCs), so its anim pace scales with its move speed. The NPC
+stepping idle needed ONE concession from actorsfast.asm: its "show the
+walk step" gate reads `actor_step || actor_show_step`, the new byte
+maintained by a C loop that runs only when the scene HAS a stepping
+idle (scn_has_idle — a scene without one pays nothing, the P1-P3
+plain stays untouched). Verified: hero stepping in place on screen at
+speed 4 (the 2-px toggle IS the demo art's full pose difference, its
+step frames differ by 2 px), NPC anim advancing through WRAM dumps at
+speed 6 while actor_step stays 0, both regression gates green with
+defaults.
 
 ### CH3 — custom charset animations, authored and scripted
 

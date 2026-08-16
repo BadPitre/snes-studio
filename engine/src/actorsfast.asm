@@ -227,7 +227,11 @@ _af_gfx_ok:
 
     lda.l actor_step,x
     and.w #$00FF
-    beq _af_frame_ok               ; no step in progress: idle pose
+    bne _af_step_anim              ; step in progress: walk anim
+    lda.l actor_show_step,x        ; stepping idle (CH2): walk in place
+    and.w #$00FF
+    beq _af_frame_ok               ; neither: idle pose
+_af_step_anim:
     lda.l actor_anim,x
     and.w #$00FF
     sta.b D_T

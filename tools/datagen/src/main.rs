@@ -867,6 +867,9 @@ fn main() -> Result<()> {
     let mut sprite_sets: Vec<(Vec<u8>, Vec<u16>)> = Vec::new();
     let mut sprite_set_ids: Vec<u8> = Vec::new();
     let mut sprite_remaps: Vec<HashMap<u8, u8>> = Vec::new();
+    // CH2 — per scene, one walk-anim byte per sprite SLOT (scene header
+    // bytes 28-32): bits 0-6 the anim step length, bit 7 stepping idle.
+    let mut slot_anims: Vec<[u8; 5]> = Vec::new();
     for (sci, sc) in scenes.iter().enumerate() {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for &b in &scene_gfx_blocks[sci] {
@@ -952,6 +955,22 @@ fn main() -> Result<()> {
                 .map(|(s, &b)| (b as u8, s as u8))
                 .collect(),
         );
+        {
+            // `used` is slot-ordered: slot s shows block used[s]. Tile
+            // blocks (T4) and blocks with no entry keep the default.
+            let mut sa = [0x08u8; 5];
+            for (s, &b) in used.iter().enumerate() {
+                if let Some(Some(a)) = project.charset_anims.get(b) {
+                    let spd = match a.speed {
+                        0 => 8,
+                        v if v > 63 => 63,
+                        v => v,
+                    };
+                    sa[s] = spd | if a.idle != 0 { 0x80 } else { 0 };
+                }
+            }
+            slot_anims.push(sa);
+        }
     }
     println!(
         "  {} sprite sets pour {} scenes ({} bloc(s) dans la feuille)",
@@ -1000,8 +1019,8 @@ fn main() -> Result<()> {
     // EXTRA_WLA_FIRST onwards.
     let mut next_extra = binbank::EXTRA_WLA_FIRST;
     let scene_pool = binbank::build_scene_bank(
-        &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &text_ids,
-        &music_ids, boot_id as u8, &mut next_extra,
+        &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &slot_anims,
+        &text_ids, &music_ids, boot_id as u8, &mut next_extra,
     )?;
     let text_pool = binbank::build_text_bank(&texts, &mut next_extra)?;
     for (k, blob) in scene_pool.blobs.iter().enumerate() {

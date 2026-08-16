@@ -32,6 +32,17 @@ typedef struct
 
 extern SceneCtx scene_ctx;
 
+/* Walk animation per sprite SLOT (CH2 — header bytes 28-32, one per
+   slot of the scene's sprite set): the anim step length (display
+   frames of hero movement, pixels walked for an NPC — 8 by default)
+   and the stepping-idle flag (the charset walks in place while
+   standing). Unpacked at load: the steppers read them every frame. */
+extern u8 scn_aspd[5];
+extern u8 scn_aidle[5];
+/* 1 if ANY slot of the scene has a stepping idle — actors_update skips
+   its idle walk entirely otherwise (the plain's 60 fps, P1-P3). */
+extern u8 scn_has_idle;
+
 /* Boot scene — read from the binary Scene Table: data, not engine */
 u8 scene_boot_id(void);
 

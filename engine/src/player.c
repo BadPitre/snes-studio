@@ -388,12 +388,15 @@ void player_update(void)
   if (padsDown(0) & KEY_A)
     player_try_interact();
 
-  /* RM2003 walk cycle: anim_frame 0-3 -> idle, step A, idle, step B
-     (advances every 8 frames of movement) */
-  if (player.moving)
+  /* RM2003 walk cycle: anim_frame 0-3 -> idle, step A, idle, step B.
+     The step length and the stepping idle are the hero charset's walk
+     parameters (CH2 — slot 0 of the scene's sprite set, scene.h): a
+     stepping idle keeps the cycle running while standing (walk in
+     place), a fixed one snaps back to the idle pose. */
+  if (player.moving || scn_aidle[0])
   {
     player.anim_timer++;
-    if (player.anim_timer >= 8)
+    if (player.anim_timer >= scn_aspd[0])
     {
       player.anim_timer = 0;
       player.anim_frame = (player.anim_frame + 1) & 3;

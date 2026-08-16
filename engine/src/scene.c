@@ -30,6 +30,12 @@ extern const u16 *const gfx_pals[];
 
 SceneCtx scene_ctx;
 
+/* Walk anim per sprite slot (CH2) — see scene.h. Explicitly
+   initialised: .bss is garbage (ENGINE_CONSTRAINTS 1.2). */
+u8 scn_aspd[5] = { 8, 8, 8, 8, 8 };
+u8 scn_aidle[5] = { 0, 0, 0, 0, 0 };
+u8 scn_has_idle = 0;
+
 /* Row offsets of the current grid (see scene_load) — avoids the
    software multiply in scene_collision, which the hot paths call.
    Filled at load time, so no static init is needed. */
@@ -129,6 +135,25 @@ void scene_load(u8 scene_id)
   scene_ctx.warp_count = h[23];
   scene_ctx.sprite_set_id = h[27]; /* sprites compiled per scene */
   scene_ctx.scene_id = scene_id; /* saves (spec §4bis) */
+
+  /* Walk anim per slot (CH2 — bytes 28-32): bits 0-6 the step length,
+     bit 7 the stepping idle. 0 never comes out of datagen, but the
+     guard keeps a stale binary from dividing the walk by zero. */
+  {
+    u8 i, v;
+
+    scn_has_idle = 0;
+    for (i = 0; i < 5; i++)
+    {
+      v = h[28 + i];
+      scn_aspd[i] = (u8)(v & 0x7F);
+      if (scn_aspd[i] == 0)
+        scn_aspd[i] = 8;
+      scn_aidle[i] = (u8)(v >> 7);
+      if (scn_aidle[i])
+        scn_has_idle = 1;
+    }
+  }
 
   /* Precomputed row offsets: scene_collision is called ~15 times per
      walking frame (hero plus NPC collision), and tcc-816's software

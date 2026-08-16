@@ -62,6 +62,14 @@ pub struct Project {
     /// let error messages say "green NPC" rather than "block 3".
     #[serde(default)]
     pub charsets: Vec<String>,
+    /// Per-block walk animation parameters (CH2), indexed like
+    /// `charsets`. Baked into each scene header as ONE BYTE PER SPRITE
+    /// SLOT: bits 0-6 the anim step length (display frames of movement
+    /// for the hero, pixels walked for an NPC — the default 8 means the
+    /// same thing in both units at the standard speeds), bit 7 set for
+    /// a STEPPING idle (the charset walks in place while standing).
+    #[serde(default)]
+    pub charset_anims: Vec<Option<CharsetAnim>>,
     /// Common events, RM2003 style: global scripts callable from any event
     /// ({"c":"call","n":k}) or run automatically by a switch. Compiled PER
     /// SCENE — only the bodies actually referenced land in a scene's
@@ -302,6 +310,17 @@ pub struct FunctionDef {
 
 fn trigger_none() -> String {
     "none".into()
+}
+
+/// CH2 — a charset's base walk animation, as the editor writes it.
+#[derive(Deserialize, Clone, Default)]
+pub struct CharsetAnim {
+    /// Anim step length, 1-63 (default 8 when absent or 0).
+    #[serde(default)]
+    pub speed: u8,
+    /// 1 = stepping idle (walk in place while standing), 0 = fixed.
+    #[serde(default)]
+    pub idle: u8,
 }
 
 #[derive(Deserialize)]

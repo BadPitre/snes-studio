@@ -753,6 +753,23 @@ export default function App() {
     }
   }
 
+  function setCharsetAnim(block: number, anim: { speed?: number; idle?: number } | null) {
+    mutate((d) => {
+      const anims = Array.from(
+        { length: Math.max(d.project.charset_anims?.length ?? 0, block + 1) },
+        (_, i) => d.project.charset_anims?.[i] ?? null
+      );
+      anims[block] = anim;
+      return {
+        ...d,
+        project: {
+          ...d.project,
+          charset_anims: anims.some(Boolean) ? anims : undefined,
+        },
+      };
+    });
+  }
+
   function setCharsetCells(block: number, cells: ({ f: number; flip?: boolean } | null)[]) {
     mutate((d) => {
       const pools = Array.from(
@@ -951,6 +968,11 @@ export default function App() {
       );
       const removedSheet = pools0[b]?.sheet;
       const pools = pools0.filter((_, i) => i !== b);
+      // the walk anims shift too (CH2) — same hazard as the pools
+      const anims = Array.from(
+        { length: spriteBlocks },
+        (_, i) => data.project.charset_anims?.[i] ?? null
+      ).filter((_, i) => i !== b);
       const d2 = {
         ...data,
         scenes,
@@ -958,6 +980,7 @@ export default function App() {
           ...data.project,
           charsets,
           charset_pools: pools.some(Boolean) ? pools : undefined,
+          charset_anims: anims.some(Boolean) ? anims : undefined,
         },
       };
       await saveProject(d2);
@@ -2352,9 +2375,11 @@ export default function App() {
           root={data.root}
           blockNames={blockNames}
           pools={Array.from({ length: spriteBlocks }, (_, b) => data.project.charset_pools?.[b] ?? null)}
+          anims={Array.from({ length: spriteBlocks }, (_, b) => data.project.charset_anims?.[b] ?? null)}
           sprites={sprites}
           initialBlock={charsetsOpen}
           onCells={setCharsetCells}
+          onAnim={setCharsetAnim}
           onBake={charsetBake}
           onClose={() => setCharsetsOpen(null)}
         />

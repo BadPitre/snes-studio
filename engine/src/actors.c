@@ -46,6 +46,14 @@ u16 actor_px[ACTOR_SLOTS];
 u16 actor_py[ACTOR_SLOTS];
 u8 actor_step[ACTOR_SLOTS];  /* pixels left in the current step */
 u8 actor_anim[ACTOR_SLOTS];  /* walk frame 0-3 (like the player) */
+/* CH2 — the draw gates (actorsfast.asm, actor_frame_m7) show the walk
+   step when actor_step != 0 OR this byte says so: it is 1 only for a
+   STEPPING-IDLE charset (scn_aidle), so a scene without any costs
+   nothing. Non-static: the assembly reads it. */
+u8 actor_show_step[ACTOR_SLOTS];
+/* countdown to the next anim phase: pixels while walking, display
+   frames while standing on a stepping idle — scn_aspd either way */
+static u8 actor_stepct[ACTOR_SLOTS];
 static u8 actor_timer[ACTOR_SLOTS]; /* frames before the next decision */
 static u16 mv_seed;                 /* 16-bit xorshift (randomness) */
 static u8 mv_phase;                 /* NPC speed: 1 px every other frame */
@@ -287,6 +295,8 @@ void actors_init(void)
     actor_py[i] = 0;
     actor_step[i] = 0;
     actor_anim[i] = 0;
+    actor_show_step[i] = 0;
+    actor_stepct[i] = 8;
     actor_timer[i] = (u8)(20 + i * 13); /* staggers the decisions */
     route_ofs[i] = 0xFFFF;
     route_pos[i] = 0;
@@ -530,7 +540,7 @@ static u8 actor_frame_m7(u8 i)
   u8 f = (g == 0xFF) ? actor_fbase[i] : (u8)(g * 12);
 
   f = (u8)(f + actor_dirs[i] * 3);
-  if (actor_step[i] && (actor_anim[i] & 1))
+  if ((actor_step[i] || actor_show_step[i]) && (actor_anim[i] & 1))
     f = (u8)(f + (actor_anim[i] >> 1) + 1);
   return f;
 }
@@ -951,6 +961,13 @@ void actors_update(void)
       u8 px = actor_speed[i] == 1 ? (mv_phase ? 1 : 0)
               : actor_speed[i] == 2 ? 1
               : actor_speed[i] == 3 ? 2 : 4;
+      /* anim phase every scn_aspd pixels walked (CH2) — the countdown
+         replaces the hardwired (step & 7) == 0, byte-identical at the
+         default 8. The DISPLAYED charset owns the cadence: a Change
+         Graphic walks at its own charset's pace. */
+      u8 slot = actor_gfx[i] != 0xFF ? actor_gfx[i] : actor_sprite[i];
+      u8 spd = slot < 5 ? scn_aspd[slot] : 8;
+
       d = actor_mvdir[i];
       while (px && actor_step[i])
       {
@@ -959,8 +976,44 @@ void actors_update(void)
         moved = 1;
         actor_step[i]--;
         px--;
-        if ((actor_step[i] & 7) == 0)
+        if (actor_stepct[i] > 1)
+          actor_stepct[i]--;
+        else
+        {
+          actor_stepct[i] = spd;
           actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
+        }
+      }
+    }
+  }
+
+  /* Stepping idles (CH2): a charset with scn_aidle walks in place
+     while standing — actor_show_step opens the draw gate and the
+     countdown ticks in display frames. The whole walk is skipped when
+     the scene has no such charset (the plain's 60 fps, P1-P3). */
+  if (scn_has_idle)
+  {
+    for (i = 0; i < n; i++)
+    {
+      u8 slot;
+
+      if (!actor_active[i] || actor_sprite[i] == 0xFF)
+        continue;
+      slot = actor_gfx[i] != 0xFF ? actor_gfx[i] : actor_sprite[i];
+      if (slot > 4 || !scn_aidle[slot])
+      {
+        actor_show_step[i] = 0;
+        continue;
+      }
+      actor_show_step[i] = 1;
+      if (actor_step[i])
+        continue; /* walking: the pixel countdown owns the anim */
+      if (actor_stepct[i] > 1)
+        actor_stepct[i]--;
+      else
+      {
+        actor_stepct[i] = scn_aspd[slot];
+        actor_anim[i] = (u8)((actor_anim[i] + 1) & 3);
       }
     }
   }

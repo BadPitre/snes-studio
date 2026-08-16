@@ -88,7 +88,7 @@ them sequentially (sequential first-fit, a scene is atomic and must fit in a
 Every far pointer in the Scene Header carries its own scene's bank; the
 engine follows the pointers with no bank map.
 
-### 1.2 Scene Header (v0.3 — 28 bytes)
+### 1.2 Scene Header (CH2 — 33 bytes)
 
 ```
 Offset  Size    Field
@@ -112,6 +112,12 @@ Offset  Size    Field
                                         an empty cell = the transparent metatile id)
 27      1       sprite_set_id   (u8)  — index into the generated sprite_*
                                         tables (v0.5; before: reserved)
+28      5       slot_walk_anim  (u8 x5) — one byte per sprite SLOT (CH2):
+                                        bits 0-6 = anim step length (display
+                                        frames of hero movement / pixels
+                                        walked for an NPC; 8 by default),
+                                        bit 7 = stepping idle (the charset
+                                        walks in place while standing)
 ```
 
 *v0 → v0.2 evolution (Phase 4): the header grew from 20 to 24 bytes with the
@@ -136,6 +142,11 @@ the tilemap values are ids LOCAL to the scene's set.*
 (OBJ chars + palettes) are compiled PER SCENE like the tilesets: only the
 character blocks used by the scene (the player included, 5 max) are embedded,
 and the actors' `sprite_id` is remapped to the local slot (§1.3, §5).*
+
+*v0.5 → CH2 evolution: the header grew from 28 to 33 bytes with
+`slot_walk_anim` — the per-charset walk parameters (`project.charset_anims`,
+resolved per slot by datagen). The engine unpacks them at scene load
+(`scn_aspd`/`scn_aidle`, scene.c) for the two walk steppers.*
 
 ### 1.3 Actor entry (v0.14 — 16 bytes per PAGE)
 

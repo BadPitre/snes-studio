@@ -16,7 +16,7 @@ import {
   type CharsetCellRef,
 } from "../charset";
 import { loadAssetPng } from "../io";
-import type { CharsetPool } from "../types";
+import type { CharsetAnim, CharsetPool } from "../types";
 
 const DIRS = ["Bas", "Haut", "Gauche", "Droite"];
 const STEPS = ["Repos", "Pas A", "Pas B"];
@@ -27,9 +27,11 @@ interface Props {
   root: string;
   blockNames: string[];
   pools: (CharsetPool | null)[];
+  anims: (CharsetAnim | null)[]; // CH2 — walk speed + idle per block
   sprites: ImageBitmap | null; // the baked sheet, shown for pool-less blocks
   initialBlock?: number;
   onCells: (block: number, cells: (CharsetCellRef | null)[]) => void;
+  onAnim: (block: number, anim: CharsetAnim | null) => void;
   onBake: (block: number, bytes: Uint8Array) => Promise<void>;
   onClose: () => void;
 }
@@ -162,6 +164,16 @@ export default function CharsetsModal(props: Props) {
   };
 
   const filled = cells.filter(Boolean).length;
+  const anim = props.anims[sel] ?? null;
+
+  // CH2 — a changed field writes {speed, idle}; both back at their
+  // defaults writes null so project.json stays clean.
+  const setAnim = (speed: number, idle: number) => {
+    props.onAnim(
+      sel,
+      speed === 8 && idle === 0 ? null : { speed, idle }
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
@@ -342,6 +354,35 @@ export default function CharsetsModal(props: Props) {
                   ))}
                 </div>
               </div>
+            </div>
+            <div className="row" style={{ alignItems: "center", gap: 12 }}>
+              <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                Vitesse de marche :
+                <input
+                  type="number"
+                  min={1}
+                  max={63}
+                  value={anim?.speed || 8}
+                  title="Frames entre deux pas de l'animation de marche (8 = RM2003)"
+                  style={{ width: 56 }}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(63, Number(e.target.value) || 8));
+                    setAnim(v, anim?.idle ?? 0);
+                  }}
+                />
+              </label>
+              <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                Au repos :
+                <select
+                  value={anim?.idle ?? 0}
+                  title="Marche sur place : le personnage continue son cycle de pas à l'arrêt (torche, oiseau…)"
+                  onChange={(e) => setAnim(anim?.speed || 8, Number(e.target.value))}
+                >
+                  <option value={0}>Immobile</option>
+                  <option value={1}>Marche sur place</option>
+                </select>
+              </label>
+              <span className="hint">appliqué au prochain lancement du jeu</span>
             </div>
             {pool && (
               <div className="row" style={{ alignItems: "center", gap: 8 }}>
