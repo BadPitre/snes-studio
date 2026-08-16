@@ -29,6 +29,11 @@ interface Props {
   sprites: ImageBitmap | null;
   blockCount: number;
   blockNames: string[];
+  // CH1b — per block: the frame pool's strip path (null = RM2003 import,
+  // no pool). The preview shows the pool when the block has one: a
+  // freshly imported charset has a BLANK block until its walk is laid
+  // in Tools > Charsets, and an empty preview read as a failed import.
+  poolSheets: (string | null)[];
   windowskins: string[]; // relative paths (assets/xxx.png)
   activeSkin?: string; // active theme (project.ui.windowskin)
   iconsets: string[]; // widget icon sheets (W1)
@@ -204,6 +209,23 @@ export default function ResourceManagerModal(p: Props) {
     };
   }, [def, cur, p.root]);
 
+  // The selected charset's pool strip, when it has one (CH1b).
+  const [poolBmp, setPoolBmp] = useState<ImageBitmap | null>(null);
+  const poolSheet = cat === "charset" ? p.poolSheets[selBloc] ?? null : null;
+  useEffect(() => {
+    setPoolBmp(null);
+    if (!poolSheet) return;
+    let dead = false;
+    void loadAssetPng(p.root, poolSheet)
+      .then((b) => {
+        if (!dead) setPoolBmp(b);
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [poolSheet, p.root]);
+
   // The Mode 7 preview. Silent on failure: in browser mode there is no
   // sidecar at all, and the panel must still open — the smoke test walks
   // every category.
@@ -233,7 +255,18 @@ export default function ResourceManagerModal(p: Props) {
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.fillStyle = "#9aa0a8";
     ctx.font = "11px system-ui";
-    if (cat === "charset" && p.sprites) {
+    if (cat === "charset" && poolBmp) {
+      // an extracted charset: its frame POOL (the baked block may still
+      // be blank until the walk is laid in Tools > Charsets)
+      const n = Math.floor(poolBmp.width / 16);
+      ctx.fillText(
+        `vivier : ${n} frame(s) — poser la marche dans Tools → Charsets`,
+        8, 10
+      );
+      for (let i = 0; i < n && i < 15; i++)
+        ctx.drawImage(poolBmp, i * 16, 0, 16, 24, 8 + i * 34, 16, 32, 48);
+      if (n > 15) ctx.fillText("…", 8 + 15 * 34, 40);
+    } else if (cat === "charset" && p.sprites) {
       for (let d = 0; d < 4; d++) {
         const f = selBloc * 12 + d * 3;
         if ((f + 1) * 16 > p.sprites.width) break;
@@ -327,7 +360,7 @@ export default function ResourceManagerModal(p: Props) {
       for (let half = 0; half < 2; half++)
         ctx.drawImage(bmp, half * 384, 0, 384, 8, 8, 48 + half * 20, 384, 8);
     }
-  }, [cat, selBloc, selChip, bmp, starred, p.sprites, p.tilesets, p.sounds.length, p.musics.length]);
+  }, [cat, selBloc, selChip, bmp, poolBmp, starred, p.sprites, p.tilesets, p.sounds.length, p.musics.length]);
 
   const rename = () => {
     if (renaming === null) return;

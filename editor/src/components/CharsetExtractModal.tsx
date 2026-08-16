@@ -345,7 +345,7 @@ export default function CharsetExtractModal(props: Props) {
               }, "image/png");
             }}
           >
-            Importer le vivier
+            Importer
           </button>
           <span className="hint">15 couleurs + la transparence, comme toute planche.</span>
         </div>

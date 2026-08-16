@@ -722,8 +722,9 @@ export default function App() {
         return;
       }
       await reloadProject(root, scene);
-      setCharsetsOpen(block);
-      setStatus(`Vivier importé : « ${name} » (bloc ${block}) — poser la marche dans Charsets`);
+      setStatus(
+        `Vivier importé : « ${name} » (bloc ${block}) — poser la marche dans Tools → Charsets`
+      );
     } catch (e) {
       setStatus(`Import charset : ${e}`);
     }
@@ -942,8 +943,25 @@ export default function App() {
         ])
       );
       const charsets = blockNames.filter((_, i) => i !== b);
-      const d2 = { ...data, scenes, project: { ...data.project, charsets } };
+      // the pools shift WITH the blocks (CH1b) — a stale index would
+      // hand block b+1's walk another charset's frames
+      const pools0 = Array.from(
+        { length: spriteBlocks },
+        (_, i) => data.project.charset_pools?.[i] ?? null
+      );
+      const removedSheet = pools0[b]?.sheet;
+      const pools = pools0.filter((_, i) => i !== b);
+      const d2 = {
+        ...data,
+        scenes,
+        project: {
+          ...data.project,
+          charsets,
+          charset_pools: pools.some(Boolean) ? pools : undefined,
+        },
+      };
       await saveProject(d2);
+      if (removedSheet) await removePath(`${root}/${removedSheet}`).catch(() => {});
       await writeBinaryFile(
         `${root}/${data.project.assets.sprites}`,
         new Uint8Array(await blob.arrayBuffer())
@@ -2360,6 +2378,10 @@ export default function App() {
           sprites={sprites}
           blockCount={spriteBlocks}
           blockNames={blockNames}
+          poolSheets={Array.from(
+            { length: spriteBlocks },
+            (_, b) => data.project.charset_pools?.[b]?.sheet ?? null
+          )}
           windowskins={projectWindowskins(data.project)}
           activeSkin={data.project.ui?.windowskin}
           iconsets={projectIconsets(data.project)}
