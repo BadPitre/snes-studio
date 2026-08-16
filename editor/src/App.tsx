@@ -98,6 +98,7 @@ import TransparencyPickModal, { applyTransparency } from "./components/Transpare
 import SpriteExtractModal from "./components/SpriteExtractModal";
 import CharsetExtractModal from "./components/CharsetExtractModal";
 import CharsetsModal from "./components/CharsetsModal";
+import CharsetAnimsModal from "./components/CharsetAnimsModal";
 import type { Rgb } from "./components/TransparencyPickModal";
 import MenuBar from "./components/MenuBar";
 import DiagnosticsModal from "./components/DiagnosticsModal";
@@ -170,6 +171,8 @@ export default function App() {
   const [charsetExtract, setCharsetExtract] = useState<ImageBitmap | null>(null);
   // Tools > Charsets window (CH1b) — the number is the block to select
   const [charsetsOpen, setCharsetsOpen] = useState<number | null>(null);
+  // the charset animation workshop (CH3), its own window
+  const [chanimsOpen, setChanimsOpen] = useState(false);
   // unified sprite-animé import: the small source chooser
   const [vigImportChoice, setVigImportChoice] = useState(false);
   // resource manager (RM2003 style)
@@ -2380,6 +2383,16 @@ export default function App() {
           initialBlock={charsetsOpen}
           onCells={setCharsetCells}
           onAnim={setCharsetAnim}
+          animCount={(data.project.charset_animations ?? []).length}
+          onOpenAnims={() => setChanimsOpen(true)}
+          onBake={charsetBake}
+          onClose={() => setCharsetsOpen(null)}
+        />
+      )}
+      {chanimsOpen && data && (
+        <CharsetAnimsModal
+          blockNames={blockNames}
+          sprites={sprites}
           animations={data.project.charset_animations ?? []}
           onAnimations={(list) =>
             mutate((d) => ({
@@ -2390,8 +2403,7 @@ export default function App() {
               },
             }))
           }
-          onBake={charsetBake}
-          onClose={() => setCharsetsOpen(null)}
+          onClose={() => setChanimsOpen(false)}
         />
       )}
       {transPick && data && (
