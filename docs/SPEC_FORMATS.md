@@ -380,10 +380,21 @@ variable operands — scripted step-by-step NPC movement arrives with the
 VM_WAIT_CHOICE, and the NPC being talked to turns towards the hero (an RM2003
 reflex, engine side).*
 
-*The table above stops at v0.6; the opcodes added since (0x0C-0x4B) are
+*The table above stops at v0.6; the opcodes added since (0x0C-0x4D) are
 specified by their comments in `engine/src/formats.h`, which is the
 authoritative list — extending this table has drifted for sixty opcodes
 and pretending otherwise would be worse than saying so.*
+
+**CH3 — custom charset animations.** `CHANIM` (0x4C: target, flags,
+ofs u16) plays a named frame sequence on the hero (target 0xFE), the
+script's event (0xFF) or an actor slot; `CHANIMSTOP` (0x4D: target)
+ends it. The u16 points at a table the assembler appends to the SCENE'S
+SCRIPT BLOCK — `[count][end][(frame, palette, duration) × count]`,
+steps resolved through the scene's sprite remap so a cross-charset step
+lands on its block's slot AND palette. The animation owns the target's
+displayed frame through the override pair (`actor_fovr`/`actor_povr`,
+`player_frame_ovr`) until it ends: 0 back to the walk, 1 loop, 2 hold.
+Waiting (flags bit 0) on a looping animation is refused at build.
 
 **O-B — indirection.** Three additions for data-driven scripts (a party
 loop reads "hero N's stats" without unrolling per hero):

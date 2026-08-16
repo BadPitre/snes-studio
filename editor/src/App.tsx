@@ -2380,6 +2380,16 @@ export default function App() {
           initialBlock={charsetsOpen}
           onCells={setCharsetCells}
           onAnim={setCharsetAnim}
+          animations={data.project.charset_animations ?? []}
+          onAnimations={(list) =>
+            mutate((d) => ({
+              ...d,
+              project: {
+                ...d.project,
+                charset_animations: list.length ? list : undefined,
+              },
+            }))
+          }
           onBake={charsetBake}
           onClose={() => setCharsetsOpen(null)}
         />
@@ -2735,6 +2745,7 @@ export default function App() {
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
           animNames={(data.project.animations ?? []).map((a) => a.name)}
+          chanimNames={(data.project.charset_animations ?? []).map((a) => a.name)}
           screenNames={data.project.screens ?? []}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2783,6 +2794,7 @@ export default function App() {
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
           animNames={(data.project.animations ?? []).map((a) => a.name)}
+          chanimNames={(data.project.charset_animations ?? []).map((a) => a.name)}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
           }
@@ -2822,6 +2834,7 @@ export default function App() {
           musicNames={(data.project.musics ?? []).map(musicStem)}
           vigNames={(data.project.vignettes ?? []).map(musicStem)}
           animNames={(data.project.animations ?? []).map((a) => a.name)}
+          chanimNames={(data.project.charset_animations ?? []).map((a) => a.name)}
           screenNames={data.project.screens ?? []}
           onTintPresets={(list) =>
             mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2868,6 +2881,7 @@ export default function App() {
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 animNames={(data.project.animations ?? []).map((a) => a.name)}
+          chanimNames={(data.project.charset_animations ?? []).map((a) => a.name)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))
@@ -2939,6 +2953,7 @@ export default function App() {
                 musicNames={(data.project.musics ?? []).map(musicStem)}
                 vigNames={(data.project.vignettes ?? []).map(musicStem)}
                 animNames={(data.project.animations ?? []).map((a) => a.name)}
+          chanimNames={(data.project.charset_animations ?? []).map((a) => a.name)}
                 screenNames={data.project.screens ?? []}
                 onTintPresets={(list) =>
                   mutate((d) => ({ ...d, project: { ...d.project, tint_presets: list } }))

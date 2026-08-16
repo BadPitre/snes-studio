@@ -15,6 +15,7 @@
 #include "player.h"
 #include "vm.h"
 #include "m7.h"
+#include "charanim.h" /* scene load clears the animations (CH3) */
 
 /* OAM: the player takes ids 0 and 4; actor i takes ids (2+2i)*4 (top)
    and (3+2i)*4 (bottom) — PVSnesLib OAM structure, id = object * 4 */
@@ -54,6 +55,12 @@ u8 actor_show_step[ACTOR_SLOTS];
 /* countdown to the next anim phase: pixels while walking, display
    frames while standing on a stepping idle — scn_aspd either way */
 static u8 actor_stepct[ACTOR_SLOTS];
+/* CH3 — exact-frame override (charanim.c): 0xFF = none, else the frame
+   of the scene's OBJ sheet to show, with its OWN palette (a
+   cross-charset animation step wears its block's colours). Non-static:
+   the assembly reads both. */
+u8 actor_fovr[ACTOR_SLOTS];
+u8 actor_povr[ACTOR_SLOTS];
 static u8 actor_timer[ACTOR_SLOTS]; /* frames before the next decision */
 static u16 mv_seed;                 /* 16-bit xorshift (randomness) */
 static u8 mv_phase;                 /* NPC speed: 1 px every other frame */
@@ -275,6 +282,10 @@ void actors_init(void)
   u8 i;
   const ActorDef *a = scene_ctx.actors;
 
+  /* charset animations die with the scene (CH3) — before the loop
+     below rewrites the overrides it also cleared */
+  chanim_init();
+
   /* Seed of the NPC wandering. The .bss is NOT cleared by this
      toolchain: without this line mv_seed started on whatever was lying
      around in WRAM. Deterministic for a given binary — so invisible —
@@ -297,6 +308,8 @@ void actors_init(void)
     actor_anim[i] = 0;
     actor_show_step[i] = 0;
     actor_stepct[i] = 8;
+    actor_fovr[i] = 0xFF;
+    actor_povr[i] = 0;
     actor_timer[i] = (u8)(20 + i * 13); /* staggers the decisions */
     route_ofs[i] = 0xFFFF;
     route_pos[i] = 0;
@@ -537,8 +550,11 @@ static u8 m7_act_cur; /* round-robin cursor over the slots */
 static u8 actor_frame_m7(u8 i)
 {
   u8 g = actor_gfx[i];
-  u8 f = (g == 0xFF) ? actor_fbase[i] : (u8)(g * 12);
+  u8 f;
 
+  if (actor_fovr[i] != 0xFF)
+    return actor_fovr[i]; /* charset animation owns the frame (CH3) */
+  f = (g == 0xFF) ? actor_fbase[i] : (u8)(g * 12);
   f = (u8)(f + actor_dirs[i] * 3);
   if ((actor_step[i] || actor_show_step[i]) && (actor_anim[i] & 1))
     f = (u8)(f + (actor_anim[i] >> 1) + 1);
@@ -603,8 +619,13 @@ void actors_draw_m7(void)
       actor_m7_hide(i);
       continue;
     }
-    actor_oam_pair(ACTOR_OAM_TOP(i), (u16)(m7_pjx - 8), (u16)(m7_pjy - 16),
-                   actor_frame_m7(i), ACTOR_OBJ_PRIO, actor_sprite[i]);
+    {
+      /* the override wears its own block's palette (CH3) */
+      u8 pal = actor_fovr[i] != 0xFF ? actor_povr[i] : actor_sprite[i];
+
+      actor_oam_pair(ACTOR_OAM_TOP(i), (u16)(m7_pjx - 8), (u16)(m7_pjy - 16),
+                     actor_frame_m7(i), ACTOR_OBJ_PRIO, pal);
+    }
     actor_shown[i] = 1;
     /* the pair writes both caches' inputs itself, so both are stale for
        the assembly loop that takes over when the map closes */

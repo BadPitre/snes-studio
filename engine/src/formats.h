@@ -454,6 +454,16 @@
    nothing and the script continues); exists puts 1 in vars16[var]
    if the slot holds a valid save. The menus around it are the
    project's events. */
+#define VM_OP_CHANIM 0x4C /* target (u8: 0xFE hero, 0xFF this event,
+   else actor index), flags (u8, bit 0 = WAIT for the end — refused on
+   a looping animation, which never ends), ofs (u16) — plays a CUSTOM
+   CHARSET ANIMATION (CH3, charanim.h): `ofs` points at a table datagen
+   appended to this scene's SCRIPT BLOCK, steps flattened to (frame of
+   the scene's OBJ sheet, OBJ palette, duration). The animation owns
+   the target's displayed frame until it ends (loop / hold / back to
+   the walk). */
+#define VM_OP_CHANIMSTOP 0x4D /* target (u8, same coding) — ends the
+   target's charset animation and gives the frame back to the walk. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

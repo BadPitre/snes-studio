@@ -192,6 +192,19 @@ _af_loop:
     sta.b D_SY
 
     ; --- frame number: base + direction*3 + walk step -----------------
+    ; charset animation override (CH3): the exact frame, with its OWN
+    ; palette — the writer (charanim.c) invalidates actor_lastf, so the
+    ; cache below recomputes the attribute with the new D_PAL.
+    lda.l actor_fovr,x
+    and.w #$00FF
+    cmp.w #$00FF
+    beq _af_no_ovr
+    sta.b D_F
+    lda.l actor_povr,x
+    and.w #$00FF
+    sta.b D_PAL
+    brl _af_frame_ok
+_af_no_ovr:
     lda.l actor_gfx,x
     and.w #$00FF
     cmp.w #$00FF

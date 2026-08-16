@@ -2286,6 +2286,114 @@ export function formAnimStop(_cmd: Extract<Command, { c: "anim_stop" }>, _x: For
   return { body, valid };
 }
 
+// « Jouer une animation de charset » (CH3): a named frame sequence on
+// the hero or an event, authored in Tools > Charsets.
+export function formChanim(cmd: Extract<Command, { c: "chanim" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const valid = cmd.anim !== "";
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Animation
+          <select
+            value={cmd.anim}
+            onChange={(e) => onChange({ ...cmd, anim: e.target.value })}
+          >
+            <option value="">(choisir une animation…)</option>
+            {x.p.chanimNames.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Sur qui
+          <select
+            value={cmd.target}
+            onChange={(e) =>
+              onChange({ ...cmd, target: e.target.value as "hero" | "self" | "event" })
+            }
+          >
+            <option value="hero">Le héros</option>
+            <option value="self">Cet event</option>
+            <option value="event">Un event</option>
+          </select>
+        </label>
+        {cmd.target === "event" && (
+          <label>
+            Event
+            <select
+              value={cmd.event ?? -1}
+              onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
+            >
+              <option value={-1}>Cet event</option>
+              {x.p.entryNames.map((n, i) => (
+                <option key={i} value={i}>{n}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <label className="checkline">
+        <input
+          type="checkbox"
+          checked={!!cmd.wait}
+          onChange={(e) => onChange({ ...cmd, wait: e.target.checked })}
+        />
+        Attendre la fin de l'animation
+      </label>
+      {x.p.chanimNames.length === 0 && (
+        <span className="hint">
+          Aucune animation de charset — Tools → Charsets… pour en composer une.
+        </span>
+      )}
+      <span className="hint">
+        Le personnage joue la suite de frames dans son propre corps 16x24
+        (saluer, tourner sur soi, se transformer…) puis revient à sa
+        marche, boucle ou reste figé — selon la fin choisie dans Tools →
+        Charsets. Attendre une animation en boucle est refusé au build.
+      </span>
+    </>
+  );
+  return { body, valid };
+}
+
+export function formChanimStop(cmd: Extract<Command, { c: "chanim_stop" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <div className="row">
+      <label>
+        Sur qui
+        <select
+          value={cmd.target}
+          onChange={(e) =>
+            onChange({ ...cmd, target: e.target.value as "hero" | "self" | "event" })
+          }
+        >
+          <option value="hero">Le héros</option>
+          <option value="self">Cet event</option>
+          <option value="event">Un event</option>
+        </select>
+      </label>
+      {cmd.target === "event" && (
+        <label>
+          Event
+          <select
+            value={cmd.event ?? -1}
+            onChange={(e) => onChange({ ...cmd, event: Number(e.target.value) })}
+          >
+            <option value={-1}>Cet event</option>
+            {x.p.entryNames.map((n, i) => (
+              <option key={i} value={i}>{n}</option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+  return { body, valid: true };
+}
+
 export function formVigHide(cmd: Extract<Command, { c: "vig_hide" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
   let valid = true;

@@ -414,6 +414,25 @@ static u8 pl_lastf = 0xFF;
 static u16 pl_w1 = 0, pl_w3 = 0;
 static u8 pl_x9 = 0;
 
+/* CH3 — exact-frame override (charanim.c): while set, player_draw
+   shows THAT frame of the scene's OBJ sheet with THAT palette (a
+   cross-charset step wears its block's colours, not the hero's 0). */
+static u8 pl_fovr = 0xFF;
+static u8 pl_povr = 0;
+
+void player_frame_ovr(u8 f, u8 pal)
+{
+  pl_fovr = f;
+  pl_povr = pal;
+  pl_lastf = 0xFF; /* same frame, other palette: recompute the words */
+}
+
+void player_frame_ovr_clear(void)
+{
+  pl_fovr = 0xFF;
+  pl_lastf = 0xFF;
+}
+
 /* Those caches describe what is ALREADY in the OAM shadow. Anything that
    writes the hero's entries behind player_draw's back must say so, or
    the next draw SKIPS the very writes that would undo it. Mode 7's world
@@ -434,8 +453,16 @@ void player_draw(void)
   /* cycle phase 0-3 -> displayed step: 0, A, 0, B (no array indexing:
      tcc-816 is fragile on array symbols) */
   u8 add = (player.anim_frame & 1) ? (u8)(1 + (player.anim_frame >> 1)) : 0;
-  /* player = block 0: frame = dir*3 + step, OBJ palette 0 */
+  /* player = block 0: frame = dir*3 + step, OBJ palette 0 — unless a
+     charset animation owns the frame (CH3), palette included */
   u8 f = (u8)(player.dir * 3 + add);
+  u8 pal = 0;
+
+  if (pl_fovr != 0xFF)
+  {
+    f = pl_fovr;
+    pal = pl_povr;
+  }
 
   /* Direct OAM writes (P3): going through oamSet cost ~10 % of the frame
      for the hero alone — mostly tcc-816 marshalling the eight arguments.
@@ -452,7 +479,7 @@ void player_draw(void)
     if (f != pl_lastf)
     {
       u16 tile = OBJ_TOP_TILE(f);
-      u16 attr = (u16)PLAYER_OBJ_PRIO << 4; /* OBJ palette 0 */
+      u16 attr = ((u16)PLAYER_OBJ_PRIO << 4) | ((u16)pal << 1);
 
       pl_w1 = (tile & 0xFF) | ((attr | (tile >> 8)) << 8);
       tile += 32; /* OBJ_BOTTOM_TILE */

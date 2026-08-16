@@ -107,6 +107,8 @@ const OP_POPUP: u8 = 0x48;
 const OP_CLOCK: u8 = 0x49;
 const OP_TARGETSEL: u8 = 0x4A;
 const OP_SRAM: u8 = 0x4B;
+const OP_CHANIM: u8 = 0x4C;
+const OP_CHANIMSTOP: u8 = 0x4D;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -292,6 +294,12 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "ANIMPLAY" => 7,
         // ANIMSTOP — stop every running animation
         "ANIMSTOP" => 1,
+        // CHANIM <cible|self|hero> <anim> <flags bit0 = wait> — custom
+        // charset animation (CH3); the u16 is the table offset, patched
+        // once the tables are appended to the block
+        "CHANIM" => 5,
+        // CHANIMSTOP <cible|self|hero>
+        "CHANIMSTOP" => 2,
         // M7OPEN <img> <dur> — Mode 7 screen (M7-A)
         "M7OPEN" => 3,
         // M7ZOOM <ramp|255> <flags bit0 = loop, bit1 = wait> — zoom ramp
@@ -452,8 +460,12 @@ pub fn assemble(
     text_ids: &HashMap<String, u16>,
     scene_ids: &HashMap<&str, u8>,
     sprite_remap: &HashMap<u8, u8>,
+    chanims: &[crate::project::CharsetAnimation],
 ) -> Result<Assembled> {
     let lines = parse_lines(source)?;
+    // CHANIM call sites (CH3): (position of the u16 offset, animation
+    // index). The tables land after the bytecode, then get patched in.
+    let mut ca_fixups: Vec<(usize, usize)> = Vec::new();
 
     // Pass 1: labels
     let mut labels: HashMap<String, u16> = HashMap::new();
@@ -973,6 +985,43 @@ pub fn assemble(
                 if argc != 0 { bail!("ANIMSTOP ne prend pas d'argument"); }
                 code.push(OP_ANIMSTOP);
             }
+            // CHANIM/CHANIMSTOP — custom charset animations (CH3). The
+            // animation is a PROJECT index; its table (steps resolved
+            // to the scene's slots) is appended after the bytecode and
+            // the u16 offset patched once every table has a home.
+            "CHANIM" => {
+                if argc != 3 { bail!("CHANIM <cible|self|hero> <anim> <flags>"); }
+                code.push(OP_CHANIM);
+                code.push(match args[0] {
+                    "self" => 255,
+                    "hero" => 254,
+                    t => parse_u8(t)?,
+                });
+                let flags = parse_u8(args[2])?;
+                code.push(flags);
+                let idx = parse_u8(args[1])? as usize;
+                if idx >= chanims.len() {
+                    bail!("CHANIM : animation {} inconnue ({} au projet)", idx, chanims.len());
+                }
+                if flags & 1 == 1 && chanims[idx].end == "loop" {
+                    bail!(
+                        "CHANIM : attendre l'animation en boucle '{}' ne finirait jamais",
+                        chanims[idx].name
+                    );
+                }
+                ca_fixups.push((code.len(), idx));
+                code.push(0);
+                code.push(0);
+            }
+            "CHANIMSTOP" => {
+                if argc != 1 { bail!("CHANIMSTOP <cible|self|hero>"); }
+                code.push(OP_CHANIMSTOP);
+                code.push(match args[0] {
+                    "self" => 255,
+                    "hero" => 254,
+                    t => parse_u8(t)?,
+                });
+            }
             // M7OPEN/M7ZOOM/M7CLOSE — the Mode 7 screen (M7-A). The
             // editor exposes ONE command that chains the three; these
             // stay separate because the engine gets primitives.
@@ -1219,6 +1268,54 @@ pub fn assemble(
 
     if code.is_empty() {
         code.push(OP_END); // bloc scripts jamais vide (offset 0 valide)
+    }
+
+    // CH3 — charset animation tables, appended once per USED animation:
+    // [count][end][ (frame, palette, duration) x count ], steps resolved
+    // through the scene's remap so a cross-charset step lands on its
+    // block's slot (and palette). A block missing from the scene's set
+    // cannot happen through the editor (the compiler counts the blocks
+    // like Change Graphic does) — the error catches hand-written asm.
+    {
+        let mut ofs_of: HashMap<usize, u16> = HashMap::new();
+        for &(_, idx) in &ca_fixups {
+            if ofs_of.contains_key(&idx) {
+                continue;
+            }
+            let a = &chanims[idx];
+            if a.steps.is_empty() {
+                bail!("animation de charset '{}' : aucune etape", a.name);
+            }
+            if a.steps.len() > 255 {
+                bail!("animation de charset '{}' : 255 etapes au plus", a.name);
+            }
+            ofs_of.insert(idx, code.len() as u16);
+            code.push(a.steps.len() as u8);
+            code.push(match a.end.as_str() {
+                "loop" => 1,
+                "hold" => 2,
+                _ => 0,
+            });
+            for s in &a.steps {
+                let slot = *sprite_remap.get(&s.charset).with_context(|| {
+                    format!(
+                        "animation de charset '{}' : bloc {} absent du set de la scene",
+                        a.name, s.charset
+                    )
+                })?;
+                if s.frame > 11 {
+                    bail!("animation de charset '{}' : frame {} (0-11)", a.name, s.frame);
+                }
+                code.push(slot * 12 + s.frame);
+                code.push(slot);
+                code.push(if s.dur == 0 { 1 } else { s.dur });
+            }
+        }
+        for &(pos, idx) in &ca_fixups {
+            let o = ofs_of[&idx];
+            code[pos] = (o & 0xFF) as u8;
+            code[pos + 1] = (o >> 8) as u8;
+        }
     }
 
     Ok(Assembled { bytecode: code, labels })

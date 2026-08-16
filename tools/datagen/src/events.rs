@@ -69,6 +69,10 @@ pub struct EventCompiler<'a> {
     vig_sizes: Vec<u8>,
     /// Project animations (names), resolved to anim_id.
     animations: Vec<String>,
+    /// Custom charset animations (CH3): name + the blocks its steps
+    /// reference — counted into the scene's sprite set like a Change
+    /// Graphic block, so a played animation always finds its slots.
+    chanims: Vec<(String, Vec<u8>)>,
     /// Mode 7 images (stems), resolved to ids, and the DISTINCT zoom
     /// ramps of the whole project — a command resolves its own four
     /// fields to the index of the table datagen will emit.
@@ -123,6 +127,7 @@ impl<'a> EventCompiler<'a> {
             vignettes: Vec::new(),
             vig_sizes: Vec::new(),
             animations: Vec::new(),
+            chanims: Vec::new(),
             m7_images: Vec::new(),
             m7_ramps: Vec::new(),
             screens: Vec::new(),
@@ -503,6 +508,8 @@ impl<'a> EventCompiler<'a> {
                 "vig_play" => self.cmd_vig_play(cmd, out)?,
                 "anim_play" => self.cmd_anim_play(cmd, out)?,
                 "anim_stop" => self.cmd_anim_stop(out)?,
+                "chanim" => self.cmd_chanim(cmd, out)?,
+                "chanim_stop" => self.cmd_chanim_stop(cmd, out)?,
                 "vig_hide" => self.cmd_vig_hide(cmd, out)?,
                 "slot_fx" => self.cmd_slot_fx(cmd, out)?,
                 "stage_close" => self.cmd_stage_close(cmd, out)?,
@@ -577,6 +584,19 @@ impl<'a> EventCompiler<'a> {
     /// set_mode7: project-wide, set once.
     pub fn set_vig_sizes(&mut self, sizes: &[u8]) {
         self.vig_sizes = sizes.to_vec();
+    }
+
+    /// Custom charset animations (CH3): project-wide, set once.
+    pub fn set_charset_anims(&mut self, anims: &[crate::project::CharsetAnimation]) {
+        self.chanims = anims
+            .iter()
+            .map(|a| {
+                let mut blocks: Vec<u8> = a.steps.iter().map(|s| s.charset).collect();
+                blocks.sort_unstable();
+                blocks.dedup();
+                (a.name.clone(), blocks)
+            })
+            .collect();
     }
 
     /// reads it at offset 0 of the script block.
@@ -1703,6 +1723,60 @@ impl<'a> EventCompiler<'a> {
     fn cmd_anim_stop(&mut self, out: &mut Vec<String>) -> Result<()> {
         out.push("  ANIMSTOP".to_string());
         Ok(())
+    }
+
+    /// « Jouer une animation de charset » (CH3): the named animation on
+    /// the hero, this event, or an event of the scene. Its blocks join
+    /// the scene's sprite set (the Change Graphic rule); wait on a
+    /// looping animation is refused — it would never end.
+    fn cmd_chanim(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let name = cmd["anim"].as_str().unwrap_or("");
+        let idx = self
+            .chanims
+            .iter()
+            .position(|(n, _)| n == name)
+            .with_context(|| {
+                format!(
+                    "chanim : animation de charset '{}' introuvable \
+                     (supprimée ou renommée ?)",
+                    name
+                )
+            })?;
+        for &b in &self.chanims[idx].1.clone() {
+            if !self.gfx_blocks.contains(&b) {
+                self.gfx_blocks.push(b);
+            }
+        }
+        let target = Self::chanim_target(cmd)?;
+        let wait = cmd["wait"].as_bool().unwrap_or(false);
+        out.push(format!(
+            "  CHANIM {} {} {}",
+            target,
+            idx,
+            if wait { 1 } else { 0 }
+        ));
+        Ok(())
+    }
+
+    fn cmd_chanim_stop(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        out.push(format!("  CHANIMSTOP {}", Self::chanim_target(cmd)?));
+        Ok(())
+    }
+
+    /// Target grammar shared by the two commands: "hero" (default),
+    /// "self" (the script's event), or "event" + an actor index 0-23
+    /// (-1 or absent falls back to "self", the anim_play convention).
+    fn chanim_target(cmd: &Value) -> Result<String> {
+        Ok(match cmd["target"].as_str().unwrap_or("hero") {
+            "hero" => "hero".to_string(),
+            "self" => "self".to_string(),
+            "event" => match cmd["event"].as_i64() {
+                None | Some(-1) => "self".to_string(),
+                Some(n) if (0..24).contains(&n) => n.to_string(),
+                Some(n) => bail!("chanim : event {} hors limite (0-23)", n),
+            },
+            other => bail!("chanim : cible '{}' inconnue", other),
+        })
     }
 
     fn cmd_vig_hide(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {

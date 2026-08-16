@@ -371,6 +371,7 @@ fn main() -> Result<()> {
             let mut ec = events::EventCompiler::new(&mut texts);
             ec.set_mode7(&m7_img_names, &m7_ramps);
             ec.set_vig_sizes(&vig_sizes);
+            ec.set_charset_anims(&project.charset_animations);
             let (asm, actors, gfx_blocks, cetab) = ec.compile_scene(
                 name,
                 &scene.events,
@@ -1020,7 +1021,8 @@ fn main() -> Result<()> {
     let mut next_extra = binbank::EXTRA_WLA_FIRST;
     let scene_pool = binbank::build_scene_bank(
         &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &slot_anims,
-        &text_ids, &music_ids, boot_id as u8, &mut next_extra,
+        &project.charset_animations, &text_ids, &music_ids, boot_id as u8,
+        &mut next_extra,
     )?;
     let text_pool = binbank::build_text_bank(&texts, &mut next_extra)?;
     for (k, blob) in scene_pool.blobs.iter().enumerate() {

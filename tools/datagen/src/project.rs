@@ -70,6 +70,13 @@ pub struct Project {
     /// a STEPPING idle (the charset walks in place while standing).
     #[serde(default)]
     pub charset_anims: Vec<Option<CharsetAnim>>,
+    /// Custom charset animations (CH3): named frame sequences played on
+    /// the hero or an event by « Jouer une animation de charset ». The
+    /// assembler resolves each one per scene (blocks to slots) into a
+    /// table appended to the script block — the CHANIM opcode carries
+    /// its offset; the engine never sees a name.
+    #[serde(default)]
+    pub charset_animations: Vec<CharsetAnimation>,
     /// Common events, RM2003 style: global scripts callable from any event
     /// ({"c":"call","n":k}) or run automatically by a switch. Compiled PER
     /// SCENE — only the bodies actually referenced land in a scene's
@@ -310,6 +317,27 @@ pub struct FunctionDef {
 
 fn trigger_none() -> String {
     "none".into()
+}
+
+/// CH3 — a custom charset animation, as the editor writes it.
+#[derive(Deserialize, Clone)]
+pub struct CharsetAnimation {
+    pub name: String,
+    #[serde(default)]
+    pub steps: Vec<CaStep>,
+    /// End behaviour: "normal" (back to the walk), "loop", "hold".
+    #[serde(default)]
+    pub end: String,
+}
+
+/// One step of a charset animation: a frame (0-11) of a charset BLOCK
+/// (project index, any charset — a cross-charset step is a
+/// transformation), shown `dur` display frames.
+#[derive(Deserialize, Clone)]
+pub struct CaStep {
+    pub charset: u8,
+    pub frame: u8,
+    pub dur: u8,
 }
 
 /// CH2 — a charset's base walk animation, as the editor writes it.

@@ -66,6 +66,7 @@ pub fn build_scene_bank(
     sprite_set_ids: &[u8],
     sprite_remaps: &[HashMap<u8, u8>],
     slot_anims: &[[u8; 5]],
+    chanims: &[project::CharsetAnimation],
     text_ids: &HashMap<String, u16>,
     music_ids: &HashMap<String, u8>,
     boot_id: u8,
@@ -89,7 +90,7 @@ pub fn build_scene_bank(
     let (mut grids_raw, mut grids_rle) = (0usize, 0usize);
 
     for (i, sc) in scenes.iter().enumerate() {
-        let asm = script::assemble(&sc.script, text_ids, &scene_ids, &sprite_remaps[i])
+        let asm = script::assemble(&sc.script, text_ids, &scene_ids, &sprite_remaps[i], chanims)
             .with_context(|| format!("script de la scene '{}'", sc.name))?;
 
         let w = sc.width as usize;

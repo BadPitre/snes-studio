@@ -92,6 +92,7 @@ interface Props {
   musicNames: string[];
   vigNames: string[];
   animNames: string[];
+  chanimNames: string[];
   screenNames: string[];
   onTintPresets: (list: TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
@@ -2279,6 +2280,7 @@ export default function UiThemeModal(props: Props) {
                   musicNames={props.musicNames}
                   vigNames={props.vigNames}
                   animNames={props.animNames}
+                  chanimNames={props.chanimNames}
                   screenNames={props.screenNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}

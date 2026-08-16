@@ -128,6 +128,8 @@ const TABS: Tab[] = [
     items: [
       { c: "anim_play", label: "Jouer une animation" },
       { c: "anim_stop", label: "Arrêter les animations" },
+      { c: "chanim", label: "Jouer une animation de charset" },
+      { c: "chanim_stop", label: "Arrêter l'animation de charset" },
     ],
   },
   {

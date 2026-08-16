@@ -25,6 +25,7 @@
 #include "stage.h"   /* composed screen (B3) */
 #include "vignette.h" /* animated vignettes (B5) */
 #include "anim.h"  /* ANIMPLAY: frame-by-frame animations (A1) */
+#include "charanim.h" /* CHANIM: custom charset animations (CH3) */
 #include "m7.h"     /* M7OPEN/M7ZOOM/M7CLOSE: the Mode 7 screen (M7-A) */
 #include "data/db_tables.h" /* Database register (DBREAD, v0.17) */
 #include "save.h"
@@ -863,6 +864,26 @@ static void vm_step(void)
       anim_stop();
       break;
 
+    case VM_OP_CHANIM: /* custom charset animation (CH3) — the table
+                          lives in this scene's script block, resolved
+                          per scene by datagen (charanim.h) */
+      var = fetch8(); /* target: 0xFE hero, 0xFF the script's event */
+      op = fetch8();  /* flags bit 0 = wait */
+      idx16 = fetch16();
+      if (var == 0xFF)
+        var = vm.script_actor;
+      chanim_play(var == 0xFE ? CA_HERO : (u8)var, idx16);
+      if (op & 1)
+        vm.wait_mode = VM_WAIT_CHANIM; /* chanim_busy ignores loops */
+      break;
+
+    case VM_OP_CHANIMSTOP:
+      var = fetch8();
+      if (var == 0xFF)
+        var = vm.script_actor;
+      chanim_stop(var == 0xFE ? CA_HERO : (u8)var);
+      break;
+
     case VM_OP_M7OPEN: /* Mode 7 screen (M7-A) — deferred to the loop,
                           1 frame of pause (the SHOWPIC/STAGEOPEN recipe).
                           WITHOUT the pause the next opcode runs before
@@ -1270,6 +1291,13 @@ void vm_update(void)
   if (vm.wait_mode == VM_WAIT_ANIM)
   {
     if (!anim_busy())
+      vm.wait_mode = VM_WAIT_NONE;
+    else
+      return;
+  }
+  if (vm.wait_mode == VM_WAIT_CHANIM)
+  {
+    if (!chanim_busy())
       vm.wait_mode = VM_WAIT_NONE;
     else
       return;

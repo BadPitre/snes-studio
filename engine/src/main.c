@@ -31,6 +31,7 @@
 #include "vignette.h"
 #include "vblnmi.h"
 #include "anim.h"
+#include "charanim.h" /* custom charset animations (CH3) */
 #include "vbudget.h"
 
 
@@ -336,6 +337,8 @@ int main(void)
 
     actors_update(); /* routes (even during a script — cutscenes) +
                         NPC wandering (frozen during scripts) */
+    chanim_update(); /* custom charset animations (CH3) — after the
+                        steppers so an override wins the frame */
     timer_tick();    /* the timer runs during dialogues too */
     vm_parallel_update(); /* "parallel" common events (v0.16) */
 

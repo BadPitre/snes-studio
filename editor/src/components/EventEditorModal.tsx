@@ -14,6 +14,8 @@ import type { Database } from "../db";
 import {
   formAnimPlay,
   formAnimStop,
+  formChanim,
+  formChanimStop,
   formBgm,
   formBreak,
   formCall,
@@ -148,6 +150,7 @@ interface Props {
   musicNames: string[]; // the project's music stems (B1)
   vigNames: string[]; // vignette stems (B5)
   animNames: string[]; // names of the frame-by-frame animations (A1)
+  chanimNames: string[]; // custom charset animations (CH3)
   screenNames: string[]; // composed screens (B6bis)
   screenScriptNames?: string[]; // scripts of the current screen (B6bis-2)
   onTintPresets: (list: TintPreset[]) => void; // replaces the list (create/delete)
@@ -360,6 +363,19 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
     }
     case "anim_stop":
       return "Arrêter les animations";
+    case "chanim": {
+      const cible =
+        c.target === "hero"
+          ? "le héros"
+          : c.target === "self" || (c.event ?? -1) < 0
+            ? "cet event"
+            : `l'event ${c.event}`;
+      return `Anim. de charset « ${c.anim} » sur ${cible}${c.wait ? " (attendre la fin)" : ""}`;
+    }
+    case "chanim_stop":
+      return `Arrêter l'anim. de charset (${
+        c.target === "hero" ? "héros" : c.target === "self" || (c.event ?? -1) < 0 ? "cet event" : `event ${c.event}`
+      })`;
     case "slot_fx":
       return c.fx === "restore"
         ? `Slot ${c.slot} : restaurer les couleurs`
@@ -476,6 +492,8 @@ function cmdTitle(c: Command["c"]): string {
     vig_hide: "Cacher le sprite animé",
     anim_play: "Jouer une animation",
     anim_stop: "Arrêter les animations",
+    chanim: "Jouer une animation de charset",
+    chanim_stop: "Arrêter l'animation de charset",
     stage_close: "Fermer l'écran composé",
     m7: "Zoom cinématique",
     sfx: "Jouer un son",
@@ -584,6 +602,7 @@ export function CommandListEditor(props: {
   musicNames: string[];
   vigNames: string[];
   animNames: string[];
+  chanimNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
@@ -814,6 +833,10 @@ export function CommandListEditor(props: {
         return { c: "anim_play", anim: "", anchor: "screen", event: -1, wait: false };
       case "anim_stop":
         return { c: "anim_stop" };
+      case "chanim":
+        return { c: "chanim", anim: "", target: "hero", event: -1, wait: false };
+      case "chanim_stop":
+        return { c: "chanim_stop", target: "hero", event: -1 };
       case "m7":
         return {
           c: "m7",
@@ -937,6 +960,7 @@ export function CommandListEditor(props: {
               musicNames={props.musicNames}
               vigNames={props.vigNames}
               animNames={props.animNames}
+              chanimNames={props.chanimNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
@@ -1369,6 +1393,7 @@ export default function EventEditorModal(props: Props) {
               musicNames={props.musicNames}
               vigNames={props.vigNames}
               animNames={props.animNames}
+              chanimNames={props.chanimNames}
               screenNames={props.screenNames}
               screenScriptNames={props.screenScriptNames}
               onTintPresets={props.onTintPresets}
@@ -1583,6 +1608,7 @@ export type CommandFormProps = {
   musicNames: string[];
   vigNames: string[];
   animNames: string[];
+  chanimNames: string[];
   screenNames: string[];
   screenScriptNames?: string[];
   onTintPresets: (list: TintPreset[]) => void;
@@ -1813,6 +1839,12 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "anim_stop":
       ({ body, valid } = formAnimStop(cmd, x));
+      break;
+    case "chanim":
+      ({ body, valid } = formChanim(cmd, x));
+      break;
+    case "chanim_stop":
+      ({ body, valid } = formChanimStop(cmd, x));
       break;
     case "vig_hide":
       ({ body, valid } = formVigHide(cmd, x));

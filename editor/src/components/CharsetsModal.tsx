@@ -16,7 +16,7 @@ import {
   type CharsetCellRef,
 } from "../charset";
 import { loadAssetPng } from "../io";
-import type { CharsetAnim, CharsetPool } from "../types";
+import type { CaStep, CharsetAnim, CharsetAnimation, CharsetPool } from "../types";
 
 const DIRS = ["Bas", "Haut", "Gauche", "Droite"];
 const STEPS = ["Repos", "Pas A", "Pas B"];
@@ -33,7 +33,38 @@ interface Props {
   onCells: (block: number, cells: (CharsetCellRef | null)[]) => void;
   onAnim: (block: number, anim: CharsetAnim | null) => void;
   onBake: (block: number, bytes: Uint8Array) => Promise<void>;
+  // CH3 — the custom animation workshop (project.charset_animations)
+  animations: CharsetAnimation[];
+  onAnimations: (list: CharsetAnimation[]) => void;
   onClose: () => void;
+}
+
+const END_LABELS: [CharsetAnimation["end"], string][] = [
+  ["normal", "Retour à la marche"],
+  ["loop", "Boucler"],
+  ["hold", "Rester figé"],
+];
+
+// A frame of the BAKED sheet, drawn at 2x over a chequer — the step
+// previews and the player read the same sheet the game will.
+function drawSheetFrame(
+  cv: HTMLCanvasElement | null,
+  sprites: ImageBitmap | null,
+  block: number,
+  frame: number
+) {
+  if (!cv) return;
+  const ctx = cv.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < FRAME_H * 2; y += 4)
+    for (let x = 0; x < FRAME_W * 2; x += 4) {
+      ctx.fillStyle = ((x ^ y) / 4) & 1 ? "#666" : "#9a9a9a";
+      ctx.fillRect(x, y, 4, 4);
+    }
+  if (!sprites) return;
+  const f = block * 12 + frame;
+  if ((f + 1) * FRAME_W > sprites.width) return;
+  ctx.drawImage(sprites, f * FRAME_W, 0, FRAME_W, FRAME_H, 0, 0, FRAME_W * 2, FRAME_H * 2);
 }
 
 export default function CharsetsModal(props: Props) {
@@ -43,6 +74,10 @@ export default function CharsetsModal(props: Props) {
   const [selF, setSelF] = useState(0); // selected pool frame
   const [pool, setPool] = useState<ImageData | null>(null);
   const [baking, setBaking] = useState(false);
+  // CH3 — the custom animation workshop
+  const [selA, setSelA] = useState(0);
+  const stepRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const playRef = useRef<HTMLCanvasElement>(null);
   const stripRef = useRef<HTMLCanvasElement>(null);
   const cellRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const walkRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -165,6 +200,48 @@ export default function CharsetsModal(props: Props) {
 
   const filled = cells.filter(Boolean).length;
   const anim = props.anims[sel] ?? null;
+
+  // CH3 — the selected custom animation and its edits (undo-recorded
+  // through the parent's mutate, like every project change)
+  const curA =
+    props.animations[Math.min(selA, Math.max(0, props.animations.length - 1))] ?? null;
+  const curAi = curA ? Math.min(selA, props.animations.length - 1) : -1;
+  const setA = (a: CharsetAnimation) => {
+    const next = props.animations.slice();
+    next[curAi] = a;
+    props.onAnimations(next);
+  };
+  const setStep = (k: number, st: CaStep) => {
+    if (!curA) return;
+    const steps = curA.steps.slice();
+    steps[k] = st;
+    setA({ ...curA, steps });
+  };
+
+  // step previews — the baked sheet is what the game shows
+  useEffect(() => {
+    if (!curA) return;
+    for (let k = 0; k < curA.steps.length; k++)
+      drawSheetFrame(stepRefs.current[k], props.sprites, curA.steps[k].charset, curA.steps[k].frame);
+  }, [curA, props.sprites]);
+
+  // the playback preview: steps at their real durations (60 Hz)
+  useEffect(() => {
+    if (!curA || !curA.steps.length) return;
+    let k = 0;
+    let t = curA.steps[0].dur || 1;
+    drawSheetFrame(playRef.current, props.sprites, curA.steps[0].charset, curA.steps[0].frame);
+    const timer = window.setInterval(() => {
+      if (t > 1) {
+        t--;
+        return;
+      }
+      k = (k + 1) % curA.steps.length;
+      t = curA.steps[k].dur || 1;
+      drawSheetFrame(playRef.current, props.sprites, curA.steps[k].charset, curA.steps[k].frame);
+    }, 1000 / 60);
+    return () => window.clearInterval(timer);
+  }, [curA, props.sprites]);
 
   // CH2 — a changed field writes {speed, idle}; both back at their
   // defaults writes null so project.json stays clean.
@@ -415,6 +492,147 @@ export default function CharsetsModal(props: Props) {
                 </span>
               </div>
             )}
+            <div style={{ borderTop: "1px solid var(--border, #333)", paddingTop: 8, marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div className="row" style={{ alignItems: "center", gap: 8 }}>
+                <b>Animations custom</b>
+                <select
+                  value={curAi}
+                  onChange={(e) => setSelA(Number(e.target.value))}
+                  style={{ minWidth: 140 }}
+                >
+                  {props.animations.length === 0 && <option value={-1}>(aucune)</option>}
+                  {props.animations.map((a, i) => (
+                    <option key={i} value={i}>{a.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const n = props.animations.length + 1;
+                    props.onAnimations([
+                      ...props.animations,
+                      { name: `anim_${n}`, steps: [{ charset: sel, frame: 0, dur: 8 }], end: "normal" },
+                    ]);
+                    setSelA(props.animations.length);
+                  }}
+                >
+                  + Nouvelle
+                </button>
+                {curA && (
+                  <button
+                    title="Supprimer l'animation (le build signale les commandes orphelines)"
+                    onClick={() => {
+                      props.onAnimations(props.animations.filter((_, i) => i !== curAi));
+                      setSelA(0);
+                    }}
+                  >
+                    ✕ Supprimer
+                  </button>
+                )}
+              </div>
+              {curA && (
+                <>
+                  <div className="row" style={{ alignItems: "center", gap: 8 }}>
+                    <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      Nom :
+                      <input
+                        value={curA.name}
+                        style={{ width: 140 }}
+                        onChange={(e) =>
+                          setA({ ...curA, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") })
+                        }
+                      />
+                    </label>
+                    <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      À la fin :
+                      <select
+                        value={curA.end}
+                        onChange={(e) => setA({ ...curA, end: e.target.value as CharsetAnimation["end"] })}
+                      >
+                        {END_LABELS.map(([v, l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="hint">aperçu :</span>
+                    <canvas
+                      ref={playRef}
+                      width={FRAME_W * 2}
+                      height={FRAME_H * 2}
+                      style={{ border: "1px solid #000" }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                    {curA.steps.map((st, k) => (
+                      <div key={k} className="row" style={{ alignItems: "center", gap: 6 }}>
+                        <canvas
+                          ref={(el) => { stepRefs.current[k] = el; }}
+                          width={FRAME_W * 2}
+                          height={FRAME_H * 2}
+                          style={{ border: "1px solid #000", flex: "0 0 auto" }}
+                        />
+                        <select
+                          value={st.charset}
+                          onChange={(e) => setStep(k, { ...st, charset: Number(e.target.value) })}
+                        >
+                          {props.blockNames.map((n, b) => (
+                            <option key={b} value={b}>{n}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={st.frame}
+                          onChange={(e) => setStep(k, { ...st, frame: Number(e.target.value) })}
+                        >
+                          {Array.from({ length: 12 }, (_, f) => (
+                            <option key={f} value={f}>
+                              {DIRS[(f / 3) | 0]} — {STEPS[f % 3]}
+                            </option>
+                          ))}
+                        </select>
+                        <label style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          durée
+                          <input
+                            type="number"
+                            min={1}
+                            max={255}
+                            value={st.dur}
+                            style={{ width: 54 }}
+                            onChange={(e) =>
+                              setStep(k, { ...st, dur: Math.max(1, Math.min(255, Number(e.target.value) || 1)) })
+                            }
+                          />
+                        </label>
+                        <button
+                          title="Retirer l'étape"
+                          disabled={curA.steps.length <= 1}
+                          onClick={() => setA({ ...curA, steps: curA.steps.filter((_, i) => i !== k) })}
+                          style={{ width: 20, height: 20, padding: 0, lineHeight: "18px" }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="row" style={{ alignItems: "center", gap: 8 }}>
+                    <button
+                      disabled={curA.steps.length >= 255}
+                      onClick={() =>
+                        setA({
+                          ...curA,
+                          steps: [...curA.steps, { ...curA.steps[curA.steps.length - 1] }],
+                        })
+                      }
+                    >
+                      + Ajouter une étape
+                    </button>
+                    <span className="hint">
+                      Jouée par la commande « Jouer une animation de charset » (héros ou event).
+                      Une étape sur un autre charset = transformation — ses blocs comptent dans
+                      les 5 de la scène.
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

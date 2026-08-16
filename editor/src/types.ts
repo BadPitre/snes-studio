@@ -27,6 +27,10 @@ export interface Project {
   // slot. speed = anim step length 1-63 (default 8), idle = 1 for a
   // stepping idle (the charset walks in place while standing).
   charset_anims?: (CharsetAnim | null)[];
+  // CH3 — custom charset animations, READ BY DATAGEN (mirrored in
+  // project.rs). Authored in Tools > Charsets; played by the
+  // « Jouer une animation de charset » event command.
+  charset_animations?: CharsetAnimation[];
   // CH1b (editor only, ignored by datagen) — per block: the frame POOL
   // extracted at import (a 16x24 strip under assets/charsets/) and the
   // 12-cell walk layout picking from it (Tools > Charsets). The baked
@@ -61,6 +65,22 @@ export interface Project {
   tileset_defs?: TilesetDef[];
   // named tint presets (S12b — editor only, see TintPreset)
   tint_presets?: TintPreset[];
+}
+
+// CH3 — a custom charset animation (Project.charset_animations, READ
+// by datagen: resolved per scene into script-block tables). A step
+// shows frame 0-11 of ANY charset block for dur display frames — a
+// cross-charset step is a transformation.
+export interface CharsetAnimation {
+  name: string;
+  steps: CaStep[];
+  end: "normal" | "loop" | "hold"; // back to walk / loop / freeze
+}
+
+export interface CaStep {
+  charset: number;
+  frame: number; // 0-11 (dir*3 + step)
+  dur: number; // 1-255 display frames
 }
 
 // CH2 — a charset's base walk animation (see Project.charset_anims).
@@ -422,6 +442,8 @@ export type Command =
   // x/y (V2): where a SCREEN-anchored animation lands (default 112,96,
   // the screen centre) — the combat library aims skills at their target.
   | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number; anim_var?: number; x_var?: number; y_var?: number }
+  | { c: "chanim"; anim: string; target: "hero" | "self" | "event"; event?: number; wait?: boolean }
+  | { c: "chanim_stop"; target: "hero" | "self" | "event"; event?: number }
   // G2 — there is no "Lancer un combat" command: a battle is a COMPOSED
   // SCREEN ("Aller à l'écran"), whose script names its monsters and
   // calls the project's library. The aftermath stays an AUTO page

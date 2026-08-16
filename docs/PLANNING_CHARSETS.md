@@ -184,6 +184,22 @@ tables), editor the largest piece (a new window). Two to three
 sessions, cut testable: 3a runtime + opcode on a hand-written table,
 3b the window.
 
+**As built**: the tables live in each scene's SCRIPT BLOCK (the
+CHANIM opcode carries a block-relative offset the assembler patches
+once the tables are appended) — no scene-header change. The engine
+side is an OVERRIDE PAIR: charanim.c writes the exact frame AND its
+palette (`actor_fovr`/`actor_povr`, `player_frame_ovr`), the draw
+paths check it first — one three-instruction gate in actorsfast.asm,
+the caches invalidated on every transition because the same frame can
+wear another palette. A step's blocks join the scene's sprite set the
+way Change Graphic's do, so a played animation always finds its slots.
+The workshop lives in Tools > Charsets under the walk section; the
+two commands sit in the picker's Animations category. Verified on a
+hand-written project: a 3-step looping animation on the hero,
+period-exact on screen (36 frames), the cross-charset step showing
+the villageois' tiles AND palette, every pixel diff matched to the
+art (10 px between hero frames 7 and 1 in the art = 10 px on screen).
+
 ### CH4 — extended blocks (only if 12 frames prove too tight)
 
 True new poses (sleeping, blinking, a sword swing on the map) mean

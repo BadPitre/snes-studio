@@ -31,6 +31,7 @@ interface Props {
   musicNames: string[]; // music stems (B1)
   vigNames: string[]; // vignette stems (B5)
   animNames: string[]; // names of the frame-by-frame animations (A1)
+  chanimNames: string[]; // custom charset animations (CH3)
   screenNames: string[];
   onTintPresets: (list: import("../types").TintPreset[]) => void;
   onRenameVars: (switches: string[], variables: string[]) => void;
@@ -194,6 +195,7 @@ export default function CommonEventsModal(props: Props) {
                   musicNames={props.musicNames}
                   vigNames={props.vigNames}
                   animNames={props.animNames}
+                  chanimNames={props.chanimNames}
                   screenNames={props.screenNames}
                   onTintPresets={props.onTintPresets}
                   onRenameVars={props.onRenameVars}

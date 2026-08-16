@@ -8,6 +8,15 @@
 
 #define ACTOR_NONE 0xFF
 
+/* Exact-frame override (CH3 — the charset animation player): while
+   actor_fovr[i] != 0xFF the draw paths show THAT frame of the scene's
+   OBJ sheet with THAT palette, walk state ignored. Writers must drop
+   the frame cache (actor_lastf[i] = 0xFF): the same frame can wear
+   another palette across transitions. charanim.c is the only writer. */
+extern u8 actor_fovr[];
+extern u8 actor_povr[];
+extern u8 actor_lastf[];
+
 /* Initialises the module state and the actors' OAM attributes. Call
    after player_init() — the sprite sheet must be loaded. Never rely on
    statics being zeroed (docs/ENGINE_CONSTRAINTS.md §1.2). */

@@ -34,6 +34,12 @@ void player_draw(void);
    already holds what it is about to write, and writes nothing. */
 void player_draw_reset(void);
 
+/* Exact-frame override (CH3 — the charset animation player,
+   charanim.c): while set, player_draw shows frame f of the scene's OBJ
+   sheet with OBJ palette pal, walk state ignored. */
+void player_frame_ovr(u8 f, u8 pal);
+void player_frame_ovr_clear(void);
+
 /* Places the player on a tile (used on arriving from a warp) without
    re-triggering the destination tile's own warp. */
 void player_set_pos(u8 tx, u8 ty);
