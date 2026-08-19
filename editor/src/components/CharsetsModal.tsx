@@ -20,8 +20,6 @@ import type { CharsetAnim, CharsetPool } from "../types";
 
 const DIRS = ["Bas", "Haut", "Gauche", "Droite"];
 const STEPS = ["Repos", "Pas A", "Pas B"];
-const DIR_LEFT = 2;
-const DIR_RIGHT = 3;
 
 interface Props {
   root: string;
@@ -157,16 +155,6 @@ export default function CharsetsModal(props: Props) {
     props.onCells(sel, next);
   };
 
-  // one direction becomes the other's mirror, step by step
-  const mirror = (from: number, to: number) => {
-    const next = cells.slice();
-    for (let s = 0; s < 3; s++) {
-      const src = cells[from * 3 + s];
-      next[to * 3 + s] = src ? { f: src.f, flip: !src.flip } : null;
-    }
-    props.onCells(sel, next);
-  };
-
   const filled = cells.filter(Boolean).length;
   const anim = props.anims[sel] ?? null;
 
@@ -231,20 +219,6 @@ export default function CharsetsModal(props: Props) {
                       if (f >= 0 && f < frames) setSelF(f);
                     }}
                   />
-                </div>
-                <div className="row" style={{ gap: 8 }}>
-                  <button
-                    title="Poser les trois cases Droite avec les frames de Gauche, en miroir"
-                    onClick={() => mirror(DIR_LEFT, DIR_RIGHT)}
-                  >
-                    Droite = Gauche en miroir
-                  </button>
-                  <button
-                    title="Poser les trois cases Gauche avec les frames de Droite, en miroir"
-                    onClick={() => mirror(DIR_RIGHT, DIR_LEFT)}
-                  >
-                    Gauche = Droite en miroir
-                  </button>
                 </div>
               </>
             ) : (

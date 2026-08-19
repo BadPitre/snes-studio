@@ -96,11 +96,11 @@ export default function CharsetAnimsModal(props: Props) {
     <div className="modal-backdrop transpick-top" onClick={props.onClose}>
       <div
         className="modal chanims"
-        style={{ width: "min(92vw, 760px)", maxHeight: "90vh" }}
+        style={{ width: "min(94vw, 980px)", height: "min(88vh, 720px)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="panel-title">
-          Animations de charset
+          Custom animations
           <button className="modal-x" title="Fermer" onClick={props.onClose}>
             ✕
           </button>
@@ -174,7 +174,7 @@ export default function CharsetAnimsModal(props: Props) {
                 </label>
               </div>
               <div className="row" style={{ alignItems: "flex-start", gap: 16 }}>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, maxHeight: "46vh", overflowY: "auto" }}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, maxHeight: "58vh", overflowY: "auto" }}>
                   {cur.steps.map((st, k) => (
                     <div key={k} className="row" style={{ alignItems: "center", gap: 8 }}>
                       <span className="hint" style={{ width: 18, textAlign: "right" }}>{k + 1}.</span>
@@ -270,11 +270,6 @@ export default function CharsetAnimsModal(props: Props) {
                   />
                 </div>
               </div>
-              <span className="hint">
-                Jouée par la commande « Jouer une animation de charset » (héros ou event). Une
-                étape sur un autre charset = transformation — ses blocs comptent dans les 5 de
-                la scène, vérifié au build.
-              </span>
             </div>
           )}
         </div>
