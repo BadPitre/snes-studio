@@ -871,6 +871,10 @@ fn main() -> Result<()> {
     // CH2 — per scene, one walk-anim byte per sprite SLOT (scene header
     // bytes 28-32): bits 0-6 the anim step length, bit 7 stepping idle.
     let mut slot_anims: Vec<[u8; 5]> = Vec::new();
+    // CH5 — per scene, the PROJECT block each slot shows (header bytes
+    // 33-37, 0xFF = unused): how the hero's persistent HEROGFX block
+    // finds its slot again after a warp.
+    let mut slot_blocks: Vec<[u8; 5]> = Vec::new();
     for (sci, sc) in scenes.iter().enumerate() {
         let mut used: std::collections::BTreeSet<usize> = [0usize].into();
         for &b in &scene_gfx_blocks[sci] {
@@ -971,6 +975,11 @@ fn main() -> Result<()> {
                 }
             }
             slot_anims.push(sa);
+            let mut sb = [0xFFu8; 5];
+            for (s, &b) in used.iter().enumerate() {
+                sb[s] = b as u8;
+            }
+            slot_blocks.push(sb);
         }
     }
     println!(
@@ -1021,8 +1030,8 @@ fn main() -> Result<()> {
     let mut next_extra = binbank::EXTRA_WLA_FIRST;
     let scene_pool = binbank::build_scene_bank(
         &scenes, &grids, &set_ids, &sprite_set_ids, &sprite_remaps, &slot_anims,
-        &project.charset_animations, &text_ids, &music_ids, boot_id as u8,
-        &mut next_extra,
+        &slot_blocks, &project.charset_animations, &text_ids, &music_ids,
+        boot_id as u8, &mut next_extra,
     )?;
     let text_pool = binbank::build_text_bank(&texts, &mut next_extra)?;
     for (k, blob) in scene_pool.blobs.iter().enumerate() {

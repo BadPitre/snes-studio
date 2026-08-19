@@ -884,6 +884,11 @@ static void vm_step(void)
       chanim_stop(var == 0xFE ? CA_HERO : (u8)var);
       break;
 
+    case VM_OP_HEROGFX: /* the charset the player controls (CH5) */
+      var = fetch8(); /* this scene's slot */
+      player_set_charset((u8)var, fetch8());
+      break;
+
     case VM_OP_M7OPEN: /* Mode 7 screen (M7-A) — deferred to the loop,
                           1 frame of pause (the SHOWPIC/STAGEOPEN recipe).
                           WITHOUT the pause the next opcode runs before

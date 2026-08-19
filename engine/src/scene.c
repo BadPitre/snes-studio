@@ -35,6 +35,7 @@ SceneCtx scene_ctx;
 u8 scn_aspd[5] = { 8, 8, 8, 8, 8 };
 u8 scn_aidle[5] = { 0, 0, 0, 0, 0 };
 u8 scn_has_idle = 0;
+u8 scn_slot_block[5] = { 0, 0xFF, 0xFF, 0xFF, 0xFF };
 
 /* Row offsets of the current grid (see scene_load) — avoids the
    software multiply in scene_collision, which the hot paths call.
@@ -153,6 +154,9 @@ void scene_load(u8 scene_id)
       if (scn_aidle[i])
         scn_has_idle = 1;
     }
+    /* slot -> project block (CH5 — bytes 33-37) */
+    for (i = 0; i < 5; i++)
+      scn_slot_block[i] = h[33 + i];
   }
 
   /* Precomputed row offsets: scene_collision is called ~15 times per

@@ -2394,6 +2394,38 @@ export function formChanimStop(cmd: Extract<Command, { c: "chanim_stop" }>, x: F
   return { body, valid: true };
 }
 
+// « Changer le charset du héros » (CH5): the block joins each scene's
+// sprite set where the command runs; the choice survives warps as long
+// as the destination scene carries the block (falls back to the
+// authored hero otherwise).
+export function formHeroGfx(cmd: Extract<Command, { c: "hero_gfx" }>, x: FormCtx): FormBody {
+  const onChange = x.p.onChange;
+  const body = (
+    <>
+      <div className="row">
+        <label>
+          Charset
+          <select
+            value={cmd.charset}
+            onChange={(e) => onChange({ ...cmd, charset: Number(e.target.value) })}
+          >
+            {x.p.charsetNames.map((n, b) => (
+              <option key={b} value={b}>{n}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <span className="hint">
+        Le joueur contrôle ce charset dès la commande, et le garde après
+        les téléportations. Dans une scène dont le set ne contient pas ce
+        charset, le héros d'origine revient (les 5 blocs par scène).
+        Charger une sauvegarde remet le charset d'origine.
+      </span>
+    </>
+  );
+  return { body, valid: true };
+}
+
 export function formVigHide(cmd: Extract<Command, { c: "vig_hide" }>, x: FormCtx): FormBody {
   let body: JSX.Element | null = null;
   let valid = true;

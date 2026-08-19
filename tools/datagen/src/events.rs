@@ -510,6 +510,7 @@ impl<'a> EventCompiler<'a> {
                 "anim_stop" => self.cmd_anim_stop(out)?,
                 "chanim" => self.cmd_chanim(cmd, out)?,
                 "chanim_stop" => self.cmd_chanim_stop(cmd, out)?,
+                "hero_gfx" => self.cmd_hero_gfx(cmd, out)?,
                 "vig_hide" => self.cmd_vig_hide(cmd, out)?,
                 "slot_fx" => self.cmd_slot_fx(cmd, out)?,
                 "stage_close" => self.cmd_stage_close(cmd, out)?,
@@ -1760,6 +1761,21 @@ impl<'a> EventCompiler<'a> {
 
     fn cmd_chanim_stop(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
         out.push(format!("  CHANIMSTOP {}", Self::chanim_target(cmd)?));
+        Ok(())
+    }
+
+    /// « Changer le charset du héros » (CH5): the block joins the
+    /// scene's sprite set (the Change Graphic rule) and the choice
+    /// persists across warps — the engine re-resolves it per scene.
+    fn cmd_hero_gfx(&mut self, cmd: &Value, out: &mut Vec<String>) -> Result<()> {
+        let block = match cmd["charset"].as_u64() {
+            Some(b) if b <= 255 => b as u8,
+            _ => bail!("hero_gfx : charset 0-255 attendu"),
+        };
+        if !self.gfx_blocks.contains(&block) {
+            self.gfx_blocks.push(block);
+        }
+        out.push(format!("  HEROGFX {}", block));
         Ok(())
     }
 

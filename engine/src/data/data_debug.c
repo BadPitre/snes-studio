@@ -7,4 +7,4 @@
 /* in-game debug menu (Start+Select+R) — S6/M1 */
 const u8 dbg_enabled = 0;
 /* pre-formatted budget row (32 columns max) */
-const char dbg_banks_txt[] = "SCN 2685/32768 TXT 653/32768";
+const char dbg_banks_txt[] = "SCN 2705/32768 TXT 653/32768";

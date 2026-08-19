@@ -40,6 +40,11 @@ void player_draw_reset(void);
 void player_frame_ovr(u8 f, u8 pal);
 void player_frame_ovr_clear(void);
 
+/* The charset the player CONTROLS (CH5 — the HEROGFX opcode): slot is
+   the seat in the CURRENT scene's set, block the PROJECT block kept
+   for re-resolution at the next scene load (scn_slot_block). */
+void player_set_charset(u8 slot, u8 block);
+
 /* Places the player on a tile (used on arriving from a warp) without
    re-triggering the destination tile's own warp. */
 void player_set_pos(u8 tx, u8 ty);

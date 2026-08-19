@@ -109,6 +109,7 @@ const OP_TARGETSEL: u8 = 0x4A;
 const OP_SRAM: u8 = 0x4B;
 const OP_CHANIM: u8 = 0x4C;
 const OP_CHANIMSTOP: u8 = 0x4D;
+const OP_HEROGFX: u8 = 0x4E;
 
 /// Encodes one route step to bytes (spec §2 v0.13, the full Move Route).
 /// swon:/swoff: carry a u16, gfx: a u8 — a local slot, remapped from the
@@ -300,6 +301,10 @@ fn op_size(op: &str, args: &[&str]) -> Result<u16> {
         "CHANIM" => 5,
         // CHANIMSTOP <cible|self|hero>
         "CHANIMSTOP" => 2,
+        // HEROGFX <bloc> — the charset the player controls (CH5);
+        // emits (slot, block): the slot for this scene, the block for
+        // the re-resolution after a warp
+        "HEROGFX" => 3,
         // M7OPEN <img> <dur> — Mode 7 screen (M7-A)
         "M7OPEN" => 3,
         // M7ZOOM <ramp|255> <flags bit0 = loop, bit1 = wait> — zoom ramp
@@ -1021,6 +1026,16 @@ pub fn assemble(
                     "hero" => 254,
                     t => parse_u8(t)?,
                 });
+            }
+            "HEROGFX" => {
+                if argc != 1 { bail!("HEROGFX <bloc>"); }
+                let block = parse_u8(args[0])?;
+                let slot = *sprite_remap.get(&block).with_context(|| {
+                    format!("HEROGFX : bloc {} absent du set de la scene", block)
+                })?;
+                code.push(OP_HEROGFX);
+                code.push(slot);
+                code.push(block);
             }
             // M7OPEN/M7ZOOM/M7CLOSE — the Mode 7 screen (M7-A). The
             // editor exposes ONE command that chains the three; these

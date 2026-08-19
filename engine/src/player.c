@@ -290,6 +290,66 @@ static void player_try_interact(void)
     actor_interact(i);
 }
 
+/* The hero's OAM words (tile + attribute): cached, see player_draw */
+static u8 pl_lastf = 0xFF;
+static u16 pl_w1 = 0, pl_w3 = 0;
+static u8 pl_x9 = 0;
+
+/* CH3 — exact-frame override (charanim.c): while set, player_draw
+   shows THAT frame of the scene's OBJ sheet with THAT palette (a
+   cross-charset step wears its block's colours, not the hero's 0). */
+static u8 pl_fovr = 0xFF;
+static u8 pl_povr = 0;
+
+/* CH5 — the charset the player CONTROLS. pl_block is the PROJECT
+   block, persistent across scenes (initialised once at boot, never by
+   player_init); pl_slot is its seat in the CURRENT scene's sprite set,
+   re-resolved at every scene load through scn_slot_block — a scene
+   whose set does not carry the block falls back to slot 0, the
+   authored hero. NOT saved in SRAM: loading a save wears block 0. */
+static u8 pl_block = 0;
+static u8 pl_slot = 0;
+static u8 pl_fbase = 0; /* pl_slot * 12, the actor_fbase trick */
+
+void player_set_charset(u8 slot, u8 block)
+{
+  pl_block = block;
+  pl_slot = slot;
+  pl_fbase = (u8)(slot * 12);
+  pl_lastf = 0xFF; /* same frame number, other block: recompute */
+}
+
+/* Scene load: the persistent block finds this scene's slot (or 0). */
+static void player_resolve_charset(void)
+{
+  u8 i;
+
+  pl_slot = 0;
+  for (i = 0; i < 5; i++)
+  {
+    if (scn_slot_block[i] == pl_block)
+    {
+      pl_slot = i;
+      break;
+    }
+  }
+  pl_fbase = (u8)(pl_slot * 12);
+  pl_lastf = 0xFF;
+}
+
+void player_frame_ovr(u8 f, u8 pal)
+{
+  pl_fovr = f;
+  pl_povr = pal;
+  pl_lastf = 0xFF; /* same frame, other palette: recompute the words */
+}
+
+void player_frame_ovr_clear(void)
+{
+  pl_fovr = 0xFF;
+  pl_lastf = 0xFF;
+}
+
 void player_init(void)
 {
   player_set_pos(scene_ctx.player_start_x, scene_ctx.player_start_y);
@@ -297,6 +357,7 @@ void player_init(void)
   player.moving = 0;
   player.anim_frame = 0;
   player.anim_timer = 0;
+  player_resolve_charset(); /* the HEROGFX block, in THIS scene (CH5) */
 
   /* The scene's sprite set + the full OBJ CGRAM (one palette per block
      slot), 16x16 sprites by default (2 stacked OBJs per frame). Called
@@ -393,10 +454,10 @@ void player_update(void)
      parameters (CH2 — slot 0 of the scene's sprite set, scene.h): a
      stepping idle keeps the cycle running while standing (walk in
      place), a fixed one snaps back to the idle pose. */
-  if (player.moving || scn_aidle[0])
+  if (player.moving || scn_aidle[pl_slot])
   {
     player.anim_timer++;
-    if (player.anim_timer >= scn_aspd[0])
+    if (player.anim_timer >= scn_aspd[pl_slot])
     {
       player.anim_timer = 0;
       player.anim_frame = (player.anim_frame + 1) & 3;
@@ -409,29 +470,6 @@ void player_update(void)
   }
 }
 
-/* The hero's OAM words (tile + attribute): cached, see player_draw */
-static u8 pl_lastf = 0xFF;
-static u16 pl_w1 = 0, pl_w3 = 0;
-static u8 pl_x9 = 0;
-
-/* CH3 — exact-frame override (charanim.c): while set, player_draw
-   shows THAT frame of the scene's OBJ sheet with THAT palette (a
-   cross-charset step wears its block's colours, not the hero's 0). */
-static u8 pl_fovr = 0xFF;
-static u8 pl_povr = 0;
-
-void player_frame_ovr(u8 f, u8 pal)
-{
-  pl_fovr = f;
-  pl_povr = pal;
-  pl_lastf = 0xFF; /* same frame, other palette: recompute the words */
-}
-
-void player_frame_ovr_clear(void)
-{
-  pl_fovr = 0xFF;
-  pl_lastf = 0xFF;
-}
 
 /* Those caches describe what is ALREADY in the OAM shadow. Anything that
    writes the hero's entries behind player_draw's back must say so, or
@@ -453,10 +491,11 @@ void player_draw(void)
   /* cycle phase 0-3 -> displayed step: 0, A, 0, B (no array indexing:
      tcc-816 is fragile on array symbols) */
   u8 add = (player.anim_frame & 1) ? (u8)(1 + (player.anim_frame >> 1)) : 0;
-  /* player = block 0: frame = dir*3 + step, OBJ palette 0 — unless a
-     charset animation owns the frame (CH3), palette included */
-  u8 f = (u8)(player.dir * 3 + add);
-  u8 pal = 0;
+  /* frame = the hero's slot base + dir*3 + step, OBJ palette = the
+     slot (CH5 — slot 0/palette 0 until a HEROGFX changes it) — unless
+     a charset animation owns the frame (CH3), palette included */
+  u8 f = (u8)(pl_fbase + player.dir * 3 + add);
+  u8 pal = pl_slot;
 
   if (pl_fovr != 0xFF)
   {

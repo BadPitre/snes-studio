@@ -464,6 +464,13 @@
    the walk). */
 #define VM_OP_CHANIMSTOP 0x4D /* target (u8, same coding) — ends the
    target's charset animation and gives the frame back to the walk. */
+#define VM_OP_HEROGFX 0x4E /* slot (u8), block (u8) — CHANGES THE
+   CHARSET THE PLAYER CONTROLS (CH5). slot applies immediately (this
+   scene's seat, resolved by datagen like a Change Graphic); block is
+   the PROJECT id the engine keeps so the choice SURVIVES warps —
+   player_init re-resolves it against scn_slot_block, falling back to
+   slot 0 in a scene whose set does not carry the block. Not part of
+   SRAM saves: loading a save wears the authored hero again. */
 #define VM_OP_LISTSEL 0x3A /* widget, var, flags (u8 x3) — a cursor
                               BLOCKING cursor on a "list" widget of the UI
                               layout. Shows the widget with the cursor at

@@ -444,6 +444,7 @@ export type Command =
   | { c: "anim_play"; anim: string; anchor: "screen" | "hero" | "event"; event?: number; wait?: boolean; x?: number; y?: number; anim_var?: number; x_var?: number; y_var?: number }
   | { c: "chanim"; anim: string; target: "hero" | "self" | "event"; event?: number; wait?: boolean }
   | { c: "chanim_stop"; target: "hero" | "self" | "event"; event?: number }
+  | { c: "hero_gfx"; charset: number }
   // G2 — there is no "Lancer un combat" command: a battle is a COMPOSED
   // SCREEN ("Aller à l'écran"), whose script names its monsters and
   // calls the project's library. The aftermath stays an AUTO page

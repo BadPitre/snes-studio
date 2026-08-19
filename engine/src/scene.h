@@ -39,6 +39,11 @@ extern SceneCtx scene_ctx;
    standing). Unpacked at load: the steppers read them every frame. */
 extern u8 scn_aspd[5];
 extern u8 scn_aidle[5];
+/* PROJECT block shown by each slot (CH5 — header bytes 33-37, 0xFF =
+   unused slot): how a PERSISTENT runtime block choice (the hero's
+   charset, HEROGFX) finds its slot again after a warp — the remap is
+   datagen's, per scene, and the engine never sees block ids otherwise. */
+extern u8 scn_slot_block[5];
 /* 1 if ANY slot of the scene has a stepping idle — actors_update skips
    its idle walk entirely otherwise (the plain's 60 fps, P1-P3). */
 extern u8 scn_has_idle;

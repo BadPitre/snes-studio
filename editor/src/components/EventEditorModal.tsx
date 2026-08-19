@@ -16,6 +16,7 @@ import {
   formAnimStop,
   formChanim,
   formChanimStop,
+  formHeroGfx,
   formBgm,
   formBreak,
   formCall,
@@ -372,6 +373,8 @@ function labelOf(c: Command, ceNames?: string[], fnNames?: string[]): string {
             : `l'event ${c.event}`;
       return `Anim. de charset « ${c.anim} » sur ${cible}${c.wait ? " (attendre la fin)" : ""}`;
     }
+    case "hero_gfx":
+      return `Le héros devient le charset ${c.charset}`;
     case "chanim_stop":
       return `Arrêter l'anim. de charset (${
         c.target === "hero" ? "héros" : c.target === "self" || (c.event ?? -1) < 0 ? "cet event" : `event ${c.event}`
@@ -494,6 +497,7 @@ function cmdTitle(c: Command["c"]): string {
     anim_stop: "Arrêter les animations",
     chanim: "Jouer une animation de charset",
     chanim_stop: "Arrêter l'animation de charset",
+    hero_gfx: "Changer le charset du héros",
     stage_close: "Fermer l'écran composé",
     m7: "Zoom cinématique",
     sfx: "Jouer un son",
@@ -837,6 +841,8 @@ export function CommandListEditor(props: {
         return { c: "chanim", anim: "", target: "hero", event: -1, wait: false };
       case "chanim_stop":
         return { c: "chanim_stop", target: "hero", event: -1 };
+      case "hero_gfx":
+        return { c: "hero_gfx", charset: 0 };
       case "m7":
         return {
           c: "m7",
@@ -1845,6 +1851,9 @@ function CommandForm(props: CommandFormProps) {
       break;
     case "chanim_stop":
       ({ body, valid } = formChanimStop(cmd, x));
+      break;
+    case "hero_gfx":
+      ({ body, valid } = formHeroGfx(cmd, x));
       break;
     case "vig_hide":
       ({ body, valid } = formVigHide(cmd, x));

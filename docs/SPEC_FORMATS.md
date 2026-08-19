@@ -88,7 +88,7 @@ them sequentially (sequential first-fit, a scene is atomic and must fit in a
 Every far pointer in the Scene Header carries its own scene's bank; the
 engine follows the pointers with no bank map.
 
-### 1.2 Scene Header (CH2 — 33 bytes)
+### 1.2 Scene Header (CH5 — 38 bytes)
 
 ```
 Offset  Size    Field
@@ -118,6 +118,10 @@ Offset  Size    Field
                                         walked for an NPC; 8 by default),
                                         bit 7 = stepping idle (the charset
                                         walks in place while standing)
+33      5       slot_block      (u8 x5) — the PROJECT block each slot
+                                        shows, 0xFF = unused (CH5): how the
+                                        hero's persistent HEROGFX charset
+                                        finds its slot again after a warp
 ```
 
 *v0 → v0.2 evolution (Phase 4): the header grew from 20 to 24 bytes with the
@@ -147,6 +151,13 @@ and the actors' `sprite_id` is remapped to the local slot (§1.3, §5).*
 `slot_walk_anim` — the per-charset walk parameters (`project.charset_anims`,
 resolved per slot by datagen). The engine unpacks them at scene load
 (`scn_aspd`/`scn_aidle`, scene.c) for the two walk steppers.*
+
+*CH2 → CH5 evolution: 33 to 38 bytes with `slot_block` — the reverse of
+the sprite remap, per scene. `HEROGFX` (0x4E: slot, block) changes the
+charset the player controls; the block persists in WRAM and player_init
+re-resolves it against this table at every scene load, falling back to
+slot 0 when the destination's set does not carry it. Not part of SRAM
+saves.*
 
 ### 1.3 Actor entry (v0.14 — 16 bytes per PAGE)
 

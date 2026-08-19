@@ -43,6 +43,7 @@ const TABS: Tab[] = [
     title: "Déplacements",
     items: [
       { c: "route", label: "Déplacer un event…" },
+      { c: "hero_gfx", label: "Changer le charset du héros" },
       { c: "wait_route", label: "Attendre la fin des déplacements" },
       { c: "face", label: "Tourner un event" },
       { c: "warp", label: "Téléporter le héros" },

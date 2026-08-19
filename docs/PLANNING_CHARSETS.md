@@ -200,24 +200,49 @@ period-exact on screen (36 frames), the cross-charset step showing
 the villageois' tiles AND palette, every pixel diff matched to the
 art (10 px between hero frames 7 and 1 in the art = 10 px on screen).
 
-### CH4 — extended blocks (only if 12 frames prove too tight)
+### CH4 — free block geometry: N walk steps, extra poses (ORDERED)
 
-True new poses (sleeping, blinking, a sword swing on the map) mean
-frames BEYOND the 12. The constant is load-bearing everywhere:
-CHAR_BLOCK_FRAMES and ACTOR_FRAME (engine), actor_fbase, eventFrame
-(editor types.ts:909 AND datagen events.rs), gfx.rs to_obj_sheet, the
-charset export/vignette bridges. Blocks would become variable-sized
-(12 + N extra frames), every \*12 a per-block base resolved by
-datagen, and the 5-blocks-per-scene ceiling a byte budget in the
-vidmap allocator. Invasive, priced only when CH3's ceiling has
-actually been hit on a real project — the workaround (extra poses as a
-second charset, reached by cross-charset animation steps) costs one of
-the scene's 5 blocks and zero code.
+Bertrand asked for both halves at once: walk cycles no longer capped
+at 3 step frames per direction (modern sheets walk on 4, 6, 8), and
+frames beyond the walk for new poses — which folds the old "extended
+blocks" idea into one format pivot: **a block stops being 12 fixed
+frames**. Per charset: `steps` (frames per direction, 1-8, default 3)
+and `extra` (poses after the walk), block size = 4*steps + extra.
+
+What the constant 12 holds up today, all of which becomes per-block
+data resolved by datagen: CHAR_BLOCK_FRAMES / ACTOR_FRAME / the \*12s
+(actor_fbase, eventFrame in editor types.ts AND datagen events.rs),
+gfx.rs to_obj_sheet and the vidmap byte budget (5 blocks/scene becomes
+a VRAM budget), the 0/A/0/B steppers (a data-driven cycle table per
+slot: N=3 keeps the RM2003 ping-pong, N>3 runs 0..N-1), the RM2003
+import/export bridges, the extractor's 12-slot grid (rows become
+`steps`+extra columns), the Apparence picker, the frame dropdowns of
+CH3/CH5. The scene header's per-slot tables gain a base+size pair.
+
+Cut: CH4a format + datagen + engine steppers (RM2003 projects
+byte-identical at steps=3/extra=0 — the pixel regression is the
+gate); CH4b editor (Charsets window, extractor, pickers). Priced two
+to three sessions; the walk cadence stays scn_aspd, unchanged.
+
+### CH5 — the charset the player controls (SHIPPED)
+
+« Changer le charset du héros » (picker, Déplacements): the hero wears
+any project charset from the command on. The block PERSISTS in WRAM
+across warps; each scene load re-resolves it through the header's new
+`slot_block` table (spec §1.2, 38 bytes) — a scene whose set does not
+carry the block falls back to the authored hero, and the block joins
+the sprite set of every scene where the command runs (the Change
+Graphic rule). Walk cadence and stepping idle follow the WORN charset
+(scn_aspd[pl_slot]). Not in SRAM saves: loading a save wears block 0.
+Verified end-to-end: switch on screen (the villageois' 46 px on the
+hero), persistence + re-resolution through a warp to a scene where the
+block sits on ANOTHER slot, and the fallback in a block-less scene.
 
 ## 4. Recommended order
 
-CH1 → CH2 → CH3a → CH3b, Bertrand testing between each; CH4 stays on
-the shelf until the ceiling hurts in practice.
+CH1 → CH2 → CH3a → CH3b (all shipped), then CH5 (shipped), then CH4 —
+ordered by Bertrand once the 3-step walk ceiling and the 12-frame
+block both proved too tight for his sheets.
 
 ## 5. What does not change
 
